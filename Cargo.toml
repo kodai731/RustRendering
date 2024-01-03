@@ -1,0 +1,17 @@
+[package]
+name = "AqooleEngineR"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+bindgen = "0.69.1"
+jni = "0.19.0"
+
+[build-dependencies]
+bindgen = "0.69.1"
+cxx-build = "1.0"
