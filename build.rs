@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use std::fs::canonicalize;
 
 fn main() {
+    // Tell cargo to look for shared libraries in the specified directory
+    println!("cargo:rustc-link-search=./src/rust/lib.rs");
+
     // Cヘッダーファイルのパスを指定
     let header = "./src/cpp/AEInclude/AEBinding.hpp";
     let header_dir = PathBuf::from(header);
