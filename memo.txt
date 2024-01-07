@@ -1,2 +1,5 @@
 vulkan tutorial rust
 https://kylemayes.github.io/vulkanalia/introduction.html
+
+how to run
+$env:RUST_LOG="debug"; cargo run --bin AqooleEngineR
