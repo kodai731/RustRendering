@@ -3,7 +3,6 @@ extern crate bindgen;
 
 use std::env;
 use std::path::PathBuf;
-use std::fs::canonicalize;
 
 fn main() {
     // Tell cargo to look for shared libraries in the specified directory
