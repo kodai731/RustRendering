@@ -27,6 +27,7 @@ const VALIDATION_LAYER: vk::ExtensionName =
     vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
 const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
 use thiserror::Error;
+use vulkanalia::bytecode::Bytecode;
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -94,6 +95,7 @@ impl App {
         let device = Self::create_logical_device(&entry, &instance, &mut data)?;
         let _ = Self::create_swapchain(window, &instance, &device, &mut data)?;
         let _ = Self::create_swapchain_image_view(&device, &mut data)?;
+        let _ = Self::create_pipeline(&device, &mut data)?;
 
         Ok(Self {
             entry,
@@ -108,6 +110,10 @@ impl App {
     }
 
     unsafe fn destroy(&mut self) {
+        self.data
+            .swapchain_image_views
+            .iter()
+            .for_each(|v| self.device.destroy_image_view(*v, None));
         self.device.destroy_swapchain_khr(self.data.swapchain, None);
         self.device.destroy_device(None);
         self.instance.destroy_surface_khr(self.data.surface, None);
@@ -315,11 +321,9 @@ impl App {
         Ok(())
     }
 
-    unsafe fn create_swapchain_image_view(
-        device: &Device,
-        data: &mut AppData,
-    ) -> Result<()> {
-        data.swapchain_image_views = data.swapchain_images
+    unsafe fn create_swapchain_image_view(device: &Device, data: &mut AppData) -> Result<()> {
+        data.swapchain_image_views = data
+            .swapchain_images
             .iter()
             .map(|i| {
                 let components = vk::ComponentMapping::builder()
@@ -343,6 +347,37 @@ impl App {
             })
             .collect::<Result<Vec<_>, _>>()?;
         Ok(())
+    }
+
+    unsafe fn create_pipeline(device: &Device, data: &mut AppData) -> Result<()> {
+        let vert = include_bytes!("./shaders/vert.spv");
+        let frag = include_bytes!("./shaders/frag.spv");
+        let vert_shader_module = Self::create_shader_module(device, &vert[..])?;
+        let frag_shader_module = Self::create_shader_module(device, &frag[..])?;
+
+        let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vert_shader_module)
+            .name(b"main\0");
+
+            let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(frag_shader_module)
+            .name(b"main\0");
+
+        Ok(())
+    }
+
+    unsafe fn create_shader_module(
+        device: &Device,
+        bytecode: &[u8],
+    ) -> Result<vk::ShaderModule> {
+        let bytecode = Bytecode::new(bytecode).unwrap();
+        let info = vk::ShaderModuleCreateInfo::builder()
+            .code_size(bytecode.code_size())
+            .code(bytecode.code());
+
+        Ok(device.create_shader_module(&info, None)?)
     }
 }
 
@@ -470,10 +505,8 @@ impl SwapchainSupport {
                 .get_physical_device_surface_capabilities_khr(physical_device, data.surface)?,
             formats: instance
                 .get_physical_device_surface_formats_khr(physical_device, data.surface)?,
-            present_modes: instance.get_physical_device_surface_present_modes_khr(
-                physical_device,
-                data.surface,
-            )?,
+            present_modes: instance
+                .get_physical_device_surface_present_modes_khr(physical_device, data.surface)?,
         })
     }
 
