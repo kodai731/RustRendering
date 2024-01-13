@@ -82,6 +82,7 @@ struct AppData {
     swapchain_format: vk::Format,
     swapchain_extent: vk::Extent2D,
     swapchain_image_views: Vec<vk::ImageView>,
+    render_pass: vk::RenderPass,
     pipeline_layout: vk::PipelineLayout,
 }
 
@@ -96,6 +97,7 @@ impl App {
         let device = Self::create_logical_device(&entry, &instance, &mut data)?;
         let _ = Self::create_swapchain(window, &instance, &device, &mut data)?;
         let _ = Self::create_swapchain_image_view(&device, &mut data)?;
+        let _ = Self::create_render_pass(&instance, &device, &mut data)?;
         let _ = Self::create_pipeline(&device, &mut data)?;
 
         Ok(Self {
@@ -112,7 +114,9 @@ impl App {
 
     unsafe fn destroy(&mut self) {
         // The pipeline layout will be referenced throughout the program's lifetime
-        self.device.destroy_pipeline_layout(self.data.pipeline_layout, None);
+        self.device
+            .destroy_pipeline_layout(self.data.pipeline_layout, None);
+        self.device.destroy_render_pass(self.data.render_pass, None);
         self.data
             .swapchain_image_views
             .iter()
@@ -382,7 +386,7 @@ impl App {
             .max_depth(1.0);
 
         let scissor = vk::Rect2D::builder()
-            .offset(vk::Offset2D {x: 0, y: 0})
+            .offset(vk::Offset2D { x: 0, y: 0 })
             .extent(data.swapchain_extent);
 
         let viewports = &[viewport];
@@ -421,34 +425,66 @@ impl App {
             .attachments(attachments)
             .blend_constants([0.0, 0.0, 0.0, 0.0]);
 
-        // NOTE: This will cause the configuration of these values to be ignored and you will be required to specify the data at drawing time. 
-        let dynamic_state = &[
-            vk::DynamicState::VIEWPORT,
-            vk::DynamicState::LINE_WIDTH,
-        ];
+        // NOTE: This will cause the configuration of these values to be ignored and you will be required to specify the data at drawing time.
+        let dynamic_state = &[vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
 
-        let dynamic_state = vk::PipelineDynamicStateCreateInfo::builder()
-            .dynamic_states(dynamic_state);
+        let dynamic_state =
+            vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(dynamic_state);
 
         let layout_info = vk::PipelineLayoutCreateInfo::builder();
         data.pipeline_layout = device.create_pipeline_layout(&layout_info, None)?;
-
 
         device.destroy_shader_module(vert_shader_module, None);
         device.destroy_shader_module(frag_shader_module, None);
         Ok(())
     }
 
-    unsafe fn create_shader_module(
-        device: &Device,
-        bytecode: &[u8],
-    ) -> Result<vk::ShaderModule> {
+    unsafe fn create_shader_module(device: &Device, bytecode: &[u8]) -> Result<vk::ShaderModule> {
         let bytecode = Bytecode::new(bytecode).unwrap();
         let info = vk::ShaderModuleCreateInfo::builder()
             .code_size(bytecode.code_size())
             .code(bytecode.code());
 
         Ok(device.create_shader_module(&info, None)?)
+    }
+
+    unsafe fn create_render_pass(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
+    ) -> Result<()> {
+        // we need to tell Vulkan about the framebuffer attachments that will be used while rendering. 
+        // We need to specify how many color and depth buffers there will be, how many samples to use for each of them and how their contents should be handled throughout the rendering operations. 
+        // All of this information is wrapped in a render pass object
+        let color_attachment = vk::AttachmentDescription::builder()
+            .format(data.swapchain_format)
+            .samples(vk::SampleCountFlags::_1)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE) // for stencil buffer
+            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE) // for stencil buffer
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+
+        //  Subpasses are subsequent rendering operations that depend on the contents of framebuffers in previous passes
+        let color_attachment_ref = vk::AttachmentReference::builder()
+            .attachment(0)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
+
+        // The index of the attachment in this array is directly referenced from the fragment shader with the layout(location = 0) out vec4 outColor directive!
+        let color_attachments =&[color_attachment_ref];
+        let subpass = vk::SubpassDescription::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(color_attachments);
+
+        let attachments = &[color_attachment];
+        let subpasses = &[subpass];
+        let info = vk::RenderPassCreateInfo::builder()
+            .attachments(attachments)
+            .subpasses(subpasses);
+
+        data.render_pass = device.create_render_pass(&info, None)?;
+        Ok(())
     }
 }
 
