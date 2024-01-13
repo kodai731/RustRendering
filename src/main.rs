@@ -85,6 +85,7 @@ struct AppData {
     render_pass: vk::RenderPass,
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
+    framebuffers: Vec<vk::Framebuffer>,
 }
 
 impl App {
@@ -100,6 +101,7 @@ impl App {
         let _ = Self::create_swapchain_image_view(&device, &mut data)?;
         let _ = Self::create_render_pass(&instance, &device, &mut data)?;
         let _ = Self::create_pipeline(&device, &mut data)?;
+        let _ = Self::create_framebuffers(&device, &mut data)?;
 
         Ok(Self {
             entry,
@@ -114,6 +116,9 @@ impl App {
     }
 
     unsafe fn destroy(&mut self) {
+        self.data.framebuffers
+            .iter()
+            .for_each(|f| self.device.destroy_framebuffer(*f, None));
         // The pipeline layout will be referenced throughout the program's lifetime
         self.device
             .destroy_pipeline_layout(self.data.pipeline_layout, None);
@@ -450,7 +455,9 @@ impl App {
             .render_pass(data.render_pass)
             .subpass(0);
 
-        data.pipeline = device.create_graphics_pipelines(vk::PipelineCache::null(), &[info], None)?.0[0];
+        data.pipeline = device
+            .create_graphics_pipelines(vk::PipelineCache::null(), &[info], None)?
+            .0[0];
 
         device.destroy_shader_module(vert_shader_module, None);
         device.destroy_shader_module(frag_shader_module, None);
@@ -471,8 +478,8 @@ impl App {
         device: &Device,
         data: &mut AppData,
     ) -> Result<()> {
-        // we need to tell Vulkan about the framebuffer attachments that will be used while rendering. 
-        // We need to specify how many color and depth buffers there will be, how many samples to use for each of them and how their contents should be handled throughout the rendering operations. 
+        // we need to tell Vulkan about the framebuffer attachments that will be used while rendering.
+        // We need to specify how many color and depth buffers there will be, how many samples to use for each of them and how their contents should be handled throughout the rendering operations.
         // All of this information is wrapped in a render pass object
         let color_attachment = vk::AttachmentDescription::builder()
             .format(data.swapchain_format)
@@ -490,7 +497,7 @@ impl App {
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL);
 
         // The index of the attachment in this array is directly referenced from the fragment shader with the layout(location = 0) out vec4 outColor directive!
-        let color_attachments =&[color_attachment_ref];
+        let color_attachments = &[color_attachment_ref];
         let subpass = vk::SubpassDescription::builder()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(color_attachments);
@@ -502,6 +509,25 @@ impl App {
             .subpasses(subpasses);
 
         data.render_pass = device.create_render_pass(&info, None)?;
+        Ok(())
+    }
+
+    unsafe fn create_framebuffers(device: &Device, data: &mut AppData) -> Result<()> {
+        data.framebuffers = data
+            .swapchain_image_views
+            .iter()
+            .map(|i| {
+                let attachments = &[*i];
+                let create_info = vk::FramebufferCreateInfo::builder()
+                    .render_pass(data.render_pass) // they use the same number and type of attachments.
+                    .attachments(attachments)
+                    .width(data.swapchain_extent.width)
+                    .height(data.swapchain_extent.height)
+                    .layers(1);
+                device.create_framebuffer(&create_info, None)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
         Ok(())
     }
 }
