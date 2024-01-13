@@ -86,6 +86,8 @@ struct AppData {
     pipeline_layout: vk::PipelineLayout,
     pipeline: vk::Pipeline,
     framebuffers: Vec<vk::Framebuffer>,
+    command_pool: vk::CommandPool, // Command pools manage the memory that is used to store the buffers
+    command_buffers: Vec<vk::CommandBuffer>, // have to record a command buffer for every image in the swapchain once again
 }
 
 impl App {
@@ -102,6 +104,8 @@ impl App {
         let _ = Self::create_render_pass(&instance, &device, &mut data)?;
         let _ = Self::create_pipeline(&device, &mut data)?;
         let _ = Self::create_framebuffers(&device, &mut data)?;
+        let _ = Self::create_command_pool(&instance, &device, &mut data)?;
+        let _ = Self::create_command_buffers(&device, &mut data);
 
         Ok(Self {
             entry,
@@ -116,7 +120,10 @@ impl App {
     }
 
     unsafe fn destroy(&mut self) {
-        self.data.framebuffers
+        self.device
+            .destroy_command_pool(self.data.command_pool, None);
+        self.data
+            .framebuffers
             .iter()
             .for_each(|f| self.device.destroy_framebuffer(*f, None));
         // The pipeline layout will be referenced throughout the program's lifetime
@@ -527,6 +534,67 @@ impl App {
                 device.create_framebuffer(&create_info, None)
             })
             .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(())
+    }
+
+    unsafe fn create_command_pool(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
+    ) -> Result<()> {
+        let indices = QueueFamilyIndices::get(instance, data, data.physical_device)?;
+        let info = vk::CommandPoolCreateInfo::builder()
+            .flags(vk::CommandPoolCreateFlags::empty())
+            .queue_family_index(indices.graphics); // Each command pool can only allocate command buffers that are submitted on a single type of queue.
+
+        data.command_pool = device.create_command_pool(&info, None)?;
+
+        Ok(())
+    }
+
+    unsafe fn create_command_buffers(device: &Device, data: &mut AppData) -> Result<()> {
+        let info = vk::CommandBufferAllocateInfo::builder()
+            .command_pool(data.command_pool)
+            .level(vk::CommandBufferLevel::PRIMARY)
+            .command_buffer_count(data.framebuffers.len() as u32);
+
+        data.command_buffers = device.allocate_command_buffers(&info)?;
+
+        for (i, command_buffer) in data.command_buffers.iter().enumerate() {
+            let inheritance = vk::CommandBufferInheritanceInfo::builder(); //  only relevant for secondary command buffers.
+            let begin_info = vk::CommandBufferBeginInfo::builder()
+                .flags(vk::CommandBufferUsageFlags::empty())
+                .inheritance_info(&inheritance);
+
+            device.begin_command_buffer(*command_buffer, &begin_info)?;
+
+            let render_area = vk::Rect2D::builder()
+                .offset(vk::Offset2D::default())
+                .extent(data.swapchain_extent);
+            let color_clear_value = vk::ClearValue {
+                color: vk::ClearColorValue {
+                    float32: [0.0, 0.0, 0.0, 1.0],
+                },
+            };
+
+            let clear_values = &[color_clear_value];
+            let info = vk::RenderPassBeginInfo::builder()
+                .render_pass(data.render_pass)
+                .framebuffer(data.framebuffers[i])
+                .render_area(render_area)
+                .clear_values(clear_values);
+            device.cmd_begin_render_pass(*command_buffer, &info, vk::SubpassContents::INLINE);
+
+            device.cmd_bind_pipeline(
+                *command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                data.pipeline,
+            );
+            device.cmd_draw(*command_buffer, 3, 1, 0, 0); // defines the lowest value of gl_InstanceIndex.
+            device.cmd_end_render_pass(*command_buffer);
+            device.end_command_buffer(*command_buffer)?;
+        }
 
         Ok(())
     }
