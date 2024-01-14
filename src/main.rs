@@ -28,6 +28,7 @@ const VALIDATION_LAYER: vk::ExtensionName =
 const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
 use thiserror::Error;
 use vulkanalia::bytecode::Bytecode;
+const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -53,6 +54,9 @@ fn main() -> Result<()> {
                 destroying = true;
                 *control_flow = ControlFlow::Exit;
                 unsafe {
+                    app.device.device_wait_idle().unwrap();
+                }
+                unsafe {
                     app.destroy();
                 }
             }
@@ -68,6 +72,7 @@ struct App {
     instance: Instance,
     data: AppData,
     device: Device,
+    frame: usize,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -88,6 +93,10 @@ struct AppData {
     framebuffers: Vec<vk::Framebuffer>,
     command_pool: vk::CommandPool, // Command pools manage the memory that is used to store the buffers
     command_buffers: Vec<vk::CommandBuffer>, // have to record a command buffer for every image in the swapchain once again
+    image_available_semaphores: Vec<vk::Semaphore>, // semaphores are used to synchronize operations within or across command queues.
+    render_finish_semaphores: Vec<vk::Semaphore>,
+    in_flight_fences: Vec<vk::Fence>, // CPU-GPU sync. Fences are mainly designed to synchronize your application itself with rendering operation
+    images_in_flight: Vec<vk::Fence>,
 }
 
 impl App {
@@ -106,22 +115,86 @@ impl App {
         let _ = Self::create_framebuffers(&device, &mut data)?;
         let _ = Self::create_command_pool(&instance, &device, &mut data)?;
         let _ = Self::create_command_buffers(&device, &mut data);
+        let _ = Self::create_sync_objects(&device, &mut data)?;
+        let frame = 0 as usize;
 
         Ok(Self {
             entry,
             instance,
             data,
             device,
+            frame,
         })
     }
 
     unsafe fn render(&mut self, window: &Window) -> Result<()> {
+        // Acquire an image from the swapchain
+        // Execute the command buffer with that image as attachment in the framebuffer
+        // Return the image to the swapchain for presentation
+        self.device.wait_for_fences(&[self.data.in_flight_fences[self.frame]], true, u64::MAX)?; // wait until all fences signaled
+
+        let image_index = self
+            .device
+            .acquire_next_image_khr(
+                self.data.swapchain,
+                u64::MAX,
+                self.data.image_available_semaphores[self.frame],
+                vk::Fence::null(),
+            )?
+            .0 as usize;
+
+        // sync CPU(swapchain image)
+        if !self.data.images_in_flight[image_index as usize].is_null() {
+            self.device.wait_for_fences(&[self.data.images_in_flight[image_index as usize]], true, u64::MAX)?;
+        }
+
+        self.data.images_in_flight[image_index as usize] = self.data.in_flight_fences[self.frame];
+
+        let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
+        let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
+        let command_buffers = &[self.data.command_buffers[image_index as usize]];
+        let signal_semaphores = &[self.data.render_finish_semaphores[self.frame]];
+        let submit_info = vk::SubmitInfo::builder()
+            .wait_semaphores(wait_semaphores)
+            .wait_dst_stage_mask(wait_stages) // Each entry in the wait_stages array corresponds to the semaphore with the same index in wait_semaphores.
+            .command_buffers(command_buffers)
+            .signal_semaphores(signal_semaphores);
+
+
+        self.device.reset_fences(&[self.data.in_flight_fences[self.frame]])?;
+        self.device
+            .queue_submit(self.data.graphics_queue, &[submit_info], self.data.in_flight_fences[self.frame])?;
+
+        let swapchains = &[self.data.swapchain];
+        let image_indices = &[image_index as u32];
+        let present_info = vk::PresentInfoKHR::builder()
+            .wait_semaphores(signal_semaphores)
+            .swapchains(swapchains)
+            .image_indices(image_indices);
+        self.device
+            .queue_present_khr(self.data.present_queue, &present_info)?;
+
+        self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
+
         Ok(())
     }
 
     unsafe fn destroy(&mut self) {
+        // semaphore
+        self.data.image_available_semaphores
+            .iter()
+            .for_each(|s| self.device.destroy_semaphore(*s, None));
+        self.data.render_finish_semaphores
+            .iter()
+            .for_each(|s| self.device.destroy_semaphore(*s, None));
+        // fence
+        self.data.in_flight_fences
+            .iter()
+            .for_each(|f| self.device.destroy_fence(*f, None));
+        // command pool
         self.device
             .destroy_command_pool(self.data.command_pool, None);
+        // framebuffers
         self.data
             .framebuffers
             .iter()
@@ -129,14 +202,20 @@ impl App {
         // The pipeline layout will be referenced throughout the program's lifetime
         self.device
             .destroy_pipeline_layout(self.data.pipeline_layout, None);
+        // render pass
         self.device.destroy_render_pass(self.data.render_pass, None);
+        // graphics pipeline
         self.device.destroy_pipeline(self.data.pipeline, None);
+        // swapchain imageviews
         self.data
             .swapchain_image_views
             .iter()
             .for_each(|v| self.device.destroy_image_view(*v, None));
+        // swapchain
         self.device.destroy_swapchain_khr(self.data.swapchain, None);
+        // device
         self.device.destroy_device(None);
+        // surface
         self.instance.destroy_surface_khr(self.data.surface, None);
 
         if VALIDATION_ENABLED {
@@ -509,11 +588,23 @@ impl App {
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
             .color_attachments(color_attachments);
 
+        // The subpasses in a render pass automatically take care of image layout transitions.
+        // These transitions are controlled by subpass dependencies, which specify memory and execution dependencies between subpasses
+        let dependency = vk::SubpassDependency::builder()
+            .src_subpass(vk::SUBPASS_EXTERNAL)
+            .dst_subpass(0)
+            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT) //  wait for the swapchain to finish reading from the image before we can access it
+            .src_access_mask(vk::AccessFlags::empty())
+            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+
         let attachments = &[color_attachment];
         let subpasses = &[subpass];
+        let dependencies = &[dependency];
         let info = vk::RenderPassCreateInfo::builder()
             .attachments(attachments)
-            .subpasses(subpasses);
+            .subpasses(subpasses)
+            .dependencies(dependencies);
 
         data.render_pass = device.create_render_pass(&info, None)?;
         Ok(())
@@ -595,6 +686,28 @@ impl App {
             device.cmd_end_render_pass(*command_buffer);
             device.end_command_buffer(*command_buffer)?;
         }
+
+        Ok(())
+    }
+
+    unsafe fn create_sync_objects(device: &Device, data: &mut AppData) -> Result<()> {
+        let semaphore_info = vk::SemaphoreCreateInfo::builder();
+        let fence_info = vk::FenceCreateInfo::builder()
+            .flags(vk::FenceCreateFlags::SIGNALED);
+
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
+            data.image_available_semaphores
+                .push(device.create_semaphore(&semaphore_info, None)?);
+            data.render_finish_semaphores
+                .push(device.create_semaphore(&semaphore_info, None)?);
+            data.in_flight_fences
+                .push(device.create_fence(&fence_info, None)?);
+        }
+
+        data.images_in_flight = data.swapchain_images
+            .iter()
+            .map(|_| vk::Fence::null())
+            .collect();
 
         Ok(())
     }
