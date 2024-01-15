@@ -5,14 +5,15 @@
     clippy::unnecessary_wraps
 )]
 
-use anyhow::{anyhow, Ok, Result};
+use anyhow::{anyhow, Result};
+use core::result::Result::Ok;
 use log::*;
 use vulkanalia::loader::{LibloadingLoader, LIBRARY};
 use vulkanalia::prelude::v1_2::*;
 use vulkanalia::window as vk_window;
 use vulkanalia::Version;
 use winit::dpi::LogicalSize;
-use winit::event::{Event, WindowEvent};
+use winit::event::{self, Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -43,10 +44,24 @@ fn main() -> Result<()> {
     // App
     let mut app = unsafe { App::create(&window)? };
     let mut destroying = false;
+    let mut minimized = false;
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Poll;
         match event {
-            Event::MainEventsCleared if !destroying => unsafe { app.render(&window) }.unwrap(),
+            Event::MainEventsCleared if !destroying && !minimized => {
+                unsafe { app.render(&window) }.unwrap()
+            }
+            Event::WindowEvent {
+                event: WindowEvent::Resized(size),
+                ..
+            } => {
+                if size.width == 0 || size.height == 0 {
+                    minimized = true;
+                } else {
+                    minimized = false;
+                    app.resized = true;
+                }
+            }
             Event::WindowEvent {
                 event: WindowEvent::CloseRequested,
                 ..
@@ -73,6 +88,7 @@ struct App {
     data: AppData,
     device: Device,
     frame: usize,
+    resized: bool,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -117,6 +133,7 @@ impl App {
         let _ = Self::create_command_buffers(&device, &mut data);
         let _ = Self::create_sync_objects(&device, &mut data)?;
         let frame = 0 as usize;
+        let resized = false;
 
         Ok(Self {
             entry,
@@ -124,6 +141,7 @@ impl App {
             data,
             device,
             frame,
+            resized,
         })
     }
 
@@ -131,21 +149,29 @@ impl App {
         // Acquire an image from the swapchain
         // Execute the command buffer with that image as attachment in the framebuffer
         // Return the image to the swapchain for presentation
-        self.device.wait_for_fences(&[self.data.in_flight_fences[self.frame]], true, u64::MAX)?; // wait until all fences signaled
+        self.device
+            .wait_for_fences(&[self.data.in_flight_fences[self.frame]], true, u64::MAX)?; // wait until all fences signaled
 
-        let image_index = self
-            .device
-            .acquire_next_image_khr(
-                self.data.swapchain,
-                u64::MAX,
-                self.data.image_available_semaphores[self.frame],
-                vk::Fence::null(),
-            )?
-            .0 as usize;
+        let result = self.device.acquire_next_image_khr(
+            self.data.swapchain,
+            u64::MAX,
+            self.data.image_available_semaphores[self.frame],
+            vk::Fence::null(),
+        );
+
+        let image_index = match result {
+            Ok((image_index, _)) => image_index as usize,
+            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
+            Err(e) => return Err(anyhow!(e)),
+        };
 
         // sync CPU(swapchain image)
         if !self.data.images_in_flight[image_index as usize].is_null() {
-            self.device.wait_for_fences(&[self.data.images_in_flight[image_index as usize]], true, u64::MAX)?;
+            self.device.wait_for_fences(
+                &[self.data.images_in_flight[image_index as usize]],
+                true,
+                u64::MAX,
+            )?;
         }
 
         self.data.images_in_flight[image_index as usize] = self.data.in_flight_fences[self.frame];
@@ -160,10 +186,13 @@ impl App {
             .command_buffers(command_buffers)
             .signal_semaphores(signal_semaphores);
 
-
-        self.device.reset_fences(&[self.data.in_flight_fences[self.frame]])?;
         self.device
-            .queue_submit(self.data.graphics_queue, &[submit_info], self.data.in_flight_fences[self.frame])?;
+            .reset_fences(&[self.data.in_flight_fences[self.frame]])?;
+        self.device.queue_submit(
+            self.data.graphics_queue,
+            &[submit_info],
+            self.data.in_flight_fences[self.frame],
+        )?;
 
         let swapchains = &[self.data.swapchain];
         let image_indices = &[image_index as u32];
@@ -171,8 +200,18 @@ impl App {
             .wait_semaphores(signal_semaphores)
             .swapchains(swapchains)
             .image_indices(image_indices);
-        self.device
-            .queue_present_khr(self.data.present_queue, &present_info)?;
+        let present_result = self
+            .device
+            .queue_present_khr(self.data.present_queue, &present_info);
+        let changed = present_result == Ok(vk::SuccessCode::SUBOPTIMAL_KHR)
+            || present_result == Err(vk::ErrorCode::OUT_OF_DATE_KHR);
+
+        if changed || self.resized {
+            self.resized = false;
+            self.recreate_swapchain(window)?;
+        } else if let Err(e) = present_result {
+            return Err(anyhow!(e));
+        }
 
         self.frame = (self.frame + 1) % MAX_FRAMES_IN_FLIGHT;
 
@@ -181,38 +220,24 @@ impl App {
 
     unsafe fn destroy(&mut self) {
         // semaphore
-        self.data.image_available_semaphores
+        self.data
+            .image_available_semaphores
             .iter()
             .for_each(|s| self.device.destroy_semaphore(*s, None));
-        self.data.render_finish_semaphores
+        self.data
+            .render_finish_semaphores
             .iter()
             .for_each(|s| self.device.destroy_semaphore(*s, None));
         // fence
-        self.data.in_flight_fences
+        self.data
+            .in_flight_fences
             .iter()
             .for_each(|f| self.device.destroy_fence(*f, None));
+        // relate to swapchain
+        self.destroy_swapchain();
         // command pool
         self.device
             .destroy_command_pool(self.data.command_pool, None);
-        // framebuffers
-        self.data
-            .framebuffers
-            .iter()
-            .for_each(|f| self.device.destroy_framebuffer(*f, None));
-        // The pipeline layout will be referenced throughout the program's lifetime
-        self.device
-            .destroy_pipeline_layout(self.data.pipeline_layout, None);
-        // render pass
-        self.device.destroy_render_pass(self.data.render_pass, None);
-        // graphics pipeline
-        self.device.destroy_pipeline(self.data.pipeline, None);
-        // swapchain imageviews
-        self.data
-            .swapchain_image_views
-            .iter()
-            .for_each(|v| self.device.destroy_image_view(*v, None));
-        // swapchain
-        self.device.destroy_swapchain_khr(self.data.swapchain, None);
         // device
         self.device.destroy_device(None);
         // surface
@@ -692,8 +717,7 @@ impl App {
 
     unsafe fn create_sync_objects(device: &Device, data: &mut AppData) -> Result<()> {
         let semaphore_info = vk::SemaphoreCreateInfo::builder();
-        let fence_info = vk::FenceCreateInfo::builder()
-            .flags(vk::FenceCreateFlags::SIGNALED);
+        let fence_info = vk::FenceCreateInfo::builder().flags(vk::FenceCreateFlags::SIGNALED);
 
         for _ in 0..MAX_FRAMES_IN_FLIGHT {
             data.image_available_semaphores
@@ -704,12 +728,53 @@ impl App {
                 .push(device.create_fence(&fence_info, None)?);
         }
 
-        data.images_in_flight = data.swapchain_images
+        data.images_in_flight = data
+            .swapchain_images
             .iter()
             .map(|_| vk::Fence::null())
             .collect();
 
         Ok(())
+    }
+
+    unsafe fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
+        self.device.device_wait_idle()?;
+        self.destroy_swapchain();
+        Self::create_swapchain(window, &self.instance, &self.device, &mut self.data)?;
+        Self::create_swapchain_image_view(&self.device, &mut self.data)?;
+        Self::create_render_pass(&self.instance, &self.device, &mut self.data)?;
+        Self::create_pipeline(&self.device, &mut self.data)?;
+        Self::create_framebuffers(&self.device, &mut self.data)?;
+        Self::create_command_buffers(&self.device, &mut self.data)?;
+        self.data
+            .images_in_flight
+            .resize(self.data.swapchain_images.len(), vk::Fence::null());
+        Ok(())
+    }
+
+    unsafe fn destroy_swapchain(&mut self) {
+        // framebuffers
+        self.data
+            .framebuffers
+            .iter()
+            .for_each(|f| self.device.destroy_framebuffer(*f, None));
+        // command buffers
+        self.device
+            .free_command_buffers(self.data.command_pool, &self.data.command_buffers);
+        // The pipeline layout will be referenced throughout the program's lifetime
+        self.device
+            .destroy_pipeline_layout(self.data.pipeline_layout, None);
+        // render pass
+        self.device.destroy_render_pass(self.data.render_pass, None);
+        // graphics pipeline
+        self.device.destroy_pipeline(self.data.pipeline, None);
+        // swapchain imageviews
+        self.data
+            .swapchain_image_views
+            .iter()
+            .for_each(|v| self.device.destroy_image_view(*v, None));
+        // swapchain
+        self.device.destroy_swapchain_khr(self.data.swapchain, None);
     }
 }
 
