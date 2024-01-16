@@ -3,3 +3,6 @@ https://kylemayes.github.io/vulkanalia/introduction.html
 
 how to run
 $env:RUST_LOG="debug"; cargo run --bin AqooleEngineR
+
+shader layout
+https://www.khronos.org/opengl/wiki/Layout_Qualifier_(GLSL)

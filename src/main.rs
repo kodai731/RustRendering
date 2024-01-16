@@ -13,7 +13,7 @@ use vulkanalia::prelude::v1_2::*;
 use vulkanalia::window as vk_window;
 use vulkanalia::Version;
 use winit::dpi::LogicalSize;
-use winit::event::{self, Event, WindowEvent};
+use winit::event::{Event, WindowEvent};
 use winit::event_loop::{ControlFlow, EventLoop};
 use winit::window::{Window, WindowBuilder};
 const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
@@ -30,6 +30,16 @@ const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.na
 use thiserror::Error;
 use vulkanalia::bytecode::Bytecode;
 const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
+use cgmath::{vec2, vec3};
+use std::mem::size_of;
+type Vec2 = cgmath::Vector2<f32>;
+type Vec3 = cgmath::Vector3<f32>;
+
+static VERTICES: [Vertex; 3] = [
+    Vertex::new(vec2(0.0, -0.5), vec3(1.0, 0.0, 0.0)),
+    Vertex::new(vec2(0.5, 0.5), vec3(0.0, 1.0, 0.0)),
+    Vertex::new(vec2(-0.5, 0.5), vec3(0.0, 0.0, 1.0)),
+];
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -489,7 +499,11 @@ impl App {
             .module(frag_shader_module)
             .name(b"main\0");
 
-        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder();
+        let binding_discriptions = &[Vertex::binding_description()];
+        let attribute_descriptions = Vertex::attribute_descriptions();
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(binding_discriptions)
+            .vertex_attribute_descriptions(&attribute_descriptions);
 
         let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
@@ -948,5 +962,47 @@ impl SwapchainSupport {
                 ))
                 .build()
         }
+    }
+}
+
+#[repr(C)] // for compatibility of C struct
+#[derive(Copy, Clone, Debug)]
+struct Vertex {
+    pos: Vec2,
+    color: Vec3,
+}
+
+impl Vertex {
+    const fn new(pos: Vec2, color: Vec3) -> Self {
+        Self { pos, color }
+    }
+
+    fn binding_description() -> vk::VertexInputBindingDescription {
+        //  at which rate to load data from memory throughout the vertices
+        vk::VertexInputBindingDescription::builder()
+            .binding(0)
+            .stride(size_of::<Vertex> as u32)
+            .input_rate(vk::VertexInputRate::VERTEX)
+            .build()
+    }
+
+    fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+        // how to extract a vertex attribute from a chunk of vertex data originating from a binding description
+        // two attributes, position and color
+        let pos = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(0) // directive of the input in the vertex shader
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset(0)
+            .build();
+
+        let color = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(1)
+            .format(vk::Format::R32G32B32_SFLOAT)
+            .offset(size_of::<Vec2> as u32)
+            .build();
+
+        [pos, color]
     }
 }
