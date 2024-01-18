@@ -32,11 +32,12 @@ use vulkanalia::bytecode::Bytecode;
 const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
 use cgmath::{vec2, vec3};
 use std::mem::size_of;
+use std::ptr::copy_nonoverlapping as memcpy;
 type Vec2 = cgmath::Vector2<f32>;
 type Vec3 = cgmath::Vector3<f32>;
 
 static VERTICES: [Vertex; 3] = [
-    Vertex::new(vec2(0.0, -0.5), vec3(1.0, 0.0, 0.0)),
+    Vertex::new(vec2(0.0, -0.5), vec3(1.0, 1.0, 1.0)),
     Vertex::new(vec2(0.5, 0.5), vec3(0.0, 1.0, 0.0)),
     Vertex::new(vec2(-0.5, 0.5), vec3(0.0, 0.0, 1.0)),
 ];
@@ -123,6 +124,8 @@ struct AppData {
     render_finish_semaphores: Vec<vk::Semaphore>,
     in_flight_fences: Vec<vk::Fence>, // CPU-GPU sync. Fences are mainly designed to synchronize your application itself with rendering operation
     images_in_flight: Vec<vk::Fence>,
+    vertex_buffer: vk::Buffer,
+    vertex_buffer_memory: vk::DeviceMemory,
 }
 
 impl App {
@@ -140,6 +143,7 @@ impl App {
         let _ = Self::create_pipeline(&device, &mut data)?;
         let _ = Self::create_framebuffers(&device, &mut data)?;
         let _ = Self::create_command_pool(&instance, &device, &mut data)?;
+        let _ = Self::create_vertex_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_command_buffers(&device, &mut data);
         let _ = Self::create_sync_objects(&device, &mut data)?;
         let frame = 0 as usize;
@@ -229,6 +233,10 @@ impl App {
     }
 
     unsafe fn destroy(&mut self) {
+        // buffer
+        self.device.destroy_buffer(self.data.vertex_buffer, None);
+        self.device
+            .free_memory(self.data.vertex_buffer_memory, None);
         // semaphore
         self.data
             .image_available_semaphores
@@ -721,7 +729,8 @@ impl App {
                 vk::PipelineBindPoint::GRAPHICS,
                 data.pipeline,
             );
-            device.cmd_draw(*command_buffer, 3, 1, 0, 0); // defines the lowest value of gl_InstanceIndex.
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[data.vertex_buffer], &[0]);
+            device.cmd_draw(*command_buffer, VERTICES.len() as u32, 1, 0, 0); // defines the lowest value of gl_InstanceIndex.
             device.cmd_end_render_pass(*command_buffer);
             device.end_command_buffer(*command_buffer)?;
         }
@@ -789,6 +798,58 @@ impl App {
             .for_each(|v| self.device.destroy_image_view(*v, None));
         // swapchain
         self.device.destroy_swapchain_khr(self.data.swapchain, None);
+    }
+
+    unsafe fn create_vertex_buffer(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
+    ) -> Result<()> {
+        let buffer_info = vk::BufferCreateInfo::builder()
+            .size((size_of::<Vertex>() * VERTICES.len()) as u64)
+            .usage(vk::BufferUsageFlags::VERTEX_BUFFER)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE); // buffers can also be owned by a specific queue family or be shared between multiple at the same time
+        data.vertex_buffer = device.create_buffer(&buffer_info, None)?;
+
+        let requirements = device.get_buffer_memory_requirements(data.vertex_buffer);
+        let memory = instance.get_physical_device_memory_properties(data.physical_device);
+        let memory_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(requirements.size)
+            .memory_type_index(Self::get_memory_type_index(
+                instance,
+                data,
+                vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE, // use a memory heap to copy immediately
+                requirements,
+            )?);
+        data.vertex_buffer_memory = device.allocate_memory(&memory_info, None)?;
+        device.bind_buffer_memory(data.vertex_buffer, data.vertex_buffer_memory, 0)?;
+
+        let map_memory = device.map_memory(
+            data.vertex_buffer_memory,
+            0,
+            buffer_info.size,
+            vk::MemoryMapFlags::empty(),
+        )?;
+        memcpy(VERTICES.as_ptr(), map_memory.cast(), VERTICES.len());
+        device.unmap_memory(data.vertex_buffer_memory);
+
+        Ok(())
+    }
+
+    unsafe fn get_memory_type_index(
+        instance: &Instance,
+        data: &AppData,
+        properties: vk::MemoryPropertyFlags,
+        requirements: vk::MemoryRequirements,
+    ) -> Result<u32> {
+        let memory = instance.get_physical_device_memory_properties(data.physical_device);
+        (0..memory.memory_type_count)
+            .find(|i| {
+                let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
+                let memory_type = memory.memory_types[*i as usize];
+                suitable & memory_type.property_flags.contains(properties)
+            })
+            .ok_or_else(|| anyhow!("Failed to find suitable memory type."))
     }
 }
 
@@ -981,7 +1042,7 @@ impl Vertex {
         //  at which rate to load data from memory throughout the vertices
         vk::VertexInputBindingDescription::builder()
             .binding(0)
-            .stride(size_of::<Vertex> as u32)
+            .stride(size_of::<Vertex>() as u32)
             .input_rate(vk::VertexInputRate::VERTEX)
             .build()
     }
@@ -1000,7 +1061,7 @@ impl Vertex {
             .binding(0)
             .location(1)
             .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(size_of::<Vec2> as u32)
+            .offset(size_of::<Vec2>() as u32)
             .build();
 
         [pos, color]
