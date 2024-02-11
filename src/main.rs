@@ -20,9 +20,9 @@ const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
 use std::collections::HashSet;
 use std::ffi::CStr;
 use std::os::raw::c_void;
+use vulkanalia::vk::ExtDebugUtilsExtension;
 use vulkanalia::vk::KhrSurfaceExtension;
 use vulkanalia::vk::KhrSwapchainExtension;
-use vulkanalia::vk::ExtDebugUtilsExtension;
 const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
 const VALIDATION_LAYER: vk::ExtensionName =
     vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
@@ -42,10 +42,10 @@ type Vec3 = cgmath::Vector3<f32>;
 type Mat4 = cgmath::Matrix4<f32>;
 
 static VERTICES: [Vertex; 4] = [
-    Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 1.0, 1.0)),
-    Vertex::new(vec2(0.5, -0.5), vec3(1.0, 0.0, 0.0)),
-    Vertex::new(vec2(0.5, 0.5), vec3(0.0, 1.0, 0.0)),
-    Vertex::new(vec2(-0.5, 0.5), vec3(0.0, 0.0, 1.0)),
+    Vertex::new(vec2(-0.5, -0.5), vec3(1.0, 1.0, 1.0), vec2(0.0, 0.0)),
+    Vertex::new(vec2(0.5, -0.5), vec3(1.0, 0.0, 0.0), vec2(1.0, 0.0)),
+    Vertex::new(vec2(0.5, 0.5), vec3(0.0, 1.0, 0.0), vec2(1.0, 1.0)),
+    Vertex::new(vec2(-0.5, 0.5), vec3(0.0, 0.0, 1.0), vec2(0.0, 1.0)),
 ];
 
 const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0];
@@ -144,6 +144,8 @@ struct AppData {
     descriptor_sets: Vec<vk::DescriptorSet>,
     texture_image: vk::Image,
     texture_image_memory: vk::DeviceMemory,
+    texture_image_view: vk::ImageView,
+    texture_sampler: vk::Sampler,
 }
 
 impl App {
@@ -163,6 +165,8 @@ impl App {
         let _ = Self::create_framebuffers(&device, &mut data)?;
         let _ = Self::create_command_pool(&instance, &device, &mut data)?;
         let _ = Self::create_texture_image(&instance, &device, &mut data)?;
+        let _ = Self::create_texture_image_view(&device, &mut data)?;
+        let _ = Self::create_texture_sampler(&device, &mut data)?;
         let _ = Self::create_vertex_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_index_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_uniform_buffers(&instance, &device, &mut data)?;
@@ -271,6 +275,9 @@ impl App {
         self.device.destroy_image(self.data.texture_image, None);
         self.device
             .free_memory(self.data.texture_image_memory, None);
+        self.device
+            .destroy_image_view(self.data.texture_image_view, None);
+        self.device.destroy_sampler(self.data.texture_sampler, None);
         // semaphore
         self.data
             .image_available_semaphores
@@ -435,7 +442,7 @@ impl App {
             extensions.push(vk::KHR_PORTABILITY_SUBSET_EXTENSION.name.as_ptr());
         }
 
-        let features = vk::PhysicalDeviceFeatures::builder();
+        let features = vk::PhysicalDeviceFeatures::builder().sampler_anisotropy(true);
 
         let info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_infos)
@@ -505,26 +512,7 @@ impl App {
         data.swapchain_image_views = data
             .swapchain_images
             .iter()
-            .map(|i| {
-                let components = vk::ComponentMapping::builder()
-                    .r(vk::ComponentSwizzle::IDENTITY)
-                    .g(vk::ComponentSwizzle::IDENTITY)
-                    .b(vk::ComponentSwizzle::IDENTITY)
-                    .a(vk::ComponentSwizzle::IDENTITY);
-                let subresource_range = vk::ImageSubresourceRange::builder()
-                    .aspect_mask(vk::ImageAspectFlags::COLOR)
-                    .base_mip_level(0)
-                    .level_count(1)
-                    .base_array_layer(0)
-                    .layer_count(1);
-                let info = vk::ImageViewCreateInfo::builder()
-                    .image(*i)
-                    .view_type(vk::ImageViewType::_2D)
-                    .format(data.swapchain_format)
-                    .components(components)
-                    .subresource_range(subresource_range);
-                device.create_image_view(&info, None)
-            })
+            .map(|i| Self::create_image_view(device, *i, data.swapchain_format))
             .collect::<Result<Vec<_>, _>>()?;
         Ok(())
     }
@@ -1019,13 +1007,19 @@ impl App {
     unsafe fn create_descriptor_set_layout(device: &Device, data: &mut AppData) -> Result<()> {
         // The descriptor layout specifies the types of resources that are going to be accessed by the pipeline,
         // just like a render pass specifies the types of attachments that will be accessed
-        let binding = vk::DescriptorSetLayoutBinding::builder()
+        let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::VERTEX);
 
-        let bindings = &[binding];
+        let sampler_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(1)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT);
+
+        let bindings = &[ubo_binding, sampler_binding];
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
         data.descriptor_set_layout = device.create_descriptor_set_layout(&info, None)?;
 
@@ -1093,7 +1087,12 @@ impl App {
             .type_(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count(data.swapchain_images.len() as u32); // This pool size structure is referenced by the main vk::DescriptorPoolCreateInfo
                                                                    //along with the maximum number of descriptor sets that may be allocated:
-        let pool_sizes = &[ubo_size];
+
+        let sampler_size = vk::DescriptorPoolSize::builder()
+            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(data.swapchain_images.len() as u32);
+
+        let pool_sizes = &[ubo_size, sampler_size];
         let info = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(pool_sizes)
             .max_sets(data.swapchain_images.len() as u32);
@@ -1125,13 +1124,27 @@ impl App {
             // The configuration of descriptors is updated using the update_descriptor_sets function,
             // which takes an array of vk::WriteDescriptorSet structs as parameter.
             let buffer_info = &[info];
+
+            let info = vk::DescriptorImageInfo::builder()
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .image_view(data.texture_image_view)
+                .sampler(data.texture_sampler);
+            let image_info = &[info];
+
             let ubo_write = vk::WriteDescriptorSet::builder()
                 .dst_set(data.descriptor_sets[i])
                 .dst_binding(0)
                 .dst_array_element(0) // Remember that descriptors can be arrays, so we also need to specify the first index in the array that we want to update
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
-            device.update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet]);
+            let sampler_write = vk::WriteDescriptorSet::builder()
+                .dst_set(data.descriptor_sets[i])
+                .dst_binding(1)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(image_info);
+
+            device.update_descriptor_sets(&[ubo_write, sampler_write], &[] as &[vk::CopyDescriptorSet]);
         }
 
         Ok(())
@@ -1394,6 +1407,58 @@ impl App {
 
         Ok(())
     }
+
+    unsafe fn create_texture_image_view(device: &Device, data: &mut AppData) -> Result<()> {
+        data.texture_image_view =
+            Self::create_image_view(device, data.texture_image, vk::Format::R8G8B8A8_SRGB)?;
+
+        Ok(())
+    }
+
+    unsafe fn create_image_view(
+        device: &Device,
+        image: vk::Image,
+        format: vk::Format,
+    ) -> Result<vk::ImageView> {
+        let subresource_range = vk::ImageSubresourceRange::builder()
+            .aspect_mask(vk::ImageAspectFlags::COLOR)
+            .base_mip_level(0)
+            .level_count(1)
+            .base_array_layer(0)
+            .layer_count(1);
+
+        let info = vk::ImageViewCreateInfo::builder()
+            .image(image)
+            .view_type(vk::ImageViewType::_2D)
+            .format(format)
+            .subresource_range(subresource_range);
+
+        Ok(device.create_image_view(&info, None)?)
+    }
+
+    unsafe fn create_texture_sampler(device: &Device, data: &mut AppData) -> Result<()> {
+        // Textures are usually accessed through samplers, which will apply filtering and transformations to compute the final color that is retrieved.
+        // anisotorpic filtering, addressing mode(clamp, repeat, ...)
+        let info = vk::SamplerCreateInfo::builder()
+            .mag_filter(vk::Filter::LINEAR) // concerns the oversampling problem
+            .min_filter(vk::Filter::LINEAR) // concerns the undersampling problem
+            .address_mode_u(vk::SamplerAddressMode::REPEAT)
+            .address_mode_v(vk::SamplerAddressMode::REPEAT)
+            .address_mode_w(vk::SamplerAddressMode::REPEAT)
+            .anisotropy_enable(true)
+            .max_anisotropy(16.0)
+            .border_color(vk::BorderColor::INT_OPAQUE_BLACK)
+            .unnormalized_coordinates(false)
+            .compare_enable(false) // If a comparison function is enabled, then texels will first be compared to a value, and the result of that comparison is used in filtering operations., mainly used like shadow maps
+            .compare_op(vk::CompareOp::ALWAYS)
+            .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
+            .mip_lod_bias(0.0)
+            .min_lod(0.0)
+            .max_lod(0.0);
+        data.texture_sampler = device.create_sampler(&info, None)?;
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Error)]
@@ -1431,6 +1496,9 @@ unsafe fn check_physical_device(
     }
 
     let features = instance.get_physical_device_features(physical_device);
+    if features.sampler_anisotropy != vk::TRUE {
+        return Err(anyhow!(SuitabilityError("No sampler anisotropy")));
+    }
     if features.geometry_shader != vk::TRUE {
         return Err(anyhow!(SuitabilityError(
             "Missing geometry shader supported"
@@ -1575,11 +1643,16 @@ impl SwapchainSupport {
 struct Vertex {
     pos: Vec2,
     color: Vec3,
+    tex_coord: Vec2,
 }
 
 impl Vertex {
-    const fn new(pos: Vec2, color: Vec3) -> Self {
-        Self { pos, color }
+    const fn new(pos: Vec2, color: Vec3, tex_coord: Vec2) -> Self {
+        Self {
+            pos,
+            color,
+            tex_coord,
+        }
     }
 
     fn binding_description() -> vk::VertexInputBindingDescription {
@@ -1591,7 +1664,7 @@ impl Vertex {
             .build()
     }
 
-    fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    fn attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
         // how to extract a vertex attribute from a chunk of vertex data originating from a binding description
         // two attributes, position and color
         let pos = vk::VertexInputAttributeDescription::builder()
@@ -1608,7 +1681,14 @@ impl Vertex {
             .offset(size_of::<Vec2>() as u32)
             .build();
 
-        [pos, color]
+        let tex_coord = vk::VertexInputAttributeDescription::builder()
+            .binding(0)
+            .location(2)
+            .format(vk::Format::R32G32_SFLOAT)
+            .offset((size_of::<Vec2>() + size_of::<Vec3>()) as u32)
+            .build();
+
+        [pos, color, tex_coord]
     }
 }
 
