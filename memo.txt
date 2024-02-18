@@ -6,3 +6,9 @@ $env:RUST_LOG="debug"; cargo run --bin AqooleEngineR
 
 shader layout
 https://www.khronos.org/opengl/wiki/Layout_Qualifier_(GLSL)
+
+vulkan coordinate system
+https://matthewwellings.com/blog/the-new-vulkan-coordinate-system/
+
+stencial buffer
+https://en.wikipedia.org/wiki/Stencil_buffer
