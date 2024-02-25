@@ -32,7 +32,10 @@ use vulkanalia::bytecode::Bytecode;
 const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
 use cgmath::{point3, Deg};
 use cgmath::{vec2, vec3};
+use std::collections::HashMap;
 use std::fs::File;
+use std::hash::{Hash, Hasher};
+use std::io::BufReader;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping as memcpy;
 use std::time::Instant;
@@ -40,19 +43,6 @@ use std::time::Instant;
 type Vec2 = cgmath::Vector2<f32>;
 type Vec3 = cgmath::Vector3<f32>;
 type Mat4 = cgmath::Matrix4<f32>;
-
-static VERTICES: [Vertex; 8] = [
-    Vertex::new(vec3(-0.5, -0.5, 0.0), vec3(1.0, 1.0, 1.0), vec2(0.0, 0.0)),
-    Vertex::new(vec3(0.5, -0.5, 0.0), vec3(1.0, 0.0, 0.0), vec2(1.0, 0.0)),
-    Vertex::new(vec3(0.5, 0.5, 0.0), vec3(0.0, 1.0, 0.0), vec2(1.0, 1.0)),
-    Vertex::new(vec3(-0.5, 0.5, 0.0), vec3(0.0, 0.0, 1.0), vec2(0.0, 1.0)),
-    Vertex::new(vec3(-0.5, -0.5, -0.5), vec3(1.0, 1.0, 1.0), vec2(0.0, 0.0)),
-    Vertex::new(vec3(0.5, -0.5, -0.5), vec3(1.0, 0.0, 0.0), vec2(1.0, 0.0)),
-    Vertex::new(vec3(0.5, 0.5, -0.5), vec3(0.0, 1.0, 0.0), vec2(1.0, 1.0)),
-    Vertex::new(vec3(-0.5, 0.5, -0.5), vec3(0.0, 0.0, 1.0), vec2(0.0, 1.0)),
-];
-
-const INDICES: &[u16] = &[0, 1, 2, 2, 3, 0, 4, 5, 6, 6, 7, 4];
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -153,6 +143,8 @@ struct AppData {
     depth_image: vk::Image,
     depth_image_memory: vk::DeviceMemory,
     depth_image_view: vk::ImageView,
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
 }
 
 impl App {
@@ -175,6 +167,7 @@ impl App {
         let _ = Self::create_texture_image(&instance, &device, &mut data)?;
         let _ = Self::create_texture_image_view(&device, &mut data)?;
         let _ = Self::create_texture_sampler(&device, &mut data)?;
+        let _ = Self::load_model(&mut data)?;
         let _ = Self::create_vertex_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_index_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_uniform_buffers(&instance, &device, &mut data)?;
@@ -819,7 +812,7 @@ impl App {
                 *command_buffer,
                 data.index_buffer,
                 0,
-                vk::IndexType::UINT16,
+                vk::IndexType::UINT32,
             );
             device.cmd_bind_descriptor_sets(
                 *command_buffer,
@@ -829,7 +822,7 @@ impl App {
                 &[data.descriptor_sets[i]],
                 &[],
             );
-            device.cmd_draw_indexed(*command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+            device.cmd_draw_indexed(*command_buffer, data.indices.len() as u32, 1, 0, 0, 0);
             device.cmd_end_render_pass(*command_buffer);
             device.end_command_buffer(*command_buffer)?;
         }
@@ -931,7 +924,7 @@ impl App {
         // because it's closer together. It is even possible to reuse the same chunk of memory for multiple resources
         // if they are not used during the same render operations, provided that their data is refreshed, of course.
         // This is known as aliasing
-        let size = (size_of::<Vertex>() * VERTICES.len()) as u64;
+        let size = (size_of::<Vertex>() * data.vertices.len()) as u64;
         let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
             instance,
             device,
@@ -944,7 +937,11 @@ impl App {
         let map_memory =
             device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
 
-        memcpy(VERTICES.as_ptr(), map_memory.cast(), VERTICES.len());
+        memcpy(
+            data.vertices.as_ptr(),
+            map_memory.cast(),
+            data.vertices.len(),
+        );
         device.unmap_memory(staging_buffer_memory);
 
         let (vertex_buffer, vertex_buffer_memory) = Self::create_buffer(
@@ -987,7 +984,7 @@ impl App {
         device: &Device,
         data: &mut AppData,
     ) -> Result<()> {
-        let size = (size_of::<u16>() * INDICES.len()) as u64;
+        let size = (size_of::<u32>() * data.indices.len()) as u64;
         let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
             instance,
             device,
@@ -1000,7 +997,7 @@ impl App {
         let map_memory =
             device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
 
-        memcpy(INDICES.as_ptr(), map_memory.cast(), INDICES.len());
+        memcpy(data.indices.as_ptr(), map_memory.cast(), data.indices.len());
         device.unmap_memory(staging_buffer_memory);
 
         let (index_buffer, index_buffer_memory) = Self::create_buffer(
@@ -1245,13 +1242,17 @@ impl App {
          and add a flush_setup_commands to execute the commands that have been recorded so far.
          It's best to do this after the texture mapping works to check if the texture resources are still set up correctly.
         */
-        let image = File::open("src/resources/sand.png")?;
+        let image = File::open("src/resources/VikingRoom/viking_room.png")?;
         let decoder = png::Decoder::new(image);
         let mut reader = decoder.read_info()?;
         let mut pixels = vec![0; reader.info().raw_bytes()];
         reader.next_frame(&mut pixels)?;
         let size = reader.info().raw_bytes() as u64;
         let (width, height) = reader.info().size();
+
+        if width != 1024 || height != 1024 || reader.info().color_type != png::ColorType::Rgba {
+            panic!("invalid texture image");
+        }
 
         let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
             instance,
@@ -1649,6 +1650,53 @@ impl App {
             vk::FormatFeatureFlags::DEPTH_STENCIL_ATTACHMENT,
         )
     }
+
+    fn load_model(data: &mut AppData) -> Result<()> {
+        let mut reader = BufReader::new(File::open("src/resources/VikingRoom/viking_room.obj")?);
+
+        let (models, _) = tobj::load_obj_buf(
+            &mut reader,
+            &tobj::LoadOptions {
+                triangulate: true,
+                ..Default::default()
+            },
+            |_| Ok(Default::default()),
+        )?;
+
+        let mut unique_vertices = HashMap::new();
+
+        for model in models {
+            for index in &model.mesh.indices {
+                let pos_offset = (3 * index) as usize;
+                let tex_coord_offset = (2 * index) as usize;
+
+                let vertex = Vertex {
+                    pos: vec3(
+                        model.mesh.positions[pos_offset],
+                        model.mesh.positions[pos_offset + 1],
+                        model.mesh.positions[pos_offset + 2],
+                    ),
+                    color: vec3(1.0, 1.0, 1.0),
+                    tex_coord: vec2(
+                        model.mesh.texcoords[tex_coord_offset],
+                        // The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image,
+                        // however we've uploaded our image into Vulkan in a top to bottom orientation where 0 means the top of the image.
+                        1.0 - model.mesh.texcoords[tex_coord_offset + 1],
+                    ),
+                };
+                if let Some(index) = unique_vertices.get(&vertex) {
+                    data.indices.push(*index as u32);
+                } else {
+                    let index = data.vertices.len();
+                    unique_vertices.insert(vertex, index);
+                    data.vertices.push(vertex);
+                    data.indices.push(data.indices.len() as u32);
+                }
+            }
+        }
+
+        Ok(())
+    }
 }
 
 #[derive(Debug, Error)]
@@ -1868,14 +1916,14 @@ impl Vertex {
             .binding(0)
             .location(1)
             .format(vk::Format::R32G32B32_SFLOAT)
-            .offset(size_of::<Vec2>() as u32)
+            .offset(size_of::<Vec3>() as u32)
             .build();
 
         let tex_coord = vk::VertexInputAttributeDescription::builder()
             .binding(0)
             .location(2)
             .format(vk::Format::R32G32_SFLOAT)
-            .offset((size_of::<Vec2>() + size_of::<Vec3>()) as u32)
+            .offset((size_of::<Vec3>() + size_of::<Vec3>()) as u32)
             .build();
 
         [pos, color, tex_coord]
@@ -1888,4 +1936,25 @@ struct UniformBufferObject {
     model: Mat4,
     view: Mat4,
     proj: Mat4,
+}
+
+impl PartialEq for Vertex {
+    fn eq(&self, other: &Self) -> bool {
+        self.pos == other.pos && self.color == other.pos && self.tex_coord == other.tex_coord
+    }
+}
+
+impl Eq for Vertex {}
+
+impl Hash for Vertex {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.pos[0].to_bits().hash(state);
+        self.pos[1].to_bits().hash(state);
+        self.pos[2].to_bits().hash(state);
+        self.color[0].to_bits().hash(state);
+        self.color[1].to_bits().hash(state);
+        self.color[2].to_bits().hash(state);
+        self.tex_coord[0].to_bits().hash(state);
+        self.tex_coord[1].to_bits().hash(state);
+    }
 }
