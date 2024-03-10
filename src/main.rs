@@ -5,94 +5,128 @@
     clippy::unnecessary_wraps
 )]
 
+// imgui
+use imgui::*;
+
+mod imgui_support;
+
 use anyhow::{anyhow, Result};
 use core::result::Result::Ok;
-use log::*;
-use vulkanalia::loader::{LibloadingLoader, LIBRARY};
-use vulkanalia::prelude::v1_2::*;
-use vulkanalia::window as vk_window;
-use vulkanalia::Version;
-use winit::dpi::LogicalSize;
-use winit::event::{Event, WindowEvent};
-use winit::event_loop::{ControlFlow, EventLoop};
-use winit::window::{Window, WindowBuilder};
-const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
-use std::collections::HashSet;
-use std::ffi::CStr;
-use std::os::raw::c_void;
-use vulkanalia::vk::ExtDebugUtilsExtension;
-use vulkanalia::vk::KhrSurfaceExtension;
-use vulkanalia::vk::KhrSwapchainExtension;
-const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
-const VALIDATION_LAYER: vk::ExtensionName =
-    vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
-const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
-use thiserror::Error;
-use vulkanalia::bytecode::Bytecode;
-const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
-use cgmath::{point3, Deg};
-use cgmath::{vec2, vec3};
-use std::collections::HashMap;
-use std::fs::File;
-use std::hash::{Hash, Hasher};
-use std::io::BufReader;
-use std::mem::size_of;
-use std::ptr::copy_nonoverlapping as memcpy;
-use std::time::Instant;
+// use log::*;
+// use vulkanalia::loader::{LibloadingLoader, LIBRARY};
+// use vulkanalia::prelude::v1_2::*;
+// use vulkanalia::window as vk_window;
+// use vulkanalia::Version;
+// // use winit::dpi::LogicalSize;
+// // use winit::event::{Event, WindowEvent};
+// //use winit::event_loop::{ControlFlow, EventLoop};
+// // use winit::window::{Window, WindowBuilder};
+// const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
+// use std::collections::HashSet;
+// use std::ffi::CStr;
+// use std::os::raw::c_void;
+// use vulkanalia::vk::ExtDebugUtilsExtension;
+// use vulkanalia::vk::KhrSurfaceExtension;
+// use vulkanalia::vk::KhrSwapchainExtension;
+// const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
+// const VALIDATION_LAYER: vk::ExtensionName =
+//     vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
+// const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
+// use thiserror::Error;
+// use vulkanalia::bytecode::Bytecode;
+// const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
+// use cgmath::{point3, Deg};
+// use cgmath::{vec2, vec3};
+// use std::collections::HashMap;
+// use std::fs::File;
+// use std::hash::{Hash, Hasher};
+// use std::io::BufReader;
+// use std::mem::size_of;
+// use std::ptr::copy_nonoverlapping as memcpy;
+// use std::time::Instant;
 
-type Vec2 = cgmath::Vector2<f32>;
-type Vec3 = cgmath::Vector3<f32>;
-type Mat4 = cgmath::Matrix4<f32>;
+// type Vec2 = cgmath::Vector2<f32>;
+// type Vec3 = cgmath::Vector3<f32>;
+// type Mat4 = cgmath::Matrix4<f32>;
 
-fn main() -> Result<()> {
+fn main() -> Result<()>{
     pretty_env_logger::init();
 
     // Window
-    let event_loop = EventLoop::new();
-    let window = WindowBuilder::new()
-        .with_title("Vulkan Tutorial Rust")
-        .with_inner_size(LogicalSize::new(1024, 756))
-        .build(&event_loop)?;
+    // let event_loop = EventLoop::new();
+    // let window = WindowBuilder::new()
+    //     .with_title("Vulkan Tutorial Rust")
+    //     .with_inner_size(LogicalSize::new(1024, 756))
+    //     .build(&event_loop)?;
+
+    // imgui
+    let system = imgui_support::init(file!());
+    let mut value = 0;
+    let choices = ["test test this is 1", "test test this is 2"];
 
     // App
-    let mut app = unsafe { App::create(&window)? };
-    let mut destroying = false;
-    let mut minimized = false;
-    event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::Poll;
-        match event {
-            Event::MainEventsCleared if !destroying && !minimized => {
-                unsafe { app.render(&window) }.unwrap()
-            }
-            Event::WindowEvent {
-                event: WindowEvent::Resized(size),
-                ..
-            } => {
-                if size.width == 0 || size.height == 0 {
-                    minimized = true;
-                } else {
-                    minimized = false;
-                    app.resized = true;
+    // let mut app = unsafe { App::create(&window)? };
+    // let mut destroying = false;
+    // let mut minimized = false;
+    // event_loop.run(move |event, _, control_flow| {
+    //     *control_flow = ControlFlow::Poll;
+    //     match event {
+    //         Event::MainEventsCleared if !destroying && !minimized => {
+    //             unsafe { app.render(&window) }.unwrap()
+    //         }
+    //         Event::WindowEvent {
+    //             event: WindowEvent::Resized(size),
+    //             ..
+    //         } => {
+    //             if size.width == 0 || size.height == 0 {
+    //                 minimized = true;
+    //             } else {
+    //                 minimized = false;
+    //                 app.resized = true;
+    //             }
+    //         }
+    //         Event::WindowEvent {
+    //             event: WindowEvent::CloseRequested,
+    //             ..
+    //         } => {
+    //             destroying = true;
+    //             *control_flow = ControlFlow::Exit;
+    //             unsafe {
+    //                 app.device.device_wait_idle().unwrap();
+    //             }
+    //             unsafe {
+    //                 app.destroy();
+    //             }
+    //         }
+    //         _ => {}
+    //     }
+        
+    // });
+
+    system.main_loop(move |_, ui| {
+        ui.window("Hello world")
+            .size([300.0, 110.0], Condition::FirstUseEver)
+            .build(|| {
+                ui.text_wrapped("Hello world!");
+                ui.text_wrapped("こんにちは世界！");
+                if ui.button(choices[value]) {
+                    value += 1;
+                    value %= 2;
                 }
-            }
-            Event::WindowEvent {
-                event: WindowEvent::CloseRequested,
-                ..
-            } => {
-                destroying = true;
-                *control_flow = ControlFlow::Exit;
-                unsafe {
-                    app.device.device_wait_idle().unwrap();
-                }
-                unsafe {
-                    app.destroy();
-                }
-            }
-            _ => {}
-        }
+
+                ui.button("This...is...imgui-rs!");
+                ui.separator();
+                let mouse_pos = ui.io().mouse_pos;
+                ui.text(format!(
+                    "Mouse Position: ({:.1},{:.1})",
+                    mouse_pos[0], mouse_pos[1]
+                ));
+            });
     });
+    Ok(())
 }
 
+/*
 /// Vulkan app
 #[derive(Clone, Debug)]
 struct App {
@@ -2203,3 +2237,4 @@ impl Hash for Vertex {
         self.tex_coord[1].to_bits().hash(state);
     }
 }
+ */
