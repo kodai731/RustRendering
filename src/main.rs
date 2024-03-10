@@ -8,66 +8,75 @@
 // imgui
 use imgui::*;
 
-mod imgui_support;
+mod support;
 
 use anyhow::{anyhow, Result};
 use core::result::Result::Ok;
-// use log::*;
-// use vulkanalia::loader::{LibloadingLoader, LIBRARY};
-// use vulkanalia::prelude::v1_2::*;
-// use vulkanalia::window as vk_window;
-// use vulkanalia::Version;
-// // use winit::dpi::LogicalSize;
-// // use winit::event::{Event, WindowEvent};
-// //use winit::event_loop::{ControlFlow, EventLoop};
-// // use winit::window::{Window, WindowBuilder};
-// const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
-// use std::collections::HashSet;
-// use std::ffi::CStr;
-// use std::os::raw::c_void;
-// use vulkanalia::vk::ExtDebugUtilsExtension;
-// use vulkanalia::vk::KhrSurfaceExtension;
-// use vulkanalia::vk::KhrSwapchainExtension;
-// const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
-// const VALIDATION_LAYER: vk::ExtensionName =
-//     vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
-// const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
-// use thiserror::Error;
-// use vulkanalia::bytecode::Bytecode;
-// const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
-// use cgmath::{point3, Deg};
-// use cgmath::{vec2, vec3};
-// use std::collections::HashMap;
-// use std::fs::File;
-// use std::hash::{Hash, Hasher};
-// use std::io::BufReader;
-// use std::mem::size_of;
-// use std::ptr::copy_nonoverlapping as memcpy;
-// use std::time::Instant;
+use log::*;
+use vulkanalia::loader::{LibloadingLoader, LIBRARY};
+use vulkanalia::prelude::v1_2::*;
+use vulkanalia::window as vk_window;
+use vulkanalia::Version;
+const PORTABILITY_MACOS_VERSION: Version = Version::new(1, 3, 216);
+use std::collections::HashSet;
+use std::ffi::CStr;
+use std::os::raw::c_void;
+use vulkanalia::vk::ExtDebugUtilsExtension;
+use vulkanalia::vk::KhrSurfaceExtension;
+use vulkanalia::vk::KhrSwapchainExtension;
+const VALIDATION_ENABLED: bool = cfg!(debug_assertions);
+const VALIDATION_LAYER: vk::ExtensionName =
+    vk::ExtensionName::from_bytes(b"VK_LAYER_KHRONOS_validation");
+const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.name];
+use thiserror::Error;
+use vulkanalia::bytecode::Bytecode;
+const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
+use cgmath::{point3, Deg};
+use cgmath::{vec2, vec3};
+use std::collections::HashMap;
+use std::fs::File;
+use std::hash::{Hash, Hasher};
+use std::io::BufReader;
+use std::mem::size_of;
+use std::ptr::copy_nonoverlapping as memcpy;
+use std::time::Instant;
 
-// type Vec2 = cgmath::Vector2<f32>;
-// type Vec3 = cgmath::Vector3<f32>;
-// type Mat4 = cgmath::Matrix4<f32>;
+type Vec2 = cgmath::Vector2<f32>;
+type Vec3 = cgmath::Vector3<f32>;
+type Mat4 = cgmath::Matrix4<f32>;
 
-fn main() -> Result<()>{
+use glium::glutin::surface::WindowSurface;
+use glium::Surface;
+use imgui::{Context, FontConfig, FontGlyphRanges, FontSource, Ui};
+use imgui_glium_renderer::Renderer;
+use imgui_winit_support::winit::dpi::LogicalSize;
+use imgui_winit_support::winit::event::{Event, WindowEvent};
+use imgui_winit_support::winit::event_loop::EventLoop;
+use imgui_winit_support::winit::window::{Window, WindowBuilder};
+use imgui_winit_support::{HiDpiMode, WinitPlatform};
+use std::path::Path;
+
+fn main() -> Result<()> {
     pretty_env_logger::init();
 
     // Window
     // let event_loop = EventLoop::new();
-    // let window = WindowBuilder::new()
-    //     .with_title("Vulkan Tutorial Rust")
-    //     .with_inner_size(LogicalSize::new(1024, 756))
-    //     .build(&event_loop)?;
 
     // imgui
-    let system = imgui_support::init(file!());
+    let system = support::init(file!());
     let mut value = 0;
     let choices = ["test test this is 1", "test test this is 2"];
 
     // App
-    // let mut app = unsafe { App::create(&window)? };
-    // let mut destroying = false;
-    // let mut minimized = false;
+    let builder = WindowBuilder::new()
+        .with_title("vulkan tutorial")
+        .with_inner_size(LogicalSize::new(1024, 768));
+    let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
+        .set_window_builder(builder)
+        .build(&system.event_loop);
+    let mut app = unsafe { App::create(&window)? };
+    let mut destroying = false;
+    let mut minimized = false;
     // event_loop.run(move |event, _, control_flow| {
     //     *control_flow = ControlFlow::Poll;
     //     match event {
@@ -100,12 +109,12 @@ fn main() -> Result<()>{
     //         }
     //         _ => {}
     //     }
-        
+
     // });
 
     system.main_loop(move |_, ui| {
         ui.window("Hello world")
-            .size([300.0, 110.0], Condition::FirstUseEver)
+            .size([600.0, 220.0], Condition::FirstUseEver)
             .build(|| {
                 ui.text_wrapped("Hello world!");
                 ui.text_wrapped("こんにちは世界！");
@@ -122,11 +131,85 @@ fn main() -> Result<()>{
                     mouse_pos[0], mouse_pos[1]
                 ));
             });
-    });
+    }, &mut app);
+
     Ok(())
 }
 
-/*
+impl support::System {
+    pub fn main_loop<F: FnMut(&mut bool, &mut Ui) + 'static>(
+        self,
+        mut run_ui: F,
+        app: &mut App
+    ) {
+        let support::System {
+            event_loop,
+            window,
+            display,
+            mut imgui,
+            mut platform,
+            mut renderer,
+            ..
+        } = self;
+        let mut last_frame = Instant::now();
+
+        event_loop
+            .run(move |event, window_target| match event {
+                Event::NewEvents(_) => {
+                    let now = Instant::now();
+                    imgui.io_mut().update_delta_time(now - last_frame);
+                    last_frame = now;
+                }
+                Event::AboutToWait => {
+                    platform
+                        .prepare_frame(imgui.io_mut(), &window)
+                        .expect("Failed to prepare frame");
+                    window.request_redraw();
+                }
+                Event::WindowEvent {
+                    event: WindowEvent::RedrawRequested,
+                    ..
+                } => {
+                    unsafe { app.render(&window) }.unwrap();
+
+                    let ui = imgui.frame();
+
+                    let mut run = true;
+                    run_ui(&mut run, ui);
+                    if !run {
+                        window_target.exit();
+                    }
+
+                    let mut target = display.draw();
+                    target.clear_color_srgb(1.0, 1.0, 1.0, 1.0);
+                    platform.prepare_render(ui, &window);
+                    let draw_data = imgui.render();
+                    renderer
+                        .render(&mut target, draw_data)
+                        .expect("Rendering failed");
+                    target.finish().expect("Failed to swap buffers");
+                }
+                Event::WindowEvent {
+                    event: WindowEvent::Resized(new_size),
+                    ..
+                } => {
+                    if new_size.width > 0 && new_size.height > 0 {
+                        display.resize((new_size.width, new_size.height));
+                    }
+                    platform.handle_event(imgui.io_mut(), &window, &event);
+                }
+                Event::WindowEvent {
+                    event: WindowEvent::CloseRequested,
+                    ..
+                } => window_target.exit(),
+                event => {
+                    platform.handle_event(imgui.io_mut(), &window, &event);
+                }
+            })
+            .expect("EventLoop error");
+    }
+}
+
 /// Vulkan app
 #[derive(Clone, Debug)]
 struct App {
@@ -780,7 +863,11 @@ impl App {
                     | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
             );
 
-        let attachments = &[color_attachment, depth_stencil_attachment, color_resolve_attachment];
+        let attachments = &[
+            color_attachment,
+            depth_stencil_attachment,
+            color_resolve_attachment,
+        ];
         let subpasses = &[subpass];
         let dependencies = &[dependency];
         let info = vk::RenderPassCreateInfo::builder()
@@ -945,7 +1032,8 @@ impl App {
         // color objects
         self.device.destroy_image(self.data.color_image, None);
         self.device.free_memory(self.data.color_image_memory, None);
-        self.device.destroy_image_view(self.data.color_image_view, None);
+        self.device
+            .destroy_image_view(self.data.color_image_view, None);
         // descriptor pool
         self.device
             .destroy_descriptor_pool(self.data.descriptor_pool, None);
@@ -2237,4 +2325,3 @@ impl Hash for Vertex {
         self.tex_coord[1].to_bits().hash(state);
     }
 }
- */
