@@ -20,6 +20,8 @@ pub struct System {
     pub platform: WinitPlatform,
     pub renderer: Renderer,
     pub font_size: f32,
+    pub app_window: Window,
+    pub app_display: glium::Display<WindowSurface>,
 }
 
 pub fn init(title: &str) -> System {
@@ -34,6 +36,13 @@ pub fn init(title: &str) -> System {
         .with_inner_size(LogicalSize::new(1024, 768));
     let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
         .set_window_builder(builder)
+        .build(&event_loop);
+
+    let builder3 = WindowBuilder::new()
+        .with_title("App Window")
+        .with_inner_size(LogicalSize::new(1024, 768));
+    let (app_window, app_display) = glium::backend::glutin::SimpleWindowBuilder::new()
+        .set_window_builder(builder3)
         .build(&event_loop);
 
     let mut imgui = Context::create();
@@ -56,7 +65,8 @@ pub fn init(title: &str) -> System {
         } else {
             HiDpiMode::Default
         };
-
+        
+        platform.attach_window(imgui.io_mut(), &app_window, dpi_mode);
         platform.attach_window(imgui.io_mut(), &window, dpi_mode);
     }
 
@@ -109,5 +119,7 @@ pub fn init(title: &str) -> System {
         platform,
         renderer,
         font_size,
+        app_window,
+        app_display,
     }
 }

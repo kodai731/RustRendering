@@ -58,25 +58,16 @@ use std::path::Path;
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
-
-    // Window
-    // let event_loop = EventLoop::new();
-
     // imgui
     let system = support::init(file!());
     let mut value = 0;
     let choices = ["test test this is 1", "test test this is 2"];
 
     // App
-    let builder = WindowBuilder::new()
-        .with_title("vulkan tutorial")
-        .with_inner_size(LogicalSize::new(1024, 768));
-    let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
-        .set_window_builder(builder)
-        .build(&system.event_loop);
-    let mut app = unsafe { App::create(&window)? };
-    let mut destroying = false;
-    let mut minimized = false;
+    let mut app = unsafe { App::create(&system.app_window)? };
+    let destroying = false;
+    let minimized = false;
+
     // event_loop.run(move |event, _, control_flow| {
     //     *control_flow = ControlFlow::Poll;
     //     match event {
@@ -112,36 +103,13 @@ fn main() -> Result<()> {
 
     // });
 
-    system.main_loop(move |_, ui| {
-        ui.window("Hello world")
-            .size([600.0, 220.0], Condition::FirstUseEver)
-            .build(|| {
-                ui.text_wrapped("Hello world!");
-                ui.text_wrapped("こんにちは世界！");
-                if ui.button(choices[value]) {
-                    value += 1;
-                    value %= 2;
-                }
-
-                ui.button("This...is...imgui-rs!");
-                ui.separator();
-                let mouse_pos = ui.io().mouse_pos;
-                ui.text(format!(
-                    "Mouse Position: ({:.1},{:.1})",
-                    mouse_pos[0], mouse_pos[1]
-                ));
-            });
-    }, &mut app);
+    system.main_loop(move |_, ui| {}, &mut app);
 
     Ok(())
 }
 
 impl support::System {
-    pub fn main_loop<F: FnMut(&mut bool, &mut Ui) + 'static>(
-        self,
-        mut run_ui: F,
-        app: &mut App
-    ) {
+    pub fn main_loop<F: FnMut(&mut bool, &mut Ui) + 'static>(self, mut run_ui: F, app: &mut App) {
         let support::System {
             event_loop,
             window,
@@ -149,7 +117,9 @@ impl support::System {
             mut imgui,
             mut platform,
             mut renderer,
-            ..
+            font_size,
+            app_window,
+            app_display,
         } = self;
         let mut last_frame = Instant::now();
 
@@ -165,14 +135,30 @@ impl support::System {
                         .prepare_frame(imgui.io_mut(), &window)
                         .expect("Failed to prepare frame");
                     window.request_redraw();
+                    platform
+                        .prepare_frame(imgui.io_mut(), &app_window)
+                        .expect("Failed to prepare frame");
+                    app_window.request_redraw();
                 }
                 Event::WindowEvent {
                     event: WindowEvent::RedrawRequested,
                     ..
                 } => {
-                    unsafe { app.render(&window) }.unwrap();
+                    unsafe { app.render(&app_window) }.unwrap();
 
                     let ui = imgui.frame();
+                    let mouse_pos = ui.io().mouse_pos;
+                    ui.window("debug window")
+                        .size([600.0, 220.0], Condition::FirstUseEver)
+                        .build(|| {
+                            ui.button("button");
+                            ui.separator();
+                            // let mouse_pos = ui.io().mouse_pos;
+                            ui.text(format!(
+                                "Mouse Position: ({:.1},{:.1})",
+                                mouse_pos[0], mouse_pos[1]
+                            ));
+                        });
 
                     let mut run = true;
                     run_ui(&mut run, ui);
@@ -181,8 +167,8 @@ impl support::System {
                     }
 
                     let mut target = display.draw();
-                    target.clear_color_srgb(1.0, 1.0, 1.0, 1.0);
-                    platform.prepare_render(ui, &window);
+                    target.clear_color_srgb(0.0, 0.0, 0.5, 1.0);
+                    platform.prepare_render(ui, &app_window);
                     let draw_data = imgui.render();
                     renderer
                         .render(&mut target, draw_data)
