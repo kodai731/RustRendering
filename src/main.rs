@@ -31,7 +31,9 @@ const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.na
 use thiserror::Error;
 use vulkanalia::bytecode::Bytecode;
 const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
-use cgmath::{point3, Deg};
+use cgmath::prelude::*;
+use cgmath::Rad;
+use cgmath::{point3, Deg, InnerSpace, MetricSpace, Vector2};
 use cgmath::{vec2, vec3};
 use std::collections::HashMap;
 use std::fs::File;
@@ -43,6 +45,8 @@ use std::time::Instant;
 
 type Vec2 = cgmath::Vector2<f32>;
 type Vec3 = cgmath::Vector3<f32>;
+type Vec4 = cgmath::Vector4<f32>;
+type Mat3 = cgmath::Matrix3<f32>;
 type Mat4 = cgmath::Matrix4<f32>;
 
 use glium::glutin::surface::WindowSurface;
@@ -144,10 +148,9 @@ impl support::System {
                     event: WindowEvent::RedrawRequested,
                     ..
                 } => {
-                    unsafe { app.render(&app_window) }.unwrap();
-
                     let ui = imgui.frame();
                     let mouse_pos = ui.io().mouse_pos;
+                    let mouse_wheel = ui.io().mouse_wheel;
                     ui.window("debug window")
                         .size([600.0, 220.0], Condition::FirstUseEver)
                         .build(|| {
@@ -165,6 +168,8 @@ impl support::System {
                     if !run {
                         window_target.exit();
                     }
+
+                    unsafe { app.render(&app_window, mouse_pos, mouse_wheel) }.unwrap();
 
                     let mut target = display.draw();
                     target.clear_color_srgb(0.0, 0.0, 0.5, 1.0);
@@ -253,6 +258,9 @@ struct AppData {
     color_image: vk::Image, // We only need one render target since only one drawing operation is active at a time
     color_image_memory: vk::DeviceMemory,
     color_image_view: vk::ImageView,
+    last_mouse_pos: [f32; 2],
+    camera_direction: [f32; 3],
+    camera_pos: [f32; 3],
 }
 
 impl App {
@@ -287,6 +295,8 @@ impl App {
         let frame = 0 as usize;
         let resized = false;
         let start = Instant::now();
+        data.camera_pos = [0.0, 2.0, 2.0];
+        data.camera_direction = data.camera_pos;
 
         Ok(Self {
             entry,
@@ -299,7 +309,7 @@ impl App {
         })
     }
 
-    unsafe fn render(&mut self, window: &Window) -> Result<()> {
+    unsafe fn render(&mut self, window: &Window, mouse_pos: [f32; 2], mouse_wheel: f32) -> Result<()> {
         // Acquire an image from the swapchain
         // Execute the command buffer with that image as attachment in the framebuffer
         // Return the image to the swapchain for presentation
@@ -330,7 +340,7 @@ impl App {
 
         self.data.images_in_flight[image_index as usize] = self.data.in_flight_fences[self.frame];
 
-        self.update_uniform_buffer(image_index)?;
+        self.update_uniform_buffer(image_index, mouse_pos, mouse_wheel)?;
 
         let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -1253,14 +1263,39 @@ impl App {
         Ok(())
     }
 
-    unsafe fn update_uniform_buffer(&self, image_index: usize) -> Result<()> {
-        let time = self.start.elapsed().as_secs_f32();
-        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
-        let view = Mat4::look_at_rh(
-            point3(2.0, 2.0, 2.0),
+    unsafe fn update_uniform_buffer(&mut self, image_index: usize, mouse_pos: [f32; 2], mouse_wheel: f32) -> Result<()> {
+        let first_touch_view = Vec3::new(0.0, 0.0, 1.0);
+        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0));
+        let last_mouse_pos = Vec3::new(
+            self.data.last_mouse_pos[0],
+            self.data.last_mouse_pos[1],
+            0.0,
+        );
+        let mouse_pos = Vec3::new(mouse_pos[0], mouse_pos[1], 0.0);
+        let mut diff = mouse_pos - last_mouse_pos;
+        diff *= 1.0 / Vec3::distance(mouse_pos, last_mouse_pos);
+        let d = Vec3::normalize(diff);
+        let theta = Rad::acos(Vec3::dot(first_touch_view, d)) * 0.01;
+        let base = Vec3::cross(first_touch_view, d);
+
+        let rotate = Mat3::from_axis_angle(base, theta * 180.0 / std::f32::consts::PI);
+        let mut camera_pos = Vec3::new(self.data.camera_pos[0], self.data.camera_pos[1], self.data.camera_pos[2]);
+        let camera_direction = Vec3::new(
+            self.data.camera_direction[0],
+            self.data.camera_direction[1],
+            self.data.camera_direction[2],
+        );
+        let camera_up = Vec3::cross(camera_direction, first_touch_view);
+        let diff_view = camera_direction * mouse_wheel * -0.03;
+        camera_pos += diff_view;
+
+        let mut view = Mat4::look_at_rh(
+            point3(camera_pos.x, camera_pos.y, camera_pos.z),
             point3(0.0, 0.0, 0.0),
             vec3(0.0, 0.0, 1.0),
         );
+
+        // view = View(camera_pos, rotate * camera_direction, rotate * camera_up);
 
         let correction = Mat4::new(
             // column-major order
@@ -1299,6 +1334,8 @@ impl App {
         memcpy(&ubo, memory.cast(), 1);
         self.device
             .unmap_memory(self.data.uniform_buffer_memories[image_index]);
+
+        self.data.camera_pos = [camera_pos.x, camera_pos.y, camera_pos.z];
 
         Ok(())
     }
@@ -2310,4 +2347,36 @@ impl Hash for Vertex {
         self.tex_coord[0].to_bits().hash(state);
         self.tex_coord[1].to_bits().hash(state);
     }
+}
+
+unsafe fn View(
+    camera_pos: cgmath::Vector3<f32>,
+    direction: cgmath::Vector3<f32>,
+    up: cgmath::Vector3<f32>,
+) -> cgmath::Matrix4<f32> {
+    let nZ = cgmath::Vector3::normalize(direction);
+    let nX = cgmath::Vector3::normalize(cgmath::Vector3::cross(up, nZ));
+    let nY = cgmath::Vector3::cross(nX, nZ);
+    let orientation = cgmath::Matrix4::new(
+        nX.x, nY.x, nZ.x, 0.0, nX.y, nY.y, nZ.y, 0.0, nX.z, nY.z, nZ.z, 0.0, 0.0, 0.0, 0.0, 1.0,
+    );
+    let translate = cgmath::Matrix4::new(
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -camera_pos.x,
+        -camera_pos.y,
+        -camera_pos.z,
+        1.0,
+    );
+    return orientation * translate;
 }
