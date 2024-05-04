@@ -34,7 +34,7 @@ const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed co
 use cgmath::prelude::*;
 use cgmath::Rad;
 use cgmath::{point3, Deg, InnerSpace, MetricSpace, Vector2};
-use cgmath::{vec2, vec3};
+use cgmath::{vec2, vec3, vec4};
 use std::collections::HashMap;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
@@ -286,6 +286,7 @@ struct AppData {
     camera_direction: [f32; 3],
     camera_pos: [f32; 3],
     initial_camera_pos: [f32; 3],
+    camera_up: [f32; 3],
 }
 
 impl App {
@@ -323,8 +324,10 @@ impl App {
         data.initial_camera_pos = [0.0, 2.0, 2.0];
         data.camera_pos = data.initial_camera_pos;
         let camera_pos = vec3(data.camera_pos[0], data.camera_pos[1], data.camera_pos[2]);
-        camera_pos.normalize();
-        data.camera_direction = [camera_pos.x, camera_pos.y, camera_pos.z];
+        let camera_direction = camera_pos.normalize();
+        let camera_up = Vec3::cross(camera_direction, vec3(1.0, 0.0, 0.0));
+        data.camera_direction = [camera_direction.x, camera_direction.y, camera_direction.z];
+        data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
 
         Ok(Self {
             entry,
@@ -1312,8 +1315,8 @@ impl App {
         is_clicked: bool,
         monitor_value: &mut f32,
     ) -> Result<()> {
-        let first_touch_view = Vec3::new(1.0, 0.0, 0.0);
         let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0));
+        // let model = Mat4::identity();
         let mut camera_pos = Vec3::new(
             self.data.camera_pos[0],
             self.data.camera_pos[1],
@@ -1324,7 +1327,11 @@ impl App {
             self.data.camera_direction[1],
             self.data.camera_direction[2],
         );
-        let mut camera_up = Vec3::cross(camera_direction, first_touch_view);
+        let mut camera_up = vec3(
+            self.data.camera_up[0],
+            self.data.camera_up[1],
+            self.data.camera_up[2],
+        );
         let mouse_pos = Vec2::new(mouse_pos[0], mouse_pos[1]);
 
         if is_clicked {
@@ -1333,33 +1340,31 @@ impl App {
             let mut diff = mouse_pos - last_mouse_pos;
             let mut distance = Vec2::distance(mouse_pos, last_mouse_pos);
             *monitor_value = distance;
-            if 0.001 < distance && distance < 10.0 {
-                let d = Vec3::new(diff.x, diff.y, 1.0 / distance);
-                d.normalize();
-                let theta = Rad::acos(Vec3::dot(first_touch_view, d)) * 0.0001;
-                let base = Vec3::cross(first_touch_view, d);
-
-                let mut rotate = Mat3::identity();
-                let _ = Rodrigues(&mut rotate, Rad::cos(theta), Rad::sin(theta), &base);
-                //rotate = Mat3::from_axis_angle(base, theta * 180.0 / std::f32::consts::PI);
-                camera_direction = rotate * camera_direction;
-                camera_up = rotate * camera_up;
+            if 0.001 < distance && distance < 100.0 {
+                let mut rotate_x = Mat3::identity();
+                let mut rotate_y = Mat3::identity();
+                let theta_x = diff.x * 0.005;
+                let theta_y = diff.y * 0.005;
+                let last_view = view(camera_pos, camera_direction, camera_up);
+                let base_x_4 = last_view * model * vec4(-1.0, 0.0, 0.0, 0.0);
+                let base_y_4 = last_view * model * vec4(0.0, 1.0, 0.0, 0.0);
+                let base_x = vec3(base_x_4.x, base_x_4.y, base_x_4.z);
+                let base_y = vec3(base_y_4.x, base_y_4.y, base_y_4.z);
+                let _ = rodrigues(&mut rotate_x, Rad(theta_x).cos(), Rad(theta_x).sin(), &base_x);
+                let _ = rodrigues(&mut rotate_y, Rad(theta_y).cos(), Rad(theta_y).sin(), &base_y);
+                camera_up = rotate_y * rotate_x * camera_up;
+                camera_direction = rotate_y * rotate_x * camera_direction;
 
                 self.data.camera_direction =
                     [camera_direction.x, camera_direction.y, camera_direction.z];
+                self.data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
             }
         }
 
         let diff_view = camera_direction * mouse_wheel * -0.03;
         camera_pos += diff_view;
 
-        // let mut view = Mat4::look_at_rh(
-        //     point3(camera_pos.x, camera_pos.y, camera_pos.z),
-        //     point3(center.x, center.y, center.z),
-        //     camera_up,
-        // );
-
-        let view = View(camera_pos, camera_direction, camera_up);
+        let view = view(camera_pos, camera_direction, camera_up);
 
         self.data.camera_pos = [camera_pos.x, camera_pos.y, camera_pos.z];
         self.data.last_mouse_pos = [mouse_pos.x, mouse_pos.y];
@@ -2154,7 +2159,15 @@ impl App {
 
     unsafe fn reset_camera(&mut self) {
         self.data.camera_pos = self.data.initial_camera_pos;
-        self.data.camera_direction = self.data.camera_pos;
+        let camera_pos = vec3(
+            self.data.camera_pos[0],
+            self.data.camera_pos[1],
+            self.data.camera_pos[2],
+        );
+        let camera_direction = camera_pos.normalize();
+        let camera_up = Vec3::cross(camera_direction, vec3(1.0, 0.0, 0.0));
+        self.data.camera_direction = [camera_direction.x, camera_direction.y, camera_direction.z];
+        self.data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
     }
 }
 
@@ -2419,16 +2432,16 @@ impl Hash for Vertex {
     }
 }
 
-unsafe fn View(
+unsafe fn view(
     camera_pos: cgmath::Vector3<f32>,
     direction: cgmath::Vector3<f32>,
     up: cgmath::Vector3<f32>,
 ) -> cgmath::Matrix4<f32> {
-    let nZ = cgmath::Vector3::normalize(direction);
-    let nX = cgmath::Vector3::normalize(cgmath::Vector3::cross(up, nZ));
-    let nY = cgmath::Vector3::cross(nX, nZ);
+    let n_z = cgmath::Vector3::normalize(direction);
+    let n_x = cgmath::Vector3::normalize(cgmath::Vector3::cross(up, n_z));
+    let n_y = cgmath::Vector3::cross(n_x, n_z);
     let orientation = cgmath::Matrix4::new(
-        nX.x, nY.x, nZ.x, 0.0, nX.y, nY.y, nZ.y, 0.0, nX.z, nY.z, nZ.z, 0.0, 0.0, 0.0, 0.0, 1.0,
+        n_x.x, n_y.x, n_z.x, 0.0, n_x.y, n_y.y, n_z.y, 0.0, n_x.z, n_y.z, n_z.z, 0.0, 0.0, 0.0, 0.0, 1.0,
     );
     let translate = cgmath::Matrix4::new(
         1.0,
@@ -2451,7 +2464,7 @@ unsafe fn View(
     return orientation * translate;
 }
 
-unsafe fn Rodrigues(
+unsafe fn rodrigues(
     rotate: &mut cgmath::Matrix3<f32>,
     c: f32,
     s: f32,
