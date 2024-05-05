@@ -31,8 +31,10 @@ const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.na
 use thiserror::Error;
 use vulkanalia::bytecode::Bytecode;
 const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
-use cgmath::{point3, Deg};
-use cgmath::{vec2, vec3};
+use cgmath::Rad;
+use cgmath::{point3, Deg, InnerSpace, MetricSpace, Vector2};
+use cgmath::{prelude::*, Vector3};
+use cgmath::{vec2, vec3, vec4};
 use std::collections::HashMap;
 use std::fs::File;
 use std::hash::{Hash, Hasher};
@@ -43,6 +45,8 @@ use std::time::Instant;
 
 type Vec2 = cgmath::Vector2<f32>;
 type Vec3 = cgmath::Vector3<f32>;
+type Vec4 = cgmath::Vector4<f32>;
+type Mat3 = cgmath::Matrix3<f32>;
 type Mat4 = cgmath::Matrix4<f32>;
 
 use glium::glutin::surface::WindowSurface;
@@ -62,6 +66,7 @@ fn main() -> Result<()> {
     let system = support::init(file!());
     let mut value = 0;
     let choices = ["test test this is 1", "test test this is 2"];
+    let mut gui_data = GUIData::default();
 
     // App
     let mut app = unsafe { App::create(&system.app_window)? };
@@ -103,13 +108,18 @@ fn main() -> Result<()> {
 
     // });
 
-    system.main_loop(move |_, ui| {}, &mut app);
+    system.main_loop(move |_, ui| {}, &mut app, &mut gui_data);
 
     Ok(())
 }
 
 impl support::System {
-    pub fn main_loop<F: FnMut(&mut bool, &mut Ui) + 'static>(self, mut run_ui: F, app: &mut App) {
+    pub fn main_loop<F: FnMut(&mut bool, &mut Ui) + 'static>(
+        self,
+        mut run_ui: F,
+        app: &mut App,
+        gui_data: &mut GUIData,
+    ) {
         let support::System {
             event_loop,
             window,
@@ -144,27 +154,54 @@ impl support::System {
                     event: WindowEvent::RedrawRequested,
                     ..
                 } => {
-                    unsafe { app.render(&app_window) }.unwrap();
-
                     let ui = imgui.frame();
                     let mouse_pos = ui.io().mouse_pos;
-                    ui.window("debug window")
-                        .size([600.0, 220.0], Condition::FirstUseEver)
-                        .build(|| {
-                            ui.button("button");
-                            ui.separator();
-                            // let mouse_pos = ui.io().mouse_pos;
-                            ui.text(format!(
-                                "Mouse Position: ({:.1},{:.1})",
-                                mouse_pos[0], mouse_pos[1]
-                            ));
-                        });
+                    let mouse_wheel = ui.io().mouse_wheel;
+                    // initialize gui_data
+                    gui_data.is_left_clicked = false;
+                    gui_data.is_wheel_clicked = false;
+                    gui_data.monitor_value = 0.0;
+
+                    if ui.is_mouse_down(MouseButton::Left) {
+                        gui_data.is_left_clicked = true;
+                    }
+                    if ui.is_mouse_down(MouseButton::Middle) {
+                        gui_data.is_wheel_clicked = true;
+                    }
 
                     let mut run = true;
                     run_ui(&mut run, ui);
                     if !run {
                         window_target.exit();
                     }
+
+                    unsafe { app.render(&app_window, mouse_pos, mouse_wheel, gui_data) }.unwrap();
+
+                    ui.window("debug window")
+                        .size([600.0, 220.0], Condition::FirstUseEver)
+                        .build(|| {
+                            ui.button("button");
+                            if ui.button("reset camera") {
+                                unsafe {
+                                    app.reset_camera();
+                                }
+                            }
+                            ui.separator();
+                            // let mouse_pos = ui.io().mouse_pos;
+                            ui.text(format!(
+                                "Mouse Position: ({:.1},{:.1})",
+                                mouse_pos[0], mouse_pos[1]
+                            ));
+                            ui.text(format!(
+                                "is left clicked: ({:.1})",
+                                gui_data.is_left_clicked
+                            ));
+                            ui.text(format!(
+                                "is wheel clicked: ({:.1})",
+                                gui_data.is_wheel_clicked
+                            ));
+                            ui.text(format!("monitor value: ({:.1})", gui_data.monitor_value));
+                        });
 
                     let mut target = display.draw();
                     target.clear_color_srgb(0.0, 0.0, 0.5, 1.0);
@@ -193,6 +230,27 @@ impl support::System {
                 }
             })
             .expect("EventLoop error");
+    }
+}
+
+#[derive(Clone, Debug)]
+struct GUIData {
+    is_left_clicked: bool,
+    is_wheel_clicked: bool,
+    monitor_value: f32,
+    last_translate_x: [f32; 3],
+    last_translate_y: [f32; 3],
+}
+
+impl Default for GUIData {
+    fn default() -> Self {
+        Self {
+            is_left_clicked: false,
+            is_wheel_clicked: false,
+            monitor_value: 0.0,
+            last_translate_x: [0.0, 0.0, 0.0],
+            last_translate_y: [0.0, 0.0, 0.0],
+        }
     }
 }
 
@@ -253,6 +311,11 @@ struct AppData {
     color_image: vk::Image, // We only need one render target since only one drawing operation is active at a time
     color_image_memory: vk::DeviceMemory,
     color_image_view: vk::ImageView,
+    last_mouse_pos: [f32; 2],
+    camera_direction: [f32; 3],
+    camera_pos: [f32; 3],
+    initial_camera_pos: [f32; 3],
+    camera_up: [f32; 3],
 }
 
 impl App {
@@ -287,6 +350,13 @@ impl App {
         let frame = 0 as usize;
         let resized = false;
         let start = Instant::now();
+        data.initial_camera_pos = [0.0, 2.0, 2.0];
+        data.camera_pos = data.initial_camera_pos;
+        let camera_pos = vec3(data.camera_pos[0], data.camera_pos[1], data.camera_pos[2]);
+        let camera_direction = camera_pos.normalize();
+        let camera_up = Vec3::cross(camera_direction, vec3(1.0, 0.0, 0.0));
+        data.camera_direction = [camera_direction.x, camera_direction.y, camera_direction.z];
+        data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
 
         Ok(Self {
             entry,
@@ -299,7 +369,13 @@ impl App {
         })
     }
 
-    unsafe fn render(&mut self, window: &Window) -> Result<()> {
+    unsafe fn render(
+        &mut self,
+        window: &Window,
+        mouse_pos: [f32; 2],
+        mouse_wheel: f32,
+        gui_data: &mut GUIData,
+    ) -> Result<()> {
         // Acquire an image from the swapchain
         // Execute the command buffer with that image as attachment in the framebuffer
         // Return the image to the swapchain for presentation
@@ -330,7 +406,7 @@ impl App {
 
         self.data.images_in_flight[image_index as usize] = self.data.in_flight_fences[self.frame];
 
-        self.update_uniform_buffer(image_index)?;
+        self.update_uniform_buffer(image_index, mouse_pos, mouse_wheel, gui_data)?;
 
         let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -1253,14 +1329,98 @@ impl App {
         Ok(())
     }
 
-    unsafe fn update_uniform_buffer(&self, image_index: usize) -> Result<()> {
-        let time = self.start.elapsed().as_secs_f32();
-        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0) * time);
-        let view = Mat4::look_at_rh(
-            point3(2.0, 2.0, 2.0),
-            point3(0.0, 0.0, 0.0),
-            vec3(0.0, 0.0, 1.0),
+    unsafe fn update_uniform_buffer(
+        &mut self,
+        image_index: usize,
+        mouse_pos: [f32; 2],
+        mouse_wheel: f32,
+        gui_data: &mut GUIData,
+    ) -> Result<()> {
+        let mut model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0));
+        let last_translate_x = Mat4::from_translation(vec3_from_array(gui_data.last_translate_x));
+        let last_translate_y = Mat4::from_translation(vec3_from_array(gui_data.last_translate_y));
+        model = last_translate_x * last_translate_y * model;
+
+        let mut camera_pos = Vec3::new(
+            self.data.camera_pos[0],
+            self.data.camera_pos[1],
+            self.data.camera_pos[2],
         );
+        let mut camera_direction = Vec3::new(
+            self.data.camera_direction[0],
+            self.data.camera_direction[1],
+            self.data.camera_direction[2],
+        );
+        let mut camera_up = vec3(
+            self.data.camera_up[0],
+            self.data.camera_up[1],
+            self.data.camera_up[2],
+        );
+
+        let last_mouse_pos = Vec2::new(self.data.last_mouse_pos[0], self.data.last_mouse_pos[1]);
+        let mouse_pos = Vec2::new(mouse_pos[0], mouse_pos[1]);
+
+        let last_view = view(camera_pos, camera_direction, camera_up);
+        let base_x_4 = last_view * model * vec4(-1.0, 0.0, 0.0, 0.0);
+        let base_y_4 = last_view * model * vec4(0.0, 1.0, 0.0, 0.0);
+        let base_x = vec3(base_x_4.x, base_x_4.y, base_x_4.z);
+        let base_y = vec3(base_y_4.x, base_y_4.y, base_y_4.z);
+
+        if gui_data.is_left_clicked {
+            let diff = mouse_pos - last_mouse_pos;
+            let distance = Vec2::distance(mouse_pos, last_mouse_pos);
+            gui_data.monitor_value = distance;
+            if 0.001 < distance && distance < 100.0 {
+                let mut rotate_x = Mat3::identity();
+                let mut rotate_y = Mat3::identity();
+                let theta_x = diff.x * 0.005;
+                let theta_y = diff.y * 0.005;
+                let _ = rodrigues(
+                    &mut rotate_x,
+                    Rad(theta_x).cos(),
+                    Rad(theta_x).sin(),
+                    &base_x,
+                );
+                let _ = rodrigues(
+                    &mut rotate_y,
+                    Rad(theta_y).cos(),
+                    Rad(theta_y).sin(),
+                    &base_y,
+                );
+                camera_up = rotate_y * rotate_x * camera_up;
+                camera_direction = rotate_y * rotate_x * camera_direction;
+
+                self.data.camera_direction =
+                    [camera_direction.x, camera_direction.y, camera_direction.z];
+                self.data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
+            }
+        }
+
+        if gui_data.is_wheel_clicked {
+            let diff = mouse_pos - last_mouse_pos;
+            let distance = Vec2::distance(mouse_pos, last_mouse_pos);
+            gui_data.monitor_value = distance;
+            if 0.001 < distance && distance < 100.0 {
+                let translate_x_v = vec3(1.0, 0.0, 0.0) * diff.x * 0.01;
+                let translate_y_v = vec3(0.0, 1.0, 0.0) * diff.y * 0.01;
+                let translate_x = Mat4::from_translation(translate_x_v);
+                let translate_y = Mat4::from_translation(translate_y_v);
+                model = translate_y * translate_x * model;
+
+                gui_data.last_translate_x =
+                    array3_from_vec(vec3_from_array(gui_data.last_translate_x) + translate_x_v);
+                gui_data.last_translate_y =
+                    array3_from_vec(vec3_from_array(gui_data.last_translate_y) + translate_y_v);
+            }
+        }
+
+        let diff_view = camera_direction * mouse_wheel * -0.03;
+        camera_pos += diff_view;
+
+        let view = view(camera_pos, camera_direction, camera_up);
+
+        self.data.camera_pos = [camera_pos.x, camera_pos.y, camera_pos.z];
+        self.data.last_mouse_pos = [mouse_pos.x, mouse_pos.y];
 
         let correction = Mat4::new(
             // column-major order
@@ -2049,6 +2209,19 @@ impl App {
 
         Ok(())
     }
+
+    unsafe fn reset_camera(&mut self) {
+        self.data.camera_pos = self.data.initial_camera_pos;
+        let camera_pos = vec3(
+            self.data.camera_pos[0],
+            self.data.camera_pos[1],
+            self.data.camera_pos[2],
+        );
+        let camera_direction = camera_pos.normalize();
+        let camera_up = Vec3::cross(camera_direction, vec3(1.0, 0.0, 0.0));
+        self.data.camera_direction = [camera_direction.x, camera_direction.y, camera_direction.z];
+        self.data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
+    }
 }
 
 #[derive(Debug, Error)]
@@ -2310,4 +2483,75 @@ impl Hash for Vertex {
         self.tex_coord[0].to_bits().hash(state);
         self.tex_coord[1].to_bits().hash(state);
     }
+}
+
+unsafe fn view(
+    camera_pos: cgmath::Vector3<f32>,
+    direction: cgmath::Vector3<f32>,
+    up: cgmath::Vector3<f32>,
+) -> cgmath::Matrix4<f32> {
+    let n_z = cgmath::Vector3::normalize(direction);
+    let n_x = cgmath::Vector3::normalize(cgmath::Vector3::cross(up, n_z));
+    let n_y = cgmath::Vector3::cross(n_x, n_z);
+    let orientation = cgmath::Matrix4::new(
+        n_x.x, n_y.x, n_z.x, 0.0, n_x.y, n_y.y, n_z.y, 0.0, n_x.z, n_y.z, n_z.z, 0.0, 0.0, 0.0,
+        0.0, 1.0,
+    );
+    let translate = cgmath::Matrix4::new(
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -camera_pos.x,
+        -camera_pos.y,
+        -camera_pos.z,
+        1.0,
+    );
+    return orientation * translate;
+}
+
+unsafe fn rodrigues(
+    rotate: &mut cgmath::Matrix3<f32>,
+    c: f32,
+    s: f32,
+    n: &cgmath::Vector3<f32>,
+) -> Result<()> {
+    let ac = 1.0 - c;
+    let xyac = n.x * n.y * ac;
+    let yzac = n.y * n.z * ac;
+    let zxac = n.x * n.z * ac;
+    let xs = n.x * s;
+    let ys = n.y * s;
+    let zs = n.z * s;
+    // rotate = glm::mat3(c + n.x * n.x * ac, n.x * n.y * ac + n.z * s, n.z * n.x * ac - n.y * s,
+    //     n.x * n.y * ac - n.z * s, c + n.y * n.y * ac, n.y * n.z * ac + n.x * s,
+    //     n.z * n.x * ac + n.y * s, n.y * n.z * ac - n.x * s, c + n.z * n.z * ac);
+    *rotate = cgmath::Matrix3::new(
+        c + n.x * n.x * ac,
+        xyac + zs,
+        zxac - ys,
+        xyac - zs,
+        c + n.y * n.y * ac,
+        yzac + xs,
+        zxac + ys,
+        yzac - xs,
+        c + n.z * n.z * ac,
+    );
+    Ok(())
+}
+
+fn vec3_from_array(a: [f32; 3]) -> Vector3<f32> {
+    vec3(a[0], a[1], a[2])
+}
+
+fn array3_from_vec(v: Vector3<f32>) -> [f32; 3] {
+    [v.x, v.y, v.z]
 }

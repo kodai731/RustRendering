@@ -33,14 +33,14 @@ pub fn init(title: &str) -> System {
 
     let builder = WindowBuilder::new()
         .with_title(title)
-        .with_inner_size(LogicalSize::new(1024, 768));
+        .with_inner_size(LogicalSize::new(1524, 1524));
     let (window, display) = glium::backend::glutin::SimpleWindowBuilder::new()
         .set_window_builder(builder)
         .build(&event_loop);
 
     let builder3 = WindowBuilder::new()
         .with_title("App Window")
-        .with_inner_size(LogicalSize::new(1024, 768));
+        .with_inner_size(LogicalSize::new(1524, 1524));
     let (app_window, app_display) = glium::backend::glutin::SimpleWindowBuilder::new()
         .set_window_builder(builder3)
         .build(&event_loop);
