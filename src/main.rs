@@ -31,9 +31,9 @@ const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[vk::KHR_SWAPCHAIN_EXTENSION.na
 use thiserror::Error;
 use vulkanalia::bytecode::Bytecode;
 const MAX_FRAMES_IN_FLIGHT: usize = 2; // how many frames should be processed concurrently GPU-GPU synchronization
-use cgmath::prelude::*;
 use cgmath::Rad;
 use cgmath::{point3, Deg, InnerSpace, MetricSpace, Vector2};
+use cgmath::{prelude::*, Vector3};
 use cgmath::{vec2, vec3, vec4};
 use std::collections::HashMap;
 use std::fs::File;
@@ -66,6 +66,7 @@ fn main() -> Result<()> {
     let system = support::init(file!());
     let mut value = 0;
     let choices = ["test test this is 1", "test test this is 2"];
+    let mut gui_data = GUIData::default();
 
     // App
     let mut app = unsafe { App::create(&system.app_window)? };
@@ -107,13 +108,18 @@ fn main() -> Result<()> {
 
     // });
 
-    system.main_loop(move |_, ui| {}, &mut app);
+    system.main_loop(move |_, ui| {}, &mut app, &mut gui_data);
 
     Ok(())
 }
 
 impl support::System {
-    pub fn main_loop<F: FnMut(&mut bool, &mut Ui) + 'static>(self, mut run_ui: F, app: &mut App) {
+    pub fn main_loop<F: FnMut(&mut bool, &mut Ui) + 'static>(
+        self,
+        mut run_ui: F,
+        app: &mut App,
+        gui_data: &mut GUIData,
+    ) {
         let support::System {
             event_loop,
             window,
@@ -151,10 +157,16 @@ impl support::System {
                     let ui = imgui.frame();
                     let mouse_pos = ui.io().mouse_pos;
                     let mouse_wheel = ui.io().mouse_wheel;
+                    // initialize gui_data
+                    gui_data.is_left_clicked = false;
+                    gui_data.is_wheel_clicked = false;
+                    gui_data.monitor_value = 0.0;
 
-                    let mut is_clicked = false;
                     if ui.is_mouse_down(MouseButton::Left) {
-                        is_clicked = true;
+                        gui_data.is_left_clicked = true;
+                    }
+                    if ui.is_mouse_down(MouseButton::Middle) {
+                        gui_data.is_wheel_clicked = true;
                     }
 
                     let mut run = true;
@@ -163,18 +175,7 @@ impl support::System {
                         window_target.exit();
                     }
 
-                    let mut monitor_value: f32 = 0.0;
-
-                    unsafe {
-                        app.render(
-                            &app_window,
-                            mouse_pos,
-                            mouse_wheel,
-                            is_clicked,
-                            &mut monitor_value,
-                        )
-                    }
-                    .unwrap();
+                    unsafe { app.render(&app_window, mouse_pos, mouse_wheel, gui_data) }.unwrap();
 
                     ui.window("debug window")
                         .size([600.0, 220.0], Condition::FirstUseEver)
@@ -191,8 +192,15 @@ impl support::System {
                                 "Mouse Position: ({:.1},{:.1})",
                                 mouse_pos[0], mouse_pos[1]
                             ));
-                            ui.text(format!("is clicked: ({:.1})", is_clicked));
-                            ui.text(format!("monitor value: ({:.1})", monitor_value));
+                            ui.text(format!(
+                                "is left clicked: ({:.1})",
+                                gui_data.is_left_clicked
+                            ));
+                            ui.text(format!(
+                                "is wheel clicked: ({:.1})",
+                                gui_data.is_wheel_clicked
+                            ));
+                            ui.text(format!("monitor value: ({:.1})", gui_data.monitor_value));
                         });
 
                     let mut target = display.draw();
@@ -222,6 +230,27 @@ impl support::System {
                 }
             })
             .expect("EventLoop error");
+    }
+}
+
+#[derive(Clone, Debug)]
+struct GUIData {
+    is_left_clicked: bool,
+    is_wheel_clicked: bool,
+    monitor_value: f32,
+    last_translate_x: [f32; 3],
+    last_translate_y: [f32; 3],
+}
+
+impl Default for GUIData {
+    fn default() -> Self {
+        Self {
+            is_left_clicked: false,
+            is_wheel_clicked: false,
+            monitor_value: 0.0,
+            last_translate_x: [0.0, 0.0, 0.0],
+            last_translate_y: [0.0, 0.0, 0.0],
+        }
     }
 }
 
@@ -345,8 +374,7 @@ impl App {
         window: &Window,
         mouse_pos: [f32; 2],
         mouse_wheel: f32,
-        is_clicked: bool,
-        monitor_value: &mut f32,
+        gui_data: &mut GUIData,
     ) -> Result<()> {
         // Acquire an image from the swapchain
         // Execute the command buffer with that image as attachment in the framebuffer
@@ -378,13 +406,7 @@ impl App {
 
         self.data.images_in_flight[image_index as usize] = self.data.in_flight_fences[self.frame];
 
-        self.update_uniform_buffer(
-            image_index,
-            mouse_pos,
-            mouse_wheel,
-            is_clicked,
-            monitor_value,
-        )?;
+        self.update_uniform_buffer(image_index, mouse_pos, mouse_wheel, gui_data)?;
 
         let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
@@ -1312,11 +1334,13 @@ impl App {
         image_index: usize,
         mouse_pos: [f32; 2],
         mouse_wheel: f32,
-        is_clicked: bool,
-        monitor_value: &mut f32,
+        gui_data: &mut GUIData,
     ) -> Result<()> {
-        let model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0));
-        // let model = Mat4::identity();
+        let mut model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0));
+        let last_translate_x = Mat4::from_translation(vec3_from_array(gui_data.last_translate_x));
+        let last_translate_y = Mat4::from_translation(vec3_from_array(gui_data.last_translate_y));
+        model = last_translate_x * last_translate_y * model;
+
         let mut camera_pos = Vec3::new(
             self.data.camera_pos[0],
             self.data.camera_pos[1],
@@ -1332,32 +1356,61 @@ impl App {
             self.data.camera_up[1],
             self.data.camera_up[2],
         );
+
+        let last_mouse_pos = Vec2::new(self.data.last_mouse_pos[0], self.data.last_mouse_pos[1]);
         let mouse_pos = Vec2::new(mouse_pos[0], mouse_pos[1]);
 
-        if is_clicked {
-            let last_mouse_pos =
-                Vec2::new(self.data.last_mouse_pos[0], self.data.last_mouse_pos[1]);
-            let mut diff = mouse_pos - last_mouse_pos;
-            let mut distance = Vec2::distance(mouse_pos, last_mouse_pos);
-            *monitor_value = distance;
+        let last_view = view(camera_pos, camera_direction, camera_up);
+        let base_x_4 = last_view * model * vec4(-1.0, 0.0, 0.0, 0.0);
+        let base_y_4 = last_view * model * vec4(0.0, 1.0, 0.0, 0.0);
+        let base_x = vec3(base_x_4.x, base_x_4.y, base_x_4.z);
+        let base_y = vec3(base_y_4.x, base_y_4.y, base_y_4.z);
+
+        if gui_data.is_left_clicked {
+            let diff = mouse_pos - last_mouse_pos;
+            let distance = Vec2::distance(mouse_pos, last_mouse_pos);
+            gui_data.monitor_value = distance;
             if 0.001 < distance && distance < 100.0 {
                 let mut rotate_x = Mat3::identity();
                 let mut rotate_y = Mat3::identity();
                 let theta_x = diff.x * 0.005;
                 let theta_y = diff.y * 0.005;
-                let last_view = view(camera_pos, camera_direction, camera_up);
-                let base_x_4 = last_view * model * vec4(-1.0, 0.0, 0.0, 0.0);
-                let base_y_4 = last_view * model * vec4(0.0, 1.0, 0.0, 0.0);
-                let base_x = vec3(base_x_4.x, base_x_4.y, base_x_4.z);
-                let base_y = vec3(base_y_4.x, base_y_4.y, base_y_4.z);
-                let _ = rodrigues(&mut rotate_x, Rad(theta_x).cos(), Rad(theta_x).sin(), &base_x);
-                let _ = rodrigues(&mut rotate_y, Rad(theta_y).cos(), Rad(theta_y).sin(), &base_y);
+                let _ = rodrigues(
+                    &mut rotate_x,
+                    Rad(theta_x).cos(),
+                    Rad(theta_x).sin(),
+                    &base_x,
+                );
+                let _ = rodrigues(
+                    &mut rotate_y,
+                    Rad(theta_y).cos(),
+                    Rad(theta_y).sin(),
+                    &base_y,
+                );
                 camera_up = rotate_y * rotate_x * camera_up;
                 camera_direction = rotate_y * rotate_x * camera_direction;
 
                 self.data.camera_direction =
                     [camera_direction.x, camera_direction.y, camera_direction.z];
                 self.data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
+            }
+        }
+
+        if gui_data.is_wheel_clicked {
+            let diff = mouse_pos - last_mouse_pos;
+            let distance = Vec2::distance(mouse_pos, last_mouse_pos);
+            gui_data.monitor_value = distance;
+            if 0.001 < distance && distance < 100.0 {
+                let translate_x_v = vec3(1.0, 0.0, 0.0) * diff.x * 0.01;
+                let translate_y_v = vec3(0.0, 1.0, 0.0) * diff.y * 0.01;
+                let translate_x = Mat4::from_translation(translate_x_v);
+                let translate_y = Mat4::from_translation(translate_y_v);
+                model = translate_y * translate_x * model;
+
+                gui_data.last_translate_x =
+                    array3_from_vec(vec3_from_array(gui_data.last_translate_x) + translate_x_v);
+                gui_data.last_translate_y =
+                    array3_from_vec(vec3_from_array(gui_data.last_translate_y) + translate_y_v);
             }
         }
 
@@ -2441,7 +2494,8 @@ unsafe fn view(
     let n_x = cgmath::Vector3::normalize(cgmath::Vector3::cross(up, n_z));
     let n_y = cgmath::Vector3::cross(n_x, n_z);
     let orientation = cgmath::Matrix4::new(
-        n_x.x, n_y.x, n_z.x, 0.0, n_x.y, n_y.y, n_z.y, 0.0, n_x.z, n_y.z, n_z.z, 0.0, 0.0, 0.0, 0.0, 1.0,
+        n_x.x, n_y.x, n_z.x, 0.0, n_x.y, n_y.y, n_z.y, 0.0, n_x.z, n_y.z, n_z.z, 0.0, 0.0, 0.0,
+        0.0, 1.0,
     );
     let translate = cgmath::Matrix4::new(
         1.0,
@@ -2492,4 +2546,12 @@ unsafe fn rodrigues(
         c + n.z * n.z * ac,
     );
     Ok(())
+}
+
+fn vec3_from_array(a: [f32; 3]) -> Vector3<f32> {
+    vec3(a[0], a[1], a[2])
+}
+
+fn array3_from_vec(v: Vector3<f32>) -> [f32; 3] {
+    [v.x, v.y, v.z]
 }
