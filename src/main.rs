@@ -316,6 +316,16 @@ struct AppData {
     camera_pos: [f32; 3],
     initial_camera_pos: [f32; 3],
     camera_up: [f32; 3],
+    grid_descriptor_set_layout: vk::DescriptorSetLayout,
+    grid_pipeline_layout: vk::PipelineLayout,
+    grid_pipeline: vk::Pipeline,
+    grid_vertex_buffer: vk::Buffer,
+    grid_vertex_buffer_memory: vk::DeviceMemory,
+    grid_index_buffer: vk::Buffer,
+    grid_index_buffer_memory: vk::DeviceMemory,
+    grid_vertices: Vec<Vertex>,
+    grid_indices: Vec<u32>,
+    grid_descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
 impl App {
@@ -331,7 +341,9 @@ impl App {
         let _ = Self::create_swapchain_image_view(&device, &mut data)?;
         let _ = Self::create_render_pass(&instance, &device, &mut data)?;
         let _ = Self::create_descriptor_set_layout(&device, &mut data)?;
+        let _ = Self::create_descriptor_set_layout_grid(&device, &mut data)?;
         let _ = Self::create_pipeline(&device, &mut data)?;
+        let _ = Self::create_pipeline_grid(&device, &mut data)?;
         let _ = Self::create_command_pool(&instance, &device, &mut data)?;
         let _ = Self::create_color_objects(&instance, &device, &mut data)?;
         let _ = Self::create_depth_objects(&instance, &device, &mut data)?;
@@ -342,9 +354,12 @@ impl App {
         let _ = Self::load_model(&mut data)?;
         let _ = Self::create_vertex_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_index_buffer(&instance, &device, &mut data)?;
+        let _ = Self::create_vertex_buffer_grid(&instance, &device, &mut data)?;
+        let _ = Self::create_index_buffer_grid(&instance, &device, &mut data)?;
         let _ = Self::create_uniform_buffers(&instance, &device, &mut data)?;
         let _ = Self::create_descriptor_pool(&device, &mut data)?;
         let _ = Self::create_descriptor_sets(&device, &mut data)?;
+        let _ = Self::create_descriptor_sets_grid(&device, &mut data)?;
         let _ = Self::create_command_buffers(&device, &mut data)?;
         let _ = Self::create_sync_objects(&device, &mut data)?;
         let frame = 0 as usize;
@@ -630,7 +645,8 @@ impl App {
 
         let features = vk::PhysicalDeviceFeatures::builder()
             .sampler_anisotropy(true)
-            .sample_rate_shading(true);
+            .sample_rate_shading(true)
+            .fill_mode_non_solid(true);
 
         let info = vk::DeviceCreateInfo::builder()
             .queue_create_infos(&queue_infos)
@@ -841,6 +857,125 @@ impl App {
         Ok(device.create_shader_module(&info, None)?)
     }
 
+    unsafe fn create_pipeline_grid(device: &Device, data: &mut AppData) -> Result<()> {
+        let vert = include_bytes!("./shaders/gridVert.spv");
+        let frag = include_bytes!("./shaders/gridFrag.spv");
+        let vert_shader_module = Self::create_shader_module(device, &vert[..])?;
+        let frag_shader_module = Self::create_shader_module(device, &frag[..])?;
+
+        let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::VERTEX)
+            .module(vert_shader_module)
+            .name(b"main\0");
+        let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
+            .stage(vk::ShaderStageFlags::FRAGMENT)
+            .module(frag_shader_module)
+            .name(b"main\0");
+
+        let binding_discriptions = &[Vertex::binding_description()];
+        let attribute_descriptions = Vertex::attribute_descriptions();
+        let vertex_input_state = vk::PipelineVertexInputStateCreateInfo::builder()
+            .vertex_binding_descriptions(binding_discriptions)
+            .vertex_attribute_descriptions(&attribute_descriptions);
+
+        let input_assembly_state = vk::PipelineInputAssemblyStateCreateInfo::builder()
+            .topology(vk::PrimitiveTopology::LINE_LIST)
+            .primitive_restart_enable(false);
+
+        let viewport = vk::Viewport::builder()
+            .x(0.0)
+            .y(0.0)
+            .width(data.swapchain_extent.width as f32)
+            .height(data.swapchain_extent.height as f32)
+            .min_depth(0.0)
+            .max_depth(1.0);
+
+        let scissor = vk::Rect2D::builder()
+            .offset(vk::Offset2D { x: 0, y: 0 })
+            .extent(data.swapchain_extent);
+
+        let viewports = &[viewport];
+        let scissors = &[scissor];
+        let viewport_state = vk::PipelineViewportStateCreateInfo::builder()
+            .viewports(viewports)
+            .scissors(scissors);
+
+        let rasterization_state = vk::PipelineRasterizationStateCreateInfo::builder()
+            .depth_clamp_enable(false)
+            .rasterizer_discard_enable(false)
+            .polygon_mode(vk::PolygonMode::LINE)
+            .line_width(1.0)
+            .cull_mode(vk::CullModeFlags::NONE)
+            .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
+            .depth_bias_enable(false);
+
+            let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
+            .sample_shading_enable(true) // https://registry.khronos.org/vulkan/specs/1.0/html/vkspec.html#primsrast-sampleshading
+            .min_sample_shading(0.9) //  Minimum fraction for sample shading; closer to one is smoother.
+            .sample_shading_enable(false)
+            .rasterization_samples(data.msaa_samples);
+
+        let attachment = vk::PipelineColorBlendAttachmentState::builder()
+            .color_write_mask(vk::ColorComponentFlags::all())
+            .blend_enable(false)
+            .src_color_blend_factor(vk::BlendFactor::ONE)
+            .dst_color_blend_factor(vk::BlendFactor::ZERO)
+            .color_blend_op(vk::BlendOp::ADD)
+            .src_alpha_blend_factor(vk::BlendFactor::ONE)
+            .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+            .alpha_blend_op(vk::BlendOp::ADD);
+
+        let attachments = &[attachment];
+        let color_blend_state = vk::PipelineColorBlendStateCreateInfo::builder()
+            .logic_op_enable(false)
+            .logic_op(vk::LogicOp::COPY)
+            .attachments(attachments)
+            .blend_constants([0.0, 0.0, 0.0, 0.0]);
+
+        // NOTE: This will cause the configuration of these values to be ignored and you will be required to specify the data at drawing time.
+        let dynamic_state = &[vk::DynamicState::VIEWPORT, vk::DynamicState::LINE_WIDTH];
+
+        let dynamic_state =
+            vk::PipelineDynamicStateCreateInfo::builder().dynamic_states(dynamic_state);
+
+        let descriptor_set_layouts = &[data.grid_descriptor_set_layout];
+        let layout_info =
+            vk::PipelineLayoutCreateInfo::builder().set_layouts(descriptor_set_layouts);
+        data.grid_pipeline_layout = device.create_pipeline_layout(&layout_info, None)?;
+
+        let stages = &[vert_stage, frag_stage];
+
+        let depth_stencil_state = vk::PipelineDepthStencilStateCreateInfo::builder()
+            .depth_test_enable(true)
+            .depth_write_enable(true)
+            .depth_compare_op(vk::CompareOp::LESS)
+            .depth_bounds_test_enable(false)
+            .min_depth_bounds(0.0)
+            .max_depth_bounds(1.0)
+            .stencil_test_enable(false);
+
+        let info = vk::GraphicsPipelineCreateInfo::builder()
+            .stages(stages)
+            .vertex_input_state(&vertex_input_state)
+            .input_assembly_state(&input_assembly_state)
+            .viewport_state(&viewport_state)
+            .rasterization_state(&rasterization_state)
+            .multisample_state(&multisample_state)
+            .depth_stencil_state(&depth_stencil_state)
+            .color_blend_state(&color_blend_state)
+            .layout(data.grid_pipeline_layout)
+            .render_pass(data.render_pass)
+            .subpass(0);
+
+        data.grid_pipeline = device
+            .create_graphics_pipelines(vk::PipelineCache::null(), &[info], None)?
+            .0[0];
+
+        device.destroy_shader_module(vert_shader_module, None);
+        device.destroy_shader_module(frag_shader_module, None);
+        Ok(())
+    }
+
     unsafe fn create_render_pass(
         instance: &Instance,
         device: &Device,
@@ -1035,6 +1170,28 @@ impl App {
                 &[],
             );
             device.cmd_draw_indexed(*command_buffer, data.indices.len() as u32, 1, 0, 0, 0);
+
+            device.cmd_bind_pipeline(
+                *command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                data.grid_pipeline,
+            );
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[data.grid_vertex_buffer], &[0]);
+            device.cmd_bind_index_buffer(
+                *command_buffer,
+                data.grid_index_buffer,
+                0,
+                vk::IndexType::UINT32,
+            );
+            device.cmd_bind_descriptor_sets(
+                *command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                data.grid_pipeline_layout,
+                0,
+                &[data.grid_descriptor_sets[i]],
+                &[],
+            );
+            device.cmd_draw_indexed(*command_buffer, data.grid_indices.len() as u32, 1, 0, 0, 0);
             device.cmd_end_render_pass(*command_buffer);
             device.end_command_buffer(*command_buffer)?;
         }
@@ -1182,6 +1339,103 @@ impl App {
         Ok(())
     }
 
+    unsafe fn create_vertex_buffer_grid(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
+    ) -> Result<()> {
+        // create data
+        // -100.0 - 100.0
+        let tex_coord = vec2(0.0, 0.0);
+        let mut color = vec3(0.0, 0.0, 1.0);
+        let _ = Self::create_grid_data(data, 0, color, tex_coord)?;
+        color = vec3(1.0, 0.0, 0.0);
+        let _ = Self::create_grid_data(data, 2, color, tex_coord)?;
+        
+        let size = (size_of::<Vertex>() * data.grid_vertices.len()) as u64;
+        let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
+            instance,
+            device,
+            data,
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?;
+
+        let map_memory =
+            device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
+
+        memcpy(
+            data.grid_vertices.as_ptr(),
+            map_memory.cast(),
+            data.grid_vertices.len(),
+        );
+        device.unmap_memory(staging_buffer_memory);
+
+        let (grid_vertex_buffer, grid_vertex_buffer_memory) = Self::create_buffer(
+            instance,
+            device,
+            data,
+            size,
+            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL, //  we're not able to use map_memory, instead can be copied
+        )?;
+
+        data.grid_vertex_buffer = grid_vertex_buffer;
+        data.grid_vertex_buffer_memory = grid_vertex_buffer_memory;
+
+        Self::copy_buffer(device, data, staging_buffer, grid_vertex_buffer, size)?;
+
+        device.destroy_buffer(staging_buffer, None);
+        device.free_memory(staging_buffer_memory, None);
+
+        Ok(())
+    }
+
+    unsafe fn create_grid_data(
+        data: &mut AppData,
+        index: i32,
+        color: Vector3<f32>,
+        tex_coord: Vector2<f32>,
+    ) -> Result<()> {
+        for i in 0..100 {
+            let mut pos1 = Vec3::new(0.0, 0.0, 0.0);
+            if index == 0 {
+                pos1.x = i as f32 * 0.1;
+                pos1.z = 100.0;
+            } else if index == 1 {
+                pos1.y = i as f32 * 0.1;
+            } else if index == 2 {
+                pos1.z = i as f32 * 0.1;
+                pos1.x = 100.0;
+            }
+            let mut pos2 = Vec3::new(0.0, 0.0, 0.0);
+            if index == 0 {
+                pos2.x = pos1.x;
+                pos2.z = -100.0;
+            } else if index == 1 {
+                pos2.y = i as f32 * 0.1;
+            } else if index == 2 {
+                pos2.z = pos1.z;
+                pos2.x = -100.0;
+            }
+            let vertex1 = Vertex::new(pos1, color, tex_coord);
+            let vertex2 = Vertex::new(pos2, color, tex_coord);
+            let vertex3 = Vertex::new(-pos1, color, tex_coord);
+            let vertex4 = Vertex::new(-pos2, color, tex_coord);
+            data.grid_vertices.push(vertex1);
+            data.grid_indices.push(data.grid_indices.len() as u32);
+            data.grid_vertices.push(vertex2);
+            data.grid_indices.push(data.grid_indices.len() as u32);
+            data.grid_vertices.push(vertex3);
+            data.grid_indices.push(data.grid_indices.len() as u32);
+            data.grid_vertices.push(vertex4);
+            data.grid_indices.push(data.grid_indices.len() as u32);
+        }
+
+        Ok(())
+    }
+
     unsafe fn copy_buffer(
         device: &Device,
         data: &AppData,
@@ -1229,6 +1483,47 @@ impl App {
 
         data.index_buffer = index_buffer;
         data.index_buffer_memory = index_buffer_memory;
+
+        Self::copy_buffer(device, data, staging_buffer, index_buffer, size)?;
+
+        device.destroy_buffer(staging_buffer, None);
+        device.free_memory(staging_buffer_memory, None);
+
+        Ok(())
+    }
+
+    unsafe fn create_index_buffer_grid(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
+    ) -> Result<()> {
+        let size = (size_of::<u32>() * data.grid_indices.len()) as u64;
+        let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
+            instance,
+            device,
+            data,
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?;
+
+        let map_memory =
+            device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
+
+        memcpy(data.indices.as_ptr(), map_memory.cast(), data.grid_indices.len());
+        device.unmap_memory(staging_buffer_memory);
+
+        let (index_buffer, index_buffer_memory) = Self::create_buffer(
+            instance,
+            device,
+            data,
+            size,
+            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL, //  we're not able to use map_memory, instead can be copied
+        )?;
+
+        data.grid_index_buffer = index_buffer;
+        data.grid_index_buffer_memory = index_buffer_memory;
 
         Self::copy_buffer(device, data, staging_buffer, index_buffer, size)?;
 
@@ -1301,6 +1596,22 @@ impl App {
         let bindings = &[ubo_binding, sampler_binding];
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
         data.descriptor_set_layout = device.create_descriptor_set_layout(&info, None)?;
+
+        Ok(())
+    }
+
+    unsafe fn create_descriptor_set_layout_grid(device: &Device, data: &mut AppData) -> Result<()> {
+        // The descriptor layout specifies the types of resources that are going to be accessed by the pipeline,
+        // just like a render pass specifies the types of attachments that will be accessed
+        let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::VERTEX);
+
+        let bindings = &[ubo_binding];
+        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
+        data.grid_descriptor_set_layout = device.create_descriptor_set_layout(&info, None)?;
 
         Ok(())
     }
@@ -1466,17 +1777,17 @@ impl App {
     unsafe fn create_descriptor_pool(device: &Device, data: &mut AppData) -> Result<()> {
         let ubo_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(data.swapchain_images.len() as u32); // This pool size structure is referenced by the main vk::DescriptorPoolCreateInfo
+            .descriptor_count((data.swapchain_images.len() * 4) as u32); // This pool size structure is referenced by the main vk::DescriptorPoolCreateInfo
                                                                    //along with the maximum number of descriptor sets that may be allocated:
 
         let sampler_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(data.swapchain_images.len() as u32);
+            .descriptor_count((data.swapchain_images.len() * 4) as u32);
 
         let pool_sizes = &[ubo_size, sampler_size];
         let info = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(pool_sizes)
-            .max_sets(data.swapchain_images.len() as u32);
+            .max_sets((data.swapchain_images.len() * 4) as u32);
         data.descriptor_pool = device.create_descriptor_pool(&info, None)?;
 
         Ok(())
@@ -1527,6 +1838,38 @@ impl App {
 
             device.update_descriptor_sets(
                 &[ubo_write, sampler_write],
+                &[] as &[vk::CopyDescriptorSet],
+            );
+        }
+
+        Ok(())
+    }
+
+    unsafe fn create_descriptor_sets_grid(device: &Device, data: &mut AppData) -> Result<()> {
+        let layouts = vec![data.grid_descriptor_set_layout; data.swapchain_images.len()]; //  create one descriptor set for each swapchain image, all with the same layout.
+        let info = vk::DescriptorSetAllocateInfo::builder()
+            .descriptor_pool(data.descriptor_pool)
+            .set_layouts(&layouts);
+        data.grid_descriptor_sets = device.allocate_descriptor_sets(&info)?;
+
+        for i in 0..data.swapchain_images.len() {
+            let info = vk::DescriptorBufferInfo::builder()
+                .buffer(data.uniform_buffers[i])
+                .offset(0)
+                .range(size_of::<UniformBufferObject>() as u64);
+            // The configuration of descriptors is updated using the update_descriptor_sets function,
+            // which takes an array of vk::WriteDescriptorSet structs as parameter.
+            let buffer_info = &[info];
+
+            let ubo_write = vk::WriteDescriptorSet::builder()
+                .dst_set(data.grid_descriptor_sets[i])
+                .dst_binding(0)
+                .dst_array_element(0) // Remember that descriptors can be arrays, so we also need to specify the first index in the array that we want to update
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(buffer_info);
+
+            device.update_descriptor_sets(
+                &[ubo_write],
                 &[] as &[vk::CopyDescriptorSet],
             );
         }
