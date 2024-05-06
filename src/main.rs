@@ -326,6 +326,8 @@ struct AppData {
     grid_vertices: Vec<Vertex>,
     grid_indices: Vec<u32>,
     grid_descriptor_sets: Vec<vk::DescriptorSet>,
+    grid_uniform_buffers: Vec<vk::Buffer>,
+    grid_uniform_buffer_memories: Vec<vk::DeviceMemory>,
 }
 
 impl App {
@@ -357,6 +359,7 @@ impl App {
         let _ = Self::create_vertex_buffer_grid(&instance, &device, &mut data)?;
         let _ = Self::create_index_buffer_grid(&instance, &device, &mut data)?;
         let _ = Self::create_uniform_buffers(&instance, &device, &mut data)?;
+        let _ = Self::create_uniform_buffers_grid(&instance, &device, &mut data)?;
         let _ = Self::create_descriptor_pool(&device, &mut data)?;
         let _ = Self::create_descriptor_sets(&device, &mut data)?;
         let _ = Self::create_descriptor_sets_grid(&device, &mut data)?;
@@ -365,7 +368,7 @@ impl App {
         let frame = 0 as usize;
         let resized = false;
         let start = Instant::now();
-        data.initial_camera_pos = [0.0, 2.0, 2.0];
+        data.initial_camera_pos = [0.0, -2.0, -2.0];
         data.camera_pos = data.initial_camera_pos;
         let camera_pos = vec3(data.camera_pos[0], data.camera_pos[1], data.camera_pos[2]);
         let camera_direction = camera_pos.normalize();
@@ -909,7 +912,7 @@ impl App {
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
 
-            let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
+        let multisample_state = vk::PipelineMultisampleStateCreateInfo::builder()
             .sample_shading_enable(true) // https://registry.khronos.org/vulkan/specs/1.0/html/vkspec.html#primsrast-sampleshading
             .min_sample_shading(0.9) //  Minimum fraction for sample shading; closer to one is smoother.
             .sample_shading_enable(false)
@@ -1232,8 +1235,10 @@ impl App {
         Self::create_depth_objects(&self.instance, &self.device, &mut self.data)?;
         Self::create_framebuffers(&self.device, &mut self.data)?;
         Self::create_uniform_buffers(&self.instance, &self.device, &mut self.data)?;
+        Self::create_uniform_buffers_grid(&self.instance, &self.device, &mut self.data)?;
         Self::create_descriptor_pool(&self.device, &mut self.data)?;
         Self::create_descriptor_sets(&self.device, &mut self.data)?;
+        Self::create_descriptor_sets_grid(&self.device, &mut self.data)?;
         Self::create_command_buffers(&self.device, &mut self.data)?;
         self.data
             .images_in_flight
@@ -1349,9 +1354,11 @@ impl App {
         let tex_coord = vec2(0.0, 0.0);
         let mut color = vec3(0.0, 0.0, 1.0);
         let _ = Self::create_grid_data(data, 0, color, tex_coord)?;
+        color = vec3(0.0, 1.0, 0.0);
+        let _ = Self::create_grid_data(data, 1, color, tex_coord)?;
         color = vec3(1.0, 0.0, 0.0);
         let _ = Self::create_grid_data(data, 2, color, tex_coord)?;
-        
+
         let size = (size_of::<Vertex>() * data.grid_vertices.len()) as u64;
         let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
             instance,
@@ -1401,21 +1408,29 @@ impl App {
         for i in 0..100 {
             let mut pos1 = Vec3::new(0.0, 0.0, 0.0);
             if index == 0 {
+                // fix x coordinate
                 pos1.x = i as f32 * 0.1;
                 pos1.z = 100.0;
             } else if index == 1 {
-                pos1.y = i as f32 * 0.1;
+                //fix x coodinate
+                pos1.x = i as f32 * 0.1;
+                pos1.y = 100.0;
             } else if index == 2 {
+                // fix z coordinate
                 pos1.z = i as f32 * 0.1;
                 pos1.x = 100.0;
             }
             let mut pos2 = Vec3::new(0.0, 0.0, 0.0);
             if index == 0 {
+                // fix x coordinate
                 pos2.x = pos1.x;
                 pos2.z = -100.0;
             } else if index == 1 {
-                pos2.y = i as f32 * 0.1;
+                // fix x coordinate
+                pos2.x = pos1.x;
+                pos2.y = -100.0;
             } else if index == 2 {
+                // fix z coordinate
                 pos2.z = pos1.z;
                 pos2.x = -100.0;
             }
@@ -1510,7 +1525,11 @@ impl App {
         let map_memory =
             device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
 
-        memcpy(data.indices.as_ptr(), map_memory.cast(), data.grid_indices.len());
+        memcpy(
+            data.indices.as_ptr(),
+            map_memory.cast(),
+            data.grid_indices.len(),
+        );
         device.unmap_memory(staging_buffer_memory);
 
         let (index_buffer, index_buffer_memory) = Self::create_buffer(
@@ -1640,6 +1659,31 @@ impl App {
         Ok(())
     }
 
+    unsafe fn create_uniform_buffers_grid(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
+    ) -> Result<()> {
+        data.grid_uniform_buffers.clear();
+        data.grid_uniform_buffer_memories.clear();
+
+        for _ in 0..data.swapchain_images.len() {
+            let (uniform_buffer, uniform_buffer_memory) = Self::create_buffer(
+                instance,
+                device,
+                data,
+                size_of::<UniformBufferObject>() as u64,
+                vk::BufferUsageFlags::UNIFORM_BUFFER,
+                vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+            )?;
+            data.grid_uniform_buffers.push(uniform_buffer);
+            data.grid_uniform_buffer_memories
+                .push(uniform_buffer_memory);
+        }
+
+        Ok(())
+    }
+
     unsafe fn update_uniform_buffer(
         &mut self,
         image_index: usize,
@@ -1647,10 +1691,8 @@ impl App {
         mouse_wheel: f32,
         gui_data: &mut GUIData,
     ) -> Result<()> {
-        let mut model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(90.0));
-        let last_translate_x = Mat4::from_translation(vec3_from_array(gui_data.last_translate_x));
-        let last_translate_y = Mat4::from_translation(vec3_from_array(gui_data.last_translate_y));
-        model = last_translate_x * last_translate_y * model;
+        //let mut model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(0.0));
+        let model = Mat4::identity();
 
         let mut camera_pos = Vec3::new(
             self.data.camera_pos[0],
@@ -1712,11 +1754,9 @@ impl App {
             let distance = Vec2::distance(mouse_pos, last_mouse_pos);
             gui_data.monitor_value = distance;
             if 0.001 < distance && distance < 100.0 {
-                let translate_x_v = vec3(1.0, 0.0, 0.0) * diff.x * 0.01;
-                let translate_y_v = vec3(0.0, 1.0, 0.0) * diff.y * 0.01;
-                let translate_x = Mat4::from_translation(translate_x_v);
-                let translate_y = Mat4::from_translation(translate_y_v);
-                model = translate_y * translate_x * model;
+                let translate_x_v = base_y * diff.x * 0.01;
+                let translate_y_v = base_x * diff.y * 0.01;
+                camera_pos += translate_x_v + translate_y_v;
 
                 gui_data.last_translate_x =
                     array3_from_vec(vec3_from_array(gui_data.last_translate_x) + translate_x_v);
@@ -1740,7 +1780,7 @@ impl App {
             0.0,
             0.0,
             0.0,
-            -1.0,
+            1.0,
             0.0,
             0.0, // cgmath was originally designed for OpenGL, where the Y coordinate of the clip coordinates is inverted.
             0.0,
@@ -1771,6 +1811,23 @@ impl App {
         self.device
             .unmap_memory(self.data.uniform_buffer_memories[image_index]);
 
+        // update for grid
+        let model_grid = Mat4::identity();
+        let ubo_grid = UniformBufferObject {
+            model: model_grid,
+            view: view,
+            proj: proj,
+        };
+        let memory_grid = self.device.map_memory(
+            self.data.grid_uniform_buffer_memories[image_index],
+            0,
+            size_of::<UniformBufferObject>() as u64,
+            vk::MemoryMapFlags::empty(),
+        )?;
+        memcpy(&ubo_grid, memory_grid.cast(), 1);
+        self.device
+            .unmap_memory(self.data.grid_uniform_buffer_memories[image_index]);
+
         Ok(())
     }
 
@@ -1778,7 +1835,7 @@ impl App {
         let ubo_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::UNIFORM_BUFFER)
             .descriptor_count((data.swapchain_images.len() * 4) as u32); // This pool size structure is referenced by the main vk::DescriptorPoolCreateInfo
-                                                                   //along with the maximum number of descriptor sets that may be allocated:
+                                                                         //along with the maximum number of descriptor sets that may be allocated:
 
         let sampler_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -1854,7 +1911,7 @@ impl App {
 
         for i in 0..data.swapchain_images.len() {
             let info = vk::DescriptorBufferInfo::builder()
-                .buffer(data.uniform_buffers[i])
+                .buffer(data.grid_uniform_buffers[i])
                 .offset(0)
                 .range(size_of::<UniformBufferObject>() as u64);
             // The configuration of descriptors is updated using the update_descriptor_sets function,
@@ -1868,10 +1925,7 @@ impl App {
                 .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
                 .buffer_info(buffer_info);
 
-            device.update_descriptor_sets(
-                &[ubo_write],
-                &[] as &[vk::CopyDescriptorSet],
-            );
+            device.update_descriptor_sets(&[ubo_write], &[] as &[vk::CopyDescriptorSet]);
         }
 
         Ok(())
