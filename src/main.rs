@@ -1761,8 +1761,8 @@ impl App {
             let distance = Vec2::distance(mouse_pos, last_mouse_pos);
             gui_data.monitor_value = distance;
             if 0.001 < distance && distance < 100.0 {
-                let translate_x_v = base_x * -diff.x * 0.01;
-                let translate_y_v = base_y * diff.y * 0.01;
+                let translate_x_v = base_x * diff.x * 0.01;
+                let translate_y_v = base_y * -diff.y * 0.01;
                 camera_pos += translate_x_v + translate_y_v;
 
                 gui_data.last_translate_x =
@@ -2625,13 +2625,13 @@ impl App {
 
     unsafe fn reset_camera_up(&mut self) {
         let camera_pos = vec3_from_array(self.data.camera_pos);
-        let camera_direction = vec3_from_array(self.data.camera_direction);
-        let camera_up = vec3_from_array(self.data.camera_up);
-        let view = view(camera_pos, camera_direction, camera_up);
-        let base_x_4 = view * vec4(1.0, 0.0, 0.0, 0.0);
-        let camera_up = Vec3::cross(camera_direction, vec3(base_x_4.x, base_x_4.y, base_x_4.z));
-        camera_up.normalize();
+        let mut camera_direction = vec3_from_array(self.data.camera_direction);
+        let mut camera_up = vec3_from_array(self.data.camera_up);
+        let horizon = Vec3::cross(camera_up, camera_direction);
+        camera_up = vec3(0.0, -1.0, 0.0);
+        camera_direction = Vec3::cross(horizon, camera_up);
         self.data.camera_up = array3_from_vec(camera_up);
+        self.data.camera_direction = array3_from_vec(camera_direction);
     }
 }
 
