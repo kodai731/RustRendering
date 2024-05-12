@@ -186,6 +186,11 @@ impl support::System {
                                     app.reset_camera();
                                 }
                             }
+                            if ui.button("reset camera up") {
+                                unsafe {
+                                    app.reset_camera_up();
+                                }
+                            }
                             ui.separator();
                             // let mouse_pos = ui.io().mouse_pos;
                             ui.text(format!(
@@ -238,8 +243,6 @@ struct GUIData {
     is_left_clicked: bool,
     is_wheel_clicked: bool,
     monitor_value: f32,
-    last_translate_x: [f32; 3],
-    last_translate_y: [f32; 3],
 }
 
 impl Default for GUIData {
@@ -248,8 +251,6 @@ impl Default for GUIData {
             is_left_clicked: false,
             is_wheel_clicked: false,
             monitor_value: 0.0,
-            last_translate_x: [0.0, 0.0, 0.0],
-            last_translate_y: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -311,7 +312,6 @@ struct AppData {
     color_image: vk::Image, // We only need one render target since only one drawing operation is active at a time
     color_image_memory: vk::DeviceMemory,
     color_image_view: vk::ImageView,
-    last_mouse_pos: [f32; 2],
     camera_direction: [f32; 3],
     camera_pos: [f32; 3],
     initial_camera_pos: [f32; 3],
@@ -328,6 +328,9 @@ struct AppData {
     grid_descriptor_sets: Vec<vk::DescriptorSet>,
     grid_uniform_buffers: Vec<vk::Buffer>,
     grid_uniform_buffer_memories: Vec<vk::DeviceMemory>,
+    is_left_clicked: bool,
+    clicked_mouse_pos: [f32; 2],
+    is_wheel_clicked: bool,
 }
 
 impl App {
@@ -368,13 +371,14 @@ impl App {
         let frame = 0 as usize;
         let resized = false;
         let start = Instant::now();
-        data.initial_camera_pos = [0.0, -2.0, -2.0];
+        data.initial_camera_pos = [0.0, -1.0, -2.0];
         data.camera_pos = data.initial_camera_pos;
         let camera_pos = vec3(data.camera_pos[0], data.camera_pos[1], data.camera_pos[2]);
         let camera_direction = camera_pos.normalize();
         let camera_up = Vec3::cross(camera_direction, vec3(1.0, 0.0, 0.0));
         data.camera_direction = [camera_direction.x, camera_direction.y, camera_direction.z];
         data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
+        data.is_left_clicked = false;
 
         Ok(Self {
             entry,
@@ -1694,84 +1698,89 @@ impl App {
         //let mut model = Mat4::from_axis_angle(vec3(0.0, 0.0, 1.0), Deg(0.0));
         let model = Mat4::identity();
 
-        let mut camera_pos = Vec3::new(
-            self.data.camera_pos[0],
-            self.data.camera_pos[1],
-            self.data.camera_pos[2],
-        );
-        let mut camera_direction = Vec3::new(
-            self.data.camera_direction[0],
-            self.data.camera_direction[1],
-            self.data.camera_direction[2],
-        );
-        let mut camera_up = vec3(
-            self.data.camera_up[0],
-            self.data.camera_up[1],
-            self.data.camera_up[2],
-        );
+        let mut camera_pos = vec3_from_array(self.data.camera_pos);
+        let mut camera_direction = vec3_from_array(self.data.camera_direction);
+        let mut camera_up = vec3_from_array(self.data.camera_up);
 
-        let last_mouse_pos = Vec2::new(self.data.last_mouse_pos[0], self.data.last_mouse_pos[1]);
         let mouse_pos = Vec2::new(mouse_pos[0], mouse_pos[1]);
 
         let last_view = view(camera_pos, camera_direction, camera_up);
-        let base_x_4 = last_view * model * vec4(-1.0, 0.0, 0.0, 0.0);
-        let base_y_4 = last_view * model * vec4(0.0, 1.0, 0.0, 0.0);
+        let base_x_4 = last_view * vec4(1.0, 0.0, 0.0, 0.0);
+        let base_y_4 = last_view * vec4(0.0, -1.0, 0.0, 0.0);
         let base_x = vec3(base_x_4.x, base_x_4.y, base_x_4.z);
         let base_y = vec3(base_y_4.x, base_y_4.y, base_y_4.z);
 
-        if gui_data.is_left_clicked {
-            let diff = mouse_pos - last_mouse_pos;
-            let distance = Vec2::distance(mouse_pos, last_mouse_pos);
+        if gui_data.is_left_clicked || self.data.is_left_clicked {
+            // first clicked
+            if !self.data.is_left_clicked {
+                self.data.clicked_mouse_pos = [mouse_pos[0], mouse_pos[1]];
+                self.data.is_left_clicked = true;
+            }
+            let clicked_mouse_pos = vec2_from_array(self.data.clicked_mouse_pos);
+
+            let diff = mouse_pos - clicked_mouse_pos;
+            let distance = Vec2::distance(mouse_pos, clicked_mouse_pos);
             gui_data.monitor_value = distance;
-            if 0.001 < distance && distance < 100.0 {
+            if 0.001 < distance {
                 let mut rotate_x = Mat3::identity();
                 let mut rotate_y = Mat3::identity();
-                let theta_x = diff.x * 0.005;
-                let theta_y = diff.y * 0.005;
+                let theta_x = -diff.x * 0.005;
+                let theta_y = -diff.y * 0.005;
                 let _ = rodrigues(
                     &mut rotate_x,
                     Rad(theta_x).cos(),
                     Rad(theta_x).sin(),
-                    &base_x,
+                    &base_y,
                 );
                 let _ = rodrigues(
                     &mut rotate_y,
                     Rad(theta_y).cos(),
                     Rad(theta_y).sin(),
-                    &base_y,
+                    &base_x,
                 );
-                camera_up = rotate_y * rotate_x * camera_up;
-                camera_direction = rotate_y * rotate_x * camera_direction;
+                let rotate = rotate_y * rotate_x;
+                camera_up = rotate * camera_up;
+                camera_direction = rotate * camera_direction;
 
-                self.data.camera_direction =
-                    [camera_direction.x, camera_direction.y, camera_direction.z];
-                self.data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
+                if !gui_data.is_left_clicked {
+                    // left button released
+                    self.data.camera_direction = array3_from_vec(camera_direction);
+                    self.data.camera_up = array3_from_vec(camera_up);
+                    self.data.is_left_clicked = false;
+                }
             }
         }
 
-        if gui_data.is_wheel_clicked {
-            let diff = mouse_pos - last_mouse_pos;
-            let distance = Vec2::distance(mouse_pos, last_mouse_pos);
+        if gui_data.is_wheel_clicked || self.data.is_wheel_clicked {
+            // first clicked
+            if !self.data.is_wheel_clicked {
+                self.data.clicked_mouse_pos = [mouse_pos[0], mouse_pos[1]];
+                self.data.is_wheel_clicked = true;
+            }
+            let clicked_mouse_pos = vec2_from_array(self.data.clicked_mouse_pos);
+            let diff = mouse_pos - clicked_mouse_pos;
+            let distance = Vec2::distance(mouse_pos, clicked_mouse_pos);
             gui_data.monitor_value = distance;
-            if 0.001 < distance && distance < 100.0 {
-                let translate_x_v = base_y * diff.x * 0.01;
-                let translate_y_v = base_x * diff.y * 0.01;
+            if 0.001 < distance {
+                let translate_x_v = base_x * diff.x * 0.01;
+                let translate_y_v = base_y * -diff.y * 0.01;
                 camera_pos += translate_x_v + translate_y_v;
 
-                gui_data.last_translate_x =
-                    array3_from_vec(vec3_from_array(gui_data.last_translate_x) + translate_x_v);
-                gui_data.last_translate_y =
-                    array3_from_vec(vec3_from_array(gui_data.last_translate_y) + translate_y_v);
+                if !gui_data.is_wheel_clicked {
+                    // left button released
+                    self.data.camera_pos = array3_from_vec(camera_pos);
+                    self.data.is_wheel_clicked = false;
+                }
             }
         }
 
-        let diff_view = camera_direction * mouse_wheel * -0.03;
-        camera_pos += diff_view;
+        if mouse_wheel != 0.0 {
+            let diff_view = camera_direction * mouse_wheel * -0.03;
+            camera_pos += diff_view;
+            self.data.camera_pos = array3_from_vec(camera_pos);
+        }
 
         let view = view(camera_pos, camera_direction, camera_up);
-
-        self.data.camera_pos = [camera_pos.x, camera_pos.y, camera_pos.z];
-        self.data.last_mouse_pos = [mouse_pos.x, mouse_pos.y];
 
         let correction = Mat4::new(
             // column-major order
@@ -2609,15 +2618,22 @@ impl App {
 
     unsafe fn reset_camera(&mut self) {
         self.data.camera_pos = self.data.initial_camera_pos;
-        let camera_pos = vec3(
-            self.data.camera_pos[0],
-            self.data.camera_pos[1],
-            self.data.camera_pos[2],
-        );
+        let camera_pos = vec3_from_array(self.data.camera_pos);
         let camera_direction = camera_pos.normalize();
         let camera_up = Vec3::cross(camera_direction, vec3(1.0, 0.0, 0.0));
-        self.data.camera_direction = [camera_direction.x, camera_direction.y, camera_direction.z];
-        self.data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
+        self.data.camera_direction = array3_from_vec(camera_direction);
+        self.data.camera_up = array3_from_vec(camera_up);
+    }
+
+    unsafe fn reset_camera_up(&mut self) {
+        let camera_pos = vec3_from_array(self.data.camera_pos);
+        let mut camera_direction = vec3_from_array(self.data.camera_direction);
+        let mut camera_up = vec3_from_array(self.data.camera_up);
+        let horizon = Vec3::cross(camera_up, camera_direction);
+        camera_up = vec3(0.0, -1.0, 0.0);
+        camera_direction = Vec3::cross(horizon, camera_up);
+        self.data.camera_up = array3_from_vec(camera_up);
+        self.data.camera_direction = array3_from_vec(camera_direction);
     }
 }
 
@@ -2951,4 +2967,12 @@ fn vec3_from_array(a: [f32; 3]) -> Vector3<f32> {
 
 fn array3_from_vec(v: Vector3<f32>) -> [f32; 3] {
     [v.x, v.y, v.z]
+}
+
+fn vec2_from_array(a: [f32; 2]) -> Vector2<f32> {
+    vec2(a[0], a[1])
+}
+
+fn array2_from_vec(v: Vector2<f32>) -> [f32; 2] {
+    [v.x, v.y]
 }
