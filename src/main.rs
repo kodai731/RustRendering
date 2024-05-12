@@ -243,8 +243,6 @@ struct GUIData {
     is_left_clicked: bool,
     is_wheel_clicked: bool,
     monitor_value: f32,
-    last_translate_x: [f32; 3],
-    last_translate_y: [f32; 3],
 }
 
 impl Default for GUIData {
@@ -253,8 +251,6 @@ impl Default for GUIData {
             is_left_clicked: false,
             is_wheel_clicked: false,
             monitor_value: 0.0,
-            last_translate_x: [0.0, 0.0, 0.0],
-            last_translate_y: [0.0, 0.0, 0.0],
         }
     }
 }
@@ -316,7 +312,6 @@ struct AppData {
     color_image: vk::Image, // We only need one render target since only one drawing operation is active at a time
     color_image_memory: vk::DeviceMemory,
     color_image_view: vk::ImageView,
-    last_mouse_pos: [f32; 2],
     camera_direction: [f32; 3],
     camera_pos: [f32; 3],
     initial_camera_pos: [f32; 3],
@@ -335,6 +330,7 @@ struct AppData {
     grid_uniform_buffer_memories: Vec<vk::DeviceMemory>,
     is_left_clicked: bool,
     clicked_mouse_pos: [f32; 2],
+    is_wheel_clicked: bool,
 }
 
 impl App {
@@ -1706,7 +1702,6 @@ impl App {
         let mut camera_direction = vec3_from_array(self.data.camera_direction);
         let mut camera_up = vec3_from_array(self.data.camera_up);
 
-        let last_mouse_pos = Vec2::new(self.data.last_mouse_pos[0], self.data.last_mouse_pos[1]);
         let mouse_pos = Vec2::new(mouse_pos[0], mouse_pos[1]);
 
         let last_view = view(camera_pos, camera_direction, camera_up);
@@ -1756,29 +1751,36 @@ impl App {
             }
         }
 
-        if gui_data.is_wheel_clicked {
-            let diff = mouse_pos - last_mouse_pos;
-            let distance = Vec2::distance(mouse_pos, last_mouse_pos);
+        if gui_data.is_wheel_clicked || self.data.is_wheel_clicked {
+            // first clicked
+            if !self.data.is_wheel_clicked {
+                self.data.clicked_mouse_pos = [mouse_pos[0], mouse_pos[1]];
+                self.data.is_wheel_clicked = true;
+            }
+            let clicked_mouse_pos = vec2_from_array(self.data.clicked_mouse_pos);
+            let diff = mouse_pos - clicked_mouse_pos;
+            let distance = Vec2::distance(mouse_pos, clicked_mouse_pos);
             gui_data.monitor_value = distance;
-            if 0.001 < distance && distance < 100.0 {
+            if 0.001 < distance {
                 let translate_x_v = base_x * diff.x * 0.01;
                 let translate_y_v = base_y * -diff.y * 0.01;
                 camera_pos += translate_x_v + translate_y_v;
 
-                gui_data.last_translate_x =
-                    array3_from_vec(vec3_from_array(gui_data.last_translate_x) + translate_x_v);
-                gui_data.last_translate_y =
-                    array3_from_vec(vec3_from_array(gui_data.last_translate_y) + translate_y_v);
+                if !gui_data.is_wheel_clicked {
+                    // left button released
+                    self.data.camera_pos = array3_from_vec(camera_pos);
+                    self.data.is_wheel_clicked = false;
+                }
             }
         }
 
-        let diff_view = camera_direction * mouse_wheel * -0.03;
-        camera_pos += diff_view;
+        if mouse_wheel != 0.0 {
+            let diff_view = camera_direction * mouse_wheel * -0.03;
+            camera_pos += diff_view;
+            self.data.camera_pos = array3_from_vec(camera_pos);
+        }
 
         let view = view(camera_pos, camera_direction, camera_up);
-
-        self.data.camera_pos = [camera_pos.x, camera_pos.y, camera_pos.z];
-        self.data.last_mouse_pos = [mouse_pos.x, mouse_pos.y];
 
         let correction = Mat4::new(
             // column-major order
