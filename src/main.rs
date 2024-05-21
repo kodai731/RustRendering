@@ -5,6 +5,7 @@
     clippy::unnecessary_wraps
 )]
 
+use gltf::buffer::Data;
 // imgui
 use imgui::*;
 
@@ -59,6 +60,8 @@ use imgui_winit_support::winit::event_loop::EventLoop;
 use imgui_winit_support::winit::window::{Window, WindowBuilder};
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::path::Path;
+
+use gltf::{Document, Gltf, Node};
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -2377,7 +2380,7 @@ impl App {
         )
     }
 
-    fn load_model(data: &mut AppData) -> Result<()> {
+    unsafe fn load_model(data: &mut AppData) -> Result<()> {
         let mut reader = BufReader::new(File::open("src/resources/VikingRoom/viking_room.obj")?);
 
         let (models, _) = tobj::load_obj_buf(
@@ -2389,39 +2392,126 @@ impl App {
             |_| Ok(Default::default()),
         )?;
 
-        let mut unique_vertices = HashMap::new();
+        //let mut unique_vertices = HashMap::new();
 
-        for model in models {
-            for index in &model.mesh.indices {
-                let pos_offset = (3 * index) as usize;
-                let tex_coord_offset = (2 * index) as usize;
+        // for model in models {
+        //     for index in &model.mesh.indices {
+        //         let pos_offset = (3 * index) as usize;
+        //         let tex_coord_offset = (2 * index) as usize;
 
-                let vertex = Vertex {
-                    pos: vec3(
-                        model.mesh.positions[pos_offset],
-                        model.mesh.positions[pos_offset + 1],
-                        model.mesh.positions[pos_offset + 2],
-                    ),
-                    color: vec3(1.0, 1.0, 1.0),
-                    tex_coord: vec2(
-                        model.mesh.texcoords[tex_coord_offset],
-                        // The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image,
-                        // however we've uploaded our image into Vulkan in a top to bottom orientation where 0 means the top of the image.
-                        1.0 - model.mesh.texcoords[tex_coord_offset + 1],
-                    ),
-                };
-                if let Some(index) = unique_vertices.get(&vertex) {
-                    data.indices.push(*index as u32);
-                } else {
-                    let index = data.vertices.len();
-                    unique_vertices.insert(vertex, index);
-                    data.vertices.push(vertex);
-                    data.indices.push(data.indices.len() as u32);
-                }
+        //         let vertex = Vertex {
+        //             pos: vec3(
+        //                 model.mesh.positions[pos_offset],
+        //                 model.mesh.positions[pos_offset + 1],
+        //                 model.mesh.positions[pos_offset + 2],
+        //             ),
+        //             color: vec3(1.0, 1.0, 1.0),
+        //             tex_coord: vec2(
+        //                 model.mesh.texcoords[tex_coord_offset],
+        //                 // The OBJ format assumes a coordinate system where a vertical coordinate of 0 means the bottom of the image,
+        //                 // however we've uploaded our image into Vulkan in a top to bottom orientation where 0 means the top of the image.
+        //                 1.0 - model.mesh.texcoords[tex_coord_offset + 1],
+        //             ),
+        //         };
+        //         if let Some(index) = unique_vertices.get(&vertex) {
+        //             data.indices.push(*index as u32);
+        //         } else {
+        //             let index = data.vertices.len();
+        //             unique_vertices.insert(vertex, index);
+        //             data.vertices.push(vertex);
+        //             data.indices.push(data.indices.len() as u32);
+        //         }
+        //     }
+        // }
+
+        // gltf model
+        let file = File::open("src/resources/yard_grass.glb")?;
+        // let reader = BufReader::new(file);
+        // let gltf = Gltf::from_reader(reader)?;
+        let (gltf, buffers, _) = gltf::import(format!("src/resources/yard_grass.glb")).unwrap();
+
+        for scene in gltf.scenes() {
+            for node in scene.nodes() {
+                Self::process_node(
+                    &gltf,
+                    &buffers,
+                    &node,
+                    &mut data.vertices,
+                    &mut data.indices,
+                );
             }
         }
 
+        // check
+        println!("vertices count {}", data.vertices.len());
+        println!("indices count {}", data.indices.len());
+
         Ok(())
+    }
+
+    unsafe fn process_node(
+        gltf: &Document,
+        buffers: &Vec<Data>,
+        node: &Node,
+        vertices: &mut Vec<Vertex>,
+        indices: &mut Vec<u32>,
+    ) {
+        println!("Node {} {}", node.index().to_string(), node.name().unwrap());
+        if let Some(mesh) = node.mesh() {
+            println!("mesh found");
+            let primitives = mesh.primitives();
+            let mut positions = Vec::new();
+            let mut texture_coords = Vec::new();
+            let mut normals = Vec::new();
+            primitives.for_each(|primitive| {
+                println!("primitive found");
+                let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
+
+                if let Some(gltf::mesh::util::ReadIndices::U16(gltf::accessor::Iter::Standard(
+                    iter,
+                ))) = reader.read_indices()
+                {
+                    for index in iter {
+                        println!("index {}", index);
+                        indices.push(index as u32);
+                    }
+                }
+
+                if let Some(iter) = reader.read_positions() {
+                    for position in iter {
+                        println!("position {} {} {}", position[0], position[1], position[2]);
+                        positions.push(position);
+                    }
+                }
+
+                if let Some(gltf::mesh::util::ReadTexCoords::F32(gltf::accessor::Iter::Standard(
+                    iter,
+                ))) = reader.read_tex_coords(0)
+                {
+                    for texture_coord in iter {
+                        texture_coords.push(texture_coord);
+                    }
+                }
+
+                if let Some(iter) = reader.read_normals() {
+                    for normal in iter {
+                        normals.push(normal);
+                    }
+                }
+            });
+
+            for i in 0..positions.len() {
+                let vertex = Vertex::new(
+                    vec3_from_array(positions[i]),
+                    vec3(0.0, 1.0, 0.0),
+                    vec2_from_array(texture_coords[i]),
+                );
+                vertices.push(vertex);
+            }
+        }
+        for child in node.children() {
+            Self::process_node(gltf, buffers, &child, vertices, indices);
+        }
     }
 
     unsafe fn generate_mipmaps(

@@ -12,3 +12,13 @@ https://matthewwellings.com/blog/the-new-vulkan-coordinate-system/
 
 stencial buffer
 https://en.wikipedia.org/wiki/Stencil_buffer
+
+gltf mesh loader
+https://github.com/SignalWalker/eightfold/blob/3a088ab33faa83f3ba25a90a92c0b2196d1a592c/samples/voxelize/src/main.rs#L382
+https://github.com/Barral-Robotica-e-Automacao/rerun/blob/96b30357a4e12dddd12f063b8af6c0905f181707/examples/rust/raw_mesh/src/main.rs#L312
+https://github.com/AppDirectory/rerun/blob/96437ee8979a2b629526875b515684bebb2e69c6/examples/rust/raw_mesh/src/main.rs#L312
+https://wirewhiz.com/read-gltf-files/
+https://whoisryosuke.com/blog/2022/importing-gltf-with-wgpu-and-rust
+https://stackoverflow.com/questions/75846989/how-to-load-gltf-files-with-gltf-rs-crate
+C++
+https://github.com/kodai731/Aqoole-Engine-Android-Vulkan-Rendering-Engine-/blob/develop/AqooleEngine/src/main/cpp/AESrc/AEDrawObjects.cpp#L2437

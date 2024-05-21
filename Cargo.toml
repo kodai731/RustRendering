@@ -26,6 +26,10 @@ imgui-glium-renderer = { path = "./src/imgui-glium-renderer" }
 imgui-winit-support = { path = "./src/imgui-winit-support" }
 glium = "*"
 
+[dependencies.gltf]
+version = "1.4"
+features = ["extras", "names"]
+
 [build-dependencies]
 bindgen = "0.69.1"
 cxx-build = "1.0"
