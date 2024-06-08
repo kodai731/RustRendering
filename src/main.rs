@@ -51,7 +51,7 @@ type Mat3 = cgmath::Matrix3<f32>;
 type Mat4 = cgmath::Matrix4<f32>;
 
 use glium::glutin::surface::WindowSurface;
-use glium::Surface;
+use glium::{texture, Surface};
 use imgui::{Context, FontConfig, FontGlyphRanges, FontSource, Ui};
 use imgui_glium_renderer::Renderer;
 use imgui_winit_support::winit::dpi::LogicalSize;
@@ -61,7 +61,7 @@ use imgui_winit_support::winit::window::{Window, WindowBuilder};
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::path::Path;
 
-use gltf::{Document, Gltf, Node};
+use gltf::{image, Document, Gltf, Node};
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -1159,6 +1159,30 @@ impl App {
                 .clear_values(clear_values);
             device.cmd_begin_render_pass(*command_buffer, &info, vk::SubpassContents::INLINE);
 
+            // grid
+            device.cmd_bind_pipeline(
+                *command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                data.grid_pipeline,
+            );
+            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[data.grid_vertex_buffer], &[0]);
+            device.cmd_bind_index_buffer(
+                *command_buffer,
+                data.grid_index_buffer,
+                0,
+                vk::IndexType::UINT32,
+            );
+            device.cmd_bind_descriptor_sets(
+                *command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                data.grid_pipeline_layout,
+                0,
+                &[data.grid_descriptor_sets[i]],
+                &[],
+            );
+            device.cmd_draw_indexed(*command_buffer, data.grid_indices.len() as u32, 1, 0, 0, 0);
+
+            // model
             device.cmd_bind_pipeline(
                 *command_buffer,
                 vk::PipelineBindPoint::GRAPHICS,
@@ -1181,27 +1205,6 @@ impl App {
             );
             device.cmd_draw_indexed(*command_buffer, data.indices.len() as u32, 1, 0, 0, 0);
 
-            device.cmd_bind_pipeline(
-                *command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                data.grid_pipeline,
-            );
-            device.cmd_bind_vertex_buffers(*command_buffer, 0, &[data.grid_vertex_buffer], &[0]);
-            device.cmd_bind_index_buffer(
-                *command_buffer,
-                data.grid_index_buffer,
-                0,
-                vk::IndexType::UINT32,
-            );
-            device.cmd_bind_descriptor_sets(
-                *command_buffer,
-                vk::PipelineBindPoint::GRAPHICS,
-                data.grid_pipeline_layout,
-                0,
-                &[data.grid_descriptor_sets[i]],
-                &[],
-            );
-            device.cmd_draw_indexed(*command_buffer, data.grid_indices.len() as u32, 1, 0, 0, 0);
             device.cmd_end_render_pass(*command_buffer);
             device.end_command_buffer(*command_buffer)?;
         }
@@ -1533,7 +1536,7 @@ impl App {
             device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
 
         memcpy(
-            data.indices.as_ptr(),
+            data.grid_indices.as_ptr(),
             map_memory.cast(),
             data.grid_indices.len(),
         );
@@ -2392,7 +2395,7 @@ impl App {
             |_| Ok(Default::default()),
         )?;
 
-        //let mut unique_vertices = HashMap::new();
+        // let mut unique_vertices = HashMap::new();
 
         // for model in models {
         //     for index in &model.mesh.indices {
@@ -2425,16 +2428,16 @@ impl App {
         // }
 
         // gltf model
-        let file = File::open("src/resources/yard_grass.glb")?;
-        // let reader = BufReader::new(file);
-        // let gltf = Gltf::from_reader(reader)?;
-        let (gltf, buffers, _) = gltf::import(format!("src/resources/yard_grass.glb")).unwrap();
+        let grass_path = "src/resources/yard_grass.glb";
+        let (gltf, buffers, images) =
+            gltf::import(format!("src/resources/yard_grass.glb")).expect("Failed to load grass");
 
         for scene in gltf.scenes() {
             for node in scene.nodes() {
                 Self::process_node(
                     &gltf,
                     &buffers,
+                    &images,
                     &node,
                     &mut data.vertices,
                     &mut data.indices,
@@ -2452,6 +2455,7 @@ impl App {
     unsafe fn process_node(
         gltf: &Document,
         buffers: &Vec<Data>,
+        images: &Vec<gltf::image::Data>,
         node: &Node,
         vertices: &mut Vec<Vertex>,
         indices: &mut Vec<u32>,
@@ -2467,20 +2471,23 @@ impl App {
                 println!("primitive found");
                 let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
 
+                println!("Topology: {:?}", primitive.mode());
+
+                let index_offset = indices.len();
                 if let Some(gltf::mesh::util::ReadIndices::U16(gltf::accessor::Iter::Standard(
                     iter,
                 ))) = reader.read_indices()
                 {
                     for index in iter {
-                        println!("index {}", index);
-                        indices.push(index as u32);
+                        indices.push((index_offset + index as usize) as u32);
                     }
                 }
 
                 if let Some(iter) = reader.read_positions() {
                     for position in iter {
-                        println!("position {} {} {}", position[0], position[1], position[2]);
-                        positions.push(position);
+                        let mut position_converted = position;
+                        position_converted[1] = 1.0 - position_converted[1];
+                        positions.push(position_converted);
                     }
                 }
 
@@ -2498,11 +2505,101 @@ impl App {
                         normals.push(normal);
                     }
                 }
+
+                // // texture
+                // if let Some(material) = primitive
+                //     .material()
+                //     .pbr_metallic_roughness()
+                //     .base_color_texture()
+                // {
+                //     let texture = material.texture();
+
+                //     let size = reader.info().raw_bytes() as u64;
+                //     let (width, height) = reader.info().size();
+                //     data.mip_levels = (width.max(height) as f32).log2().floor() as u32 + 1;
+
+                //     if width != 1024
+                //         || height != 1024
+                //         || reader.info().color_type != png::ColorType::Rgba
+                //     {
+                //         panic!("invalid texture image");
+                //     }
+
+                //     let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
+                //         instance,
+                //         device,
+                //         data,
+                //         size,
+                //         vk::BufferUsageFlags::TRANSFER_SRC,
+                //         vk::MemoryPropertyFlags::HOST_COHERENT
+                //             | vk::MemoryPropertyFlags::HOST_VISIBLE,
+                //     )?;
+
+                //     let memory = device.map_memory(
+                //         staging_buffer_memory,
+                //         0,
+                //         size,
+                //         vk::MemoryMapFlags::empty(),
+                //     )?;
+                //     memcpy(pixels.as_ptr(), memory.cast(), pixels.len());
+                //     device.unmap_memory(staging_buffer_memory);
+
+                //     let (texture_image, texture_image_memory) = Self::create_image(
+                //         instance,
+                //         device,
+                //         data,
+                //         width,
+                //         height,
+                //         data.mip_levels,
+                //         vk::SampleCountFlags::_1,
+                //         vk::Format::R8G8B8A8_SRGB,
+                //         vk::ImageTiling::OPTIMAL,
+                //         vk::ImageUsageFlags::SAMPLED
+                //             | vk::ImageUsageFlags::TRANSFER_DST
+                //             | vk::ImageUsageFlags::TRANSFER_SRC,
+                //         vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                //     )?;
+
+                //     data.texture_image = texture_image;
+                //     data.texture_image_memory = texture_image_memory;
+
+                //     Self::transition_image_layout(
+                //         device,
+                //         data,
+                //         data.texture_image,
+                //         vk::Format::R8G8B8A8_SRGB,
+                //         vk::ImageLayout::UNDEFINED,
+                //         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                //         data.mip_levels,
+                //     )?;
+                //     Self::copy_buffer_to_image(
+                //         device,
+                //         data,
+                //         staging_buffer,
+                //         data.texture_image,
+                //         width,
+                //         height,
+                //     )?;
+
+                //     Self::generate_mipmaps(
+                //         instance,
+                //         device,
+                //         data,
+                //         data.texture_image,
+                //         vk::Format::R8G8B8A8_SRGB,
+                //         width,
+                //         height,
+                //         data.mip_levels,
+                //     )?;
+
+                //     device.destroy_buffer(staging_buffer, None);
+                //     device.free_memory(staging_buffer_memory, None);
+                // }
             });
 
             for i in 0..positions.len() {
                 let vertex = Vertex::new(
-                    vec3_from_array(positions[i]),
+                    vec3_from_array(positions[i]) * 0.01,
                     vec3(0.0, 1.0, 0.0),
                     vec2_from_array(texture_coords[i]),
                 );
@@ -2510,7 +2607,7 @@ impl App {
             }
         }
         for child in node.children() {
-            Self::process_node(gltf, buffers, &child, vertices, indices);
+            Self::process_node(gltf, buffers, images, &child, vertices, indices);
         }
     }
 
