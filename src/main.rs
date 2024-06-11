@@ -356,10 +356,10 @@ impl App {
         let _ = Self::create_color_objects(&instance, &device, &mut data)?;
         let _ = Self::create_depth_objects(&instance, &device, &mut data)?;
         let _ = Self::create_framebuffers(&device, &mut data)?;
-        let _ = Self::create_texture_image(&instance, &device, &mut data)?;
+        let _ = Self::load_model(&instance, &device, &mut data)?;
+        // let _ = Self::create_texture_image(&instance, &device, &mut data)?;
         let _ = Self::create_texture_image_view(&device, &mut data)?;
         let _ = Self::create_texture_sampler(&device, &mut data)?;
-        let _ = Self::load_model(&mut data)?;
         let _ = Self::create_vertex_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_index_buffer(&instance, &device, &mut data)?;
         let _ = Self::create_vertex_buffer_grid(&instance, &device, &mut data)?;
@@ -787,7 +787,7 @@ impl App {
             .rasterizer_discard_enable(false)
             .polygon_mode(vk::PolygonMode::FILL)
             .line_width(1.0)
-            .cull_mode(vk::CullModeFlags::BACK)
+            .cull_mode(vk::CullModeFlags::NONE)
             .front_face(vk::FrontFace::COUNTER_CLOCKWISE)
             .depth_bias_enable(false);
 
@@ -799,9 +799,9 @@ impl App {
 
         let attachment = vk::PipelineColorBlendAttachmentState::builder()
             .color_write_mask(vk::ColorComponentFlags::all())
-            .blend_enable(false)
-            .src_color_blend_factor(vk::BlendFactor::ONE)
-            .dst_color_blend_factor(vk::BlendFactor::ZERO)
+            .blend_enable(true)
+            .src_color_blend_factor(vk::BlendFactor::SRC_ALPHA)
+            .dst_color_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
             .color_blend_op(vk::BlendOp::ADD)
             .src_alpha_blend_factor(vk::BlendFactor::ONE)
             .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
@@ -932,7 +932,7 @@ impl App {
             .dst_color_blend_factor(vk::BlendFactor::ZERO)
             .color_blend_op(vk::BlendOp::ADD)
             .src_alpha_blend_factor(vk::BlendFactor::ONE)
-            .dst_alpha_blend_factor(vk::BlendFactor::ZERO)
+            .dst_alpha_blend_factor(vk::BlendFactor::ONE_MINUS_SRC_ALPHA)
             .alpha_blend_op(vk::BlendOp::ADD);
 
         let attachments = &[attachment];
@@ -1362,11 +1362,11 @@ impl App {
         // create data
         // -100.0 - 100.0
         let tex_coord = vec2(0.0, 0.0);
-        let mut color = vec3(0.0, 0.0, 1.0);
+        let mut color = vec4(0.0, 0.0, 1.0, 1.0);
         let _ = Self::create_grid_data(data, 0, color, tex_coord)?;
-        color = vec3(0.0, 1.0, 0.0);
+        color = vec4(0.0, 1.0, 0.0, 1.0);
         let _ = Self::create_grid_data(data, 1, color, tex_coord)?;
-        color = vec3(1.0, 0.0, 0.0);
+        color = vec4(1.0, 0.0, 0.0, 1.0);
         let _ = Self::create_grid_data(data, 2, color, tex_coord)?;
 
         let size = (size_of::<Vertex>() * data.grid_vertices.len()) as u64;
@@ -1412,7 +1412,7 @@ impl App {
     unsafe fn create_grid_data(
         data: &mut AppData,
         index: i32,
-        color: Vector3<f32>,
+        color: Vec4,
         tex_coord: Vector2<f32>,
     ) -> Result<()> {
         for i in 0..100 {
@@ -2383,17 +2383,17 @@ impl App {
         )
     }
 
-    unsafe fn load_model(data: &mut AppData) -> Result<()> {
+    unsafe fn load_model(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()> {
         let mut reader = BufReader::new(File::open("src/resources/VikingRoom/viking_room.obj")?);
 
-        let (models, _) = tobj::load_obj_buf(
-            &mut reader,
-            &tobj::LoadOptions {
-                triangulate: true,
-                ..Default::default()
-            },
-            |_| Ok(Default::default()),
-        )?;
+        // let (models, _) = tobj::load_obj_buf(
+        //     &mut reader,
+        //     &tobj::LoadOptions {
+        //         triangulate: true,
+        //         ..Default::default()
+        //     },
+        //     |_| Ok(Default::default()),
+        // )?;
 
         // let mut unique_vertices = HashMap::new();
 
@@ -2434,14 +2434,7 @@ impl App {
 
         for scene in gltf.scenes() {
             for node in scene.nodes() {
-                Self::process_node(
-                    &gltf,
-                    &buffers,
-                    &images,
-                    &node,
-                    &mut data.vertices,
-                    &mut data.indices,
-                );
+                Self::process_node(instance, device, data, &gltf, &buffers, &images, &node)?;
             }
         }
 
@@ -2453,13 +2446,14 @@ impl App {
     }
 
     unsafe fn process_node(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
         gltf: &Document,
         buffers: &Vec<Data>,
         images: &Vec<gltf::image::Data>,
         node: &Node,
-        vertices: &mut Vec<Vertex>,
-        indices: &mut Vec<u32>,
-    ) {
+    ) -> Result<()> {
         println!("Node {} {}", node.index().to_string(), node.name().unwrap());
         if let Some(mesh) = node.mesh() {
             println!("mesh found");
@@ -2473,13 +2467,13 @@ impl App {
 
                 println!("Topology: {:?}", primitive.mode());
 
-                let index_offset = indices.len();
+                let index_offset = data.indices.len();
                 if let Some(gltf::mesh::util::ReadIndices::U16(gltf::accessor::Iter::Standard(
                     iter,
                 ))) = reader.read_indices()
                 {
                     for index in iter {
-                        indices.push((index_offset + index as usize) as u32);
+                        data.indices.push((index_offset + index as usize) as u32);
                     }
                 }
 
@@ -2506,109 +2500,127 @@ impl App {
                     }
                 }
 
-                // // texture
-                // if let Some(material) = primitive
-                //     .material()
-                //     .pbr_metallic_roughness()
-                //     .base_color_texture()
-                // {
-                //     let texture = material.texture();
+                // texture
+                if let Some(material) = primitive
+                    .material()
+                    .pbr_metallic_roughness()
+                    .base_color_texture()
+                {
+                    let texture = material.texture();
+                    let image = &images[texture.source().index()];
 
-                //     let size = reader.info().raw_bytes() as u64;
-                //     let (width, height) = reader.info().size();
-                //     data.mip_levels = (width.max(height) as f32).log2().floor() as u32 + 1;
-
-                //     if width != 1024
-                //         || height != 1024
-                //         || reader.info().color_type != png::ColorType::Rgba
-                //     {
-                //         panic!("invalid texture image");
-                //     }
-
-                //     let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
-                //         instance,
-                //         device,
-                //         data,
-                //         size,
-                //         vk::BufferUsageFlags::TRANSFER_SRC,
-                //         vk::MemoryPropertyFlags::HOST_COHERENT
-                //             | vk::MemoryPropertyFlags::HOST_VISIBLE,
-                //     )?;
-
-                //     let memory = device.map_memory(
-                //         staging_buffer_memory,
-                //         0,
-                //         size,
-                //         vk::MemoryMapFlags::empty(),
-                //     )?;
-                //     memcpy(pixels.as_ptr(), memory.cast(), pixels.len());
-                //     device.unmap_memory(staging_buffer_memory);
-
-                //     let (texture_image, texture_image_memory) = Self::create_image(
-                //         instance,
-                //         device,
-                //         data,
-                //         width,
-                //         height,
-                //         data.mip_levels,
-                //         vk::SampleCountFlags::_1,
-                //         vk::Format::R8G8B8A8_SRGB,
-                //         vk::ImageTiling::OPTIMAL,
-                //         vk::ImageUsageFlags::SAMPLED
-                //             | vk::ImageUsageFlags::TRANSFER_DST
-                //             | vk::ImageUsageFlags::TRANSFER_SRC,
-                //         vk::MemoryPropertyFlags::DEVICE_LOCAL,
-                //     )?;
-
-                //     data.texture_image = texture_image;
-                //     data.texture_image_memory = texture_image_memory;
-
-                //     Self::transition_image_layout(
-                //         device,
-                //         data,
-                //         data.texture_image,
-                //         vk::Format::R8G8B8A8_SRGB,
-                //         vk::ImageLayout::UNDEFINED,
-                //         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-                //         data.mip_levels,
-                //     )?;
-                //     Self::copy_buffer_to_image(
-                //         device,
-                //         data,
-                //         staging_buffer,
-                //         data.texture_image,
-                //         width,
-                //         height,
-                //     )?;
-
-                //     Self::generate_mipmaps(
-                //         instance,
-                //         device,
-                //         data,
-                //         data.texture_image,
-                //         vk::Format::R8G8B8A8_SRGB,
-                //         width,
-                //         height,
-                //         data.mip_levels,
-                //     )?;
-
-                //     device.destroy_buffer(staging_buffer, None);
-                //     device.free_memory(staging_buffer_memory, None);
-                // }
+                    let size = (size_of::<u8>() * image.pixels.len()) as u64;
+                    let (width, height) = (image.width, image.height);
+                    let _ = Self::create_texture_image_pixel(
+                        instance,
+                        device,
+                        data,
+                        &image.pixels,
+                        width,
+                        height,
+                    );
+                }
             });
 
             for i in 0..positions.len() {
                 let vertex = Vertex::new(
                     vec3_from_array(positions[i]) * 0.01,
-                    vec3(0.0, 1.0, 0.0),
+                    vec4(0.0, 1.0, 0.0, 1.0),
                     vec2_from_array(texture_coords[i]),
                 );
-                vertices.push(vertex);
+                data.vertices.push(vertex);
             }
         }
+
         for child in node.children() {
-            Self::process_node(gltf, buffers, images, &child, vertices, indices);
+            Self::process_node(instance, device, data, gltf, buffers, images, &child)?;
         }
+
+        Ok(())
+    }
+
+    unsafe fn create_texture_image_pixel(
+        instance: &Instance,
+        device: &Device,
+        data: &mut AppData,
+        pixels: &Vec<u8>,
+        width: u32,
+        height: u32,
+    ) -> Result<()> {
+        /*TODO :
+         Try to experiment with this by creating a setup_command_buffer that the helper functions record commands into,
+         and add a flush_setup_commands to execute the commands that have been recorded so far.
+         It's best to do this after the texture mapping works to check if the texture resources are still set up correctly.
+        */
+        let size = (size_of::<u8>() * pixels.len()) as u64;
+        data.mip_levels = (width.max(height) as f32).log2().floor() as u32 + 1;
+
+        let (staging_buffer, staging_buffer_memory) = Self::create_buffer(
+            instance,
+            device,
+            data,
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        )?;
+
+        let memory =
+            device.map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())?;
+        memcpy(pixels.as_ptr(), memory.cast(), pixels.len());
+        device.unmap_memory(staging_buffer_memory);
+
+        let (texture_image, texture_image_memory) = Self::create_image(
+            instance,
+            device,
+            data,
+            width,
+            height,
+            data.mip_levels,
+            vk::SampleCountFlags::_1,
+            vk::Format::R8G8B8A8_SRGB,
+            vk::ImageTiling::OPTIMAL,
+            vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_DST
+                | vk::ImageUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        data.texture_image = texture_image;
+        data.texture_image_memory = texture_image_memory;
+
+        Self::transition_image_layout(
+            device,
+            data,
+            data.texture_image,
+            vk::Format::R8G8B8A8_SRGB,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            data.mip_levels,
+        )?;
+        Self::copy_buffer_to_image(
+            device,
+            data,
+            staging_buffer,
+            data.texture_image,
+            width,
+            height,
+        )?;
+
+        Self::generate_mipmaps(
+            instance,
+            device,
+            data,
+            data.texture_image,
+            vk::Format::R8G8B8A8_SRGB,
+            width,
+            height,
+            data.mip_levels,
+        )?;
+
+        device.destroy_buffer(staging_buffer, None);
+        device.free_memory(staging_buffer_memory, None);
+
+        Ok(())
     }
 
     unsafe fn generate_mipmaps(
@@ -3006,12 +3018,12 @@ impl SwapchainSupport {
 #[derive(Copy, Clone, Debug)]
 struct Vertex {
     pos: Vec3,
-    color: Vec3,
+    color: Vec4,
     tex_coord: Vec2,
 }
 
 impl Vertex {
-    const fn new(pos: Vec3, color: Vec3, tex_coord: Vec2) -> Self {
+    const fn new(pos: Vec3, color: Vec4, tex_coord: Vec2) -> Self {
         Self {
             pos,
             color,
@@ -3041,7 +3053,7 @@ impl Vertex {
         let color = vk::VertexInputAttributeDescription::builder()
             .binding(0)
             .location(1)
-            .format(vk::Format::R32G32B32_SFLOAT)
+            .format(vk::Format::R32G32B32A32_SFLOAT)
             .offset(size_of::<Vec3>() as u32)
             .build();
 
@@ -3049,7 +3061,7 @@ impl Vertex {
             .binding(0)
             .location(2)
             .format(vk::Format::R32G32_SFLOAT)
-            .offset((size_of::<Vec3>() + size_of::<Vec3>()) as u32)
+            .offset((size_of::<Vec3>() + size_of::<Vec4>()) as u32)
             .build();
 
         [pos, color, tex_coord]
@@ -3066,7 +3078,7 @@ struct UniformBufferObject {
 
 impl PartialEq for Vertex {
     fn eq(&self, other: &Self) -> bool {
-        self.pos == other.pos && self.color == other.pos && self.tex_coord == other.tex_coord
+        self.pos == other.pos && self.color == other.color && self.tex_coord == other.tex_coord
     }
 }
 
