@@ -5,6 +5,7 @@
     clippy::unnecessary_wraps
 )]
 
+use gltf::animation::util::morph_target_weights;
 use gltf::buffer::Data;
 // imgui
 use imgui::*;
@@ -334,6 +335,11 @@ struct AppData {
     is_left_clicked: bool,
     clicked_mouse_pos: [f32; 2],
     is_wheel_clicked: bool,
+    joint_indices: Vec<[u16; 4]>,
+    joint_weights: Vec<[f32; 4]>,
+    morph_positions: Vec<[f32; 3]>,
+    morph_normals: Vec<[f32; 3]>,
+    morph_tangents: Vec<[f32; 3]>,
 }
 
 impl App {
@@ -2441,6 +2447,11 @@ impl App {
         // check
         println!("vertices count {}", data.vertices.len());
         println!("indices count {}", data.indices.len());
+        println!("joint indices count {}", data.joint_indices.len());
+        println!("joint weights count {}", data.joint_weights.len());
+        println!("morph position count {}", data.morph_positions.len());
+        println!("morph normal count {}", data.morph_normals.len());
+        println!("morph tangent count {}", data.morph_tangents.len());
 
         Ok(())
     }
@@ -2461,6 +2472,8 @@ impl App {
             let mut positions = Vec::new();
             let mut texture_coords = Vec::new();
             let mut normals = Vec::new();
+            let mut joint_indices = Vec::new();
+            let mut joint_weights = Vec::new();
             primitives.for_each(|primitive| {
                 println!("primitive found");
                 let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
@@ -2519,6 +2532,48 @@ impl App {
                         width,
                         height,
                     );
+                }
+
+                // joint
+                if let Some(iter) = reader.read_joints(0) {
+                    for joint in iter.into_u16() {
+                        print!("Joint: {:?}", joint);
+                        joint_indices.push(joint);
+                        data.joint_indices.push(joint);
+                    }
+                }
+
+                if let Some(iter) = reader.read_weights(0) {
+                    for weight in iter.into_f32() {
+                        println!("weight: {:?}", weight);
+                        joint_weights.push(weight);
+                        data.joint_weights.push(weight);
+                    }
+                }
+
+                // morph targets
+                if let morph_targets = reader.read_morph_targets() {
+                    for target in morph_targets {
+                        let (positions, normals, tangents) = target;
+                        // positions
+                        if let Some(position_iter) = positions {
+                            for position in position_iter {
+                                data.morph_positions.push(position);
+                            }
+                        }
+                        // normals
+                        if let Some(normal_iter) = normals {
+                            for normal in normal_iter {
+                                data.morph_normals.push(normal);
+                            }
+                        }
+                        // tangents
+                        if let Some(tangent_iter) = tangents {
+                            for tangent in tangent_iter {
+                                data.morph_tangents.push(tangent);
+                            }
+                        }
+                    }
                 }
             });
 
