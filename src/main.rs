@@ -5,8 +5,6 @@
     clippy::unnecessary_wraps
 )]
 
-use gltf::animation::util::morph_target_weights;
-use gltf::buffer::Data;
 // imgui
 use imgui::*;
 
@@ -16,6 +14,10 @@ mod math {
     pub mod math;
 }
 use math::math::*;
+
+mod gltf {
+    pub mod gltf;
+}
 
 use anyhow::{anyhow, Result};
 use core::result::Result::Ok;
@@ -56,8 +58,6 @@ use imgui_winit_support::winit::event_loop::EventLoop;
 use imgui_winit_support::winit::window::{Window, WindowBuilder};
 use imgui_winit_support::{HiDpiMode, WinitPlatform};
 use std::path::Path;
-
-use gltf::{image, Document, Gltf, Node};
 
 fn main() -> Result<()> {
     pretty_env_logger::init();
@@ -330,11 +330,6 @@ struct AppData {
     is_left_clicked: bool,
     clicked_mouse_pos: [f32; 2],
     is_wheel_clicked: bool,
-    joint_indices: Vec<[u16; 4]>,
-    joint_weights: Vec<[f32; 4]>,
-    morph_positions: Vec<[f32; 3]>,
-    morph_normals: Vec<[f32; 3]>,
-    morph_tangents: Vec<[f32; 3]>,
 }
 
 impl App {
@@ -1572,7 +1567,7 @@ impl App {
         let memory = instance.get_physical_device_memory_properties(data.physical_device);
         (0..memory.memory_type_count)
             .find(|i| {
-                let suitable = (requirements.memory_type_bits & (1 << i)) != 0;
+                let suitable = (requirements.memory_type_bits & (1 << i) as u32) != 0;
                 let memory_type = memory.memory_types[*i as usize];
                 suitable & memory_type.property_flags.contains(properties)
             })
@@ -2430,160 +2425,24 @@ impl App {
 
         // gltf model
         let grass_path = "src/resources/yard_grass.glb";
-        let (gltf, buffers, images) =
-            gltf::import(format!("src/resources/yard_grass.glb")).expect("Failed to load grass");
+        let gltf_data = gltf::gltf::load_gltf(grass_path)?;
+        let _ = Self::create_texture_image_pixel(
+            instance,
+            device,
+            data,
+            &gltf_data.image_data[0].data,
+            gltf_data.image_data[0].width,
+            gltf_data.image_data[0].height,
+        )?;
 
-        for scene in gltf.scenes() {
-            for node in scene.nodes() {
-                Self::process_node(instance, device, data, &gltf, &buffers, &images, &node)?;
-            }
-        }
-
-        // check
-        println!("vertices count {}", data.vertices.len());
-        println!("indices count {}", data.indices.len());
-        println!("joint indices count {}", data.joint_indices.len());
-        println!("joint weights count {}", data.joint_weights.len());
-        println!("morph position count {}", data.morph_positions.len());
-        println!("morph normal count {}", data.morph_normals.len());
-        println!("morph tangent count {}", data.morph_tangents.len());
-
-        Ok(())
-    }
-
-    unsafe fn process_node(
-        instance: &Instance,
-        device: &Device,
-        data: &mut AppData,
-        gltf: &Document,
-        buffers: &Vec<Data>,
-        images: &Vec<gltf::image::Data>,
-        node: &Node,
-    ) -> Result<()> {
-        println!("Node {} {}", node.index().to_string(), node.name().unwrap());
-        if let Some(mesh) = node.mesh() {
-            println!("mesh found");
-            let primitives = mesh.primitives();
-            let mut positions = Vec::new();
-            let mut texture_coords = Vec::new();
-            let mut normals = Vec::new();
-            let mut joint_indices = Vec::new();
-            let mut joint_weights = Vec::new();
-            primitives.for_each(|primitive| {
-                println!("primitive found");
-                let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
-
-                println!("Topology: {:?}", primitive.mode());
-
-                let index_offset = data.indices.len();
-                if let Some(gltf::mesh::util::ReadIndices::U16(gltf::accessor::Iter::Standard(
-                    iter,
-                ))) = reader.read_indices()
-                {
-                    for index in iter {
-                        data.indices.push((index_offset + index as usize) as u32);
-                    }
-                }
-
-                if let Some(iter) = reader.read_positions() {
-                    for position in iter {
-                        let mut position_converted = position;
-                        position_converted[1] = 1.0 - position_converted[1];
-                        positions.push(position_converted);
-                    }
-                }
-
-                if let Some(gltf::mesh::util::ReadTexCoords::F32(gltf::accessor::Iter::Standard(
-                    iter,
-                ))) = reader.read_tex_coords(0)
-                {
-                    for texture_coord in iter {
-                        texture_coords.push(texture_coord);
-                    }
-                }
-
-                if let Some(iter) = reader.read_normals() {
-                    for normal in iter {
-                        normals.push(normal);
-                    }
-                }
-
-                // texture
-                if let Some(material) = primitive
-                    .material()
-                    .pbr_metallic_roughness()
-                    .base_color_texture()
-                {
-                    let texture = material.texture();
-                    let image = &images[texture.source().index()];
-
-                    let size = (size_of::<u8>() * image.pixels.len()) as u64;
-                    let (width, height) = (image.width, image.height);
-                    let _ = Self::create_texture_image_pixel(
-                        instance,
-                        device,
-                        data,
-                        &image.pixels,
-                        width,
-                        height,
-                    );
-                }
-
-                // joint
-                if let Some(iter) = reader.read_joints(0) {
-                    for joint in iter.into_u16() {
-                        print!("Joint: {:?}", joint);
-                        joint_indices.push(joint);
-                        data.joint_indices.push(joint);
-                    }
-                }
-
-                if let Some(iter) = reader.read_weights(0) {
-                    for weight in iter.into_f32() {
-                        println!("weight: {:?}", weight);
-                        joint_weights.push(weight);
-                        data.joint_weights.push(weight);
-                    }
-                }
-
-                // morph targets
-                if let morph_targets = reader.read_morph_targets() {
-                    for target in morph_targets {
-                        let (positions, normals, tangents) = target;
-                        // positions
-                        if let Some(position_iter) = positions {
-                            for position in position_iter {
-                                data.morph_positions.push(position);
-                            }
-                        }
-                        // normals
-                        if let Some(normal_iter) = normals {
-                            for normal in normal_iter {
-                                data.morph_normals.push(normal);
-                            }
-                        }
-                        // tangents
-                        if let Some(tangent_iter) = tangents {
-                            for tangent in tangent_iter {
-                                data.morph_tangents.push(tangent);
-                            }
-                        }
-                    }
-                }
-            });
-
-            for i in 0..positions.len() {
-                let vertex = Vertex::new(
-                    vec3_from_array(positions[i]) * 0.01,
-                    vec4(0.0, 1.0, 0.0, 1.0),
-                    vec2_from_array(texture_coords[i]),
-                );
-                data.vertices.push(vertex);
-            }
-        }
-
-        for child in node.children() {
-            Self::process_node(instance, device, data, gltf, buffers, images, &child)?;
+        for i in 0..gltf_data.positions.len() {
+            data.indices.push(i as u32);
+            let vertex = Vertex::new(
+                vec3_from_array(gltf_data.positions[i]) * 0.01,
+                vec4(0.0, 1.0, 0.0, 1.0),
+                vec2_from_array(gltf_data.tex_coords[i]),
+            );
+            data.vertices.push(vertex);
         }
 
         Ok(())
