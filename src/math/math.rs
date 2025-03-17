@@ -2,9 +2,67 @@ pub use cgmath::Rad;
 pub use cgmath::{point3, Deg, InnerSpace, MetricSpace, Vector2};
 pub use cgmath::{prelude::*, Vector3};
 pub use cgmath::{vec2, vec3, vec4};
-pub type Vec2 = cgmath::Vector2<f32>;
-pub type Vec3 = cgmath::Vector3<f32>;
-pub type Vec4 = cgmath::Vector4<f32>;
+use std::ops::Deref;
+#[derive(Copy, Clone, Debug)]
+pub struct Vec2(cgmath::Vector2<f32>);
+impl Default for Vec2 {
+    fn default() -> Self {
+        Self(cgmath::Vector2::new(0.0, 0.0))
+    }
+}
+
+impl Deref for Vec2 {
+    type Target = cgmath::Vector2<f32>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PartialEq for Vec2 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
+#[derive(Copy, Clone, Debug)]
+pub struct Vec3(cgmath::Vector3<f32>);
+impl Default for Vec3 {
+    fn default() -> Self {
+        Self(cgmath::Vector3::new(0.0, 0.0, 0.0))
+    }
+}
+impl Deref for Vec3 {
+    type Target = cgmath::Vector3<f32>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PartialEq for Vec3 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+#[derive(Copy, Clone, Debug)]
+pub struct Vec4(cgmath::Vector4<f32>);
+impl Default for Vec4 {
+    fn default() -> Self {
+        Self(cgmath::Vector4::new(0.0, 0.0, 0.0, 0.0))
+    }
+}
+impl Deref for Vec4 {
+    type Target = cgmath::Vector4<f32>;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl PartialEq for Vec4 {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.eq(&other.0)
+    }
+}
+
 pub type Mat3 = cgmath::Matrix3<f32>;
 pub type Mat4 = cgmath::Matrix4<f32>;
 
@@ -52,4 +110,37 @@ pub unsafe fn rodrigues(
         c + n.z * n.z * ac,
     );
     Ok(())
+}
+
+pub unsafe fn view(
+    camera_pos: cgmath::Vector3<f32>,
+    direction: cgmath::Vector3<f32>,
+    up: cgmath::Vector3<f32>,
+) -> cgmath::Matrix4<f32> {
+    let n_z = cgmath::Vector3::normalize(direction);
+    let n_x = cgmath::Vector3::normalize(cgmath::Vector3::cross(up, n_z));
+    let n_y = cgmath::Vector3::cross(n_x, n_z);
+    let orientation = cgmath::Matrix4::new(
+        n_x.x, n_y.x, n_z.x, 0.0, n_x.y, n_y.y, n_z.y, 0.0, n_x.z, n_y.z, n_z.z, 0.0, 0.0, 0.0,
+        0.0, 1.0,
+    );
+    let translate = cgmath::Matrix4::new(
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        1.0,
+        0.0,
+        -camera_pos.x,
+        -camera_pos.y,
+        -camera_pos.z,
+        1.0,
+    );
+    return orientation * translate;
 }
