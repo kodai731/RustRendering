@@ -18,6 +18,8 @@ impl RRPipeline {
         rrswapchain: &RRSwapchain,
         rrrender: &RRRender,
         rrdescriptor_set: &RRDescriptorSet,
+        vertex_shader_path: &str,
+        fragment_shader_path: &str,
     ) -> Self {
         let mut rrpipeline = RRPipeline::default();
         let _ = create_pipeline(
@@ -26,6 +28,8 @@ impl RRPipeline {
             rrrender,
             rrdescriptor_set,
             &mut rrpipeline,
+            vertex_shader_path,
+            fragment_shader_path,
         );
         rrpipeline
     }
@@ -36,9 +40,11 @@ unsafe fn create_pipeline(
     rrrender: &RRRender,
     rrdescriptor_set: &RRDescriptorSet,
     rrpipeline: &mut RRPipeline,
+    vertex_shader_path: &str,
+    fragment_shader_path: &str,
 ) -> Result<()> {
-    let vert = include_bytes!("./shaders/vert.spv");
-    let frag = include_bytes!("./shaders/frag.spv");
+    let vert = include_bytes!(vertex_shader_path);
+    let frag = include_bytes!(fragment_shader_path);
     let vert_shader_module = create_shader_module(rrdevice, &vert[..])?;
     let frag_shader_module = create_shader_module(rrdevice, &frag[..])?;
 

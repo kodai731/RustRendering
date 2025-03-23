@@ -1,3 +1,6 @@
+use super::buffer::*;
+use super::device::*;
+use super::swapchain::*;
 use super::vulkan::*;
 use std::cmp::PartialEq;
 use std::hash::{Hash, Hasher};
@@ -13,11 +16,25 @@ pub struct Vertex {
 
 #[derive(Clone, Debug, Default)]
 pub struct RRData {
-    pub uniform_buffers: Vec<vk::Buffer>,
-    pub uniform_buffer_memories: Vec<vk::DeviceMemory>,
-    pub uniform_buffer_objects: Vec<UniformBufferObject>,
+    pub rruniform_buffers: Vec<RRUniformBuffer>,
     pub image_view: vk::ImageView,
     pub sampler: vk::Sampler,
+}
+
+impl RRData {
+    pub unsafe fn create_uniform_buffers(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        rrswapchain: &RRSwapchain,
+    ) -> Self {
+        let mut rrdata = RRData::default();
+        for _ in 0..rrswapchain.swapchain_images.len() {
+            let ubo = UniformBufferObject::default();
+            let rruniform_buffer = RRUniformBuffer::new(instance, rrdevice, ubo);
+            rrdata.rruniform_buffers.push(rruniform_buffer);
+        }
+        rrdata
+    }
 }
 
 #[repr(C)]
@@ -26,6 +43,19 @@ pub struct UniformBufferObject {
     pub model: Mat4,
     pub view: Mat4,
     pub proj: Mat4,
+}
+
+impl Default for UniformBufferObject {
+    fn default() -> Self {
+        let identity = Mat4::new(
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0,
+        );
+        Self {
+            model: identity,
+            view: identity,
+            proj: identity,
+        }
+    }
 }
 
 impl PartialEq for Vertex {
@@ -49,7 +79,7 @@ impl Hash for Vertex {
     }
 }
 impl Vertex {
-    const fn new(pos: Vec3, color: Vec4, tex_coord: Vec2) -> Self {
+    pub const fn new(pos: Vec3, color: Vec4, tex_coord: Vec2) -> Self {
         Self {
             pos,
             color,

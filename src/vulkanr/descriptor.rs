@@ -90,7 +90,7 @@ unsafe fn create_descriptor_sets(
 
     for i in 0..rrswapchain.swapchain_images.len() {
         let info = vk::DescriptorBufferInfo::builder()
-            .buffer(rrdescriptor_set.rrdata.uniform_buffers[i])
+            .buffer(rrdescriptor_set.rrdata.rruniform_buffers[i].buffer)
             .offset(0)
             .range(size_of::<UniformBufferObject>() as u64);
         // The configuration of descriptors is updated using the update_descriptor_sets function,

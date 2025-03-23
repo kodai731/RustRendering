@@ -2,7 +2,7 @@ pub use cgmath::Rad;
 pub use cgmath::{point3, Deg, InnerSpace, MetricSpace, Vector2};
 pub use cgmath::{prelude::*, Vector3};
 pub use cgmath::{vec2, vec3, vec4};
-use std::ops::Deref;
+use std::ops::{Deref, Mul};
 #[derive(Copy, Clone, Debug)]
 pub struct Vec2(cgmath::Vector2<f32>);
 impl Default for Vec2 {
@@ -24,6 +24,20 @@ impl PartialEq for Vec2 {
     }
 }
 
+impl Vec2 {
+    pub fn new(x: f32, y: f32) -> Self {
+        Self(cgmath::Vector2::new(x, y))
+    }
+
+    pub fn distance(&self, other: Self) -> f32 {
+        cgmath::Vector2::distance(self.0, other.0)
+    }
+
+    pub fn new_array(array: [f32; 2]) -> Self {
+        Self(cgmath::Vector2::new(array[0], array[1]))
+    }
+}
+
 #[derive(Copy, Clone, Debug)]
 pub struct Vec3(cgmath::Vector3<f32>);
 impl Default for Vec3 {
@@ -35,6 +49,23 @@ impl Deref for Vec3 {
     type Target = cgmath::Vector3<f32>;
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+impl Mul<f32> for Vec3 {
+    type Output = Self;
+    fn mul(self, rhs: f32) -> Self::Output {
+        Self(self.0 * rhs)
+    }
+}
+
+impl Vec3 {
+    pub fn new(x: f32, y: f32, z: f32) -> Self {
+        Self(cgmath::Vector3::new(x, y, z))
+    }
+
+    pub fn new_array(p: [f32; 3]) -> Self {
+        Self(cgmath::Vector3::new(p[0], p[1], p[2]))
     }
 }
 
@@ -60,6 +91,12 @@ impl Deref for Vec4 {
 impl PartialEq for Vec4 {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
+    }
+}
+
+impl Vec4 {
+    pub fn new(x: f32, y: f32, z: f32, w: f32) -> Self {
+        Self(cgmath::Vector4::new(x, y, z, w))
     }
 }
 

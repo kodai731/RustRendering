@@ -4,6 +4,7 @@ use super::device::*;
 use super::vulkan::*;
 use std::fs::File;
 use std::ptr::copy_nonoverlapping as memcpy;
+use std::rc::Rc;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRImage {
@@ -459,7 +460,7 @@ unsafe fn create_texture_sampler(rrdevice: &RRDevice, mip_levels: u32) -> Result
 pub unsafe fn create_texture_image_pixel(
     instance: &Instance,
     rrdevice: &RRDevice,
-    rrcommand_pool: &RRCommandPool,
+    rrcommand_pool: &Rc<RRCommandPool>,
     pixels: &Vec<u8>,
     width: u32,
     height: u32,

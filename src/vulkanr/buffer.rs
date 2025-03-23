@@ -1,17 +1,130 @@
 use super::device::*;
 use super::vulkan::*;
-use crate::vulkanr::command::{
-    begin_single_time_commands, end_single_time_commands, RRCommandPool,
-};
+use crate::vulkanr::command::*;
+use crate::vulkanr::data::UniformBufferObject;
 use std::ffi::c_void;
 use std::mem::size_of;
 use std::ptr::copy_nonoverlapping as memcpy;
 
 #[derive(Clone, Debug, Default)]
-pub struct RRVertexBuffer {
+pub struct RRUniformBuffer {
+    pub buffer: vk::Buffer,
+    pub buffer_memory: vk::DeviceMemory,
+    pub uniform_buffer_object: UniformBufferObject,
+}
+
+impl RRUniformBuffer {
+    pub unsafe fn new(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        uniform_buffer_object: UniformBufferObject,
+    ) -> Self {
+        let mut rruniform_buffer = Self::default();
+        let Ok((uniform_buffer, uniform_buffer_memory)) = create_buffer(
+            instance,
+            rrdevice,
+            size_of::<uniform_buffer_object>() as u64,
+            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        );
+
+        rruniform_buffer.buffer = uniform_buffer;
+        rruniform_buffer.buffer_memory = uniform_buffer_memory;
+        rruniform_buffer.uniform_buffer_object = uniform_buffer_object;
+        rruniform_buffer
+    }
+}
+
+// unsafe fn create_uniform_buffers(
+//     instance: &Instance,
+//     rrdevice: &RRDevice,
+//     rrswapchain: &RRSwapchain,
+// ) -> Result<()> {
+//     data.uniform_buffers.clear();
+//     data.uniform_buffer_memories.clear();
+//
+//     for _ in 0..data.swapchain_images.len() {
+//         let (uniform_buffer, uniform_buffer_memory) = Self::create_buffer(
+//             instance,
+//             device,
+//             data,
+//             size_of::<UniformBufferObject>() as u64,
+//             vk::BufferUsageFlags::UNIFORM_BUFFER,
+//             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+//         )?;
+//         data.uniform_buffers.push(uniform_buffer);
+//         data.uniform_buffer_memories.push(uniform_buffer_memory);
+//     }
+//
+//     Ok(())
+// }
+
+#[derive(Clone, Debug, Default)]
+pub struct RRIndexBuffer {
     pub buffer: vk::Buffer,
     pub buffer_memory: vk::DeviceMemory,
     pub indices: u32,
+}
+
+impl RRIndexBuffer {
+    pub unsafe fn new(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        rr_command_pool: &RRCommandPool,
+        size: u64,
+        data: *const c_void,
+        length: usize,
+    ) -> Self {
+        let mut rrindex_buffer = RRIndexBuffer::default();
+        let Ok((staging_buffer, staging_buffer_memory)) = create_buffer(
+            instance,
+            rrdevice,
+            size,
+            vk::BufferUsageFlags::TRANSFER_SRC,
+            vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+        );
+        let Ok(map_memory) = rrdevice.device.map_memory(
+            staging_buffer_memory,
+            0,
+            size,
+            vk::MemoryMapFlags::empty(),
+        )?;
+
+        memcpy(data, map_memory.cast(), length);
+        rrdevice.device.unmap_memory(staging_buffer_memory);
+
+        let (index_buffer, index_buffer_memory) = create_buffer(
+            instance,
+            rrdevice,
+            size,
+            vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL, //  we're not able to use map_memory, instead can be copied
+        )?;
+
+        copy_buffer(
+            rrdevice,
+            rr_command_pool,
+            staging_buffer,
+            index_buffer,
+            size,
+        )?;
+
+        rrdevice.device.destroy_buffer(staging_buffer, None);
+        rrdevice.device.free_memory(staging_buffer_memory, None);
+
+        rrindex_buffer.buffer = index_buffer;
+        rrindex_buffer.buffer_memory = index_buffer_memory;
+        rrindex_buffer.indices = length as u32;
+
+        rrindex_buffer
+    }
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct RRVertexBuffer {
+    pub buffer: vk::Buffer,
+    pub buffer_memory: vk::DeviceMemory,
+    pub vertices: u32,
 }
 
 impl RRVertexBuffer {
@@ -31,7 +144,7 @@ impl RRVertexBuffer {
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
         );
-        let map_memory = rrdevice.device.map_memory(
+        let Ok(map_memory) = rrdevice.device.map_memory(
             staging_buffer_memory,
             0,
             size,
@@ -62,7 +175,7 @@ impl RRVertexBuffer {
 
         rrvertex_buffer.buffer = vertex_buffer;
         rrvertex_buffer.buffer_memory = vertex_buffer_memory;
-        rrvertex_buffer.indices = length as u32;
+        rrvertex_buffer.vertices = length as u32;
 
         rrvertex_buffer
     }
@@ -190,27 +303,3 @@ pub unsafe fn copy_buffer_to_image(
 
     Ok(())
 }
-
-// unsafe fn create_uniform_buffers(
-//     instance: &Instance,
-//     rrdevice: &RRDevice,
-//     rrswapchain: &RRSwapchain,
-// ) -> Result<()> {
-//     data.uniform_buffers.clear();
-//     data.uniform_buffer_memories.clear();
-//
-//     for _ in 0..data.swapchain_images.len() {
-//         let (uniform_buffer, uniform_buffer_memory) = Self::create_buffer(
-//             instance,
-//             device,
-//             data,
-//             size_of::<UniformBufferObject>() as u64,
-//             vk::BufferUsageFlags::UNIFORM_BUFFER,
-//             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-//         )?;
-//         data.uniform_buffers.push(uniform_buffer);
-//         data.uniform_buffer_memories.push(uniform_buffer_memory);
-//     }
-//
-//     Ok(())
-// }
