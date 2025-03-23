@@ -23,10 +23,12 @@ impl RRUniformBuffer {
         let Ok((uniform_buffer, uniform_buffer_memory)) = create_buffer(
             instance,
             rrdevice,
-            size_of::<uniform_buffer_object>() as u64,
+            size_of::<UniformBufferObject>() as u64,
             vk::BufferUsageFlags::UNIFORM_BUFFER,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        );
+        ) else {
+            panic!("Unable to create uniform buffer");
+        };
 
         rruniform_buffer.buffer = uniform_buffer;
         rruniform_buffer.buffer_memory = uniform_buffer_memory;
@@ -82,24 +84,29 @@ impl RRIndexBuffer {
             size,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-        );
-        let Ok(map_memory) = rrdevice.device.map_memory(
-            staging_buffer_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-        )?;
+        ) else {
+            panic!("Unable to create buffer");
+        };
+        let Ok(map_memory) =
+            rrdevice
+                .device
+                .map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())
+        else {
+            panic!("Failed to map staging buffer");
+        };
 
         memcpy(data, map_memory.cast(), length);
         rrdevice.device.unmap_memory(staging_buffer_memory);
 
-        let (index_buffer, index_buffer_memory) = create_buffer(
+        let Ok((index_buffer, index_buffer_memory)) = create_buffer(
             instance,
             rrdevice,
             size,
             vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
             vk::MemoryPropertyFlags::DEVICE_LOCAL, //  we're not able to use map_memory, instead can be copied
-        )?;
+        ) else {
+            panic!("failed to create buffer")
+        };
 
         copy_buffer(
             rrdevice,
@@ -107,7 +114,8 @@ impl RRIndexBuffer {
             staging_buffer,
             index_buffer,
             size,
-        )?;
+        )
+        .expect("failed to create buffer");
 
         rrdevice.device.destroy_buffer(staging_buffer, None);
         rrdevice.device.free_memory(staging_buffer_memory, None);
@@ -143,32 +151,39 @@ impl RRVertexBuffer {
             size,
             vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-        );
-        let Ok(map_memory) = rrdevice.device.map_memory(
-            staging_buffer_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-        )?;
+        ) else {
+            panic!("failed to create buffer");
+        };
+        let Ok(map_memory) =
+            rrdevice
+                .device
+                .map_memory(staging_buffer_memory, 0, size, vk::MemoryMapFlags::empty())
+        else {
+            panic!("failed to map buffer")
+        };
 
         memcpy(data, map_memory.cast(), length);
         rrdevice.device.unmap_memory(staging_buffer_memory);
 
-        let (vertex_buffer, vertex_buffer_memory) = create_buffer(
+        let Ok((vertex_buffer, vertex_buffer_memory)) = create_buffer(
             instance,
             rrdevice,
             size,
             vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
             vk::MemoryPropertyFlags::DEVICE_LOCAL, //  we're not able to use map_memory, instead can be copied
-        )?;
+        ) else {
+            panic!("failed to create buffer");
+        };
 
-        copy_buffer(
+        if let Err(e) = copy_buffer(
             rrdevice,
             rr_command_pool,
             staging_buffer,
             vertex_buffer,
             size,
-        )?;
+        ) {
+            panic!("failed to copy buffer");
+        }
 
         rrdevice.device.destroy_buffer(staging_buffer, None);
         rrdevice.device.free_memory(staging_buffer_memory, None);
@@ -198,7 +213,10 @@ impl RRBuffer {
     ) -> Self {
         let mut rrbuffer = RRBuffer::default();
         let Ok((buffer, buffer_memory)) =
-            create_buffer(instance, rrdevice, size, usage, properties);
+            create_buffer(instance, rrdevice, size, usage, properties)
+        else {
+            panic!("failed to create buffer")
+        };
         rrbuffer.buffer = buffer;
         rrbuffer.buffer_memory = buffer_memory;
         rrbuffer
@@ -242,13 +260,13 @@ pub unsafe fn copy_buffer(
     destination: vk::Buffer,
     size: vk::DeviceSize,
 ) -> Result<()> {
-    let command_buffer = begin_single_time_commands(&rrdevice.device, rrcommand_pool.command_pool)?;
+    let command_buffer = begin_single_time_commands(rrdevice, rrcommand_pool.command_pool)?;
     let regions = vk::BufferCopy::builder().size(size);
     rrdevice
         .device
         .cmd_copy_buffer(command_buffer, source, destination, &[regions]);
     end_single_time_commands(
-        &rrdevice.device,
+        rrdevice,
         rrdevice.graphics_queue,
         rrcommand_pool.command_pool,
         command_buffer,
@@ -265,8 +283,7 @@ pub unsafe fn copy_buffer_to_image(
     width: u32,
     height: u32,
 ) -> Result<()> {
-    let command_buffer =
-        begin_single_time_commands(&rrdevice.device, rrcommand_buffer.command_pool)?;
+    let command_buffer = begin_single_time_commands(rrdevice, rrcommand_buffer.command_pool)?;
     let subresources = vk::ImageSubresourceLayers::builder()
         .aspect_mask(vk::ImageAspectFlags::COLOR)
         .mip_level(0)
@@ -295,7 +312,7 @@ pub unsafe fn copy_buffer_to_image(
     );
 
     end_single_time_commands(
-        &rrdevice.device,
+        rrdevice,
         rrdevice.graphics_queue,
         rrcommand_buffer.command_pool,
         command_buffer,

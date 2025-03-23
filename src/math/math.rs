@@ -2,7 +2,7 @@ pub use cgmath::Rad;
 pub use cgmath::{point3, Deg, InnerSpace, MetricSpace, Vector2};
 pub use cgmath::{prelude::*, Vector3};
 pub use cgmath::{vec2, vec3, vec4};
-use std::ops::{Deref, Mul};
+use std::ops::{Deref, DerefMut, Mul, Neg};
 #[derive(Copy, Clone, Debug)]
 pub struct Vec2(cgmath::Vector2<f32>);
 impl Default for Vec2 {
@@ -21,6 +21,13 @@ impl Deref for Vec2 {
 impl PartialEq for Vec2 {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
+    }
+}
+
+impl Neg for Vec2 {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Self(self.0.neg())
     }
 }
 
@@ -52,10 +59,23 @@ impl Deref for Vec3 {
     }
 }
 
+impl DerefMut for Vec3 {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 impl Mul<f32> for Vec3 {
     type Output = Self;
     fn mul(self, rhs: f32) -> Self::Output {
         Self(self.0 * rhs)
+    }
+}
+
+impl Neg for Vec3 {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
     }
 }
 
@@ -91,6 +111,13 @@ impl Deref for Vec4 {
 impl PartialEq for Vec4 {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
+    }
+}
+
+impl Neg for Vec4 {
+    type Output = Self;
+    fn neg(self) -> Self::Output {
+        Self(-self.0)
     }
 }
 

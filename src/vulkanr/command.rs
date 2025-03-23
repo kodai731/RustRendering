@@ -10,36 +10,42 @@ use std::rc::Rc;
 use vulkanalia::vk::Pipeline;
 
 pub unsafe fn begin_single_time_commands(
-    device: &Device,
+    rrdevice: &RRDevice,
     command_pool: vk::CommandPool,
 ) -> Result<vk::CommandBuffer> {
     let info = vk::CommandBufferAllocateInfo::builder()
         .level(vk::CommandBufferLevel::PRIMARY)
         .command_pool(command_pool)
         .command_buffer_count(1);
-    let command_buffer = device.allocate_command_buffers(&info)?[0];
+    let command_buffer = rrdevice.device.allocate_command_buffers(&info)?[0];
 
     let info =
         vk::CommandBufferBeginInfo::builder().flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-    device.begin_command_buffer(command_buffer, &info)?;
+    rrdevice
+        .device
+        .begin_command_buffer(command_buffer, &info)?;
 
     Ok(command_buffer)
 }
 
 pub unsafe fn end_single_time_commands(
-    device: &Device,
+    rrdevice: &RRDevice,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     command_buffer: vk::CommandBuffer,
 ) -> Result<()> {
-    device.end_command_buffer(command_buffer)?;
+    rrdevice.device.end_command_buffer(command_buffer)?;
 
     let command_buffers = &[command_buffer];
     let info = vk::SubmitInfo::builder().command_buffers(command_buffers);
-    device.queue_submit(queue, &[info], vk::Fence::null())?;
-    device.queue_wait_idle(queue)?;
+    rrdevice
+        .device
+        .queue_submit(queue, &[info], vk::Fence::null())?;
+    rrdevice.device.queue_wait_idle(queue)?;
 
-    device.free_command_buffers(command_pool, &[command_buffer]);
+    rrdevice
+        .device
+        .free_command_buffers(command_pool, &[command_buffer]);
 
     Ok(())
 }

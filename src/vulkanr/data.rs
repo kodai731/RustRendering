@@ -4,7 +4,7 @@ use super::swapchain::*;
 use super::vulkan::*;
 use std::cmp::PartialEq;
 use std::hash::{Hash, Hasher};
-use AqooleEngineR::math::math::{Mat4, Vec2, Vec3, Vec4};
+use super::super::math::math::{Mat4, Vec2, Vec3, Vec4};
 
 #[repr(C)] // for compatibility of C struct
 #[derive(Copy, Clone, Debug, Default)]

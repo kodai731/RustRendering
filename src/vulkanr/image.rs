@@ -22,18 +22,25 @@ impl RRImage {
     ) -> Self {
         let mut rrimage = RRImage::default();
         let Ok((image, image_memory, mip_levels)) =
-            create_texture_image(instance, rrdevice, rrcommand_pool);
+            create_texture_image(instance, rrdevice, rrcommand_pool)
+        else {
+            panic!("failed to create texture image");
+        };
         let Ok(image_view) = create_image_view(
             rrdevice,
             image,
             vk::Format::R8G8B8A8_SRGB,
             vk::ImageAspectFlags::COLOR,
             mip_levels,
-        );
+        ) else {
+            panic!("Image view creation failed");
+        };
         rrimage.image = image;
         rrimage.image_memory = image_memory;
         rrimage.image_view = image_view;
-        let Ok(sampler) = create_texture_sampler(&rrdevice, mip_levels);
+        let Ok(sampler) = create_texture_sampler(&rrdevice, mip_levels) else {
+            panic!("error creating sampler")
+        };
         rrimage.sampler = sampler;
         rrimage
     }
@@ -93,7 +100,7 @@ pub unsafe fn create_texture_image(
     )?;
 
     transition_image_layout(
-        &rrdevice.device,
+        rrdevice,
         rrdevice.graphics_queue,
         rrcommand_pool.command_pool,
         texture_image,
@@ -175,7 +182,7 @@ pub unsafe fn create_image(
 }
 
 pub unsafe fn transition_image_layout(
-    device: &Device,
+    rrdevice: &RRDevice,
     queue: vk::Queue,
     command_pool: vk::CommandPool,
     image: vk::Image,
@@ -184,7 +191,7 @@ pub unsafe fn transition_image_layout(
     new_layout: vk::ImageLayout,
     mip_levels: u32,
 ) -> Result<()> {
-    let command_buffer = begin_single_time_commands(device, command_pool)?;
+    let command_buffer = begin_single_time_commands(rrdevice, command_pool)?;
 
     let aspect_mask = if new_layout == vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL {
         match format {
@@ -238,7 +245,7 @@ pub unsafe fn transition_image_layout(
         .src_access_mask(src_access_mask)
         .dst_access_mask(dst_access_mask);
 
-    device.cmd_pipeline_barrier(
+    rrdevice.device.cmd_pipeline_barrier(
         command_buffer,
         src_stage_mask, // perations will wait on the barrier.
         dst_stage_mask, //
@@ -248,7 +255,7 @@ pub unsafe fn transition_image_layout(
         &[barrier],
     );
 
-    end_single_time_commands(device, queue, command_pool, command_buffer)?;
+    end_single_time_commands(rrdevice, queue, command_pool, command_buffer)?;
 
     Ok(())
 }
@@ -285,7 +292,7 @@ pub unsafe fn create_image_view(
         .format(format)
         .subresource_range(subresource_range);
 
-    Ok(rrdevice.create_image_view(&info, None)?)
+    Ok(rrdevice.device.create_image_view(&info, None)?)
 }
 
 unsafe fn generate_mipmaps(
@@ -504,7 +511,7 @@ pub unsafe fn create_texture_image_pixel(
     )?;
 
     transition_image_layout(
-        &rrdevice.device,
+        rrdevice,
         rrdevice.graphics_queue,
         rrcommand_pool.command_pool,
         texture_image,

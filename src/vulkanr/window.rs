@@ -7,5 +7,3 @@ pub use imgui_winit_support::winit::event::{Event, WindowEvent};
 pub use imgui_winit_support::winit::event_loop::EventLoop;
 pub use imgui_winit_support::winit::window::{Window, WindowBuilder};
 pub use imgui_winit_support::{HiDpiMode, WinitPlatform};
-
-use super::vulkan;

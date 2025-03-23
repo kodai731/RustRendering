@@ -30,7 +30,7 @@ use vulkanr::vulkan::*;
 use vulkanr::window::*;
 
 // imgui
-use imgui::*;
+//use imgui::*;
 
 mod support;
 
@@ -66,9 +66,12 @@ use std::mem::size_of;
 use std::ptr::copy_nonoverlapping as memcpy;
 use std::time::Instant;
 
+use cgmath::num_traits::AsPrimitive;
 use glium::buffer::Content;
+use std::borrow::BorrowMut;
 use std::path::Path;
 use std::rc::Rc;
+use imgui::{Condition, MouseButton};
 use vulkanalia::vk::CommandPool;
 
 fn main() -> Result<()> {
@@ -366,7 +369,7 @@ impl App {
             "./shaders/gridVert.spv",
         );
 
-        let _ = Self::load_model(&instance, &rrdevice.device, &mut data)?;
+        let _ = Self::load_model(&instance, &rrdevice, &mut data)?;
         // let _ = Self::create_texture_image(&instance, &device, &mut data)?;
         data.texture_image = RRImage::new(&instance, &rrdevice, &data.rrcommand_pool);
         data.model_vertex_buffer = RRVertexBuffer::new(
@@ -374,7 +377,7 @@ impl App {
             &rrdevice,
             &data.rrcommand_pool,
             (size_of::<Vertex>() * data.vertices.len()) as vk::DeviceSize,
-            data.vertices[0].as_ptr(),
+            data.vertices.as_ptr() as *const c_void,
             data.vertices.len(),
         );
         data.grid_vertex_buffer = RRVertexBuffer::new(
@@ -382,7 +385,7 @@ impl App {
             &rrdevice,
             &data.rrcommand_pool,
             (size_of::<Vertex>() * data.grid_vertices.len()) as vk::DeviceSize,
-            data.grid_vertices[0].as_ptr(),
+            data.grid_vertices.as_ptr() as *const c_void,
             data.grid_vertices.len(),
         );
         data.model_index_buffer = RRIndexBuffer::new(
@@ -390,7 +393,7 @@ impl App {
             &rrdevice,
             &data.rrcommand_pool,
             (size_of::<u32>() * data.indices.len()) as u64,
-            data.indices[0].as_ptr(),
+            data.indices.as_ptr() as *const c_void,
             data.indices.len(),
         );
         data.grid_index_buffer = RRIndexBuffer::new(
@@ -398,7 +401,7 @@ impl App {
             &rrdevice,
             &data.rrcommand_pool,
             (size_of::<u32>() * data.grid_indices.len()) as u64,
-            data.grid_indices[0].as_ptr(),
+            data.grid_indices.as_ptr() as *const c_void,
             data.grid_indices.len(),
         );
         data.rrdata_model = RRData::default();
@@ -456,7 +459,7 @@ impl App {
 
         let image_index = match result {
             Ok((image_index, _)) => image_index as usize,
-            Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
+            //TODO: Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return self.recreate_swapchain(window),
             Err(e) => return Err(anyhow!(e)),
         };
 
@@ -475,7 +478,7 @@ impl App {
 
         let wait_semaphores = &[self.data.image_available_semaphores[self.frame]];
         let wait_stages = &[vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT];
-        let command_buffers = &[self.data.rrcommand_buffer[image_index as usize]];
+        let command_buffers = &[self.data.rrcommand_buffer.command_buffers[image_index]];
         let signal_semaphores = &[self.data.render_finish_semaphores[self.frame]];
         let submit_info = vk::SubmitInfo::builder()
             .wait_semaphores(wait_semaphores)
@@ -507,7 +510,7 @@ impl App {
 
         if changed || self.resized {
             self.resized = false;
-            self.recreate_swapchain(window)?;
+            // TODO: self.recreate_swapchain(window)?;
         } else if let Err(e) = present_result {
             return Err(anyhow!(e));
         }
@@ -700,33 +703,33 @@ impl App {
         Ok(())
     }
 
-    unsafe fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
-        // self.rrdevice.device.device_wait_idle()?;
-        // self.destroy_swapchain();
-        // Self::create_swapchain(
-        //     window,
-        //     &self.instance,
-        //     &self.rrdevice.device,
-        //     &mut self.data,
-        // )?;
-        // Self::create_swapchain_image_view(&self.rrdevice.device, &mut self.data)?;
-        // Self::create_render_pass(&self.instance, &self.rrdevice.device, &mut self.data)?;
-        // Self::create_pipeline(&self.rrdevice.device, &mut self.data)?;
-        // Self::create_color_objects(&self.instance, &self.rrdevice.device, &mut self.data)?;
-        // Self::create_depth_objects(&self.instance, &self.rrdevice.device, &mut self.data)?;
-        // Self::create_framebuffers(&self.rrdevice.device, &mut self.data)?;
-        // Self::create_uniform_buffers(&self.instance, &self.rrdevice.device, &mut self.data)?;
-        // Self::create_uniform_buffers_grid(&self.instance, &self.rrdevice.device, &mut self.data)?;
-        // Self::create_descriptor_pool(&self.rrdevice.device, &mut self.data)?;
-        // Self::create_descriptor_sets(&self.rrdevice.device, &mut self.data)?;
-        // Self::create_descriptor_sets_grid(&self.rrdevice.device, &mut self.data)?;
-        // Self::create_command_buffers(&self.rrdevice.device, &mut self.data)?;
-        // self.data
-        //     .images_in_flight
-        //     .resize(self.data.swapchain_images.len(), vk::Fence::null());
-        //
-        Ok(())
-    }
+    //unsafe fn recreate_swapchain(&mut self, window: &Window) -> Result<()> {
+    // self.rrdevice.device.device_wait_idle()?;
+    // self.destroy_swapchain();
+    // Self::create_swapchain(
+    //     window,
+    //     &self.instance,
+    //     &self.rrdevice.device,
+    //     &mut self.data,
+    // )?;
+    // Self::create_swapchain_image_view(&self.rrdevice.device, &mut self.data)?;
+    // Self::create_render_pass(&self.instance, &self.rrdevice.device, &mut self.data)?;
+    // Self::create_pipeline(&self.rrdevice.device, &mut self.data)?;
+    // Self::create_color_objects(&self.instance, &self.rrdevice.device, &mut self.data)?;
+    // Self::create_depth_objects(&self.instance, &self.rrdevice.device, &mut self.data)?;
+    // Self::create_framebuffers(&self.rrdevice.device, &mut self.data)?;
+    // Self::create_uniform_buffers(&self.instance, &self.rrdevice.device, &mut self.data)?;
+    // Self::create_uniform_buffers_grid(&self.instance, &self.rrdevice.device, &mut self.data)?;
+    // Self::create_descriptor_pool(&self.rrdevice.device, &mut self.data)?;
+    // Self::create_descriptor_sets(&self.rrdevice.device, &mut self.data)?;
+    // Self::create_descriptor_sets_grid(&self.rrdevice.device, &mut self.data)?;
+    // Self::create_command_buffers(&self.rrdevice.device, &mut self.data)?;
+    // self.data
+    //     .images_in_flight
+    //     .resize(self.data.swapchain_images.len(), vk::Fence::null());
+    //
+    //Ok(())
+    // }
 
     unsafe fn destroy_swapchain(&mut self) {
         // // depth objects
@@ -809,7 +812,7 @@ impl App {
             } else if index == 1 {
                 //fix x coodinate
                 pos1.x = i as f32 * 0.1;
-                pos1.y = 100.0;
+                pos1.y = 100.0f32;
             } else if index == 2 {
                 // fix z coordinate
                 pos1.z = i as f32 * 0.1;
@@ -1071,7 +1074,11 @@ impl App {
     //     Ok(())
     // }
 
-    unsafe fn load_model(instance: &Instance, device: &Device, data: &mut AppData) -> Result<()> {
+    unsafe fn load_model(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        data: &mut AppData,
+    ) -> Result<()> {
         let mut reader = BufReader::new(File::open("src/resources/VikingRoom/viking_room.obj")?);
 
         // let (models, _) = tobj::load_obj_buf(
@@ -1120,8 +1127,8 @@ impl App {
         let gltf_data = load_gltf(grass_path)?;
         let _ = create_texture_image_pixel(
             instance,
-            device,
-            data.rrcommand_pool.borrow(),
+            rrdevice,
+            data.rrcommand_pool.borrow_mut(),
             &gltf_data.image_data[0].data,
             gltf_data.image_data[0].width,
             gltf_data.image_data[0].height,

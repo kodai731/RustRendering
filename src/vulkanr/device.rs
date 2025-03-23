@@ -189,7 +189,7 @@ unsafe fn pick_physical_device(
         let properties = instance.get_physical_device_properties(physical_device);
 
         if let Err(error) =
-            check_physical_device(instance, surface, *physical_device, device_extensions)
+            check_physical_device(instance, surface, &physical_device, device_extensions)
         {
             warn!(
                 "Skipping Physical Device (`{}`): {}",
