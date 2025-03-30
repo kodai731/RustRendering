@@ -22,17 +22,27 @@ impl RRRender {
         rrswapchain: &RRSwapchain,
         rrcommand_pool: &RRCommandPool,
     ) -> Self {
+        println!("start to create render ...");
         let mut rrrender = RRRender::default();
-        let _ = create_render_pass(instance, rrdevice, rrswapchain, &mut rrrender);
-        let _ = create_depth_objects(
+        if let Err(e) = create_render_pass(instance, rrdevice, rrswapchain, &mut rrrender) {
+            eprintln!("Create render pass failed {:?}", e);
+        }
+        if let Err(e) = create_depth_objects(
             instance,
             rrdevice,
             rrswapchain,
             rrcommand_pool,
             &mut rrrender,
-        );
-        let _ = create_framebuffers(rrdevice, rrswapchain, &mut rrrender);
-        let _ = create_color_objects(instance, rrdevice, rrswapchain, &mut rrrender);
+        ) {
+            eprintln!("Create render pass failed {:?}", e);
+        }
+        if let Err(e) = create_color_objects(instance, rrdevice, rrswapchain, &mut rrrender) {
+            eprintln!("Create color objects failed {:?}", e);
+        }
+        if let Err(e) = create_framebuffers(rrdevice, rrswapchain, &mut rrrender) {
+            eprintln!("Create framebuffers failed {:?}", e);
+        }
+        println!("created render pass {:?}", rrrender);
         rrrender
     }
 }
@@ -135,6 +145,7 @@ unsafe fn create_render_pass(
         .dependencies(dependencies);
 
     rrrender.render_pass = rrdevice.device.create_render_pass(&info, None)?;
+    println!("render pass {:?}", rrrender);
     Ok(())
 }
 
@@ -217,7 +228,7 @@ unsafe fn create_depth_objects(
         vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         1,
     )?;
-
+    println!("created depth object");
     Ok(())
 }
 
@@ -240,7 +251,7 @@ pub unsafe fn create_framebuffers(
             rrdevice.device.create_framebuffer(&create_info, None)
         })
         .collect::<Result<Vec<_>, _>>()?;
-
+    println!("created framebuffers");
     Ok(())
 }
 
@@ -274,6 +285,6 @@ pub unsafe fn create_color_objects(
         vk::ImageAspectFlags::COLOR,
         1,
     )?;
-
+    println!("created color objects");
     Ok(())
 }

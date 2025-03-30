@@ -67,11 +67,12 @@ use std::ptr::copy_nonoverlapping as memcpy;
 use std::time::Instant;
 
 use cgmath::num_traits::AsPrimitive;
+use cgmath::Vector4;
 use glium::buffer::Content;
+use imgui::{Condition, MouseButton};
 use std::borrow::BorrowMut;
 use std::path::Path;
 use std::rc::Rc;
-use imgui::{Condition, MouseButton};
 use vulkanalia::vk::CommandPool;
 
 fn main() -> Result<()> {
@@ -302,8 +303,8 @@ struct AppData {
     render_finish_semaphores: Vec<vk::Semaphore>,
     in_flight_fences: Vec<vk::Fence>, // CPU-GPU sync. Fences are mainly designed to synchronize your application itself with rendering operation
     images_in_flight: Vec<vk::Fence>,
-    rrdata_model: RRData,
-    rrdata_grid: RRData,
+    //rrdata_model: RRData,
+    //rrdata_grid: RRData,
     texture_image: RRImage,
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
@@ -318,9 +319,6 @@ struct AppData {
     camera_up: [f32; 3],
     grid_vertices: Vec<Vertex>,
     grid_indices: Vec<u32>,
-    grid_descriptor_sets: Vec<vk::DescriptorSet>,
-    grid_uniform_buffers: Vec<vk::Buffer>,
-    grid_uniform_buffer_memories: Vec<vk::DeviceMemory>,
     is_left_clicked: bool,
     clicked_mouse_pos: [f32; 2],
     is_wheel_clicked: bool,
@@ -348,7 +346,7 @@ impl App {
             &instance,
             &rrdevice,
             &data.rrswapchain,
-            &data.rrcommand_pool,
+            &data.rrcommand_pool.borrow_mut(),
         );
         data.model_descriptor_set = RRDescriptorSet::new(&rrdevice, &data.rrswapchain);
         data.grid_descriptor_set = RRDescriptorSet::new(&rrdevice, &data.rrswapchain);
@@ -368,10 +366,20 @@ impl App {
             "./shaders/gridVert.spv",
             "./shaders/gridVert.spv",
         );
+        println!("created pipeline");
 
         let _ = Self::load_model(&instance, &rrdevice, &mut data)?;
+        println!("loaded model");
+        let tex_coord = Vec2::new(0.0, 0.0);
+        let mut color = Vec4::new(0.0, 0.0, 1.0, 1.0);
+        let _ = Self::create_grid_data(&mut data, 0, color, tex_coord)?;
+        color = Vec4::new(0.0, 1.0, 0.0, 1.0);
+        let _ = Self::create_grid_data(&mut data, 1, color, tex_coord)?;
+        color = Vec4::new(1.0, 0.0, 0.0, 1.0);
+        let _ = Self::create_grid_data(&mut data, 2, color, tex_coord)?;
+        println!("created grid data ");
         // let _ = Self::create_texture_image(&instance, &device, &mut data)?;
-        data.texture_image = RRImage::new(&instance, &rrdevice, &data.rrcommand_pool);
+        data.texture_image = RRImage::new(&instance, &rrdevice, &data.rrcommand_pool.borrow_mut());
         data.model_vertex_buffer = RRVertexBuffer::new(
             &instance,
             &rrdevice,
@@ -388,6 +396,7 @@ impl App {
             data.grid_vertices.as_ptr() as *const c_void,
             data.grid_vertices.len(),
         );
+        println!("created vertex buffers model and grid");
         data.model_index_buffer = RRIndexBuffer::new(
             &instance,
             &rrdevice,
@@ -404,13 +413,34 @@ impl App {
             data.grid_indices.as_ptr() as *const c_void,
             data.grid_indices.len(),
         );
-        data.rrdata_model = RRData::default();
-        data.rrdata_grid = RRData::default();
-        data.model_descriptor_set = RRDescriptorSet::new(&rrdevice, &data.rrswapchain);
-        data.grid_descriptor_set = RRDescriptorSet::new(&rrdevice, &data.rrswapchain);
+        println!("created index buffers model and grid");
+        data.model_descriptor_set.rrdata =
+            RRData::create_uniform_buffers(&instance, &rrdevice, &data.rrswapchain);
+        data.grid_descriptor_set.rrdata =
+            RRData::create_uniform_buffers(&instance, &rrdevice, &data.rrswapchain);
+        println!("created uniform buffers");
+
+        if let Err(e) = RRDescriptorSet::create_descriptor_set(
+            &rrdevice,
+            &data.rrswapchain,
+            &mut data.model_descriptor_set,
+        ) {
+            eprintln!("failed to create model descriptor set: {:?}", e);
+        };
+        println!("created model descriptor set");
+        if let Err(e) = RRDescriptorSet::create_descriptor_set(
+            &rrdevice,
+            &data.rrswapchain,
+            &mut data.grid_descriptor_set,
+        ) {
+            eprintln!("failed to create grid descriptor set: {:?}", e);
+        }
+        println!("created grid descriptor set");
         data.rrcommand_buffer = RRCommandBuffer::new(&data.rrcommand_pool);
+        println!("created command buffer");
 
         let _ = Self::create_sync_objects(&rrdevice.device, &mut data)?;
+        println!("created sync objects");
         let frame = 0 as usize;
         let resized = false;
         let start = Instant::now();
@@ -423,6 +453,7 @@ impl App {
         data.camera_up = [camera_up.x, camera_up.y, camera_up.z];
         data.is_left_clicked = false;
 
+        println!("initialized finished");
         Ok(Self {
             entry,
             instance,
@@ -1013,7 +1044,8 @@ impl App {
             );
 
         let ubo = UniformBufferObject { model, view, proj };
-        let ubo_memory = self.data.rrdata_model.rruniform_buffers[image_index].buffer_memory;
+        let ubo_memory =
+            self.data.model_descriptor_set.rrdata.rruniform_buffers[image_index].buffer_memory;
         let memory = self.rrdevice.device.map_memory(
             ubo_memory,
             0,
@@ -1025,7 +1057,8 @@ impl App {
 
         // update for grid
         let model_grid = Mat4::identity();
-        let grid_ubo_memory = self.data.rrdata_grid.rruniform_buffers[image_index].buffer_memory;
+        let grid_ubo_memory =
+            self.data.grid_descriptor_set.rrdata.rruniform_buffers[image_index].buffer_memory;
         let ubo_grid = UniformBufferObject {
             model: model_grid,
             view: view,
@@ -1038,9 +1071,9 @@ impl App {
             vk::MemoryMapFlags::empty(),
         )?;
         memcpy(&ubo_grid, memory_grid.cast(), 1);
-        self.rrdevice
-            .device
-            .unmap_memory(self.data.grid_uniform_buffer_memories[image_index]);
+        self.rrdevice.device.unmap_memory(
+            self.data.grid_descriptor_set.rrdata.rruniform_buffers[image_index].buffer_memory,
+        );
 
         Ok(())
     }

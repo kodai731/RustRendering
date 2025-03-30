@@ -58,7 +58,11 @@ pub struct RRCommandPool {
 impl RRCommandPool {
     pub unsafe fn new(instance: &Instance, surface: &vk::SurfaceKHR, rrdevice: &RRDevice) -> Self {
         let mut rrcommand_pool = RRCommandPool::default();
-        let _ = create_command_pool(instance, surface, rrdevice, &mut rrcommand_pool).unwrap();
+        if let Err(e) = create_command_pool(instance, surface, rrdevice, &mut rrcommand_pool)
+        {
+            eprintln!("Create command pool failed {:?}", e);
+        }
+        println!("Created command pool");
         rrcommand_pool
     }
 }

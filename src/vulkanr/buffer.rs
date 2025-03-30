@@ -154,6 +154,7 @@ impl RRVertexBuffer {
         ) else {
             panic!("failed to create buffer");
         };
+        println!("created staging buffer");
         let Ok(map_memory) =
             rrdevice
                 .device
@@ -164,6 +165,7 @@ impl RRVertexBuffer {
 
         memcpy(data, map_memory.cast(), length);
         rrdevice.device.unmap_memory(staging_buffer_memory);
+        println!("mapped staging buffer");
 
         let Ok((vertex_buffer, vertex_buffer_memory)) = create_buffer(
             instance,
@@ -174,6 +176,7 @@ impl RRVertexBuffer {
         ) else {
             panic!("failed to create buffer");
         };
+        println!("created vertex buffer");
 
         if let Err(e) = copy_buffer(
             rrdevice,

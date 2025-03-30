@@ -16,8 +16,18 @@ impl RRDescriptorSet {
         let mut rrdescriptor_sets = RRDescriptorSet::default();
         let _ = create_descriptor_set_layout(rrdevice, &mut rrdescriptor_sets);
         let _ = create_descriptor_pool(rrdevice, rrswapchain, &mut rrdescriptor_sets);
-        let _ = create_descriptor_sets(rrdevice, rrswapchain, &mut rrdescriptor_sets);
         rrdescriptor_sets
+    }
+
+    pub unsafe fn create_descriptor_set(
+        rrdevice: &RRDevice,
+        rrswapchain: &RRSwapchain,
+        rrdescriptor_set: &mut RRDescriptorSet,
+    ) -> Result<()> {
+        if let Err(e) = create_descriptor_sets(rrdevice, rrswapchain, rrdescriptor_set) {
+            println!("error creating descriptor set: {:?}", e);
+        }
+        Ok(())
     }
 }
 unsafe fn create_descriptor_set_layout(
@@ -83,6 +93,7 @@ unsafe fn create_descriptor_sets(
     Bind the descriptor set during rendering
      */
     let layouts = vec![rrdescriptor_set.descriptor_set_layout; rrswapchain.swapchain_images.len()]; //  create one descriptor set for each swapchain image, all with the same layout.
+    println!("{}, {}", "layouts length", layouts.len());
     let info = vk::DescriptorSetAllocateInfo::builder()
         .descriptor_pool(rrdescriptor_set.descriptor_pool)
         .set_layouts(&layouts);

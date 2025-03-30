@@ -26,6 +26,7 @@ impl RRImage {
         else {
             panic!("failed to create texture image");
         };
+        println!("texture image created {:?} {:?}" ,image, image_memory);
         let Ok(image_view) = create_image_view(
             rrdevice,
             image,
@@ -35,6 +36,7 @@ impl RRImage {
         ) else {
             panic!("Image view creation failed");
         };
+        println!("image view created");
         rrimage.image = image;
         rrimage.image_memory = image_memory;
         rrimage.image_view = image_view;
@@ -42,6 +44,7 @@ impl RRImage {
             panic!("error creating sampler")
         };
         rrimage.sampler = sampler;
+        println!("created image");
         rrimage
     }
 }
@@ -109,7 +112,6 @@ pub unsafe fn create_texture_image(
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         mip_levels,
     )?;
-    let texture_image = vk::Image::null();
     copy_buffer_to_image(
         rrdevice,
         rrcommand_pool,

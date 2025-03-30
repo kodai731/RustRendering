@@ -30,7 +30,10 @@ impl RRSwapchain {
         rrdevice: &RRDevice,
     ) -> Self {
         let mut rrswapchain = create_swapchain(window, instance, surface, rrdevice).unwrap();
-        let _ = create_swapchain_image_view(rrdevice, &mut rrswapchain);
+        if let Err(e) = create_swapchain_image_view(rrdevice, &mut rrswapchain) {
+            eprintln!("Created swapchain image view {:?}", e);
+        }
+        println!("created swapchain");
         rrswapchain
     }
 }

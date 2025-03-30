@@ -71,6 +71,7 @@ impl RRDevice {
             portability_macro_version,
             &physical_device,
         )?;
+        println!("created logical device");
         Ok(Self {
             device: device,
             physical_device: physical_device,
