@@ -305,7 +305,8 @@ struct AppData {
     images_in_flight: Vec<vk::Fence>,
     //rrdata_model: RRData,
     //rrdata_grid: RRData,
-    texture_image: RRImage,
+    texture_image: vk::Image,
+    texture_image_memory: vk::DeviceMemory,
     vertices: Vec<Vertex>,
     indices: Vec<u32>,
     mip_levels: u32,
@@ -355,21 +356,22 @@ impl App {
             &data.rrswapchain,
             &data.rrrender,
             &data.model_descriptor_set,
-            "./shaders/vert.spv",
-            "./shaders/frag.spv",
+            "src/shaders/vert.spv",
+            "src/shaders/frag.spv",
         );
         data.grid_pipeline = RRPipeline::new(
             &rrdevice,
             &data.rrswapchain,
             &data.rrrender,
             &data.grid_descriptor_set,
-            "./shaders/gridVert.spv",
-            "./shaders/gridVert.spv",
+            "src/shaders/gridVert.spv",
+            "src/shaders/gridFrag.spv",
         );
         println!("created pipeline");
 
         let _ = Self::load_model(&instance, &rrdevice, &mut data)?;
         println!("loaded model");
+
         let tex_coord = Vec2::new(0.0, 0.0);
         let mut color = Vec4::new(0.0, 0.0, 1.0, 1.0);
         let _ = Self::create_grid_data(&mut data, 0, color, tex_coord)?;
@@ -379,7 +381,7 @@ impl App {
         let _ = Self::create_grid_data(&mut data, 2, color, tex_coord)?;
         println!("created grid data ");
         // let _ = Self::create_texture_image(&instance, &device, &mut data)?;
-        data.texture_image = RRImage::new(&instance, &rrdevice, &data.rrcommand_pool.borrow_mut());
+        // data.texture_image = RRImage::new(&instance, &rrdevice, &data.rrcommand_pool.borrow_mut());
         data.model_vertex_buffer = RRVertexBuffer::new(
             &instance,
             &rrdevice,
@@ -414,11 +416,31 @@ impl App {
             data.grid_indices.len(),
         );
         println!("created index buffers model and grid");
+
         data.model_descriptor_set.rrdata =
             RRData::create_uniform_buffers(&instance, &rrdevice, &data.rrswapchain);
         data.grid_descriptor_set.rrdata =
             RRData::create_uniform_buffers(&instance, &rrdevice, &data.rrswapchain);
         println!("created uniform buffers");
+
+        data.model_descriptor_set.rrdata.image_view = create_image_view(
+            &rrdevice,
+            data.texture_image,
+            vk::Format::R8G8B8A8_SRGB,
+            vk::ImageAspectFlags::COLOR,
+            data.mip_levels,
+        )?;
+        data.model_descriptor_set.rrdata.sampler =
+            create_texture_sampler(&rrdevice, data.mip_levels)?;
+        data.grid_descriptor_set.rrdata.image_view = create_image_view(
+            &rrdevice,
+            data.texture_image,
+            vk::Format::R8G8B8A8_SRGB,
+            vk::ImageAspectFlags::COLOR,
+            data.mip_levels,
+        )?;
+        data.grid_descriptor_set.rrdata.sampler =
+            create_texture_sampler(&rrdevice, data.mip_levels)?;
 
         if let Err(e) = RRDescriptorSet::create_descriptor_set(
             &rrdevice,
@@ -437,6 +459,22 @@ impl App {
         }
         println!("created grid descriptor set");
         data.rrcommand_buffer = RRCommandBuffer::new(&data.rrcommand_pool);
+        if let Err(e) = create_command_buffers(
+            &rrdevice,
+            &data.rrrender,
+            &data.rrswapchain,
+            &data.grid_pipeline,
+            &data.grid_descriptor_set,
+            &data.grid_vertex_buffer,
+            &data.grid_index_buffer,
+            &data.model_pipeline,
+            &data.model_descriptor_set,
+            &data.model_vertex_buffer,
+            &data.model_index_buffer,
+            &mut data.rrcommand_buffer,
+        ) {
+            eprintln!("failed to create command buffers: {:?}", e);
+        }
         println!("created command buffer");
 
         let _ = Self::create_sync_objects(&rrdevice.device, &mut data)?;
@@ -1158,7 +1196,11 @@ impl App {
         // gltf model
         let grass_path = "src/resources/yard_grass.glb";
         let gltf_data = load_gltf(grass_path)?;
-        let _ = create_texture_image_pixel(
+        (
+            data.texture_image,
+            data.texture_image_memory,
+            data.mip_levels,
+        ) = create_texture_image_pixel(
             instance,
             rrdevice,
             data.rrcommand_pool.borrow_mut(),

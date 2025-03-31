@@ -1,11 +1,11 @@
-use std::fs::File;
-use std::io::Read;
 use super::data::*;
 use super::descriptor::*;
 use super::device::*;
 use super::swapchain::*;
 use super::vulkan::*;
 use crate::vulkanr::render::RRRender;
+use std::fs::File;
+use std::io::Read;
 use vulkanalia::bytecode::Bytecode;
 
 #[derive(Clone, Debug, Default)]
@@ -33,6 +33,7 @@ impl RRPipeline {
             vertex_shader_path,
             fragment_shader_path,
         );
+        println!("rrpipeline: {:?}", rrpipeline);
         rrpipeline
     }
 }
@@ -45,14 +46,19 @@ unsafe fn create_pipeline(
     vertex_shader_path: &str,
     fragment_shader_path: &str,
 ) -> Result<()> {
+    println!("start create pipeline");
     let mut vert_file = File::open(vertex_shader_path)?;
     let mut frag_file = File::open(fragment_shader_path)?;
+    println!("vert_file: {:?}", vert_file);
+    println!("frag_file: {:?}", frag_file);
     let mut vert = Vec::new();
     let mut frag = Vec::new();
     vert_file.read_to_end(&mut vert)?;
     frag_file.read_to_end(&mut frag)?;
     let vert_shader_module = create_shader_module(rrdevice, &vert[..])?;
     let frag_shader_module = create_shader_module(rrdevice, &frag[..])?;
+    println!("vertex shader module: {:?}", vert_shader_module);
+    println!("frag shader module: {:?}", frag_shader_module);
 
     let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
         .stage(vk::ShaderStageFlags::VERTEX)

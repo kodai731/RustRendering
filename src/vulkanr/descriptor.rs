@@ -16,6 +16,7 @@ impl RRDescriptorSet {
         let mut rrdescriptor_sets = RRDescriptorSet::default();
         let _ = create_descriptor_set_layout(rrdevice, &mut rrdescriptor_sets);
         let _ = create_descriptor_pool(rrdevice, rrswapchain, &mut rrdescriptor_sets);
+        println!("rrdescriptor_sets: {:?}", rrdescriptor_sets);
         rrdescriptor_sets
     }
 

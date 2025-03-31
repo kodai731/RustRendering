@@ -1,6 +1,6 @@
 use super::device::*;
 use super::vulkan::*;
-use crate::vulkanr::buffer::RRBuffer;
+use crate::vulkanr::buffer::{RRBuffer, RRIndexBuffer, RRVertexBuffer};
 use crate::vulkanr::descriptor::RRDescriptorSet;
 use crate::vulkanr::pipeline::RRPipeline;
 use crate::vulkanr::render::RRRender;
@@ -58,8 +58,7 @@ pub struct RRCommandPool {
 impl RRCommandPool {
     pub unsafe fn new(instance: &Instance, surface: &vk::SurfaceKHR, rrdevice: &RRDevice) -> Self {
         let mut rrcommand_pool = RRCommandPool::default();
-        if let Err(e) = create_command_pool(instance, surface, rrdevice, &mut rrcommand_pool)
-        {
+        if let Err(e) = create_command_pool(instance, surface, rrdevice, &mut rrcommand_pool) {
             eprintln!("Create command pool failed {:?}", e);
         }
         println!("Created command pool");
@@ -104,12 +103,12 @@ pub unsafe fn create_command_buffers(
     rrswapchain: &RRSwapchain,
     grid_pipeline: &RRPipeline,
     grid_descriptor_set: &RRDescriptorSet,
-    grid_vertex_buffer: &RRBuffer,
-    grid_index_buffer: &RRBuffer,
+    grid_vertex_buffer: &RRVertexBuffer,
+    grid_index_buffer: &RRIndexBuffer,
     model_pipeline: &RRPipeline,
     model_descriptor_set: &RRDescriptorSet,
-    model_vertex_buffer: &RRBuffer,
-    model_index_buffer: &RRBuffer,
+    model_vertex_buffer: &RRVertexBuffer,
+    model_index_buffer: &RRIndexBuffer,
     rrcommand_buffer: &mut RRCommandBuffer,
 ) -> Result<()> {
     let info = vk::CommandBufferAllocateInfo::builder()

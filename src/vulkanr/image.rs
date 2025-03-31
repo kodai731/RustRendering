@@ -26,7 +26,7 @@ impl RRImage {
         else {
             panic!("failed to create texture image");
         };
-        println!("texture image created {:?} {:?}" ,image, image_memory);
+        println!("texture image created {:?} {:?}", image, image_memory);
         let Ok(image_view) = create_image_view(
             rrdevice,
             image,
@@ -442,7 +442,10 @@ unsafe fn generate_mipmaps(
     Ok(())
 }
 
-unsafe fn create_texture_sampler(rrdevice: &RRDevice, mip_levels: u32) -> Result<(vk::Sampler)> {
+pub unsafe fn create_texture_sampler(
+    rrdevice: &RRDevice,
+    mip_levels: u32,
+) -> Result<(vk::Sampler)> {
     // Textures are usually accessed through samplers, which will apply filtering and transformations to compute the final color that is retrieved.
     // anisotorpic filtering, addressing mode(clamp, repeat, ...)
     let info = vk::SamplerCreateInfo::builder()
