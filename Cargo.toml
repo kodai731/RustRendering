@@ -17,7 +17,7 @@ png = "0.17"
 pretty_env_logger = "0.4"
 thiserror = "1"
 tobj = { version = "3", features = ["log"] }
-vulkanalia = { version = "=0.22.0", features = ["libloading", "provisional", "window"] }
+vulkanalia = { version = "=0.26.0", features = ["libloading", "provisional", "window"] }
 copypasta = "0.8"
 glutin = "0.31.1"
 glutin-winit = "0.4.2"
