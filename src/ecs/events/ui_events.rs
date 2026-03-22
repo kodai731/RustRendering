@@ -353,6 +353,8 @@ pub enum UIEvent {
     #[cfg(feature = "text-to-mesh")]
     TextToMeshCancel,
 
+    ExportModelGltf,
+
     TimelineZoomIn {
         max_zoom: f32,
     },

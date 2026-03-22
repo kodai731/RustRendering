@@ -444,6 +444,7 @@ struct RawVertexAttributes {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     tex_coords: Vec<[f32; 2]>,
+    colors: Vec<[f32; 4]>,
     joint_indices: Vec<[u16; 4]>,
     joint_weights: Vec<[f32; 4]>,
     has_joints: bool,
@@ -482,10 +483,16 @@ where
         .map(|iter| iter.into_f32().collect())
         .unwrap_or_default();
 
+    let colors: Vec<[f32; 4]> = reader
+        .read_colors(0)
+        .map(|iter| iter.into_rgba_f32().collect())
+        .unwrap_or_default();
+
     RawVertexAttributes {
         positions,
         normals,
         tex_coords,
+        colors,
         joint_indices,
         joint_weights,
         has_joints,
@@ -547,6 +554,58 @@ fn transform_positions(
     }
 }
 
+fn compute_smooth_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {
+    let vertex_count = positions.len();
+    let mut normals = vec![[0.0f32; 3]; vertex_count];
+
+    let triangles = if indices.is_empty() {
+        (0..vertex_count as u32).collect::<Vec<_>>()
+    } else {
+        indices.to_vec()
+    };
+
+    for tri in triangles.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+        if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+            continue;
+        }
+
+        let p0 = positions[i0];
+        let p1 = positions[i1];
+        let p2 = positions[i2];
+
+        let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+        let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+        let face_normal = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+
+        for &idx in &[i0, i1, i2] {
+            normals[idx][0] += face_normal[0];
+            normals[idx][1] += face_normal[1];
+            normals[idx][2] += face_normal[2];
+        }
+    }
+
+    for n in &mut normals {
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if len > 1e-8 {
+            n[0] /= len;
+            n[1] /= len;
+            n[2] /= len;
+        } else {
+            *n = [0.0, 1.0, 0.0];
+        }
+    }
+
+    normals
+}
+
 fn build_vertices(
     mesh_data: &mut MeshBuildData,
     attrs: &RawVertexAttributes,
@@ -557,17 +616,18 @@ fn build_vertices(
         let raw_pos = attrs.positions[i];
         let normal = attrs.normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0]);
         let tex_coord = attrs.tex_coords.get(i).copied().unwrap_or([0.0, 0.0]);
+        let color = attrs.colors.get(i).copied().unwrap_or([1.0, 1.0, 1.0, 1.0]);
 
         mesh_data.vertex_data.vertices.push(Vertex {
             pos: Vec3::new(pos[0], pos[1], pos[2]),
-            color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+            color: Vec4::new(color[0], color[1], color[2], color[3]),
             tex_coord: Vec2::new(tex_coord[0], tex_coord[1]),
             normal: Vec3::new(normal[0], normal[1], normal[2]),
         });
 
         mesh_data.local_vertices.push(Vertex {
             pos: Vec3::new(raw_pos[0], raw_pos[1], raw_pos[2]),
-            color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+            color: Vec4::new(color[0], color[1], color[2], color[3]),
             tex_coord: Vec2::new(tex_coord[0], tex_coord[1]),
             normal: Vec3::new(normal[0], normal[1], normal[2]),
         });
@@ -692,7 +752,17 @@ unsafe fn process_node(
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
 
-            let attrs = read_vertex_attributes(&reader);
+            let mut attrs = read_vertex_attributes(&reader);
+
+            let indices: Vec<u32> = reader
+                .read_indices()
+                .map(|iter| iter.into_u32().collect())
+                .unwrap_or_default();
+
+            if attrs.normals.is_empty() && !attrs.positions.is_empty() {
+                attrs.normals = compute_smooth_normals(&attrs.positions, &indices);
+            }
+
             let mut mesh_data = MeshBuildData {
                 vertex_data: VertexData::default(),
                 bone_indices: Vec::new(),
@@ -717,9 +787,7 @@ unsafe fn process_node(
             );
             build_vertices(&mut mesh_data, &attrs, &positions);
 
-            if let Some(iter) = reader.read_indices() {
-                mesh_data.vertex_data.indices = iter.into_u32().collect();
-            }
+            mesh_data.vertex_data.indices = indices;
 
             mesh_data.morph_targets = read_morph_targets(&reader);
 

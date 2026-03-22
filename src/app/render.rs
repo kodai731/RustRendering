@@ -295,6 +295,11 @@ impl App {
                         self.data.ecs_world.resource_mut::<crate::ecs::SceneState>();
                     scene_state.clear();
                 }
+                {
+                    let cache =
+                        crate::ecs::resource::GltfModelCache::from_glb_data(glb_data.to_vec());
+                    self.data.ecs_world.insert_resource(cache);
+                }
 
                 msg_info!("Generated mesh loaded successfully");
             }

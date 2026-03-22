@@ -88,6 +88,7 @@ fn filter_platform_events(events: &[UIEvent]) -> Vec<UIEvent> {
                     | UIEvent::ClipBrowserSaveToFile(_)
                     | UIEvent::ClipBrowserExportFbx(_)
                     | UIEvent::ClipBrowserExportGltf(_)
+                    | UIEvent::ExportModelGltf
                     | UIEvent::SpringBoneSaveBake
             )
         })

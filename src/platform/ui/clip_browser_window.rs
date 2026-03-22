@@ -2,7 +2,7 @@ use imgui::Condition;
 
 use crate::animation::editable::SourceClipId;
 use crate::ecs::events::{UIEvent, UIEventQueue};
-use crate::ecs::resource::{ClipBrowserState, ClipLibrary};
+use crate::ecs::resource::{ClipBrowserState, ClipLibrary, GltfModelCache};
 use crate::ecs::world::World;
 
 use super::layout_snapshot::LayoutSnapshot;
@@ -25,7 +25,7 @@ pub fn build_clip_browser_window(
         .movable(false)
         .collapsible(false)
         .build(|| {
-            build_toolbar(ui, ui_events, browser_state);
+            build_toolbar(ui, ui_events, browser_state, world);
             ui.separator();
             build_filter_bar(ui, browser_state);
             ui.separator();
@@ -33,7 +33,12 @@ pub fn build_clip_browser_window(
         });
 }
 
-fn build_toolbar(ui: &imgui::Ui, ui_events: &mut UIEventQueue, browser_state: &ClipBrowserState) {
+fn build_toolbar(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    browser_state: &ClipBrowserState,
+    world: &World,
+) {
     if ui.small_button("+ New") {
         ui_events.send(UIEvent::ClipBrowserCreateEmpty);
     }
@@ -67,11 +72,18 @@ fn build_toolbar(ui: &imgui::Ui, ui_events: &mut UIEventQueue, browser_state: &C
     }
 
     ui.same_line();
+    let has_model = world
+        .get_resource::<GltfModelCache>()
+        .map_or(false, |c| c.has_model());
     if has_selection {
         if ui.small_button("glTF") {
             if let Some(id) = browser_state.selected_clip_id {
                 ui_events.send(UIEvent::ClipBrowserExportGltf(id));
             }
+        }
+    } else if has_model {
+        if ui.small_button("glTF") {
+            ui_events.send(UIEvent::ExportModelGltf);
         }
     } else {
         ui.text_disabled("glTF");

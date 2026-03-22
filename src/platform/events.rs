@@ -693,6 +693,7 @@ fn process_platform_file_events(events: &[UIEvent], app: &mut App) -> Vec<Deferr
             }
             UIEvent::ClipBrowserExportFbx(source_id) => handle_clip_export_fbx(app, *source_id),
             UIEvent::ClipBrowserExportGltf(source_id) => handle_clip_export_gltf(app, *source_id),
+            UIEvent::ExportModelGltf => handle_export_model_gltf(app),
             UIEvent::SpringBoneSaveBake => {
                 if let Some(action) = open_spring_bone_save_dialog(app) {
                     deferred.push(action);
@@ -842,6 +843,64 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         Ok(()) => msg_info!("glTF exported: {:?}", path),
         Err(e) => msg_error!("glTF export failed: {:?}", e),
     }
+}
+
+fn handle_export_model_gltf(app: &mut App) {
+    let cache = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::GltfModelCache>();
+
+    let glb_bytes = match cache {
+        Some(c) => resolve_glb_bytes(&*c),
+        None => None,
+    };
+
+    let Some(glb_bytes) = glb_bytes else {
+        msg_error!("glTF export failed: no model data available");
+        return;
+    };
+
+    let model_name = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::ModelState>()
+        .map(|s| s.model_path.clone())
+        .unwrap_or_else(|| "model".to_string());
+
+    let default_filename = format!(
+        "{}.glb",
+        std::path::Path::new(&model_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("model")
+    );
+
+    let path = rfd::FileDialog::new()
+        .add_filter("glTF Binary", &["glb"])
+        .set_file_name(&default_filename)
+        .save_file();
+
+    let Some(path) = path else {
+        return;
+    };
+
+    match std::fs::write(&path, &glb_bytes) {
+        Ok(()) => msg_info!("Model exported: {:?}", path),
+        Err(e) => msg_error!("Model export failed: {:?}", e),
+    }
+}
+
+fn resolve_glb_bytes(cache: &crate::ecs::resource::GltfModelCache) -> Option<Vec<u8>> {
+    if let Some(ref data) = cache.glb_data {
+        return Some(data.clone());
+    }
+
+    if let Some(ref path) = cache.source_path {
+        return std::fs::read(path).ok();
+    }
+
+    None
 }
 
 fn extract_clip_name_from_path(path: &std::path::Path) -> String {
