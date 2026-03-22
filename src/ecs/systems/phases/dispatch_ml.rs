@@ -295,6 +295,21 @@ fn apply_mesh_response(
         generation_time_ms
     );
 
+    if let Some(ref png_data) = intermediate_image_png {
+        let path = format!(
+            "log/text_to_mesh_intermediate_{}.png",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs()
+        );
+        if let Err(e) = std::fs::write(&path, png_data) {
+            log_warn!("Failed to save intermediate image: {}", e);
+        } else {
+            log!("TextToMesh: saved intermediate image to {}", path);
+        }
+    }
+
     state.status = TextToMeshStatus::Generated;
     state.glb_data = Some(glb_data);
     state.vertex_count = Some(vertex_count);

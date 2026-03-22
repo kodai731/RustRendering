@@ -297,8 +297,8 @@ async fn handle_generate_mesh(
         params: Some(proto::MeshGenerationParams {
             target_faces: req.target_faces as i32,
             seed: req.seed as i32,
-            image_size: 512,
-            image_inference_steps: 25,
+            image_size: 0,
+            image_inference_steps: 0,
         }),
     };
 
