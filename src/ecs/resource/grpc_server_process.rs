@@ -30,24 +30,33 @@ impl GrpcServerProcess {
         let stderr_file = File::create(log_dir.join("grpc_server_stderr.txt"))
             .map_err(|e| format!("Failed to create stderr log: {}", e))?;
 
-        let child = Command::new("uv")
-            .args(["run", "python", "-c"])
-            .arg(format!(
-                "from anim_ml.server.service import main; import sys; sys.argv = ['service', '--config', '{}']; main()",
-                config_path
-            ))
-            .current_dir(working_dir)
+        let wsl_dir = to_wsl_path(working_dir);
+        let python_code = format!(
+            "from anim_ml.server.service import main; import sys; sys.argv = ['service', '--config', '{}']; main()",
+            config_path
+        );
+
+        let shell_command = format!(
+            "cd \"{}\" && uv run python -c \"{}\"",
+            wsl_dir,
+            python_code.replace('"', "\\\""),
+        );
+
+        let child = Command::new("wsl")
+            .args(["--", "bash", "-l", "-c", &shell_command])
             .stdout(Stdio::from(stdout_file))
             .stderr(Stdio::from(stderr_file))
             .spawn()
-            .map_err(|e| format!("Failed to start server: {}", e))?;
+            .map_err(|e| format!("Failed to start server via WSL: {}", e))?;
 
-        log!("gRPC server started (pid={})", child.id());
+        log!("gRPC server started via WSL (pid={})", child.id());
         self.child = Some(child);
         Ok(())
     }
 
     pub fn stop(&mut self) {
+        kill_wsl_server();
+
         if let Some(mut child) = self.child.take() {
             let pid = child.id();
             let _ = child.kill();
@@ -89,6 +98,12 @@ impl GrpcServerProcess {
 }
 
 fn kill_process_on_port(port: u16) {
+    kill_windows_process_on_port(port);
+    kill_wsl_server();
+    std::thread::sleep(std::time::Duration::from_millis(500));
+}
+
+fn kill_windows_process_on_port(port: u16) {
     let output = Command::new("netstat")
         .args(["-ano"])
         .stdout(Stdio::piped())
@@ -124,8 +139,6 @@ fn kill_process_on_port(port: u16) {
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status();
-
-        std::thread::sleep(std::time::Duration::from_millis(500));
         return;
     }
 }
@@ -134,4 +147,32 @@ impl Drop for GrpcServerProcess {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+fn kill_wsl_server() {
+    let _ = Command::new("wsl")
+        .args(["--", "pkill", "-f", "anim_ml.server.service"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
+}
+
+fn to_wsl_path(path: &str) -> String {
+    if path.starts_with('/') {
+        return path.to_string();
+    }
+
+    let normalized = path.replace('\\', "/");
+    let stripped = normalized
+        .strip_prefix("//?/")
+        .or_else(|| normalized.strip_prefix("//./"))
+        .unwrap_or(&normalized);
+
+    if stripped.len() >= 2 && stripped.as_bytes()[1] == b':' {
+        let drive = (stripped.as_bytes()[0] as char).to_ascii_lowercase();
+        let rest = &stripped[2..];
+        return format!("/mnt/{}{}", drive, rest);
+    }
+
+    stripped.to_string()
 }

@@ -258,17 +258,20 @@ fn build_grpc_server_panel(ui: &imgui::Ui, ecs_world: &World) {
 
 #[cfg(feature = "text-to-motion")]
 fn find_training_repo_path() -> String {
-    let candidates = [
-        std::env::var("ANIMATION_TRAINING_PATH").ok(),
-        Some("../AnimationModelTraining".to_string()),
-    ];
+    if let Ok(path) = std::env::var("ANIMATION_TRAINING_PATH") {
+        return path;
+    }
 
-    for candidate in candidates.into_iter().flatten() {
-        if std::path::Path::new(&candidate)
-            .join("pyproject.toml")
-            .exists()
-        {
-            return candidate;
+    let output = std::process::Command::new("wsl")
+        .args(["--", "bash", "-l", "-c", "echo $HOME/Projects/AnimationModelTraining"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+
+    if let Ok(out) = output {
+        let wsl_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !wsl_path.is_empty() {
+            return wsl_path;
         }
     }
 
