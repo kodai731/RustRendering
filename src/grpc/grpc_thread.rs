@@ -154,7 +154,8 @@ async fn ensure_mesh_connected(
                 *client = Some(
                     proto::mesh_generation_service_client::MeshGenerationServiceClient::new(
                         channel,
-                    ),
+                    )
+                    .max_decoding_message_size(64 * 1024 * 1024),
                 );
                 true
             }
