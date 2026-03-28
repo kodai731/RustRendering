@@ -18,11 +18,11 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
     vec4 texColor = texture(texSampler, fragTexCoord);
-    vec4 albedo = texColor * fragColor;
-    if (albedo.a < 0.5) discard;
+    vec3 albedoRGB = texColor.rgb;
+    if (fragColor.a < 0.5) discard;
 
     outPosition = vec4(fragWorldPos, 1.0);
     outNormal = vec4(normalize(fragWorldNormal), 1.0);
-    outAlbedo = albedo;
+    outAlbedo = vec4(albedoRGB, 1.0);
     outObjectID = pc.objectID;
 }

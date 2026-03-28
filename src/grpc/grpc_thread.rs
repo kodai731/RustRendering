@@ -293,6 +293,11 @@ async fn handle_generate_mesh(
     let c = client
         .as_mut()
         .expect("ensure_mesh_connected returned true so client is Some");
+    let proto_mode = match req.input_mode {
+        super::request::MeshInputMode::TextOnly => proto::MeshInputMode::TextToMesh,
+        super::request::MeshInputMode::Image => proto::MeshInputMode::ImageRefinedToMesh,
+    };
+
     let proto_request = proto::MeshRequest {
         prompt: req.prompt,
         params: Some(proto::MeshGenerationParams {
@@ -301,6 +306,8 @@ async fn handle_generate_mesh(
             image_size: 0,
             image_inference_steps: 0,
         }),
+        input_image_png: req.input_image_png.unwrap_or_default(),
+        input_mode: proto_mode as i32,
     };
 
     match c.generate_mesh(tonic::Request::new(proto_request)).await {

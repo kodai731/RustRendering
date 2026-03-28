@@ -687,7 +687,27 @@ fn load_primitive_texture(
 
     let image_index = material.texture().source().index();
     if image_index < images.len() {
-        Some(convert_image_data(&images[image_index]))
+        let image = &images[image_index];
+        log!(
+            "PBR texture: image_index={}, format={:?}, {}x{}, pixel_bytes={}",
+            image_index,
+            image.format,
+            image.width,
+            image.height,
+            image.pixels.len()
+        );
+        let first_pixels: Vec<u8> = image.pixels.iter().take(16).copied().collect();
+        log!("  first 16 bytes: {:?}", first_pixels);
+
+        let converted = convert_image_data(image);
+        log!(
+            "  converted: {}x{}, data_len={}, first_16={:?}",
+            converted.width,
+            converted.height,
+            converted.data.len(),
+            &converted.data[..converted.data.len().min(16)]
+        );
+        Some(converted)
     } else {
         None
     }

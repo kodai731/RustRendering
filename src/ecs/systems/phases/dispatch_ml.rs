@@ -429,8 +429,11 @@ pub fn dispatch_text_to_mesh_events(
                 prompt,
                 target_faces,
                 seed,
+                input_mode,
+                input_image_png,
             } => {
                 if !world.contains_resource::<GrpcThreadHandle>() {
+                    ensure_mesh_server_running(world);
                     let handle = GrpcThreadHandle::spawn(DEFAULT_ENDPOINT);
                     world.insert_resource(handle);
                     log!("TextToMesh: spawned gRPC thread ({})", DEFAULT_ENDPOINT);
@@ -440,7 +443,15 @@ pub fn dispatch_text_to_mesh_events(
                 let mut state = world.resource_mut::<TextToMeshState>();
 
                 if let Some(handle) = handle {
-                    text_to_mesh_submit(&mut state, &*handle, prompt.clone(), *target_faces, *seed);
+                    text_to_mesh_submit(
+                        &mut state,
+                        &*handle,
+                        prompt.clone(),
+                        *target_faces,
+                        *seed,
+                        input_mode.clone(),
+                        input_image_png.clone(),
+                    );
                 }
             }
 
@@ -464,6 +475,29 @@ pub fn dispatch_text_to_mesh_events(
             }
 
             _ => {}
+        }
+    }
+}
+
+#[cfg(feature = "text-to-mesh")]
+fn ensure_mesh_server_running(world: &mut crate::ecs::world::World) {
+    use crate::grpc::MeshServerProcess;
+
+    if let Some(mut proc) = world.get_resource_mut::<MeshServerProcess>() {
+        if proc.is_running() {
+            return;
+        }
+        log_warn!("MeshServer: process exited, restarting");
+    }
+
+    let is_debug = cfg!(debug_assertions);
+    match MeshServerProcess::launch() {
+        Ok(proc) => {
+            world.insert_resource(proc);
+            log!("MeshServer: launched (debug={})", is_debug);
+        }
+        Err(e) => {
+            log_error!("MeshServer: failed to launch: {}", e);
         }
     }
 }

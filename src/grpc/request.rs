@@ -5,10 +5,19 @@ pub struct TextToMotionRequest {
 }
 
 #[cfg(feature = "text-to-mesh")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MeshInputMode {
+    TextOnly,
+    Image,
+}
+
+#[cfg(feature = "text-to-mesh")]
 pub struct TextToMeshRequest {
     pub prompt: String,
     pub target_faces: u32,
     pub seed: u32,
+    pub input_mode: MeshInputMode,
+    pub input_image_png: Option<Vec<u8>>,
 }
 
 pub enum GrpcRequest {

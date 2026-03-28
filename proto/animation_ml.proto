@@ -68,6 +68,12 @@ message StatusResponse {
     int32 gpu_memory_mb = 3;
 }
 
+enum MeshInputMode {
+    TEXT_TO_MESH = 0;
+    IMAGE_TO_MESH = 1;
+    IMAGE_REFINED_TO_MESH = 2;
+}
+
 service MeshGenerationService {
     rpc GenerateMesh (MeshRequest) returns (MeshResponse);
     rpc GetMeshServiceStatus (MeshStatusRequest) returns (MeshStatusResponse);
@@ -76,6 +82,8 @@ service MeshGenerationService {
 message MeshRequest {
     string prompt = 1;
     MeshGenerationParams params = 2;
+    bytes input_image_png = 3;
+    MeshInputMode input_mode = 4;
 }
 
 message MeshGenerationParams {

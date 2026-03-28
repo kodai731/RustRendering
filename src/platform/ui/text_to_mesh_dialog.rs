@@ -1,6 +1,7 @@
 use crate::ecs::events::UIEventQueue;
 use crate::ecs::resource::{TextToMeshState, TextToMeshStatus};
 use crate::ecs::World;
+use crate::grpc::MeshInputMode;
 
 pub struct TextToMeshDialogState {
     pub open: bool,
@@ -8,6 +9,10 @@ pub struct TextToMeshDialogState {
     pub target_faces: i32,
     pub seed: i32,
     pub generate_start_time: Option<std::time::Instant>,
+    pub input_mode: MeshInputMode,
+    pub image_path: String,
+    pub image_bytes: Option<Vec<u8>>,
+    pub image_load_error: Option<String>,
 }
 
 impl Default for TextToMeshDialogState {
@@ -18,6 +23,10 @@ impl Default for TextToMeshDialogState {
             target_faces: 50000,
             seed: 0,
             generate_start_time: None,
+            input_mode: MeshInputMode::TextOnly,
+            image_path: String::new(),
+            image_bytes: None,
+            image_load_error: None,
         }
     }
 }
@@ -47,9 +56,11 @@ pub fn build_text_to_mesh_dialog(
 
     let mut should_close = false;
 
-    ui.window("Text to Mesh")
-        .size([400.0, 380.0], imgui::Condition::FirstUseEver)
+    ui.window("Mesh Generation")
+        .size([420.0, 440.0], imgui::Condition::FirstUseEver)
         .build(|| {
+            build_mode_tabs(ui, dialog);
+            ui.separator();
             build_input_section(ui, ui_events, dialog, &status, &mut should_close);
             ui.separator();
             build_status_section(ui, &status, &error_msg, gen_time, dialog);
@@ -66,6 +77,18 @@ pub fn build_text_to_mesh_dialog(
     }
 }
 
+fn build_mode_tabs(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
+    imgui::TabBar::new("##mesh_mode_tabs").build(ui, || {
+        imgui::TabItem::new("Text").build(ui, || {
+            dialog.input_mode = MeshInputMode::TextOnly;
+        });
+
+        imgui::TabItem::new("Image").build(ui, || {
+            dialog.input_mode = MeshInputMode::Image;
+        });
+    });
+}
+
 fn build_input_section(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
@@ -76,7 +99,16 @@ fn build_input_section(
     let is_busy =
         *status == TextToMeshStatus::Generating || *status == TextToMeshStatus::WaitingForServer;
 
-    ui.text("Prompt:");
+    if dialog.input_mode == MeshInputMode::Image {
+        build_image_picker(ui, dialog);
+        ui.spacing();
+    }
+
+    if dialog.input_mode == MeshInputMode::TextOnly {
+        ui.text("Prompt:");
+    } else {
+        ui.text("Description (optional):");
+    }
     ui.input_text("##mesh_prompt", &mut dialog.prompt_buf)
         .hint("e.g. a cute robot character")
         .build();
@@ -99,7 +131,11 @@ fn build_input_section(
     ui.same_line();
     ui.text_disabled("(0 = random)");
 
-    let can_generate = !is_busy && !dialog.prompt_buf.trim().is_empty();
+    let can_generate = !is_busy
+        && match dialog.input_mode {
+            MeshInputMode::TextOnly => !dialog.prompt_buf.trim().is_empty(),
+            MeshInputMode::Image => dialog.image_bytes.is_some(),
+        };
 
     ui.spacing();
     if is_busy {
@@ -114,6 +150,8 @@ fn build_input_section(
                 prompt: dialog.prompt_buf.trim().to_string(),
                 target_faces: dialog.target_faces as u32,
                 seed: dialog.seed as u32,
+                input_mode: dialog.input_mode.clone(),
+                input_image_png: dialog.image_bytes.clone(),
             });
             dialog.generate_start_time = Some(std::time::Instant::now());
         }
@@ -127,6 +165,49 @@ fn build_input_section(
         } else {
             *should_close = true;
         }
+    }
+}
+
+fn build_image_picker(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
+    ui.text("Image (PNG):");
+    ui.same_line();
+
+    if ui.button("Browse...") {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("PNG Image", &["png"])
+            .pick_file()
+        {
+            let path_str = path.to_string_lossy().to_string();
+            match std::fs::read(&path) {
+                Ok(bytes) => {
+                    dialog.image_path = path_str;
+                    dialog.image_bytes = Some(bytes);
+                    dialog.image_load_error = None;
+                }
+                Err(e) => {
+                    dialog.image_path = path_str;
+                    dialog.image_bytes = None;
+                    dialog.image_load_error = Some(format!("Failed to read: {}", e));
+                }
+            }
+        }
+    }
+
+    if !dialog.image_path.is_empty() {
+        let display_name = std::path::Path::new(&dialog.image_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or(&dialog.image_path);
+        ui.text(display_name);
+
+        if let Some(ref bytes) = dialog.image_bytes {
+            ui.same_line();
+            ui.text_disabled(format!("({} KB)", bytes.len() / 1024));
+        }
+    }
+
+    if let Some(ref err) = dialog.image_load_error {
+        ui.text_colored([1.0, 0.3, 0.3, 1.0], err);
     }
 }
 

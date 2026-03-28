@@ -263,7 +263,13 @@ fn find_training_repo_path() -> String {
     }
 
     let output = std::process::Command::new("wsl")
-        .args(["--", "bash", "-l", "-c", "echo $HOME/Projects/AnimationModelTraining"])
+        .args([
+            "--",
+            "bash",
+            "-l",
+            "-c",
+            "echo $HOME/Projects/AnimationModelTraining",
+        ])
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
         .output();
