@@ -74,6 +74,12 @@ enum MeshInputMode {
     IMAGE_REFINED_TO_MESH = 2;
 }
 
+enum MeshModelType {
+    TRELLIS = 0;
+    HUNYUAN3D = 1;
+    CHARACTER_GEN = 2;
+}
+
 service MeshGenerationService {
     rpc GenerateMesh (MeshRequest) returns (MeshResponse);
     rpc GetMeshServiceStatus (MeshStatusRequest) returns (MeshStatusResponse);
@@ -84,6 +90,7 @@ message MeshRequest {
     MeshGenerationParams params = 2;
     bytes input_image_png = 3;
     MeshInputMode input_mode = 4;
+    MeshModelType model_type = 5;
 }
 
 message MeshGenerationParams {

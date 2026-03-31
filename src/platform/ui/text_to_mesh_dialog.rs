@@ -1,7 +1,7 @@
 use crate::ecs::events::UIEventQueue;
 use crate::ecs::resource::{TextToMeshState, TextToMeshStatus};
 use crate::ecs::World;
-use crate::grpc::MeshInputMode;
+use crate::grpc::{MeshInputMode, MeshModelType};
 
 pub struct TextToMeshDialogState {
     pub open: bool,
@@ -10,6 +10,7 @@ pub struct TextToMeshDialogState {
     pub seed: i32,
     pub generate_start_time: Option<std::time::Instant>,
     pub input_mode: MeshInputMode,
+    pub model_type: MeshModelType,
     pub image_path: String,
     pub image_bytes: Option<Vec<u8>>,
     pub image_load_error: Option<String>,
@@ -24,6 +25,7 @@ impl Default for TextToMeshDialogState {
             seed: 0,
             generate_start_time: None,
             input_mode: MeshInputMode::TextOnly,
+            model_type: MeshModelType::Trellis,
             image_path: String::new(),
             image_bytes: None,
             image_load_error: None,
@@ -100,6 +102,8 @@ fn build_input_section(
         *status == TextToMeshStatus::Generating || *status == TextToMeshStatus::WaitingForServer;
 
     if dialog.input_mode == MeshInputMode::Image {
+        build_model_selector(ui, dialog);
+        ui.spacing();
         build_image_picker(ui, dialog);
         ui.spacing();
     }
@@ -152,6 +156,7 @@ fn build_input_section(
                 seed: dialog.seed as u32,
                 input_mode: dialog.input_mode.clone(),
                 input_image_png: dialog.image_bytes.clone(),
+                model_type: dialog.model_type.clone(),
             });
             dialog.generate_start_time = Some(std::time::Instant::now());
         }
@@ -164,6 +169,26 @@ fn build_input_section(
             dialog.generate_start_time = None;
         } else {
             *should_close = true;
+        }
+    }
+}
+
+fn build_model_selector(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
+    ui.text("3D Model:");
+    ui.same_line();
+    ui.set_next_item_width(160.0);
+
+    let current_label = dialog.model_type.display_name();
+    if let Some(_combo) = ui.begin_combo("##model_type", current_label) {
+        for variant in MeshModelType::IMAGE_VARIANTS {
+            let is_selected = dialog.model_type == *variant;
+            if ui
+                .selectable_config(variant.display_name())
+                .selected(is_selected)
+                .build()
+            {
+                dialog.model_type = variant.clone();
+            }
         }
     }
 }

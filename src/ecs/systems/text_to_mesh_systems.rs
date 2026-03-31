@@ -1,5 +1,5 @@
 use crate::ecs::resource::{PendingMeshRequest, TextToMeshState, TextToMeshStatus};
-use crate::grpc::{GrpcRequest, GrpcThreadHandle, MeshInputMode, TextToMeshRequest};
+use crate::grpc::{GrpcRequest, GrpcThreadHandle, MeshInputMode, MeshModelType, TextToMeshRequest};
 
 pub fn text_to_mesh_submit(
     state: &mut TextToMeshState,
@@ -9,6 +9,7 @@ pub fn text_to_mesh_submit(
     seed: u32,
     input_mode: MeshInputMode,
     input_image_png: Option<Vec<u8>>,
+    model_type: MeshModelType,
 ) {
     state.status = TextToMeshStatus::WaitingForServer;
     state.last_prompt = prompt.clone();
@@ -26,6 +27,7 @@ pub fn text_to_mesh_submit(
         seed,
         input_mode,
         input_image_png,
+        model_type,
     });
 
     handle.send(GrpcRequest::CheckMeshStatus);
@@ -41,18 +43,21 @@ pub fn text_to_mesh_send_generate(state: &mut TextToMeshState, handle: &GrpcThre
     state.status = TextToMeshStatus::Generating;
 
     let has_image = pending.input_image_png.is_some();
+    let model_name = pending.model_type.display_name().to_string();
     handle.send(GrpcRequest::GenerateMesh(TextToMeshRequest {
         prompt: pending.prompt.clone(),
         target_faces: pending.target_faces,
         seed: pending.seed,
         input_mode: pending.input_mode.clone(),
         input_image_png: pending.input_image_png,
+        model_type: pending.model_type,
     }));
 
     log!(
-        "TextToMesh: submitted '{}' (mode={:?}, faces={}, seed={}, has_image={})",
+        "TextToMesh: submitted '{}' (mode={:?}, model={}, faces={}, seed={}, has_image={})",
         pending.prompt,
         pending.input_mode,
+        model_name,
         pending.target_faces,
         pending.seed,
         has_image

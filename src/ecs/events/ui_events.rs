@@ -349,6 +349,7 @@ pub enum UIEvent {
         seed: u32,
         input_mode: crate::grpc::MeshInputMode,
         input_image_png: Option<Vec<u8>>,
+        model_type: crate::grpc::MeshModelType,
     },
     #[cfg(feature = "text-to-mesh")]
     TextToMeshApply,

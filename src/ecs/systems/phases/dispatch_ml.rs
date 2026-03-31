@@ -431,6 +431,7 @@ pub fn dispatch_text_to_mesh_events(
                 seed,
                 input_mode,
                 input_image_png,
+                model_type,
             } => {
                 if !world.contains_resource::<GrpcThreadHandle>() {
                     ensure_mesh_server_running(world);
@@ -451,6 +452,7 @@ pub fn dispatch_text_to_mesh_events(
                         *seed,
                         input_mode.clone(),
                         input_image_png.clone(),
+                        model_type.clone(),
                     );
                 }
             }

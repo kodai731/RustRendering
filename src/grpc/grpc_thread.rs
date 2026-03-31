@@ -298,6 +298,12 @@ async fn handle_generate_mesh(
         super::request::MeshInputMode::Image => proto::MeshInputMode::ImageRefinedToMesh,
     };
 
+    let proto_model_type = match req.model_type {
+        super::request::MeshModelType::Trellis => proto::MeshModelType::Trellis,
+        super::request::MeshModelType::Hunyuan3D => proto::MeshModelType::Hunyuan3d,
+        super::request::MeshModelType::CharacterGen => proto::MeshModelType::CharacterGen,
+    };
+
     let proto_request = proto::MeshRequest {
         prompt: req.prompt,
         params: Some(proto::MeshGenerationParams {
@@ -308,6 +314,7 @@ async fn handle_generate_mesh(
         }),
         input_image_png: req.input_image_png.unwrap_or_default(),
         input_mode: proto_mode as i32,
+        model_type: proto_model_type as i32,
     };
 
     match c.generate_mesh(tonic::Request::new(proto_request)).await {

@@ -27,6 +27,7 @@ pub struct GltfMeshData {
     pub image_data: Vec<ImageData>,
     pub node_index: Option<usize>,
     pub local_vertices: Vec<Vertex>,
+    pub base_color_factor: [f32; 4],
 }
 
 #[derive(Clone, Debug)]
@@ -178,6 +179,7 @@ struct MeshBuildData {
     has_joints: bool,
     node_index: usize,
     local_vertices: Vec<Vertex>,
+    base_color_factor: [f32; 4],
 }
 
 struct GltfParseContext {
@@ -783,6 +785,11 @@ unsafe fn process_node(
                 attrs.normals = compute_smooth_normals(&attrs.positions, &indices);
             }
 
+            let base_color_factor = primitive
+                .material()
+                .pbr_metallic_roughness()
+                .base_color_factor();
+
             let mut mesh_data = MeshBuildData {
                 vertex_data: VertexData::default(),
                 bone_indices: Vec::new(),
@@ -794,6 +801,7 @@ unsafe fn process_node(
                 has_joints: attrs.has_joints,
                 node_index: node.index(),
                 local_vertices: Vec::new(),
+                base_color_factor,
             };
             if attrs.has_joints {
                 ctx.has_skinned_meshes = true;
@@ -1385,6 +1393,7 @@ fn build_meshes_and_morph(
             image_data: mesh.image_data,
             node_index: Some(mesh.node_index),
             local_vertices,
+            base_color_factor: mesh.base_color_factor,
         });
     }
 

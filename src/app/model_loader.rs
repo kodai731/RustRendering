@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
-use cgmath::SquareMatrix;
+use cgmath::{SquareMatrix, Vector4};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::animation::editable::SourceClipId;
@@ -154,7 +154,14 @@ unsafe fn apply_model_to_resources(
             i,
             model_name,
         )?;
-        let material_id = create_material_for_mesh(instance, device, graphics, &mesh_buffer, i)?;
+        let material_id = create_material_for_mesh(
+            instance,
+            device,
+            graphics,
+            &mesh_buffer,
+            i,
+            loaded_mesh.base_color_factor,
+        )?;
 
         graphics.meshes.push(mesh_buffer);
         graphics.mesh_material_ids.push(material_id);
@@ -533,9 +540,18 @@ unsafe fn create_material_for_mesh(
     graphics: &mut GraphicsResources,
     mesh: &MeshBuffer,
     mesh_index: usize,
+    base_color_factor: [f32; 4],
 ) -> Result<MaterialId> {
     let material_name = format!("material_{}", mesh_index);
-    let material_properties = MaterialUBO::default();
+    let material_properties = MaterialUBO {
+        base_color: Vector4::new(
+            base_color_factor[0],
+            base_color_factor[1],
+            base_color_factor[2],
+            base_color_factor[3],
+        ),
+        ..MaterialUBO::default()
+    };
 
     let material_id = graphics.materials.create_material_with_texture(
         instance,

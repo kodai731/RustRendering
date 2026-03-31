@@ -12,12 +12,38 @@ pub enum MeshInputMode {
 }
 
 #[cfg(feature = "text-to-mesh")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MeshModelType {
+    Trellis,
+    Hunyuan3D,
+    CharacterGen,
+}
+
+#[cfg(feature = "text-to-mesh")]
+impl MeshModelType {
+    pub const IMAGE_VARIANTS: &[MeshModelType] = &[
+        MeshModelType::Trellis,
+        MeshModelType::Hunyuan3D,
+        MeshModelType::CharacterGen,
+    ];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            MeshModelType::Trellis => "TRELLIS",
+            MeshModelType::Hunyuan3D => "Hunyuan3D",
+            MeshModelType::CharacterGen => "CharacterGen",
+        }
+    }
+}
+
+#[cfg(feature = "text-to-mesh")]
 pub struct TextToMeshRequest {
     pub prompt: String,
     pub target_faces: u32,
     pub seed: u32,
     pub input_mode: MeshInputMode,
     pub input_image_png: Option<Vec<u8>>,
+    pub model_type: MeshModelType,
 }
 
 pub enum GrpcRequest {
