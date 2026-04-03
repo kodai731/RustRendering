@@ -101,9 +101,10 @@ fn build_input_section(
     let is_busy =
         *status == TextToMeshStatus::Generating || *status == TextToMeshStatus::WaitingForServer;
 
+    build_model_selector(ui, dialog);
+    ui.spacing();
+
     if dialog.input_mode == MeshInputMode::Image {
-        build_model_selector(ui, dialog);
-        ui.spacing();
         build_image_picker(ui, dialog);
         ui.spacing();
     }
@@ -179,8 +180,9 @@ fn build_model_selector(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
     ui.set_next_item_width(160.0);
 
     let current_label = dialog.model_type.display_name();
+    let variants = MeshModelType::variants_for_mode(&dialog.input_mode);
     if let Some(_combo) = ui.begin_combo("##model_type", current_label) {
-        for variant in MeshModelType::IMAGE_VARIANTS {
+        for variant in variants {
             let is_selected = dialog.model_type == *variant;
             if ui
                 .selectable_config(variant.display_name())

@@ -27,6 +27,19 @@ impl MeshModelType {
         MeshModelType::CharacterGen,
     ];
 
+    pub const TEXT_VARIANTS: &[MeshModelType] = &[
+        MeshModelType::Trellis,
+        MeshModelType::Hunyuan3D,
+        MeshModelType::CharacterGen,
+    ];
+
+    pub fn variants_for_mode(mode: &MeshInputMode) -> &'static [MeshModelType] {
+        match mode {
+            MeshInputMode::TextOnly => Self::TEXT_VARIANTS,
+            MeshInputMode::Image => Self::IMAGE_VARIANTS,
+        }
+    }
+
     pub fn display_name(&self) -> &'static str {
         match self {
             MeshModelType::Trellis => "TRELLIS",
