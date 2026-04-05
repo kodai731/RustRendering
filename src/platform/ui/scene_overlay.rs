@@ -83,6 +83,19 @@ fn build_model_section(
         }
     }
 
+    if ui.button("Add GLB") {
+        if let Some(paths) = rfd::FileDialog::new()
+            .add_filter("GLB Files", &["glb"])
+            .pick_files()
+        {
+            for path in paths {
+                let path_str = path.to_string_lossy().to_string();
+                log!("Adding GLB file: {}", path_str);
+                ui_events.send(UIEvent::LoadModelAdditive { path: path_str });
+            }
+        }
+    }
+
     #[cfg(feature = "text-to-mesh")]
     if ui.button("Generate Mesh") {
         state.open_text_to_mesh_dialog = true;

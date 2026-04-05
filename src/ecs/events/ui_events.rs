@@ -25,6 +25,9 @@ pub enum UIEvent {
     LoadModel {
         path: String,
     },
+    LoadModelAdditive {
+        path: String,
+    },
 
     ResetCamera,
     ResetCameraUp,
@@ -46,6 +49,7 @@ pub enum UIEvent {
     SelectEntity(Entity),
     DeselectAll,
     ToggleEntitySelection(Entity),
+    DeleteSelectedEntities,
     ExpandEntity(Entity),
     CollapseEntity(Entity),
     SetSearchFilter(String),

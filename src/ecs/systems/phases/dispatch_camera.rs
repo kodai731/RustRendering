@@ -82,6 +82,10 @@ pub fn dispatch_camera_light_debug_events(
                 deferred.push(DeferredAction::LoadModel { path: path.clone() });
             }
 
+            UIEvent::LoadModelAdditive { path } => {
+                deferred.push(DeferredAction::LoadModelAdditive { path: path.clone() });
+            }
+
             UIEvent::TakeScreenshot => {
                 deferred.push(DeferredAction::TakeScreenshot);
             }

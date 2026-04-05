@@ -545,6 +545,18 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
             }
         }
 
+        DeferredAction::LoadModelAdditive { path } => {
+            if let Err(e) = app.load_model_additive(&path) {
+                log_error!("Failed to add model: {:?}", e);
+            }
+        }
+
+        DeferredAction::DeleteEntities { entities } => {
+            if let Err(e) = app.delete_entities(&entities) {
+                log_error!("Failed to delete entities: {:?}", e);
+            }
+        }
+
         DeferredAction::TakeScreenshot => {
             log!("Taking screenshot...");
             let image_index = app.frame % crate::app::init::MAX_FRAMES_IN_FLIGHT;

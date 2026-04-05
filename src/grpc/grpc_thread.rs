@@ -302,6 +302,7 @@ async fn handle_generate_mesh(
         super::request::MeshModelType::Trellis => proto::MeshModelType::Trellis,
         super::request::MeshModelType::Hunyuan3D => proto::MeshModelType::Hunyuan3d,
         super::request::MeshModelType::CharacterGen => proto::MeshModelType::CharacterGen,
+        super::request::MeshModelType::StdGen => proto::MeshModelType::Stdgen,
     };
 
     let proto_request = proto::MeshRequest {

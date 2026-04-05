@@ -48,7 +48,7 @@ pub fn run_event_dispatch_phase(
         return (Vec::new(), Vec::new());
     }
 
-    dispatch_hierarchy_events(&events, world, assets);
+    let hierarchy_deferred = dispatch_hierarchy_events(&events, world, assets);
     dispatch_timeline_events(&events, world, assets);
     dispatch_keyframe_clipboard_events(&events, world);
     dispatch_buffer_events(&events, world);
@@ -69,6 +69,7 @@ pub fn run_event_dispatch_phase(
     super::dispatch_ml::dispatch_text_to_motion_events(&events, world, assets);
 
     let mut deferred = dispatch_camera_light_debug_events(&events, world, model_bounds);
+    deferred.extend(hierarchy_deferred);
 
     #[cfg(feature = "text-to-mesh")]
     super::dispatch_ml::dispatch_text_to_mesh_events(&events, world, &mut deferred);

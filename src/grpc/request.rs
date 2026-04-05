@@ -17,6 +17,7 @@ pub enum MeshModelType {
     Trellis,
     Hunyuan3D,
     CharacterGen,
+    StdGen,
 }
 
 #[cfg(feature = "text-to-mesh")]
@@ -25,12 +26,14 @@ impl MeshModelType {
         MeshModelType::Trellis,
         MeshModelType::Hunyuan3D,
         MeshModelType::CharacterGen,
+        MeshModelType::StdGen,
     ];
 
     pub const TEXT_VARIANTS: &[MeshModelType] = &[
         MeshModelType::Trellis,
         MeshModelType::Hunyuan3D,
         MeshModelType::CharacterGen,
+        MeshModelType::StdGen,
     ];
 
     pub fn variants_for_mode(mode: &MeshInputMode) -> &'static [MeshModelType] {
@@ -45,6 +48,7 @@ impl MeshModelType {
             MeshModelType::Trellis => "TRELLIS",
             MeshModelType::Hunyuan3D => "Hunyuan3D",
             MeshModelType::CharacterGen => "CharacterGen",
+            MeshModelType::StdGen => "StdGen",
         }
     }
 }

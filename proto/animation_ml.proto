@@ -78,6 +78,7 @@ enum MeshModelType {
     TRELLIS = 0;
     HUNYUAN3D = 1;
     CHARACTER_GEN = 2;
+    STDGEN = 3;
 }
 
 service MeshGenerationService {

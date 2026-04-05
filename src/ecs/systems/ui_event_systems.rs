@@ -27,4 +27,10 @@ pub enum DeferredAction {
     LoadModelFromMemory {
         glb_data: Vec<u8>,
     },
+    LoadModelAdditive {
+        path: String,
+    },
+    DeleteEntities {
+        entities: Vec<u64>,
+    },
 }
