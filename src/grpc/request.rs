@@ -4,9 +4,102 @@ pub struct TextToMotionRequest {
     pub target_fps: i32,
 }
 
+#[cfg(feature = "text-to-mesh")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MeshInputMode {
+    TextOnly,
+    Image,
+}
+
+#[cfg(feature = "text-to-mesh")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum MeshModelType {
+    Trellis,
+    Hunyuan3D,
+    CharacterGen,
+    StdGen,
+    Era3D,
+}
+
+#[cfg(feature = "text-to-mesh")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextToImageModelType {
+    ServerDefault,
+    Sdxl,
+    Animagine,
+}
+
+#[cfg(feature = "text-to-mesh")]
+impl MeshModelType {
+    pub const IMAGE_VARIANTS: &[MeshModelType] = &[
+        MeshModelType::Trellis,
+        MeshModelType::Hunyuan3D,
+        MeshModelType::CharacterGen,
+        MeshModelType::StdGen,
+        MeshModelType::Era3D,
+    ];
+
+    pub const TEXT_VARIANTS: &[MeshModelType] = &[
+        MeshModelType::Trellis,
+        MeshModelType::Hunyuan3D,
+        MeshModelType::CharacterGen,
+        MeshModelType::StdGen,
+        MeshModelType::Era3D,
+    ];
+
+    pub fn variants_for_mode(mode: &MeshInputMode) -> &'static [MeshModelType] {
+        match mode {
+            MeshInputMode::TextOnly => Self::TEXT_VARIANTS,
+            MeshInputMode::Image => Self::IMAGE_VARIANTS,
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            MeshModelType::Trellis => "TRELLIS",
+            MeshModelType::Hunyuan3D => "Hunyuan3D",
+            MeshModelType::CharacterGen => "CharacterGen",
+            MeshModelType::StdGen => "StdGen",
+            MeshModelType::Era3D => "Era3D",
+        }
+    }
+}
+
+#[cfg(feature = "text-to-mesh")]
+impl TextToImageModelType {
+    pub const ALL_VARIANTS: &[TextToImageModelType] = &[
+        TextToImageModelType::ServerDefault,
+        TextToImageModelType::Sdxl,
+        TextToImageModelType::Animagine,
+    ];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TextToImageModelType::ServerDefault => "Server Default",
+            TextToImageModelType::Sdxl => "SDXL",
+            TextToImageModelType::Animagine => "Animagine",
+        }
+    }
+}
+
+#[cfg(feature = "text-to-mesh")]
+pub struct TextToMeshRequest {
+    pub prompt: String,
+    pub target_faces: u32,
+    pub seed: u32,
+    pub input_mode: MeshInputMode,
+    pub input_image_png: Option<Vec<u8>>,
+    pub model_type: MeshModelType,
+    pub t2i_model_type: TextToImageModelType,
+}
+
 pub enum GrpcRequest {
     GenerateMotion(TextToMotionRequest),
+    #[cfg(feature = "text-to-mesh")]
+    GenerateMesh(TextToMeshRequest),
     CheckStatus,
+    #[cfg(feature = "text-to-mesh")]
+    CheckMeshStatus,
     Shutdown,
 }
 
@@ -16,10 +109,22 @@ pub enum GrpcResponse {
         generation_time_ms: f32,
         model_used: String,
     },
+    #[cfg(feature = "text-to-mesh")]
+    MeshGenerated {
+        glb_data: Vec<u8>,
+        vertex_count: u32,
+        face_count: u32,
+        generation_time_ms: f32,
+        intermediate_image_png: Option<Vec<u8>>,
+    },
     ServerStatus {
         ready: bool,
         active_model: String,
         gpu_memory_mb: i32,
+    },
+    #[cfg(feature = "text-to-mesh")]
+    MeshServerStatus {
+        ready: bool,
     },
     Error {
         message: String,

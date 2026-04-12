@@ -25,6 +25,9 @@ pub enum UIEvent {
     LoadModel {
         path: String,
     },
+    LoadModelAdditive {
+        path: String,
+    },
 
     ResetCamera,
     ResetCameraUp,
@@ -46,6 +49,7 @@ pub enum UIEvent {
     SelectEntity(Entity),
     DeselectAll,
     ToggleEntitySelection(Entity),
+    DeleteSelectedEntities,
     ExpandEntity(Entity),
     CollapseEntity(Entity),
     SetSearchFilter(String),
@@ -341,6 +345,23 @@ pub enum UIEvent {
     TextToMotionApply,
     #[cfg(feature = "text-to-motion")]
     TextToMotionCancel,
+
+    #[cfg(feature = "text-to-mesh")]
+    TextToMeshGenerate {
+        prompt: String,
+        target_faces: u32,
+        seed: u32,
+        input_mode: crate::grpc::MeshInputMode,
+        input_image_png: Option<Vec<u8>>,
+        model_type: crate::grpc::MeshModelType,
+        t2i_model_type: crate::grpc::TextToImageModelType,
+    },
+    #[cfg(feature = "text-to-mesh")]
+    TextToMeshApply,
+    #[cfg(feature = "text-to-mesh")]
+    TextToMeshCancel,
+
+    ExportModelGltf,
 
     TimelineZoomIn {
         max_zoom: f32,

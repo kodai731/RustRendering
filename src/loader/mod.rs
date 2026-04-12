@@ -23,7 +23,7 @@ pub struct TextureData {
     pub height: u32,
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct LoadedMesh {
     pub vertex_data: VertexData,
     pub skin_data: Option<SkinData>,
@@ -31,6 +31,21 @@ pub struct LoadedMesh {
     pub node_index: Option<usize>,
     pub local_vertices: Vec<Vertex>,
     pub texture: Option<TextureSource>,
+    pub base_color_factor: [f32; 4],
+}
+
+impl Default for LoadedMesh {
+    fn default() -> Self {
+        Self {
+            vertex_data: VertexData::default(),
+            skin_data: None,
+            skeleton_id: None,
+            node_index: None,
+            local_vertices: Vec::new(),
+            texture: None,
+            base_color_factor: [1.0, 1.0, 1.0, 1.0],
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -79,6 +94,7 @@ impl ModelLoadResult {
                         height: img.height,
                     })
                 }),
+                base_color_factor: m.base_color_factor,
             })
             .collect();
 
@@ -122,6 +138,7 @@ impl ModelLoadResult {
                 node_index: m.node_index,
                 local_vertices: m.local_vertices,
                 texture: m.texture_path.map(TextureSource::File),
+                base_color_factor: [1.0, 1.0, 1.0, 1.0],
             })
             .collect();
 

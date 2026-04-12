@@ -28,6 +28,8 @@ mod ghost_curve_data;
 mod gltf_model_cache;
 mod graphics;
 mod grid_state;
+#[cfg(feature = "text-to-motion")]
+mod grpc_server_process;
 mod hierarchy_state;
 #[cfg(feature = "ml")]
 mod inference_actor_state;
@@ -47,6 +49,8 @@ mod projection_data;
 mod scene_state;
 mod spring_bone_editor_state;
 mod spring_bone_state;
+#[cfg(feature = "text-to-mesh")]
+mod text_to_mesh_state;
 #[cfg(feature = "text-to-motion")]
 mod text_to_motion_state;
 mod timeline_interaction_state;
@@ -85,6 +89,8 @@ pub use ghost_curve_data::*;
 pub use gltf_model_cache::*;
 pub use graphics::*;
 pub use grid_state::*;
+#[cfg(feature = "text-to-motion")]
+pub use grpc_server_process::*;
 pub use hierarchy_state::*;
 #[cfg(feature = "ml")]
 pub use inference_actor_state::*;
@@ -104,6 +110,8 @@ pub use projection_data::*;
 pub use scene_state::*;
 pub use spring_bone_editor_state::*;
 pub use spring_bone_state::*;
+#[cfg(feature = "text-to-mesh")]
+pub use text_to_mesh_state::*;
 #[cfg(feature = "text-to-motion")]
 pub use text_to_motion_state::*;
 pub use timeline_interaction_state::*;

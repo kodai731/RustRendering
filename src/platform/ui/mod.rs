@@ -12,6 +12,8 @@ mod panel_splitter;
 mod scene_overlay;
 mod spring_bone_inspector;
 mod status_bar;
+#[cfg(feature = "text-to-mesh")]
+mod text_to_mesh_dialog;
 #[cfg(feature = "text-to-motion")]
 mod text_to_motion_dialog;
 mod timeline_window;
@@ -31,6 +33,8 @@ pub use panel_splitter::*;
 pub use scene_overlay::*;
 pub use spring_bone_inspector::*;
 pub use status_bar::*;
+#[cfg(feature = "text-to-mesh")]
+pub use text_to_mesh_dialog::*;
 #[cfg(feature = "text-to-motion")]
 pub use text_to_motion_dialog::*;
 pub use timeline_window::*;

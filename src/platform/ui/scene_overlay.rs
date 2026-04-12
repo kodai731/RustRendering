@@ -13,6 +13,8 @@ const OVERLAY_WIDTH: f32 = 280.0;
 pub struct SceneOverlayState {
     pub model_path: String,
     pub load_status: String,
+    #[cfg(feature = "text-to-mesh")]
+    pub open_text_to_mesh_dialog: bool,
 }
 
 pub fn build_scene_overlay(
@@ -52,7 +54,11 @@ pub fn build_scene_overlay(
         });
 }
 
-fn build_model_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, state: &SceneOverlayState) {
+fn build_model_section(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    state: &mut SceneOverlayState,
+) {
     if ui.button("Open FBX") {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("FBX Files", &["fbx"])
@@ -75,6 +81,24 @@ fn build_model_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, state: &Sce
             log!("Selected glTF file: {}", path_str);
             ui_events.send(UIEvent::LoadModel { path: path_str });
         }
+    }
+
+    if ui.button("Add GLB") {
+        if let Some(paths) = rfd::FileDialog::new()
+            .add_filter("GLB Files", &["glb"])
+            .pick_files()
+        {
+            for path in paths {
+                let path_str = path.to_string_lossy().to_string();
+                log!("Adding GLB file: {}", path_str);
+                ui_events.send(UIEvent::LoadModelAdditive { path: path_str });
+            }
+        }
+    }
+
+    #[cfg(feature = "text-to-mesh")]
+    if ui.button("Generate Mesh") {
+        state.open_text_to_mesh_dialog = true;
     }
 
     let model_name = if state.model_path.is_empty() {

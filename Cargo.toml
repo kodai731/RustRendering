@@ -50,6 +50,7 @@ protox = { version = "0.7", optional = true }
 default = ["ml"]
 ml = ["dep:ort"]
 text-to-motion = ["dep:tonic", "dep:prost", "dep:tokio", "dep:tonic-build", "dep:protox"]
+text-to-mesh = ["text-to-motion"]
 
 [dependencies.gltf]
 version = "1.4"

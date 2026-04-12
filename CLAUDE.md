@@ -122,6 +122,12 @@ At the top of each file, include a brief summary of the issue and its resolution
 ### Repository
 repository is separated to ../AnimationModelTraining
 
+### Large Model Storage
+
+When downloading large ML models (HuggingFace weights, TripoSG, etc.), MUST save them to
+`${LargeModelStoragePath}`. This path is symlinked to a high-capacity drive.
+Do NOT download large models to the project directory or HuggingFace default cache.
+
 ### Trained Data
 
 The trained data for the copilot curve is stored in `${SharedDataPath}/exports/`.

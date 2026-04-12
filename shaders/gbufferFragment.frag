@@ -12,17 +12,25 @@ layout(location = 3) out uint outObjectID;
 
 layout(set = 1, binding = 0) uniform sampler2D texSampler;
 
+layout(set = 1, binding = 1) uniform MaterialUBO {
+    vec4 base_color;
+    float metallic;
+    float roughness;
+    vec2 _padding;
+} material;
+
 layout(push_constant) uniform PushConstants {
     uint objectID;
 } pc;
 
 void main() {
     vec4 texColor = texture(texSampler, fragTexCoord);
-    vec4 albedo = texColor * fragColor;
-    if (albedo.a < 0.5) discard;
+    if (fragColor.a < 0.5) discard;
+
+    vec3 albedoRGB = texColor.rgb * fragColor.rgb * material.base_color.rgb;
 
     outPosition = vec4(fragWorldPos, 1.0);
     outNormal = vec4(normalize(fragWorldNormal), 1.0);
-    outAlbedo = albedo;
+    outAlbedo = vec4(albedoRGB, 1.0);
     outObjectID = pc.objectID;
 }

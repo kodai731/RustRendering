@@ -23,4 +23,14 @@ pub enum DeferredAction {
         baked_id: u64,
         path: PathBuf,
     },
+    #[cfg(feature = "text-to-mesh")]
+    LoadModelFromMemory {
+        glb_data: Vec<u8>,
+    },
+    LoadModelAdditive {
+        path: String,
+    },
+    DeleteEntities {
+        entities: Vec<u64>,
+    },
 }

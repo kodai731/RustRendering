@@ -334,6 +334,14 @@ impl App {
         data.ecs_world
             .insert_resource(crate::ecs::resource::TextToMotionState::default());
 
+        #[cfg(feature = "text-to-motion")]
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::GrpcServerProcess::default());
+
+        #[cfg(feature = "text-to-mesh")]
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::TextToMeshState::default());
+
         let viewport_width = rrswapchain.swapchain_extent.width;
         let viewport_height = rrswapchain.swapchain_extent.height;
         data.viewport = crate::app::viewport::ViewportState::new(

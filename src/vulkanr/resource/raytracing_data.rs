@@ -121,6 +121,10 @@ impl RayTracingData {
         let mut acceleration_structure = RRAccelerationStructure::new();
 
         for mesh in meshes {
+            if !mesh.render_to_gbuffer {
+                continue;
+            }
+
             let blas = RRAccelerationStructure::create_blas(
                 instance,
                 rrdevice,

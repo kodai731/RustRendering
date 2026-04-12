@@ -30,6 +30,12 @@ pub fn run_event_dispatch_phase(
     assets: &mut AssetStorage,
     model_bounds: Option<(Vector3<f32>, Vector3<f32>, Vector3<f32>)>,
 ) -> (Vec<UIEvent>, Vec<DeferredAction>) {
+    #[cfg(feature = "text-to-motion")]
+    super::dispatch_ml::drain_grpc_responses(world, assets);
+
+    #[cfg(feature = "text-to-mesh")]
+    super::dispatch_ml::poll_mesh_server_status(world);
+
     let events: Vec<UIEvent> = {
         if let Some(mut ui_events) = world.get_resource_mut::<UIEventQueue>() {
             ui_events.drain().collect()
@@ -42,7 +48,7 @@ pub fn run_event_dispatch_phase(
         return (Vec::new(), Vec::new());
     }
 
-    dispatch_hierarchy_events(&events, world, assets);
+    let hierarchy_deferred = dispatch_hierarchy_events(&events, world, assets);
     dispatch_timeline_events(&events, world, assets);
     dispatch_keyframe_clipboard_events(&events, world);
     dispatch_buffer_events(&events, world);
@@ -62,7 +68,12 @@ pub fn run_event_dispatch_phase(
     #[cfg(feature = "text-to-motion")]
     super::dispatch_ml::dispatch_text_to_motion_events(&events, world, assets);
 
-    let deferred = dispatch_camera_light_debug_events(&events, world, model_bounds);
+    let mut deferred = dispatch_camera_light_debug_events(&events, world, model_bounds);
+    deferred.extend(hierarchy_deferred);
+
+    #[cfg(feature = "text-to-mesh")]
+    super::dispatch_ml::dispatch_text_to_mesh_events(&events, world, &mut deferred);
+
     let platform_events = filter_platform_events(&events);
 
     (platform_events, deferred)
@@ -78,6 +89,7 @@ fn filter_platform_events(events: &[UIEvent]) -> Vec<UIEvent> {
                     | UIEvent::ClipBrowserSaveToFile(_)
                     | UIEvent::ClipBrowserExportFbx(_)
                     | UIEvent::ClipBrowserExportGltf(_)
+                    | UIEvent::ExportModelGltf
                     | UIEvent::SpringBoneSaveBake
             )
         })

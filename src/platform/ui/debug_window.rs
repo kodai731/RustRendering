@@ -28,6 +28,12 @@ pub fn build_debug_panel_content(
     build_fbx_debug_panel(ui);
     ui.separator();
 
+    #[cfg(feature = "text-to-motion")]
+    {
+        build_grpc_server_panel(ui, ecs_world);
+        ui.separator();
+    }
+
     build_mouse_info(ui, ecs_world);
 }
 
@@ -213,6 +219,69 @@ fn build_fbx_debug_panel(ui: &imgui::Ui) {
     if ui.checkbox("Transform", &mut fbx_trans) {
         FBX_DEBUG.set_transform(fbx_trans);
     }
+}
+
+#[cfg(feature = "text-to-motion")]
+fn build_grpc_server_panel(ui: &imgui::Ui, ecs_world: &World) {
+    use crate::ecs::resource::GrpcServerProcess;
+
+    ui.text("gRPC Server:");
+
+    let Some(mut server) = ecs_world.get_resource_mut::<GrpcServerProcess>() else {
+        return;
+    };
+
+    let running = server.is_running();
+
+    if running {
+        ui.text_colored([0.5, 1.0, 0.5, 1.0], "Running");
+        if ui.button("Stop Server") {
+            server.stop();
+        }
+    } else {
+        ui.text_colored([0.7, 0.7, 0.7, 1.0], "Stopped");
+        if let Some(err) = &server.last_error {
+            ui.text_colored([1.0, 0.3, 0.3, 1.0], err);
+        }
+        if ui.button("Start Server") {
+            let working_dir = find_training_repo_path();
+            match server.start(&working_dir, "configs/server.yaml") {
+                Ok(()) => {}
+                Err(e) => {
+                    log_error!("Failed to start gRPC server: {}", e);
+                    server.last_error = Some(e);
+                }
+            }
+        }
+    }
+}
+
+#[cfg(feature = "text-to-motion")]
+fn find_training_repo_path() -> String {
+    if let Ok(path) = std::env::var("ANIMATION_TRAINING_PATH") {
+        return path;
+    }
+
+    let output = std::process::Command::new("wsl")
+        .args([
+            "--",
+            "bash",
+            "-l",
+            "-c",
+            "echo $HOME/Projects/AnimationModelTraining",
+        ])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+
+    if let Ok(out) = output {
+        let wsl_path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        if !wsl_path.is_empty() {
+            return wsl_path;
+        }
+    }
+
+    "../AnimationModelTraining".to_string()
 }
 
 fn build_mouse_info(ui: &imgui::Ui, ecs_world: &World) {

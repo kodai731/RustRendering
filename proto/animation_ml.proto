@@ -67,3 +67,65 @@ message StatusResponse {
     string active_model = 2;
     int32 gpu_memory_mb = 3;
 }
+
+enum MeshInputMode {
+    TEXT_TO_MESH = 0;
+    IMAGE_TO_MESH = 1;
+    IMAGE_REFINED_TO_MESH = 2;
+}
+
+enum MeshModelType {
+    TRELLIS = 0;
+    HUNYUAN3D = 1;
+    CHARACTER_GEN = 2;
+    STDGEN = 3;
+    ERA3D = 4;
+}
+
+enum TextToImageModelType {
+    T2I_SERVER_DEFAULT = 0;
+    T2I_SDXL = 1;
+    T2I_ANIMAGINE = 2;
+}
+
+service MeshGenerationService {
+    rpc GenerateMesh (MeshRequest) returns (MeshResponse);
+    rpc GetMeshServiceStatus (MeshStatusRequest) returns (MeshStatusResponse);
+}
+
+message MeshRequest {
+    string prompt = 1;
+    MeshGenerationParams params = 2;
+    bytes input_image_png = 3;
+    MeshInputMode input_mode = 4;
+    MeshModelType model_type = 5;
+    TextToImageModelType t2i_model_type = 6;
+}
+
+message MeshGenerationParams {
+    int32 target_faces = 1;
+    int32 seed = 2;
+    int32 image_size = 3;
+    int32 image_inference_steps = 4;
+}
+
+message MeshResponse {
+    bytes glb_data = 1;
+    MeshMetadata metadata = 2;
+}
+
+message MeshMetadata {
+    int32 vertex_count = 1;
+    int32 face_count = 2;
+    float generation_time_ms = 3;
+    bytes intermediate_image_png = 4;
+}
+
+message MeshStatusRequest {}
+
+message MeshStatusResponse {
+    bool ready = 1;
+    string t2i_model = 2;
+    string i2m_model = 3;
+    int32 gpu_memory_mb = 4;
+}

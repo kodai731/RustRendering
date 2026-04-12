@@ -27,6 +27,7 @@ pub struct GltfMeshData {
     pub image_data: Vec<ImageData>,
     pub node_index: Option<usize>,
     pub local_vertices: Vec<Vertex>,
+    pub base_color_factor: [f32; 4],
 }
 
 #[derive(Clone, Debug)]
@@ -178,6 +179,7 @@ struct MeshBuildData {
     has_joints: bool,
     node_index: usize,
     local_vertices: Vec<Vertex>,
+    base_color_factor: [f32; 4],
 }
 
 struct GltfParseContext {
@@ -215,15 +217,28 @@ impl Default for GltfParseContext {
 }
 
 pub unsafe fn load_gltf_file(path: &str) -> Result<GltfLoadResult> {
+    log!("Loading glTF file: {}", path);
+    let (gltf, buffers, images) = gltf::import(format!("{}", path))?;
     let mut ctx = GltfParseContext::default();
-    parse_gltf(&mut ctx, path)?;
+    parse_gltf_imported(&mut ctx, &gltf, &buffers, &images)?;
     Ok(build_result(ctx))
 }
 
-unsafe fn parse_gltf(ctx: &mut GltfParseContext, path: &str) -> Result<()> {
-    log!("Loading glTF file: {}", path);
-    let (gltf, buffers, images) = gltf::import(format!("{}", path))?;
+#[cfg(feature = "text-to-mesh")]
+pub unsafe fn load_gltf_from_slice(data: &[u8]) -> Result<GltfLoadResult> {
+    log!("Loading glTF from memory ({} bytes)", data.len());
+    let (gltf, buffers, images) = gltf::import_slice(data)?;
+    let mut ctx = GltfParseContext::default();
+    parse_gltf_imported(&mut ctx, &gltf, &buffers, &images)?;
+    Ok(build_result(ctx))
+}
 
+unsafe fn parse_gltf_imported(
+    ctx: &mut GltfParseContext,
+    gltf: &Document,
+    buffers: &Vec<gltf::buffer::Data>,
+    images: &Vec<gltf::image::Data>,
+) -> Result<()> {
     log!(
         "glTF: {} skins, {} nodes, {} meshes, {} animations",
         gltf.skins().count(),
@@ -232,7 +247,7 @@ unsafe fn parse_gltf(ctx: &mut GltfParseContext, path: &str) -> Result<()> {
         gltf.animations().count()
     );
 
-    let node_parent_map = build_node_parent_map(&gltf);
+    let node_parent_map = build_node_parent_map(gltf);
     ctx.has_armature = gltf.skins().count() > 0;
 
     for (i, skin) in gltf.skins().enumerate() {
@@ -243,17 +258,17 @@ unsafe fn parse_gltf(ctx: &mut GltfParseContext, path: &str) -> Result<()> {
             skin.joints().count()
         );
         ctx.node_joint_map.make_from_skin(&skin);
-        set_joints(ctx, &skin, &buffers);
+        set_joints(ctx, &skin, buffers);
         ctx.skeleton_root_transform =
-            determine_skeleton_root_transform(&gltf, &skin, &node_parent_map);
+            determine_skeleton_root_transform(gltf, &skin, &node_parent_map);
     }
 
     for scene in gltf.scenes() {
         for node in scene.nodes() {
             process_node(
-                &gltf,
-                &buffers,
-                &images,
+                gltf,
+                buffers,
+                images,
                 &node,
                 ctx,
                 &Matrix4::identity(),
@@ -271,10 +286,10 @@ unsafe fn parse_gltf(ctx: &mut GltfParseContext, path: &str) -> Result<()> {
         .map(|m| m.morph_targets.len())
         .unwrap_or(0);
     for animation in gltf.animations() {
-        process_animation(&buffers, animation, ctx, morph_target_count)?;
+        process_animation(buffers, animation, ctx, morph_target_count)?;
     }
 
-    ctx.spring_bone_setup = extract_spring_bone_extension(&gltf, &ctx.node_joint_map);
+    ctx.spring_bone_setup = extract_spring_bone_extension(gltf, &ctx.node_joint_map);
 
     log!(
         "Loaded: has_skinned_meshes={}, {} node_animations, {} joint_animations",
@@ -431,6 +446,7 @@ struct RawVertexAttributes {
     positions: Vec<[f32; 3]>,
     normals: Vec<[f32; 3]>,
     tex_coords: Vec<[f32; 2]>,
+    colors: Vec<[f32; 4]>,
     joint_indices: Vec<[u16; 4]>,
     joint_weights: Vec<[f32; 4]>,
     has_joints: bool,
@@ -469,10 +485,16 @@ where
         .map(|iter| iter.into_f32().collect())
         .unwrap_or_default();
 
+    let colors: Vec<[f32; 4]> = reader
+        .read_colors(0)
+        .map(|iter| iter.into_rgba_f32().collect())
+        .unwrap_or_default();
+
     RawVertexAttributes {
         positions,
         normals,
         tex_coords,
+        colors,
         joint_indices,
         joint_weights,
         has_joints,
@@ -534,6 +556,58 @@ fn transform_positions(
     }
 }
 
+fn compute_smooth_normals(positions: &[[f32; 3]], indices: &[u32]) -> Vec<[f32; 3]> {
+    let vertex_count = positions.len();
+    let mut normals = vec![[0.0f32; 3]; vertex_count];
+
+    let triangles = if indices.is_empty() {
+        (0..vertex_count as u32).collect::<Vec<_>>()
+    } else {
+        indices.to_vec()
+    };
+
+    for tri in triangles.chunks(3) {
+        if tri.len() < 3 {
+            continue;
+        }
+        let (i0, i1, i2) = (tri[0] as usize, tri[1] as usize, tri[2] as usize);
+        if i0 >= vertex_count || i1 >= vertex_count || i2 >= vertex_count {
+            continue;
+        }
+
+        let p0 = positions[i0];
+        let p1 = positions[i1];
+        let p2 = positions[i2];
+
+        let e1 = [p1[0] - p0[0], p1[1] - p0[1], p1[2] - p0[2]];
+        let e2 = [p2[0] - p0[0], p2[1] - p0[1], p2[2] - p0[2]];
+        let face_normal = [
+            e1[1] * e2[2] - e1[2] * e2[1],
+            e1[2] * e2[0] - e1[0] * e2[2],
+            e1[0] * e2[1] - e1[1] * e2[0],
+        ];
+
+        for &idx in &[i0, i1, i2] {
+            normals[idx][0] += face_normal[0];
+            normals[idx][1] += face_normal[1];
+            normals[idx][2] += face_normal[2];
+        }
+    }
+
+    for n in &mut normals {
+        let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if len > 1e-8 {
+            n[0] /= len;
+            n[1] /= len;
+            n[2] /= len;
+        } else {
+            *n = [0.0, 1.0, 0.0];
+        }
+    }
+
+    normals
+}
+
 fn build_vertices(
     mesh_data: &mut MeshBuildData,
     attrs: &RawVertexAttributes,
@@ -544,17 +618,18 @@ fn build_vertices(
         let raw_pos = attrs.positions[i];
         let normal = attrs.normals.get(i).copied().unwrap_or([0.0, 0.0, 1.0]);
         let tex_coord = attrs.tex_coords.get(i).copied().unwrap_or([0.0, 0.0]);
+        let color = attrs.colors.get(i).copied().unwrap_or([1.0, 1.0, 1.0, 1.0]);
 
         mesh_data.vertex_data.vertices.push(Vertex {
             pos: Vec3::new(pos[0], pos[1], pos[2]),
-            color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+            color: Vec4::new(color[0], color[1], color[2], color[3]),
             tex_coord: Vec2::new(tex_coord[0], tex_coord[1]),
             normal: Vec3::new(normal[0], normal[1], normal[2]),
         });
 
         mesh_data.local_vertices.push(Vertex {
             pos: Vec3::new(raw_pos[0], raw_pos[1], raw_pos[2]),
-            color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+            color: Vec4::new(color[0], color[1], color[2], color[3]),
             tex_coord: Vec2::new(tex_coord[0], tex_coord[1]),
             normal: Vec3::new(normal[0], normal[1], normal[2]),
         });
@@ -614,7 +689,27 @@ fn load_primitive_texture(
 
     let image_index = material.texture().source().index();
     if image_index < images.len() {
-        Some(convert_image_data(&images[image_index]))
+        let image = &images[image_index];
+        log!(
+            "PBR texture: image_index={}, format={:?}, {}x{}, pixel_bytes={}",
+            image_index,
+            image.format,
+            image.width,
+            image.height,
+            image.pixels.len()
+        );
+        let first_pixels: Vec<u8> = image.pixels.iter().take(16).copied().collect();
+        log!("  first 16 bytes: {:?}", first_pixels);
+
+        let converted = convert_image_data(image);
+        log!(
+            "  converted: {}x{}, data_len={}, first_16={:?}",
+            converted.width,
+            converted.height,
+            converted.data.len(),
+            &converted.data[..converted.data.len().min(16)]
+        );
+        Some(converted)
     } else {
         None
     }
@@ -679,7 +774,22 @@ unsafe fn process_node(
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
 
-            let attrs = read_vertex_attributes(&reader);
+            let mut attrs = read_vertex_attributes(&reader);
+
+            let indices: Vec<u32> = reader
+                .read_indices()
+                .map(|iter| iter.into_u32().collect())
+                .unwrap_or_default();
+
+            if attrs.normals.is_empty() && !attrs.positions.is_empty() {
+                attrs.normals = compute_smooth_normals(&attrs.positions, &indices);
+            }
+
+            let base_color_factor = primitive
+                .material()
+                .pbr_metallic_roughness()
+                .base_color_factor();
+
             let mut mesh_data = MeshBuildData {
                 vertex_data: VertexData::default(),
                 bone_indices: Vec::new(),
@@ -691,6 +801,7 @@ unsafe fn process_node(
                 has_joints: attrs.has_joints,
                 node_index: node.index(),
                 local_vertices: Vec::new(),
+                base_color_factor,
             };
             if attrs.has_joints {
                 ctx.has_skinned_meshes = true;
@@ -704,9 +815,7 @@ unsafe fn process_node(
             );
             build_vertices(&mut mesh_data, &attrs, &positions);
 
-            if let Some(iter) = reader.read_indices() {
-                mesh_data.vertex_data.indices = iter.into_u32().collect();
-            }
+            mesh_data.vertex_data.indices = indices;
 
             mesh_data.morph_targets = read_morph_targets(&reader);
 
@@ -1284,6 +1393,7 @@ fn build_meshes_and_morph(
             image_data: mesh.image_data,
             node_index: Some(mesh.node_index),
             local_vertices,
+            base_color_factor: mesh.base_color_factor,
         });
     }
 

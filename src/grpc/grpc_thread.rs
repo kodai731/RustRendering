@@ -22,7 +22,7 @@ impl GrpcThreadHandle {
         let endpoint = endpoint.to_string();
 
         let join_handle = thread::Builder::new()
-            .name("grpc-text-to-motion".to_string())
+            .name("grpc-ml".to_string())
             .spawn(move || {
                 let rt = tokio::runtime::Builder::new_current_thread()
                     .enable_all()
@@ -69,31 +69,45 @@ async fn run_grpc_loop(
     req_rx: mpsc::Receiver<GrpcRequest>,
     res_tx: mpsc::Sender<GrpcResponse>,
 ) {
-    let mut client: Option<
-        proto::text_to_motion_service_client::TextToMotionServiceClient<tonic::transport::Channel>,
-    > = None;
+    let mut motion_client: Option<MotionGrpcClient> = None;
+    #[cfg(feature = "text-to-mesh")]
+    let mut mesh_client: Option<MeshGrpcClient> = None;
 
     while let Ok(request) = req_rx.recv() {
         match request {
             GrpcRequest::Shutdown => break,
 
             GrpcRequest::CheckStatus => {
-                handle_check_status(endpoint, &mut client, &res_tx).await;
+                handle_check_status(endpoint, &mut motion_client, &res_tx).await;
             }
 
             GrpcRequest::GenerateMotion(req) => {
-                handle_generate_motion(endpoint, &mut client, &res_tx, req).await;
+                handle_generate_motion(endpoint, &mut motion_client, &res_tx, req).await;
+            }
+
+            #[cfg(feature = "text-to-mesh")]
+            GrpcRequest::CheckMeshStatus => {
+                handle_check_mesh_status(endpoint, &mut mesh_client, &res_tx).await;
+            }
+
+            #[cfg(feature = "text-to-mesh")]
+            GrpcRequest::GenerateMesh(req) => {
+                handle_generate_mesh(endpoint, &mut mesh_client, &res_tx, req).await;
             }
         }
     }
 }
 
-type GrpcClient =
+type MotionGrpcClient =
     proto::text_to_motion_service_client::TextToMotionServiceClient<tonic::transport::Channel>;
+
+#[cfg(feature = "text-to-mesh")]
+type MeshGrpcClient =
+    proto::mesh_generation_service_client::MeshGenerationServiceClient<tonic::transport::Channel>;
 
 async fn ensure_connected(
     endpoint: &str,
-    client: &mut Option<GrpcClient>,
+    client: &mut Option<MotionGrpcClient>,
     res_tx: &mpsc::Sender<GrpcResponse>,
 ) -> bool {
     if client.is_some() {
@@ -124,9 +138,46 @@ async fn ensure_connected(
     }
 }
 
+#[cfg(feature = "text-to-mesh")]
+async fn ensure_mesh_connected(
+    endpoint: &str,
+    client: &mut Option<MeshGrpcClient>,
+    res_tx: &mpsc::Sender<GrpcResponse>,
+) -> bool {
+    if client.is_some() {
+        return true;
+    }
+
+    match tonic::transport::Channel::from_shared(endpoint.to_string()) {
+        Ok(channel_builder) => match channel_builder.connect().await {
+            Ok(channel) => {
+                *client = Some(
+                    proto::mesh_generation_service_client::MeshGenerationServiceClient::new(
+                        channel,
+                    )
+                    .max_decoding_message_size(64 * 1024 * 1024),
+                );
+                true
+            }
+            Err(e) => {
+                let _ = res_tx.send(GrpcResponse::Error {
+                    message: format!("Failed to connect to {}: {}", endpoint, e),
+                });
+                false
+            }
+        },
+        Err(e) => {
+            let _ = res_tx.send(GrpcResponse::Error {
+                message: format!("Invalid endpoint '{}': {}", endpoint, e),
+            });
+            false
+        }
+    }
+}
+
 async fn handle_check_status(
     endpoint: &str,
-    client: &mut Option<GrpcClient>,
+    client: &mut Option<MotionGrpcClient>,
     res_tx: &mpsc::Sender<GrpcResponse>,
 ) {
     if !ensure_connected(endpoint, client, res_tx).await {
@@ -158,7 +209,7 @@ async fn handle_check_status(
 
 async fn handle_generate_motion(
     endpoint: &str,
-    client: &mut Option<GrpcClient>,
+    client: &mut Option<MotionGrpcClient>,
     res_tx: &mpsc::Sender<GrpcResponse>,
     req: TextToMotionRequest,
 ) {
@@ -192,6 +243,114 @@ async fn handle_generate_motion(
             *client = None;
             let _ = res_tx.send(GrpcResponse::Error {
                 message: format!("GenerateMotion failed: {}", e),
+            });
+        }
+    }
+}
+
+#[cfg(feature = "text-to-mesh")]
+async fn handle_check_mesh_status(
+    endpoint: &str,
+    client: &mut Option<MeshGrpcClient>,
+    res_tx: &mpsc::Sender<GrpcResponse>,
+) {
+    if !ensure_mesh_connected(endpoint, client, res_tx).await {
+        return;
+    }
+
+    let c = client
+        .as_mut()
+        .expect("ensure_mesh_connected returned true so client is Some");
+    let request = tonic::Request::new(proto::MeshStatusRequest {});
+
+    match c.get_mesh_service_status(request).await {
+        Ok(response) => {
+            let status = response.into_inner();
+            let _ = res_tx.send(GrpcResponse::MeshServerStatus {
+                ready: status.ready,
+            });
+        }
+        Err(e) => {
+            *client = None;
+            let _ = res_tx.send(GrpcResponse::Error {
+                message: format!("GetMeshServiceStatus failed: {}", e),
+            });
+        }
+    }
+}
+
+#[cfg(feature = "text-to-mesh")]
+async fn handle_generate_mesh(
+    endpoint: &str,
+    client: &mut Option<MeshGrpcClient>,
+    res_tx: &mpsc::Sender<GrpcResponse>,
+    req: super::request::TextToMeshRequest,
+) {
+    if !ensure_mesh_connected(endpoint, client, res_tx).await {
+        return;
+    }
+
+    let c = client
+        .as_mut()
+        .expect("ensure_mesh_connected returned true so client is Some");
+    let proto_mode = match req.input_mode {
+        super::request::MeshInputMode::TextOnly => proto::MeshInputMode::TextToMesh,
+        super::request::MeshInputMode::Image => proto::MeshInputMode::ImageRefinedToMesh,
+    };
+
+    let proto_model_type = match req.model_type {
+        super::request::MeshModelType::Trellis => proto::MeshModelType::Trellis,
+        super::request::MeshModelType::Hunyuan3D => proto::MeshModelType::Hunyuan3d,
+        super::request::MeshModelType::CharacterGen => proto::MeshModelType::CharacterGen,
+        super::request::MeshModelType::StdGen => proto::MeshModelType::Stdgen,
+        super::request::MeshModelType::Era3D => proto::MeshModelType::Era3d,
+    };
+
+    let proto_t2i_model_type = match req.t2i_model_type {
+        super::request::TextToImageModelType::ServerDefault => {
+            proto::TextToImageModelType::T2iServerDefault
+        }
+        super::request::TextToImageModelType::Sdxl => proto::TextToImageModelType::T2iSdxl,
+        super::request::TextToImageModelType::Animagine => {
+            proto::TextToImageModelType::T2iAnimagine
+        }
+    };
+
+    let proto_request = proto::MeshRequest {
+        prompt: req.prompt,
+        params: Some(proto::MeshGenerationParams {
+            target_faces: req.target_faces as i32,
+            seed: req.seed as i32,
+            image_size: 0,
+            image_inference_steps: 0,
+        }),
+        input_image_png: req.input_image_png.unwrap_or_default(),
+        input_mode: proto_mode as i32,
+        model_type: proto_model_type as i32,
+        t2i_model_type: proto_t2i_model_type as i32,
+    };
+
+    match c.generate_mesh(tonic::Request::new(proto_request)).await {
+        Ok(response) => {
+            let resp = response.into_inner();
+            let metadata = resp.metadata.unwrap_or_default();
+            let image = if metadata.intermediate_image_png.is_empty() {
+                None
+            } else {
+                Some(metadata.intermediate_image_png)
+            };
+            let _ = res_tx.send(GrpcResponse::MeshGenerated {
+                glb_data: resp.glb_data,
+                vertex_count: metadata.vertex_count as u32,
+                face_count: metadata.face_count as u32,
+                generation_time_ms: metadata.generation_time_ms,
+                intermediate_image_png: image,
+            });
+        }
+        Err(e) => {
+            *client = None;
+            let _ = res_tx.send(GrpcResponse::Error {
+                message: format!("GenerateMesh failed: {}", e),
             });
         }
     }

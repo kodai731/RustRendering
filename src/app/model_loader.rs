@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
-use cgmath::SquareMatrix;
+use cgmath::{SquareMatrix, Vector4};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::animation::editable::SourceClipId;
@@ -73,6 +73,40 @@ pub unsafe fn load_model_from_file_system(
     Ok(())
 }
 
+#[cfg(feature = "text-to-mesh")]
+pub unsafe fn load_model_from_file_system_with_result(
+    load_result: &ModelLoadResult,
+    model_name: &str,
+    instance: &Instance,
+    device: &RRDevice,
+    command_pool: &Rc<RRCommandPool>,
+    swapchain: &RRSwapchain,
+    graphics: &mut GraphicsResources,
+    raytracing: &mut RayTracingData,
+    world: &mut World,
+    assets: &mut AssetStorage,
+    scene_will_provide_clips: bool,
+    fbx_model: Option<FbxModel>,
+) -> Result<()> {
+    apply_model_to_resources(
+        load_result,
+        model_name,
+        instance,
+        device,
+        command_pool,
+        swapchain,
+        graphics,
+        raytracing,
+        world,
+        assets,
+        scene_will_provide_clips,
+        fbx_model,
+    )?;
+
+    log!("=== Model loaded successfully ===");
+    Ok(())
+}
+
 unsafe fn load_model_data(path: &str) -> Result<(ModelLoadResult, Option<FbxModel>)> {
     let path_lower = path.to_lowercase();
 
@@ -120,7 +154,14 @@ unsafe fn apply_model_to_resources(
             i,
             model_name,
         )?;
-        let material_id = create_material_for_mesh(instance, device, graphics, &mesh_buffer, i)?;
+        let material_id = create_material_for_mesh(
+            instance,
+            device,
+            graphics,
+            &mesh_buffer,
+            i,
+            loaded_mesh.base_color_factor,
+        )?;
 
         graphics.meshes.push(mesh_buffer);
         graphics.mesh_material_ids.push(material_id);
@@ -499,9 +540,18 @@ unsafe fn create_material_for_mesh(
     graphics: &mut GraphicsResources,
     mesh: &MeshBuffer,
     mesh_index: usize,
+    base_color_factor: [f32; 4],
 ) -> Result<MaterialId> {
     let material_name = format!("material_{}", mesh_index);
-    let material_properties = MaterialUBO::default();
+    let material_properties = MaterialUBO {
+        base_color: Vector4::new(
+            base_color_factor[0],
+            base_color_factor[1],
+            base_color_factor[2],
+            base_color_factor[3],
+        ),
+        ..MaterialUBO::default()
+    };
 
     let material_id = graphics.materials.create_material_with_texture(
         instance,
@@ -691,6 +741,10 @@ pub unsafe fn rebuild_acceleration_structures(
     let mut acceleration_structure = RRAccelerationStructure::new();
 
     for mesh in &graphics.meshes {
+        if !mesh.render_to_gbuffer {
+            continue;
+        }
+
         let blas = RRAccelerationStructure::create_blas(
             instance,
             device,
@@ -1186,4 +1240,165 @@ fn resolve_texture_path(texture_path: &str, model_path: &str) -> PathBuf {
 
     log!("Texture not found, using original path: {}", texture_path);
     original.to_path_buf()
+}
+
+pub unsafe fn load_model_additive(
+    path: &str,
+    instance: &Instance,
+    device: &RRDevice,
+    command_pool: &Rc<RRCommandPool>,
+    swapchain: &RRSwapchain,
+    graphics: &mut GraphicsResources,
+    raytracing: &mut RayTracingData,
+    world: &mut World,
+    assets: &mut AssetStorage,
+) -> Result<()> {
+    let (load_result, _fbx_model) = load_model_data(path)?;
+
+    let part_name = std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("part")
+        .to_string();
+
+    append_model_to_scene(
+        &load_result,
+        &part_name,
+        instance,
+        device,
+        command_pool,
+        swapchain,
+        graphics,
+        raytracing,
+        world,
+        assets,
+    )
+}
+
+unsafe fn append_model_to_scene(
+    load_result: &ModelLoadResult,
+    part_name: &str,
+    instance: &Instance,
+    device: &RRDevice,
+    command_pool: &Rc<RRCommandPool>,
+    swapchain: &RRSwapchain,
+    graphics: &mut GraphicsResources,
+    raytracing: &mut RayTracingData,
+    world: &mut World,
+    assets: &mut AssetStorage,
+) -> Result<()> {
+    ensure_graphics_capacity(load_result, instance, device, swapchain, graphics)?;
+
+    let mesh_index_offset = graphics.meshes.len();
+
+    for (i, loaded_mesh) in load_result.meshes.iter().enumerate() {
+        let global_index = mesh_index_offset + i;
+        let mesh_buffer = create_mesh_buffer(
+            instance,
+            device,
+            command_pool,
+            graphics,
+            loaded_mesh,
+            global_index,
+            part_name,
+        )?;
+        let material_id = create_material_for_mesh(
+            instance,
+            device,
+            graphics,
+            &mesh_buffer,
+            global_index,
+            loaded_mesh.base_color_factor,
+        )?;
+
+        graphics.meshes.push(mesh_buffer);
+        graphics.mesh_material_ids.push(material_id);
+    }
+
+    rebuild_acceleration_structures(instance, device, command_pool, graphics, raytracing)?;
+    update_ray_query_descriptor(device, raytracing)?;
+
+    {
+        let mut billboard = world.resource_mut::<BillboardData>();
+        update_billboard_descriptor(device, swapchain, &mut *billboard)?;
+    }
+
+    ensure_ecs_resources(world);
+
+    let parent_entity = world
+        .entity()
+        .with_name(part_name)
+        .with_transform(Transform::default())
+        .with_visible(true)
+        .with_editor_display(EntityIcon::Model, true)
+        .build();
+
+    log!(
+        "Created additive parent entity '{}': entity_id={}",
+        part_name,
+        parent_entity
+    );
+
+    build_mesh_entities_range(
+        part_name,
+        graphics,
+        world,
+        assets,
+        parent_entity,
+        mesh_index_offset..graphics.meshes.len(),
+    );
+
+    log!(
+        "Additively loaded '{}': {} meshes, total entities={}",
+        part_name,
+        load_result.meshes.len(),
+        world.entity_count()
+    );
+
+    Ok(())
+}
+
+fn build_mesh_entities_range(
+    name: &str,
+    graphics: &GraphicsResources,
+    world: &mut World,
+    assets: &mut AssetStorage,
+    parent_entity: crate::ecs::Entity,
+    mesh_range: std::ops::Range<usize>,
+) {
+    for mesh_idx in mesh_range {
+        let mesh = &graphics.meshes[mesh_idx];
+        let entity_name = format!("{}_{:02}", name, mesh_idx + 1);
+
+        let mesh_asset = MeshAsset {
+            id: 0,
+            name: entity_name.clone(),
+            graphics_mesh_index: mesh_idx,
+            object_index: mesh.object_index,
+            material_id: graphics.mesh_material_ids.get(mesh_idx).copied(),
+            skeleton_id: mesh.skeleton_id,
+            node_index: mesh.node_index,
+            render_to_gbuffer: mesh.render_to_gbuffer,
+        };
+        let asset_id = assets.add_mesh(mesh_asset);
+
+        let entity = world
+            .entity()
+            .with_name(&entity_name)
+            .with_global_transform()
+            .with_visible(true)
+            .with_parent(parent_entity)
+            .with_editor_display(EntityIcon::Mesh, false)
+            .with_mesh(asset_id, mesh.object_index)
+            .build();
+
+        log!(
+            "Created additive mesh entity {} (asset_id={}) for mesh {}: entity_id={}, parent={}",
+            entity_name,
+            asset_id,
+            mesh_idx,
+            entity,
+            parent_entity
+        );
+    }
 }

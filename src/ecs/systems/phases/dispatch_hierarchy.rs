@@ -12,15 +12,25 @@ use crate::ecs::systems::{
     resolve_transform_entity, update_entity_scale, update_entity_translation,
     update_entity_visible,
 };
-use crate::ecs::world::{Transform, World};
+use crate::ecs::world::{Children, Entity, Transform, World};
 
-pub fn dispatch_hierarchy_events(events: &[UIEvent], world: &mut World, assets: &AssetStorage) {
-    dispatch_hierarchy_entity_events(events, world);
+pub fn dispatch_hierarchy_events(
+    events: &[UIEvent],
+    world: &mut World,
+    assets: &AssetStorage,
+) -> Vec<super::super::ui_event_systems::DeferredAction> {
+    let deferred = dispatch_hierarchy_entity_events(events, world);
     dispatch_hierarchy_bone_events(events, world, assets);
     sync_curve_editor_on_selection(events, world, assets);
+    deferred
 }
 
-fn dispatch_hierarchy_entity_events(events: &[UIEvent], world: &mut World) {
+fn dispatch_hierarchy_entity_events(
+    events: &[UIEvent],
+    world: &mut World,
+) -> Vec<super::super::ui_event_systems::DeferredAction> {
+    let mut deferred = Vec::new();
+
     for event in events {
         match event {
             UIEvent::SelectEntity(entity) => {
@@ -79,6 +89,37 @@ fn dispatch_hierarchy_entity_events(events: &[UIEvent], world: &mut World) {
                 rename_entity(world, *entity, new_name.clone());
             }
 
+            UIEvent::DeleteSelectedEntities => {
+                let hierarchy_state = world.resource::<HierarchyState>();
+                let selected = hierarchy_state.selected_entity;
+                let multi = hierarchy_state.multi_selection.clone();
+                drop(hierarchy_state);
+
+                let mut targets: Vec<Entity> = multi.into_iter().collect();
+                if let Some(entity) = selected {
+                    if !targets.contains(&entity) {
+                        targets.push(entity);
+                    }
+                }
+
+                let mut all_to_delete = Vec::new();
+                for entity in &targets {
+                    collect_entity_tree(world, *entity, &mut all_to_delete);
+                }
+
+                if !all_to_delete.is_empty() {
+                    let mut hierarchy_state = world.resource_mut::<HierarchyState>();
+                    hierarchy_state.selected_entity = None;
+                    hierarchy_state.multi_selection.clear();
+
+                    deferred.push(
+                        super::super::ui_event_systems::DeferredAction::DeleteEntities {
+                            entities: all_to_delete,
+                        },
+                    );
+                }
+            }
+
             UIEvent::FocusOnEntity(entity) => {
                 let transform_entity = resolve_transform_entity(world, *entity);
                 let target = world
@@ -95,6 +136,8 @@ fn dispatch_hierarchy_entity_events(events: &[UIEvent], world: &mut World) {
             _ => {}
         }
     }
+
+    deferred
 }
 
 fn dispatch_hierarchy_bone_events(events: &[UIEvent], world: &mut World, assets: &AssetStorage) {
@@ -224,5 +267,21 @@ fn sync_curve_editor_on_selection(events: &[UIEvent], world: &mut World, assets:
 
             _ => {}
         }
+    }
+}
+
+fn collect_entity_tree(world: &World, entity: Entity, out: &mut Vec<Entity>) {
+    if out.contains(&entity) {
+        return;
+    }
+    out.push(entity);
+
+    let children = world
+        .get_component::<Children>(entity)
+        .map(|c| c.0.clone())
+        .unwrap_or_default();
+
+    for child in children {
+        collect_entity_tree(world, child, out);
     }
 }
