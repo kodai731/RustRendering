@@ -9,6 +9,7 @@ pub struct TextToMotionRequest {
 pub enum MeshInputMode {
     TextOnly,
     Image,
+    Era3D,
 }
 
 #[cfg(feature = "text-to-mesh")]
@@ -36,10 +37,18 @@ impl MeshModelType {
         MeshModelType::StdGen,
     ];
 
+    pub const ERA3D_VARIANTS: &[MeshModelType] = &[
+        MeshModelType::Trellis,
+        MeshModelType::Hunyuan3D,
+        MeshModelType::CharacterGen,
+        MeshModelType::StdGen,
+    ];
+
     pub fn variants_for_mode(mode: &MeshInputMode) -> &'static [MeshModelType] {
         match mode {
             MeshInputMode::TextOnly => Self::TEXT_VARIANTS,
             MeshInputMode::Image => Self::IMAGE_VARIANTS,
+            MeshInputMode::Era3D => Self::ERA3D_VARIANTS,
         }
     }
 

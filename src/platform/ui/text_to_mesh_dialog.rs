@@ -88,6 +88,10 @@ fn build_mode_tabs(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
         imgui::TabItem::new("Image").build(ui, || {
             dialog.input_mode = MeshInputMode::Image;
         });
+
+        imgui::TabItem::new("Era3D").build(ui, || {
+            dialog.input_mode = MeshInputMode::Era3D;
+        });
     });
 }
 
@@ -104,13 +108,17 @@ fn build_input_section(
     build_model_selector(ui, dialog);
     ui.spacing();
 
-    if dialog.input_mode == MeshInputMode::Image {
+    let requires_image =
+        dialog.input_mode == MeshInputMode::Image || dialog.input_mode == MeshInputMode::Era3D;
+    if requires_image {
         build_image_picker(ui, dialog);
         ui.spacing();
     }
 
     if dialog.input_mode == MeshInputMode::TextOnly {
         ui.text("Prompt:");
+    } else if dialog.input_mode == MeshInputMode::Era3D {
+        ui.text("Prompt (optional):");
     } else {
         ui.text("Description (optional):");
     }
@@ -140,6 +148,9 @@ fn build_input_section(
         && match dialog.input_mode {
             MeshInputMode::TextOnly => !dialog.prompt_buf.trim().is_empty(),
             MeshInputMode::Image => dialog.image_bytes.is_some(),
+            MeshInputMode::Era3D => {
+                !dialog.prompt_buf.trim().is_empty() || dialog.image_bytes.is_some()
+            }
         };
 
     ui.spacing();

@@ -72,6 +72,7 @@ enum MeshInputMode {
     TEXT_TO_MESH = 0;
     IMAGE_TO_MESH = 1;
     IMAGE_REFINED_TO_MESH = 2;
+    ERA3D_TO_MESH = 3;
 }
 
 enum MeshModelType {

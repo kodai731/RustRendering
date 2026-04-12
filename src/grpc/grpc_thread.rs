@@ -296,6 +296,7 @@ async fn handle_generate_mesh(
     let proto_mode = match req.input_mode {
         super::request::MeshInputMode::TextOnly => proto::MeshInputMode::TextToMesh,
         super::request::MeshInputMode::Image => proto::MeshInputMode::ImageRefinedToMesh,
+        super::request::MeshInputMode::Era3D => proto::MeshInputMode::Era3dToMesh,
     };
 
     let proto_model_type = match req.model_type {
