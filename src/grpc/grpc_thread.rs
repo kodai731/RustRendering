@@ -296,7 +296,6 @@ async fn handle_generate_mesh(
     let proto_mode = match req.input_mode {
         super::request::MeshInputMode::TextOnly => proto::MeshInputMode::TextToMesh,
         super::request::MeshInputMode::Image => proto::MeshInputMode::ImageRefinedToMesh,
-        super::request::MeshInputMode::Era3D => proto::MeshInputMode::Era3dToMesh,
     };
 
     let proto_model_type = match req.model_type {
@@ -304,6 +303,17 @@ async fn handle_generate_mesh(
         super::request::MeshModelType::Hunyuan3D => proto::MeshModelType::Hunyuan3d,
         super::request::MeshModelType::CharacterGen => proto::MeshModelType::CharacterGen,
         super::request::MeshModelType::StdGen => proto::MeshModelType::Stdgen,
+        super::request::MeshModelType::Era3D => proto::MeshModelType::Era3d,
+    };
+
+    let proto_t2i_model_type = match req.t2i_model_type {
+        super::request::TextToImageModelType::ServerDefault => {
+            proto::TextToImageModelType::T2iServerDefault
+        }
+        super::request::TextToImageModelType::Sdxl => proto::TextToImageModelType::T2iSdxl,
+        super::request::TextToImageModelType::Animagine => {
+            proto::TextToImageModelType::T2iAnimagine
+        }
     };
 
     let proto_request = proto::MeshRequest {
@@ -317,6 +327,7 @@ async fn handle_generate_mesh(
         input_image_png: req.input_image_png.unwrap_or_default(),
         input_mode: proto_mode as i32,
         model_type: proto_model_type as i32,
+        t2i_model_type: proto_t2i_model_type as i32,
     };
 
     match c.generate_mesh(tonic::Request::new(proto_request)).await {

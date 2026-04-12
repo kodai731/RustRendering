@@ -1,5 +1,8 @@
 use crate::ecs::resource::{PendingMeshRequest, TextToMeshState, TextToMeshStatus};
-use crate::grpc::{GrpcRequest, GrpcThreadHandle, MeshInputMode, MeshModelType, TextToMeshRequest};
+use crate::grpc::{
+    GrpcRequest, GrpcThreadHandle, MeshInputMode, MeshModelType, TextToImageModelType,
+    TextToMeshRequest,
+};
 
 pub fn text_to_mesh_submit(
     state: &mut TextToMeshState,
@@ -10,6 +13,7 @@ pub fn text_to_mesh_submit(
     input_mode: MeshInputMode,
     input_image_png: Option<Vec<u8>>,
     model_type: MeshModelType,
+    t2i_model_type: TextToImageModelType,
 ) {
     state.status = TextToMeshStatus::WaitingForServer;
     state.last_prompt = prompt.clone();
@@ -28,6 +32,7 @@ pub fn text_to_mesh_submit(
         input_mode,
         input_image_png,
         model_type,
+        t2i_model_type,
     });
 
     handle.send(GrpcRequest::CheckMeshStatus);
@@ -51,6 +56,7 @@ pub fn text_to_mesh_send_generate(state: &mut TextToMeshState, handle: &GrpcThre
         input_mode: pending.input_mode.clone(),
         input_image_png: pending.input_image_png,
         model_type: pending.model_type,
+        t2i_model_type: pending.t2i_model_type,
     }));
 
     log!(

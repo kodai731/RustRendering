@@ -72,7 +72,6 @@ enum MeshInputMode {
     TEXT_TO_MESH = 0;
     IMAGE_TO_MESH = 1;
     IMAGE_REFINED_TO_MESH = 2;
-    ERA3D_TO_MESH = 3;
 }
 
 enum MeshModelType {
@@ -80,6 +79,13 @@ enum MeshModelType {
     HUNYUAN3D = 1;
     CHARACTER_GEN = 2;
     STDGEN = 3;
+    ERA3D = 4;
+}
+
+enum TextToImageModelType {
+    T2I_SERVER_DEFAULT = 0;
+    T2I_SDXL = 1;
+    T2I_ANIMAGINE = 2;
 }
 
 service MeshGenerationService {
@@ -93,6 +99,7 @@ message MeshRequest {
     bytes input_image_png = 3;
     MeshInputMode input_mode = 4;
     MeshModelType model_type = 5;
+    TextToImageModelType t2i_model_type = 6;
 }
 
 message MeshGenerationParams {

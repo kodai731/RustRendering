@@ -432,6 +432,7 @@ pub fn dispatch_text_to_mesh_events(
                 input_mode,
                 input_image_png,
                 model_type,
+                t2i_model_type,
             } => {
                 if !world.contains_resource::<GrpcThreadHandle>() {
                     ensure_mesh_server_running(world);
@@ -453,6 +454,7 @@ pub fn dispatch_text_to_mesh_events(
                         input_mode.clone(),
                         input_image_png.clone(),
                         model_type.clone(),
+                        t2i_model_type.clone(),
                     );
                 }
             }

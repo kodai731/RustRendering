@@ -9,7 +9,6 @@ pub struct TextToMotionRequest {
 pub enum MeshInputMode {
     TextOnly,
     Image,
-    Era3D,
 }
 
 #[cfg(feature = "text-to-mesh")]
@@ -19,6 +18,15 @@ pub enum MeshModelType {
     Hunyuan3D,
     CharacterGen,
     StdGen,
+    Era3D,
+}
+
+#[cfg(feature = "text-to-mesh")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum TextToImageModelType {
+    ServerDefault,
+    Sdxl,
+    Animagine,
 }
 
 #[cfg(feature = "text-to-mesh")]
@@ -28,6 +36,7 @@ impl MeshModelType {
         MeshModelType::Hunyuan3D,
         MeshModelType::CharacterGen,
         MeshModelType::StdGen,
+        MeshModelType::Era3D,
     ];
 
     pub const TEXT_VARIANTS: &[MeshModelType] = &[
@@ -35,20 +44,13 @@ impl MeshModelType {
         MeshModelType::Hunyuan3D,
         MeshModelType::CharacterGen,
         MeshModelType::StdGen,
-    ];
-
-    pub const ERA3D_VARIANTS: &[MeshModelType] = &[
-        MeshModelType::Trellis,
-        MeshModelType::Hunyuan3D,
-        MeshModelType::CharacterGen,
-        MeshModelType::StdGen,
+        MeshModelType::Era3D,
     ];
 
     pub fn variants_for_mode(mode: &MeshInputMode) -> &'static [MeshModelType] {
         match mode {
             MeshInputMode::TextOnly => Self::TEXT_VARIANTS,
             MeshInputMode::Image => Self::IMAGE_VARIANTS,
-            MeshInputMode::Era3D => Self::ERA3D_VARIANTS,
         }
     }
 
@@ -58,6 +60,24 @@ impl MeshModelType {
             MeshModelType::Hunyuan3D => "Hunyuan3D",
             MeshModelType::CharacterGen => "CharacterGen",
             MeshModelType::StdGen => "StdGen",
+            MeshModelType::Era3D => "Era3D",
+        }
+    }
+}
+
+#[cfg(feature = "text-to-mesh")]
+impl TextToImageModelType {
+    pub const ALL_VARIANTS: &[TextToImageModelType] = &[
+        TextToImageModelType::ServerDefault,
+        TextToImageModelType::Sdxl,
+        TextToImageModelType::Animagine,
+    ];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            TextToImageModelType::ServerDefault => "Server Default",
+            TextToImageModelType::Sdxl => "SDXL",
+            TextToImageModelType::Animagine => "Animagine",
         }
     }
 }
@@ -70,6 +90,7 @@ pub struct TextToMeshRequest {
     pub input_mode: MeshInputMode,
     pub input_image_png: Option<Vec<u8>>,
     pub model_type: MeshModelType,
+    pub t2i_model_type: TextToImageModelType,
 }
 
 pub enum GrpcRequest {

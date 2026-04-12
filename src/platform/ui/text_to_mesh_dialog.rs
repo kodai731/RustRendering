@@ -1,7 +1,7 @@
 use crate::ecs::events::UIEventQueue;
 use crate::ecs::resource::{TextToMeshState, TextToMeshStatus};
 use crate::ecs::World;
-use crate::grpc::{MeshInputMode, MeshModelType};
+use crate::grpc::{MeshInputMode, MeshModelType, TextToImageModelType};
 
 pub struct TextToMeshDialogState {
     pub open: bool,
@@ -11,6 +11,7 @@ pub struct TextToMeshDialogState {
     pub generate_start_time: Option<std::time::Instant>,
     pub input_mode: MeshInputMode,
     pub model_type: MeshModelType,
+    pub t2i_model_type: TextToImageModelType,
     pub image_path: String,
     pub image_bytes: Option<Vec<u8>>,
     pub image_load_error: Option<String>,
@@ -26,6 +27,7 @@ impl Default for TextToMeshDialogState {
             generate_start_time: None,
             input_mode: MeshInputMode::TextOnly,
             model_type: MeshModelType::Trellis,
+            t2i_model_type: TextToImageModelType::ServerDefault,
             image_path: String::new(),
             image_bytes: None,
             image_load_error: None,
@@ -88,10 +90,6 @@ fn build_mode_tabs(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
         imgui::TabItem::new("Image").build(ui, || {
             dialog.input_mode = MeshInputMode::Image;
         });
-
-        imgui::TabItem::new("Era3D").build(ui, || {
-            dialog.input_mode = MeshInputMode::Era3D;
-        });
     });
 }
 
@@ -106,19 +104,19 @@ fn build_input_section(
         *status == TextToMeshStatus::Generating || *status == TextToMeshStatus::WaitingForServer;
 
     build_model_selector(ui, dialog);
+
+    if dialog.input_mode == MeshInputMode::TextOnly {
+        build_t2i_model_selector(ui, dialog);
+    }
     ui.spacing();
 
-    let requires_image =
-        dialog.input_mode == MeshInputMode::Image || dialog.input_mode == MeshInputMode::Era3D;
-    if requires_image {
+    if dialog.input_mode == MeshInputMode::Image {
         build_image_picker(ui, dialog);
         ui.spacing();
     }
 
     if dialog.input_mode == MeshInputMode::TextOnly {
         ui.text("Prompt:");
-    } else if dialog.input_mode == MeshInputMode::Era3D {
-        ui.text("Prompt (optional):");
     } else {
         ui.text("Description (optional):");
     }
@@ -148,9 +146,6 @@ fn build_input_section(
         && match dialog.input_mode {
             MeshInputMode::TextOnly => !dialog.prompt_buf.trim().is_empty(),
             MeshInputMode::Image => dialog.image_bytes.is_some(),
-            MeshInputMode::Era3D => {
-                !dialog.prompt_buf.trim().is_empty() || dialog.image_bytes.is_some()
-            }
         };
 
     ui.spacing();
@@ -169,6 +164,7 @@ fn build_input_section(
                 input_mode: dialog.input_mode.clone(),
                 input_image_png: dialog.image_bytes.clone(),
                 model_type: dialog.model_type.clone(),
+                t2i_model_type: dialog.t2i_model_type.clone(),
             });
             dialog.generate_start_time = Some(std::time::Instant::now());
         }
@@ -201,6 +197,26 @@ fn build_model_selector(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
                 .build()
             {
                 dialog.model_type = variant.clone();
+            }
+        }
+    }
+}
+
+fn build_t2i_model_selector(ui: &imgui::Ui, dialog: &mut TextToMeshDialogState) {
+    ui.text("T2I Model:");
+    ui.same_line();
+    ui.set_next_item_width(160.0);
+
+    let current_label = dialog.t2i_model_type.display_name();
+    if let Some(_combo) = ui.begin_combo("##t2i_model_type", current_label) {
+        for variant in TextToImageModelType::ALL_VARIANTS {
+            let is_selected = dialog.t2i_model_type == *variant;
+            if ui
+                .selectable_config(variant.display_name())
+                .selected(is_selected)
+                .build()
+            {
+                dialog.t2i_model_type = variant.clone();
             }
         }
     }

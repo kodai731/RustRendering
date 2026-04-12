@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use crate::grpc::{MeshInputMode, MeshModelType};
+use crate::grpc::{MeshInputMode, MeshModelType, TextToImageModelType};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TextToMeshStatus {
@@ -18,6 +18,7 @@ pub struct PendingMeshRequest {
     pub input_mode: MeshInputMode,
     pub input_image_png: Option<Vec<u8>>,
     pub model_type: MeshModelType,
+    pub t2i_model_type: TextToImageModelType,
 }
 
 pub struct TextToMeshState {
