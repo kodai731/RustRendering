@@ -7,6 +7,8 @@ mod mouse_input;
 mod viewport_input;
 
 mod auto_exposure;
+#[cfg(feature = "auto-rig")]
+mod auto_rig_state;
 mod bloom;
 #[cfg(feature = "ml")]
 mod bone_name_token_cache;
@@ -49,7 +51,7 @@ mod projection_data;
 mod scene_state;
 mod spring_bone_editor_state;
 mod spring_bone_state;
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 mod text_to_mesh_state;
 #[cfg(feature = "text-to-motion")]
 mod text_to_motion_state;
@@ -68,6 +70,8 @@ pub use mouse_input::*;
 pub use viewport_input::*;
 
 pub use auto_exposure::*;
+#[cfg(feature = "auto-rig")]
+pub use auto_rig_state::*;
 pub use bloom::*;
 #[cfg(feature = "ml")]
 pub use bone_name_token_cache::*;
@@ -110,7 +114,7 @@ pub use projection_data::*;
 pub use scene_state::*;
 pub use spring_bone_editor_state::*;
 pub use spring_bone_state::*;
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 pub use text_to_mesh_state::*;
 #[cfg(feature = "text-to-motion")]
 pub use text_to_motion_state::*;

@@ -5,6 +5,7 @@ mod constraint_set;
 mod core;
 mod editor;
 mod gizmo;
+mod glb_source;
 #[cfg(feature = "ml")]
 mod inference_actor;
 mod marker;
@@ -19,6 +20,7 @@ pub use constraint_set::*;
 pub use core::*;
 pub use editor::*;
 pub use gizmo::*;
+pub use glb_source::*;
 #[cfg(feature = "ml")]
 pub use inference_actor::*;
 pub use marker::*;

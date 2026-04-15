@@ -33,8 +33,10 @@ pub fn run_event_dispatch_phase(
     #[cfg(feature = "text-to-motion")]
     super::dispatch_ml::drain_grpc_responses(world, assets);
 
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     super::dispatch_ml::poll_mesh_server_status(world);
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::poll_rigging_server_status(world);
 
     let events: Vec<UIEvent> = {
         if let Some(mut ui_events) = world.get_resource_mut::<UIEventQueue>() {
@@ -71,8 +73,10 @@ pub fn run_event_dispatch_phase(
     let mut deferred = dispatch_camera_light_debug_events(&events, world, model_bounds);
     deferred.extend(hierarchy_deferred);
 
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     super::dispatch_ml::dispatch_text_to_mesh_events(&events, world, &mut deferred);
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::dispatch_auto_rig_events(&events, world, &mut deferred);
 
     let platform_events = filter_platform_events(&events);
 

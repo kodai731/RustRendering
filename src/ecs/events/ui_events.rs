@@ -346,7 +346,7 @@ pub enum UIEvent {
     #[cfg(feature = "text-to-motion")]
     TextToMotionCancel,
 
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     TextToMeshGenerate {
         prompt: String,
         target_faces: u32,
@@ -356,10 +356,19 @@ pub enum UIEvent {
         model_type: crate::grpc::MeshModelType,
         t2i_model_type: crate::grpc::TextToImageModelType,
     },
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     TextToMeshApply,
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     TextToMeshCancel,
+
+    #[cfg(feature = "auto-rig")]
+    AutoRigGenerate {
+        num_sample_points: u32,
+    },
+    #[cfg(feature = "auto-rig")]
+    AutoRigApply,
+    #[cfg(feature = "auto-rig")]
+    AutoRigDiscard,
 
     ExportModelGltf,
 

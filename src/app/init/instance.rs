@@ -338,9 +338,13 @@ impl App {
         data.ecs_world
             .insert_resource(crate::ecs::resource::GrpcServerProcess::default());
 
-        #[cfg(feature = "text-to-mesh")]
+        #[cfg(feature = "auto-rig")]
         data.ecs_world
             .insert_resource(crate::ecs::resource::TextToMeshState::default());
+
+        #[cfg(feature = "auto-rig")]
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::AutoRigState::default());
 
         let viewport_width = rrswapchain.swapchain_extent.width;
         let viewport_height = rrswapchain.swapchain_extent.height;

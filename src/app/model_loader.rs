@@ -54,7 +54,7 @@ pub unsafe fn load_model_from_file_system(
 
     let (load_result, fbx_model) = load_model_data(path)?;
 
-    apply_model_to_resources(
+    let _parent_entity = apply_model_to_resources(
         &load_result,
         path,
         instance,
@@ -73,7 +73,7 @@ pub unsafe fn load_model_from_file_system(
     Ok(())
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 pub unsafe fn load_model_from_file_system_with_result(
     load_result: &ModelLoadResult,
     model_name: &str,
@@ -87,8 +87,8 @@ pub unsafe fn load_model_from_file_system_with_result(
     assets: &mut AssetStorage,
     scene_will_provide_clips: bool,
     fbx_model: Option<FbxModel>,
-) -> Result<()> {
-    apply_model_to_resources(
+) -> Result<crate::ecs::world::Entity> {
+    let parent_entity = apply_model_to_resources(
         load_result,
         model_name,
         instance,
@@ -104,7 +104,7 @@ pub unsafe fn load_model_from_file_system_with_result(
     )?;
 
     log!("=== Model loaded successfully ===");
-    Ok(())
+    Ok(parent_entity)
 }
 
 unsafe fn load_model_data(path: &str) -> Result<(ModelLoadResult, Option<FbxModel>)> {
@@ -136,7 +136,7 @@ unsafe fn apply_model_to_resources(
     assets: &mut AssetStorage,
     scene_will_provide_clips: bool,
     fbx_model: Option<FbxModel>,
-) -> Result<()> {
+) -> Result<crate::ecs::world::Entity> {
     cleanup_resources(device, graphics, raytracing, world, assets)?;
     insert_model_caches(world, model_name, fbx_model);
     ensure_graphics_capacity(load_result, instance, device, swapchain, graphics)?;
@@ -188,7 +188,7 @@ unsafe fn apply_model_to_resources(
     let node_animation_scale = load_result.node_animation_scale;
     log_model_load_info(load_result, animation_type.clone(), node_animation_scale);
 
-    create_ecs_entities(
+    let parent_entity = create_ecs_entities(
         model_name,
         graphics,
         world,
@@ -198,6 +198,15 @@ unsafe fn apply_model_to_resources(
         &load_result.clips.clone(),
         scene_will_provide_clips,
     );
+
+    let path_lower = model_name.to_lowercase();
+    if path_lower.ends_with(".gltf") || path_lower.ends_with(".glb") || path_lower.ends_with(".fbx")
+    {
+        world.insert_component(
+            parent_entity,
+            crate::ecs::component::GlbSource::FilePath(model_name.to_string()),
+        );
+    }
 
     apply_loaded_constraints(load_result, world);
     apply_loaded_spring_bones(load_result, world);
@@ -210,7 +219,7 @@ unsafe fn apply_model_to_resources(
     );
     initialize_constraint_gizmo_visibility(world);
 
-    Ok(())
+    Ok(parent_entity)
 }
 
 fn insert_model_caches(world: &mut World, model_name: &str, fbx_model: Option<FbxModel>) {
@@ -838,7 +847,7 @@ fn create_ecs_entities(
     node_animation_scale: f32,
     loaded_clips: &[crate::animation::AnimationClip],
     scene_will_provide_clips: bool,
-) {
+) -> crate::ecs::world::Entity {
     let name = std::path::Path::new(model_name)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -895,6 +904,8 @@ fn create_ecs_entities(
         assets.animation_clips.len(),
         assets.nodes.len()
     );
+
+    parent_entity
 }
 
 fn ensure_ecs_resources(world: &mut World) {
@@ -1261,7 +1272,7 @@ pub unsafe fn load_model_additive(
         .unwrap_or("part")
         .to_string();
 
-    append_model_to_scene(
+    let parent_entity = append_model_to_scene(
         &load_result,
         &part_name,
         instance,
@@ -1272,7 +1283,14 @@ pub unsafe fn load_model_additive(
         raytracing,
         world,
         assets,
-    )
+    )?;
+
+    world.insert_component(
+        parent_entity,
+        crate::ecs::component::GlbSource::FilePath(path.to_string()),
+    );
+
+    Ok(())
 }
 
 unsafe fn append_model_to_scene(
@@ -1286,7 +1304,7 @@ unsafe fn append_model_to_scene(
     raytracing: &mut RayTracingData,
     world: &mut World,
     assets: &mut AssetStorage,
-) -> Result<()> {
+) -> Result<crate::ecs::world::Entity> {
     ensure_graphics_capacity(load_result, instance, device, swapchain, graphics)?;
 
     let mesh_index_offset = graphics.meshes.len();
@@ -1355,7 +1373,7 @@ unsafe fn append_model_to_scene(
         world.entity_count()
     );
 
-    Ok(())
+    Ok(parent_entity)
 }
 
 fn build_mesh_entities_range(

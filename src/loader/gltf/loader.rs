@@ -224,7 +224,7 @@ pub unsafe fn load_gltf_file(path: &str) -> Result<GltfLoadResult> {
     Ok(build_result(ctx))
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 pub unsafe fn load_gltf_from_slice(data: &[u8]) -> Result<GltfLoadResult> {
     log!("Loading glTF from memory ({} bytes)", data.len());
     let (gltf, buffers, images) = gltf::import_slice(data)?;
@@ -401,38 +401,22 @@ fn determine_skeleton_root_transform(
     skin: &gltf::Skin,
     parent_map: &HashMap<usize, usize>,
 ) -> Option<[[f32; 4]; 4]> {
-    if let Some(skeleton_node) = skin.skeleton() {
-        let global_transform =
-            compute_node_global_transform(gltf, skeleton_node.index(), parent_map);
-        log!(
-            "Skeleton root transform from skin.skeleton: node {} ({:?})",
-            skeleton_node.index(),
-            skeleton_node.name()
-        );
-        return Some(array_from_mat4(global_transform));
-    }
-
     let joint_indices: std::collections::HashSet<usize> =
         skin.joints().map(|j| j.index()).collect();
-    let mut root_joint_node: Option<gltf::Node> = None;
 
-    for joint in skin.joints() {
-        let has_parent_joint = parent_map
+    let root_joint_node = skin.joints().find(|joint| {
+        parent_map
             .get(&joint.index())
-            .map(|parent_idx| joint_indices.contains(parent_idx))
-            .unwrap_or(false);
-
-        if !has_parent_joint {
-            root_joint_node = Some(joint);
-            break;
-        }
-    }
+            .map(|parent_idx| !joint_indices.contains(parent_idx))
+            .unwrap_or(true)
+    });
 
     if let Some(root_joint) = root_joint_node {
         if let Some(&parent_index) = parent_map.get(&root_joint.index()) {
             let parent_global = compute_node_global_transform(gltf, parent_index, parent_map);
             log!(
-                "Skeleton root transform from root joint's parent: node {}",
+                "Skeleton root transform from root joint's parent: joint node {} -> parent node {}",
+                root_joint.index(),
                 parent_index
             );
             return Some(array_from_mat4(parent_global));
@@ -1348,7 +1332,7 @@ fn build_meshes_and_morph(
     for mesh in source_meshes {
         let mut vertex_data = mesh.vertex_data;
 
-        if scale != 1.0 {
+        if scale != 1.0 && !mesh.has_joints {
             for v in &mut vertex_data.vertices {
                 v.pos.x *= scale;
                 v.pos.y *= scale;

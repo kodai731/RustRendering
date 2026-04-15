@@ -188,7 +188,7 @@ pub fn drain_grpc_responses(
                 apply_motion_response(world, assets, curves, generation_time_ms, model_used);
             }
 
-            #[cfg(feature = "text-to-mesh")]
+            #[cfg(feature = "auto-rig")]
             GrpcResponse::MeshGenerated {
                 glb_data,
                 vertex_count,
@@ -218,9 +218,31 @@ pub fn drain_grpc_responses(
                 }
             }
 
-            #[cfg(feature = "text-to-mesh")]
+            #[cfg(feature = "auto-rig")]
             GrpcResponse::MeshServerStatus { ready } => {
                 handle_mesh_server_status(world, ready);
+            }
+
+            #[cfg(feature = "auto-rig")]
+            GrpcResponse::RigGenerated {
+                rigged_glb_data,
+                joint_count,
+                bone_count,
+                generation_time_ms,
+                ..
+            } => {
+                apply_rig_response(
+                    world,
+                    rigged_glb_data,
+                    joint_count,
+                    bone_count,
+                    generation_time_ms,
+                );
+            }
+
+            #[cfg(feature = "auto-rig")]
+            GrpcResponse::RiggingServerStatus { ready, .. } => {
+                handle_rigging_server_status(world, ready);
             }
 
             GrpcResponse::Error { message } => {
@@ -271,7 +293,7 @@ fn apply_motion_response(
     state.model_used = Some(model_used);
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 fn apply_mesh_response(
     world: &mut crate::ecs::world::World,
     glb_data: Vec<u8>,
@@ -318,7 +340,7 @@ fn apply_mesh_response(
     state.intermediate_image_png = intermediate_image_png;
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 fn handle_mesh_server_status(world: &mut crate::ecs::world::World, ready: bool) {
     use crate::ecs::resource::{TextToMeshState, TextToMeshStatus};
     use crate::grpc::GrpcThreadHandle;
@@ -342,7 +364,7 @@ fn handle_mesh_server_status(world: &mut crate::ecs::world::World, ready: bool) 
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 pub fn poll_mesh_server_status(world: &mut crate::ecs::world::World) {
     use crate::ecs::resource::{TextToMeshState, TextToMeshStatus};
     use crate::grpc::{GrpcRequest, GrpcThreadHandle};
@@ -382,7 +404,7 @@ fn route_grpc_error(world: &mut crate::ecs::world::World, message: &str) {
         }
     }
 
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     {
         use crate::ecs::resource::{TextToMeshState, TextToMeshStatus};
         if let Some(mut state) = world.get_resource_mut::<TextToMeshState>() {
@@ -393,6 +415,22 @@ fn route_grpc_error(world: &mut crate::ecs::world::World, message: &str) {
                 state.status = TextToMeshStatus::Error;
                 state.error_message = Some(message.to_string());
                 state.pending_request = None;
+                return;
+            }
+        }
+    }
+
+    #[cfg(feature = "auto-rig")]
+    {
+        use crate::ecs::resource::{AutoRigState, AutoRigStatus};
+        if let Some(mut state) = world.get_resource_mut::<AutoRigState>() {
+            if state.status == AutoRigStatus::Rigging
+                || state.status == AutoRigStatus::WaitingForServer
+            {
+                log_error!("AutoRig: error - {}", message);
+                state.status = AutoRigStatus::Error;
+                state.error_message = Some(message.to_string());
+                state.source_glb_data = None;
                 return;
             }
         }
@@ -410,7 +448,7 @@ fn truncate_prompt(prompt: &str, max_len: usize) -> String {
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 pub fn dispatch_text_to_mesh_events(
     events: &[crate::ecs::events::UIEvent],
     world: &mut crate::ecs::world::World,
@@ -483,7 +521,215 @@ pub fn dispatch_text_to_mesh_events(
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
+fn apply_rig_response(
+    world: &mut crate::ecs::world::World,
+    rigged_glb_data: Vec<u8>,
+    joint_count: u32,
+    bone_count: u32,
+    generation_time_ms: f32,
+) {
+    use crate::ecs::resource::{AutoRigState, AutoRigStatus};
+
+    let mut state = world.resource_mut::<AutoRigState>();
+    if state.status != AutoRigStatus::Rigging {
+        return;
+    }
+
+    log!(
+        "AutoRig: received rigged GLB ({} bytes, {} joints, {} bones) in {:.0}ms",
+        rigged_glb_data.len(),
+        joint_count,
+        bone_count,
+        generation_time_ms
+    );
+
+    state.joint_count = Some(joint_count);
+    state.bone_count = Some(bone_count);
+    state.generation_time_ms = Some(generation_time_ms);
+    state.rigged_glb_data = Some(rigged_glb_data);
+    state.status = AutoRigStatus::Previewing;
+}
+
+#[cfg(feature = "auto-rig")]
+fn handle_rigging_server_status(world: &mut crate::ecs::world::World, ready: bool) {
+    use crate::ecs::resource::{AutoRigState, AutoRigStatus};
+    use crate::grpc::GrpcThreadHandle;
+
+    let mut state = world.resource_mut::<AutoRigState>();
+    if state.status != AutoRigStatus::WaitingForServer {
+        return;
+    }
+
+    if ready {
+        log!("AutoRig: server ready, submitting rig request");
+        drop(state);
+
+        let handle = world.get_resource::<GrpcThreadHandle>();
+        let mut state = world.resource_mut::<AutoRigState>();
+        if let Some(handle) = handle {
+            crate::ecs::systems::auto_rig_send_generate(&mut state, &*handle);
+        }
+    } else {
+        state.last_status_check = Some(std::time::Instant::now());
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+pub fn poll_rigging_server_status(world: &mut crate::ecs::world::World) {
+    use crate::ecs::resource::{AutoRigState, AutoRigStatus};
+    use crate::grpc::{GrpcRequest, GrpcThreadHandle};
+
+    const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_secs(2);
+
+    let state = world.resource::<AutoRigState>();
+    if state.status != AutoRigStatus::WaitingForServer {
+        return;
+    }
+
+    let should_poll = match state.last_status_check {
+        Some(last) => last.elapsed() >= POLL_INTERVAL,
+        None => false,
+    };
+    drop(state);
+
+    if !should_poll {
+        return;
+    }
+
+    if let Some(handle) = world.get_resource::<GrpcThreadHandle>() {
+        handle.send(GrpcRequest::CheckRiggingStatus);
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+pub fn dispatch_auto_rig_events(
+    events: &[crate::ecs::events::UIEvent],
+    world: &mut crate::ecs::world::World,
+    deferred: &mut Vec<super::super::ui_event_systems::DeferredAction>,
+) {
+    use crate::ecs::component::GlbSource;
+    use crate::ecs::events::UIEvent;
+    use crate::ecs::resource::{AutoRigState, AutoRigStatus, HierarchyState};
+    use crate::ecs::systems::{auto_rig_cancel, auto_rig_submit};
+    use crate::ecs::world::Parent;
+    use crate::grpc::GrpcThreadHandle;
+
+    const DEFAULT_ENDPOINT: &str = "http://localhost:50051";
+
+    for event in events {
+        match event {
+            UIEvent::AutoRigGenerate { .. } => {
+                let hierarchy = world.resource::<HierarchyState>();
+                let selected = hierarchy.selected_entity;
+                drop(hierarchy);
+
+                let selected_entity = match selected {
+                    Some(e) => e,
+                    None => continue,
+                };
+
+                let parent_entity = resolve_parent_with_glb_source(world, selected_entity);
+                let parent_entity = match parent_entity {
+                    Some(e) => e,
+                    None => {
+                        log_warn!("AutoRig: selected entity has no GlbSource");
+                        continue;
+                    }
+                };
+
+                let glb_source = world.get_component::<GlbSource>(parent_entity);
+                let glb_data = match glb_source {
+                    Some(source) => match source.read_bytes() {
+                        Ok(data) => data,
+                        Err(e) => {
+                            log_error!("AutoRig: failed to read GLB: {}", e);
+                            continue;
+                        }
+                    },
+                    None => continue,
+                };
+
+                if !world.contains_resource::<GrpcThreadHandle>() {
+                    ensure_mesh_server_running(world);
+                    let handle = GrpcThreadHandle::spawn(DEFAULT_ENDPOINT);
+                    world.insert_resource(handle);
+                    log!("AutoRig: spawned gRPC thread ({})", DEFAULT_ENDPOINT);
+                }
+
+                let handle = world.get_resource::<GrpcThreadHandle>();
+                let mut state = world.resource_mut::<AutoRigState>();
+
+                if let Some(handle) = handle {
+                    state.original_glb_backup = Some(glb_data.clone());
+                    auto_rig_submit(&mut state, &*handle, glb_data, parent_entity);
+                }
+            }
+
+            UIEvent::AutoRigApply => {
+                let mut state = world.resource_mut::<AutoRigState>();
+                if state.status != AutoRigStatus::Previewing {
+                    continue;
+                }
+
+                if let Some(rigged_glb) = state.rigged_glb_data.take() {
+                    state.status = AutoRigStatus::Idle;
+                    state.original_glb_backup = None;
+                    state.target_entity = None;
+                    deferred.push(
+                        super::super::ui_event_systems::DeferredAction::LoadModelFromMemory {
+                            glb_data: rigged_glb,
+                        },
+                    );
+                    log!("AutoRig: applying rigged model to scene");
+                }
+            }
+
+            UIEvent::AutoRigDiscard => {
+                let mut state = world.resource_mut::<AutoRigState>();
+                if state.status == AutoRigStatus::Previewing {
+                    if let Some(original_glb) = state.original_glb_backup.take() {
+                        auto_rig_cancel(&mut state);
+                        deferred.push(
+                            super::super::ui_event_systems::DeferredAction::LoadModelFromMemory {
+                                glb_data: original_glb,
+                            },
+                        );
+                        log!("AutoRig: discarding, reverting to original model");
+                        continue;
+                    }
+                }
+                auto_rig_cancel(&mut state);
+                log!("AutoRig: cancelled");
+            }
+
+            _ => {}
+        }
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+fn resolve_parent_with_glb_source(
+    world: &crate::ecs::world::World,
+    entity: crate::ecs::world::Entity,
+) -> Option<crate::ecs::world::Entity> {
+    use crate::ecs::component::GlbSource;
+    use crate::ecs::world::Parent;
+
+    if world.get_component::<GlbSource>(entity).is_some() {
+        return Some(entity);
+    }
+
+    if let Some(Parent(parent)) = world.get_component::<Parent>(entity) {
+        if world.get_component::<GlbSource>(*parent).is_some() {
+            return Some(*parent);
+        }
+    }
+
+    None
+}
+
+#[cfg(feature = "auto-rig")]
 fn ensure_mesh_server_running(world: &mut crate::ecs::world::World) {
     use crate::grpc::MeshServerProcess;
 

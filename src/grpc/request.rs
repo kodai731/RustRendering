@@ -4,14 +4,14 @@ pub struct TextToMotionRequest {
     pub target_fps: i32,
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MeshInputMode {
     TextOnly,
     Image,
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MeshModelType {
     Trellis,
@@ -21,7 +21,7 @@ pub enum MeshModelType {
     Era3D,
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum TextToImageModelType {
     ServerDefault,
@@ -29,7 +29,7 @@ pub enum TextToImageModelType {
     Animagine,
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 impl MeshModelType {
     pub const IMAGE_VARIANTS: &[MeshModelType] = &[
         MeshModelType::Trellis,
@@ -65,7 +65,7 @@ impl MeshModelType {
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 impl TextToImageModelType {
     pub const ALL_VARIANTS: &[TextToImageModelType] = &[
         TextToImageModelType::ServerDefault,
@@ -82,7 +82,7 @@ impl TextToImageModelType {
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 pub struct TextToMeshRequest {
     pub prompt: String,
     pub target_faces: u32,
@@ -93,13 +93,31 @@ pub struct TextToMeshRequest {
     pub t2i_model_type: TextToImageModelType,
 }
 
+#[cfg(feature = "auto-rig")]
+pub struct RiggingRequest {
+    pub glb_data: Vec<u8>,
+    pub num_sample_points: u32,
+}
+
+#[cfg(feature = "auto-rig")]
+pub struct SkeletonJointInfo {
+    pub name: String,
+    pub position: [f32; 3],
+    pub tail: [f32; 3],
+    pub parent_index: i32,
+}
+
 pub enum GrpcRequest {
     GenerateMotion(TextToMotionRequest),
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     GenerateMesh(TextToMeshRequest),
+    #[cfg(feature = "auto-rig")]
+    GenerateRig(RiggingRequest),
     CheckStatus,
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     CheckMeshStatus,
+    #[cfg(feature = "auto-rig")]
+    CheckRiggingStatus,
     Shutdown,
 }
 
@@ -109,7 +127,7 @@ pub enum GrpcResponse {
         generation_time_ms: f32,
         model_used: String,
     },
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     MeshGenerated {
         glb_data: Vec<u8>,
         vertex_count: u32,
@@ -122,9 +140,23 @@ pub enum GrpcResponse {
         active_model: String,
         gpu_memory_mb: i32,
     },
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     MeshServerStatus {
         ready: bool,
+    },
+    #[cfg(feature = "auto-rig")]
+    RigGenerated {
+        rigged_glb_data: Vec<u8>,
+        joint_count: u32,
+        bone_count: u32,
+        generation_time_ms: f32,
+        skeleton_joints: Vec<SkeletonJointInfo>,
+    },
+    #[cfg(feature = "auto-rig")]
+    RiggingServerStatus {
+        ready: bool,
+        model_name: String,
+        gpu_memory_mb: i32,
     },
     Error {
         message: String,
