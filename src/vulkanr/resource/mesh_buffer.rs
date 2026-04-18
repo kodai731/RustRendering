@@ -1,3 +1,4 @@
+use cgmath::Vector4;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::animation::{SkeletonId, SkinData};
@@ -21,6 +22,7 @@ pub struct MeshBuffer {
     pub skeleton_id: Option<SkeletonId>,
     pub node_index: Option<usize>,
     pub base_vertices: Vec<Vertex>,
+    pub base_colors: Option<Vec<Vector4<f32>>>,
 }
 
 impl Default for MeshBuffer {
@@ -40,6 +42,7 @@ impl Default for MeshBuffer {
             skeleton_id: None,
             node_index: None,
             base_vertices: Vec::new(),
+            base_colors: None,
         }
     }
 }

@@ -129,3 +129,53 @@ message MeshStatusResponse {
     string i2m_model = 3;
     int32 gpu_memory_mb = 4;
 }
+
+enum RiggingModelType {
+    RIGGING_UNIRIG = 0;
+}
+
+service AutoRiggingService {
+    rpc GenerateRig (RiggingRequest) returns (RiggingResponse);
+    rpc GetRiggingStatus (RiggingStatusRequest) returns (RiggingStatusResponse);
+}
+
+message RiggingRequest {
+    bytes glb_data = 1;
+    RiggingParams params = 2;
+    RiggingModelType model_type = 3;
+}
+
+message RiggingParams {
+    int32 num_sample_points = 1;
+}
+
+message SkeletonJoint {
+    string name = 1;
+    float x = 2;
+    float y = 3;
+    float z = 4;
+    float tail_x = 5;
+    float tail_y = 6;
+    float tail_z = 7;
+    int32 parent_index = 8;
+}
+
+message RiggingResponse {
+    bytes rigged_glb_data = 1;
+    RiggingMetadata metadata = 2;
+    repeated SkeletonJoint skeleton_joints = 3;
+}
+
+message RiggingMetadata {
+    int32 joint_count = 1;
+    int32 bone_count = 2;
+    float generation_time_ms = 3;
+}
+
+message RiggingStatusRequest {}
+
+message RiggingStatusResponse {
+    bool ready = 1;
+    string model_name = 2;
+    int32 gpu_memory_mb = 3;
+}

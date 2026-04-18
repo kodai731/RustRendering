@@ -250,7 +250,7 @@ impl App {
         Ok(())
     }
 
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     pub unsafe fn load_model_from_glb(&mut self, glb_data: &[u8]) -> Result<()> {
         log!("Loading generated mesh from GLB ({} bytes)", glb_data.len());
         self.rrdevice.device.device_wait_idle()?;
@@ -274,7 +274,7 @@ impl App {
             false,
             None,
         ) {
-            Ok(_) => {
+            Ok(parent_entity) => {
                 {
                     let mut model_state = self
                         .data
@@ -300,6 +300,10 @@ impl App {
                         crate::ecs::resource::GltfModelCache::from_glb_data(glb_data.to_vec());
                     self.data.ecs_world.insert_resource(cache);
                 }
+                self.data.ecs_world.insert_component(
+                    parent_entity,
+                    crate::ecs::component::GlbSource::InMemory(glb_data.to_vec()),
+                );
 
                 msg_info!("Generated mesh loaded successfully");
             }

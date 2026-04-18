@@ -1,5 +1,7 @@
 pub mod animation;
 pub mod animation_debug_dump;
+#[cfg(feature = "auto-rig")]
+mod auto_rig_systems;
 mod billboard_systems;
 mod bone_gizmo_systems;
 mod bone_pose_override_systems;
@@ -44,15 +46,18 @@ pub mod spring_bone_bake_systems;
 pub mod spring_bone_edit_systems;
 mod spring_bone_gizmo_systems;
 mod spring_bone_systems;
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 mod text_to_mesh_systems;
 #[cfg(feature = "text-to-motion")]
 mod text_to_motion_systems;
 mod timeline_systems;
 pub mod transform_gizmo_systems;
 mod ui_event_systems;
+mod weight_heatmap_systems;
 
 pub use animation::*;
+#[cfg(feature = "auto-rig")]
+pub use auto_rig_systems::*;
 pub use billboard_systems::*;
 pub use bone_gizmo_systems::*;
 pub use bone_pose_override_systems::*;
@@ -89,10 +94,11 @@ pub use render_data_systems::*;
 pub use skeleton_pose_systems::*;
 pub use spring_bone_gizmo_systems::*;
 pub use spring_bone_systems::*;
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 pub use text_to_mesh_systems::*;
 #[cfg(feature = "text-to-motion")]
 pub use text_to_motion_systems::*;
 pub use timeline_systems::*;
 pub use transform_gizmo_systems::*;
 pub use ui_event_systems::*;
+pub use weight_heatmap_systems::*;

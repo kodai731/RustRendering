@@ -70,8 +70,10 @@ async fn run_grpc_loop(
     res_tx: mpsc::Sender<GrpcResponse>,
 ) {
     let mut motion_client: Option<MotionGrpcClient> = None;
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     let mut mesh_client: Option<MeshGrpcClient> = None;
+    #[cfg(feature = "auto-rig")]
+    let mut rigging_client: Option<RiggingGrpcClient> = None;
 
     while let Ok(request) = req_rx.recv() {
         match request {
@@ -85,14 +87,24 @@ async fn run_grpc_loop(
                 handle_generate_motion(endpoint, &mut motion_client, &res_tx, req).await;
             }
 
-            #[cfg(feature = "text-to-mesh")]
+            #[cfg(feature = "auto-rig")]
             GrpcRequest::CheckMeshStatus => {
                 handle_check_mesh_status(endpoint, &mut mesh_client, &res_tx).await;
             }
 
-            #[cfg(feature = "text-to-mesh")]
+            #[cfg(feature = "auto-rig")]
             GrpcRequest::GenerateMesh(req) => {
                 handle_generate_mesh(endpoint, &mut mesh_client, &res_tx, req).await;
+            }
+
+            #[cfg(feature = "auto-rig")]
+            GrpcRequest::CheckRiggingStatus => {
+                handle_check_rigging_status(endpoint, &mut rigging_client, &res_tx).await;
+            }
+
+            #[cfg(feature = "auto-rig")]
+            GrpcRequest::GenerateRig(req) => {
+                handle_generate_rig(endpoint, &mut rigging_client, &res_tx, req).await;
             }
         }
     }
@@ -101,9 +113,13 @@ async fn run_grpc_loop(
 type MotionGrpcClient =
     proto::text_to_motion_service_client::TextToMotionServiceClient<tonic::transport::Channel>;
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 type MeshGrpcClient =
     proto::mesh_generation_service_client::MeshGenerationServiceClient<tonic::transport::Channel>;
+
+#[cfg(feature = "auto-rig")]
+type RiggingGrpcClient =
+    proto::auto_rigging_service_client::AutoRiggingServiceClient<tonic::transport::Channel>;
 
 async fn ensure_connected(
     endpoint: &str,
@@ -138,7 +154,7 @@ async fn ensure_connected(
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 async fn ensure_mesh_connected(
     endpoint: &str,
     client: &mut Option<MeshGrpcClient>,
@@ -248,7 +264,7 @@ async fn handle_generate_motion(
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 async fn handle_check_mesh_status(
     endpoint: &str,
     client: &mut Option<MeshGrpcClient>,
@@ -279,7 +295,7 @@ async fn handle_check_mesh_status(
     }
 }
 
-#[cfg(feature = "text-to-mesh")]
+#[cfg(feature = "auto-rig")]
 async fn handle_generate_mesh(
     endpoint: &str,
     client: &mut Option<MeshGrpcClient>,
@@ -351,6 +367,129 @@ async fn handle_generate_mesh(
             *client = None;
             let _ = res_tx.send(GrpcResponse::Error {
                 message: format!("GenerateMesh failed: {}", e),
+            });
+        }
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+async fn ensure_rigging_connected(
+    endpoint: &str,
+    client: &mut Option<RiggingGrpcClient>,
+    res_tx: &mpsc::Sender<GrpcResponse>,
+) -> bool {
+    if client.is_some() {
+        return true;
+    }
+
+    match tonic::transport::Channel::from_shared(endpoint.to_string()) {
+        Ok(channel_builder) => match channel_builder.connect().await {
+            Ok(channel) => {
+                *client = Some(
+                    proto::auto_rigging_service_client::AutoRiggingServiceClient::new(channel)
+                        .max_decoding_message_size(64 * 1024 * 1024),
+                );
+                true
+            }
+            Err(e) => {
+                let _ = res_tx.send(GrpcResponse::Error {
+                    message: format!("Failed to connect to {}: {}", endpoint, e),
+                });
+                false
+            }
+        },
+        Err(e) => {
+            let _ = res_tx.send(GrpcResponse::Error {
+                message: format!("Invalid endpoint '{}': {}", endpoint, e),
+            });
+            false
+        }
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+async fn handle_check_rigging_status(
+    endpoint: &str,
+    client: &mut Option<RiggingGrpcClient>,
+    res_tx: &mpsc::Sender<GrpcResponse>,
+) {
+    if !ensure_rigging_connected(endpoint, client, res_tx).await {
+        return;
+    }
+
+    let c = client
+        .as_mut()
+        .expect("ensure_rigging_connected returned true so client is Some");
+    let request = tonic::Request::new(proto::RiggingStatusRequest {});
+
+    match c.get_rigging_status(request).await {
+        Ok(response) => {
+            let status = response.into_inner();
+            let _ = res_tx.send(GrpcResponse::RiggingServerStatus {
+                ready: status.ready,
+                model_name: status.model_name,
+                gpu_memory_mb: status.gpu_memory_mb,
+            });
+        }
+        Err(e) => {
+            *client = None;
+            let _ = res_tx.send(GrpcResponse::Error {
+                message: format!("GetRiggingStatus failed: {}", e),
+            });
+        }
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+async fn handle_generate_rig(
+    endpoint: &str,
+    client: &mut Option<RiggingGrpcClient>,
+    res_tx: &mpsc::Sender<GrpcResponse>,
+    req: super::request::RiggingRequest,
+) {
+    if !ensure_rigging_connected(endpoint, client, res_tx).await {
+        return;
+    }
+
+    let c = client
+        .as_mut()
+        .expect("ensure_rigging_connected returned true so client is Some");
+
+    let proto_request = proto::RiggingRequest {
+        glb_data: req.glb_data,
+        params: Some(proto::RiggingParams {
+            num_sample_points: req.num_sample_points as i32,
+        }),
+        model_type: proto::RiggingModelType::RiggingUnirig as i32,
+    };
+
+    match c.generate_rig(tonic::Request::new(proto_request)).await {
+        Ok(response) => {
+            let resp = response.into_inner();
+            let metadata = resp.metadata.unwrap_or_default();
+            let joints = resp
+                .skeleton_joints
+                .into_iter()
+                .map(|j| super::request::SkeletonJointInfo {
+                    name: j.name,
+                    position: [j.x, j.y, j.z],
+                    tail: [j.tail_x, j.tail_y, j.tail_z],
+                    parent_index: j.parent_index,
+                })
+                .collect();
+
+            let _ = res_tx.send(GrpcResponse::RigGenerated {
+                rigged_glb_data: resp.rigged_glb_data,
+                joint_count: metadata.joint_count as u32,
+                bone_count: metadata.bone_count as u32,
+                generation_time_ms: metadata.generation_time_ms,
+                skeleton_joints: joints,
+            });
+        }
+        Err(e) => {
+            *client = None;
+            let _ = res_tx.send(GrpcResponse::Error {
+                message: format!("GenerateRig failed: {}", e),
             });
         }
     }

@@ -3,6 +3,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
 use crate::asset::AssetStorage;
+use crate::ecs::resource::WeightHeatmapState;
 use crate::ecs::world::MeshRef;
 use crate::ecs::World;
 use crate::vulkanr::core::{Device, RRDevice};
@@ -16,11 +17,15 @@ use crate::vulkanr::resource::{create_image, create_image_view, RRGBuffer};
 #[derive(Clone, Copy, Debug)]
 pub struct GBufferPushConstants {
     pub object_id: u32,
+    pub heatmap_mode: u32,
 }
 
 impl GBufferPushConstants {
-    pub fn new(object_id: u32) -> Self {
-        Self { object_id }
+    pub fn new(object_id: u32, heatmap_mode: u32) -> Self {
+        Self {
+            object_id,
+            heatmap_mode,
+        }
     }
 
     pub fn as_bytes(&self) -> &[u8] {
@@ -72,16 +77,18 @@ mod tests {
 
     #[test]
     fn test_gbuffer_push_constants_size() {
-        assert_eq!(std::mem::size_of::<GBufferPushConstants>(), 4);
+        assert_eq!(std::mem::size_of::<GBufferPushConstants>(), 8);
     }
 
     #[test]
     fn test_gbuffer_push_constants_as_bytes() {
-        let pc = GBufferPushConstants::new(42);
+        let pc = GBufferPushConstants::new(42, 1);
         let bytes = pc.as_bytes();
-        assert_eq!(bytes.len(), 4);
+        assert_eq!(bytes.len(), 8);
         let object_id = u32::from_ne_bytes([bytes[0], bytes[1], bytes[2], bytes[3]]);
         assert_eq!(object_id, 42);
+        let heatmap_mode = u32::from_ne_bytes([bytes[4], bytes[5], bytes[6], bytes[7]]);
+        assert_eq!(heatmap_mode, 1);
     }
 
     #[test]
@@ -422,7 +429,8 @@ impl<'a> GBufferPass<'a> {
         );
 
         let object_id: u32 = (mesh_index + 1) as u32;
-        let push_constants = GBufferPushConstants::new(object_id);
+        let heatmap_mode = self.resolve_heatmap_mode();
+        let push_constants = GBufferPushConstants::new(object_id, heatmap_mode);
         self.device.cmd_push_constants(
             command_buffer,
             self.pipeline.pipeline_layout,
@@ -435,5 +443,12 @@ impl<'a> GBufferPass<'a> {
             .cmd_draw_indexed(command_buffer, mesh.index_buffer.indices, 1, 0, 0, 0);
 
         Ok(())
+    }
+
+    fn resolve_heatmap_mode(&self) -> u32 {
+        self.ecs_world
+            .get_resource::<WeightHeatmapState>()
+            .map(|state| if state.enabled { 1 } else { 0 })
+            .unwrap_or(0)
     }
 }

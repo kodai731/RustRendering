@@ -23,7 +23,7 @@ pub enum DeferredAction {
         baked_id: u64,
         path: PathBuf,
     },
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     LoadModelFromMemory {
         glb_data: Vec<u8>,
     },

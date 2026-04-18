@@ -49,7 +49,7 @@ impl System {
         let mut last_frame = Instant::now();
         let bindings = default_bindings();
         let mut status_bar_state = StatusBarState::default();
-        #[cfg(feature = "text-to-mesh")]
+        #[cfg(feature = "auto-rig")]
         let mut text_to_mesh_dialog_state = crate::platform::ui::TextToMeshDialogState::default();
 
         event_loop
@@ -81,7 +81,7 @@ impl System {
                         &window,
                         &bindings,
                         &mut status_bar_state,
-                        #[cfg(feature = "text-to-mesh")]
+                        #[cfg(feature = "auto-rig")]
                         &mut text_to_mesh_dialog_state,
                     );
                 }
@@ -105,7 +105,7 @@ fn dispatch_window_event(
     window: &winit::window::Window,
     bindings: &[super::key_bindings::KeyBinding],
     status_bar_state: &mut StatusBarState,
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
 ) {
     match event {
@@ -148,7 +148,7 @@ fn dispatch_window_event(
                 window,
                 app,
                 status_bar_state,
-                #[cfg(feature = "text-to-mesh")]
+                #[cfg(feature = "auto-rig")]
                 text_to_mesh_dialog,
             );
         }
@@ -187,7 +187,7 @@ fn handle_redraw_requested(
     window: &winit::window::Window,
     app: &mut App,
     status_bar_state: &mut StatusBarState,
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
 ) {
     let ui = imgui.frame();
@@ -211,7 +211,7 @@ fn handle_redraw_requested(
     let mut overlay_state = SceneOverlayState {
         model_path: model_state.model_path.clone(),
         load_status: model_state.load_status.clone(),
-        #[cfg(feature = "text-to-mesh")]
+        #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
     };
     drop(model_state);
@@ -223,7 +223,7 @@ fn handle_redraw_requested(
         &mut debug_state,
         &mut overlay_state,
         status_bar_state,
-        #[cfg(feature = "text-to-mesh")]
+        #[cfg(feature = "auto-rig")]
         text_to_mesh_dialog,
     );
 
@@ -252,7 +252,7 @@ fn build_ui_windows(
     #[cfg(debug_assertions)] debug_state: &mut DebugWindowState,
     overlay_state: &mut SceneOverlayState,
     status_bar_state: &mut StatusBarState,
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
 ) {
     let display_size = ui.io().display_size;
@@ -286,7 +286,7 @@ fn build_ui_windows(
     build_timeline_and_fixed_overlays(ui, app, status_bar_state, &viewport_info, &layout_snapshot);
     build_curve_editor(ui, app);
 
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     {
         if overlay_state.open_text_to_mesh_dialog {
             text_to_mesh_dialog.open = true;
@@ -649,7 +649,7 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
             }
         }
 
-        #[cfg(feature = "text-to-mesh")]
+        #[cfg(feature = "auto-rig")]
         DeferredAction::LoadModelFromMemory { glb_data } => {
             match app.load_model_from_glb(&glb_data) {
                 Ok(()) => {}

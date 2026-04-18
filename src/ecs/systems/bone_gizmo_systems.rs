@@ -1,10 +1,11 @@
 use anyhow::Result;
-use cgmath::{Matrix4, SquareMatrix, Vector3, Vector4};
+use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3, Vector4};
 
 use crate::animation::Skeleton;
 use crate::ecs::component::{ColorVertex, LineMesh};
 use crate::ecs::resource::gizmo::{BoneGizmoData, BoneSelectionState};
-use crate::math::ray_to_triangle_intersection;
+use crate::ecs::resource::MeshAssets;
+use crate::math::{ray_to_triangle_barycentric, ray_to_triangle_intersection};
 use crate::render::RenderBackend;
 
 const BONE_LINE_COLOR: [f32; 3] = [0.0, 0.8, 0.0];
@@ -518,6 +519,150 @@ pub unsafe fn update_bone_gizmo_buffers(
     backend.update_or_create_line_buffers(&mut bone_gizmo.stick_mesh)
 }
 
+pub fn select_bone_by_mesh_ray(
+    ray_origin_world: Vector3<f32>,
+    ray_direction_world: Vector3<f32>,
+    mesh_assets: &MeshAssets,
+    entity_world_transform: Matrix4<f32>,
+) -> Option<(usize, f32)> {
+    let inv_world = entity_world_transform.invert()?;
+    let (ray_origin, ray_direction) =
+        transform_ray_to_local(&inv_world, ray_origin_world, ray_direction_world);
+
+    let hit = find_closest_triangle_hit(mesh_assets, ray_origin, ray_direction)?;
+
+    let mesh = &mesh_assets.meshes[hit.mesh_index];
+    let skin = mesh.skin_data.as_ref()?;
+    let bone_index = pick_dominant_bone_from_triangle(skin, &hit)?;
+
+    Some((bone_index, hit.t_world))
+}
+
+struct MeshTriangleHit {
+    mesh_index: usize,
+    vertex_indices: [usize; 3],
+    barycentric: [f32; 3],
+    t_world: f32,
+}
+
+fn transform_ray_to_local(
+    inv_world: &Matrix4<f32>,
+    ray_origin_world: Vector3<f32>,
+    ray_direction_world: Vector3<f32>,
+) -> (Vector3<f32>, Vector3<f32>) {
+    let o = inv_world
+        * Vector4::new(
+            ray_origin_world.x,
+            ray_origin_world.y,
+            ray_origin_world.z,
+            1.0,
+        );
+    let d = inv_world
+        * Vector4::new(
+            ray_direction_world.x,
+            ray_direction_world.y,
+            ray_direction_world.z,
+            0.0,
+        );
+
+    (Vector3::new(o.x, o.y, o.z), Vector3::new(d.x, d.y, d.z))
+}
+
+fn find_closest_triangle_hit(
+    mesh_assets: &MeshAssets,
+    ray_origin_local: Vector3<f32>,
+    ray_direction_local: Vector3<f32>,
+) -> Option<MeshTriangleHit> {
+    let direction_length = ray_direction_local.dot(ray_direction_local).sqrt();
+    if direction_length < f32::EPSILON {
+        return None;
+    }
+
+    let mut best: Option<MeshTriangleHit> = None;
+
+    for (mesh_index, mesh) in mesh_assets.meshes.iter().enumerate() {
+        if mesh.skin_data.is_none() {
+            continue;
+        }
+        let vertices = &mesh.vertex_data.vertices;
+        let indices = &mesh.vertex_data.indices;
+        if vertices.is_empty() || indices.len() < 3 {
+            continue;
+        }
+
+        for tri in indices.chunks_exact(3) {
+            let i0 = tri[0] as usize;
+            let i1 = tri[1] as usize;
+            let i2 = tri[2] as usize;
+            if i0 >= vertices.len() || i1 >= vertices.len() || i2 >= vertices.len() {
+                continue;
+            }
+
+            let p0 = vertex_position(&vertices[i0]);
+            let p1 = vertex_position(&vertices[i1]);
+            let p2 = vertex_position(&vertices[i2]);
+
+            let Some((t_local, u, v)) =
+                ray_to_triangle_barycentric(ray_origin_local, ray_direction_local, p0, p1, p2)
+            else {
+                continue;
+            };
+
+            let t_world = t_local * direction_length;
+            let is_closer = best.as_ref().map_or(true, |h| t_world < h.t_world);
+            if is_closer {
+                best = Some(MeshTriangleHit {
+                    mesh_index,
+                    vertex_indices: [i0, i1, i2],
+                    barycentric: [1.0 - u - v, u, v],
+                    t_world,
+                });
+            }
+        }
+    }
+
+    best
+}
+
+fn vertex_position(vertex: &crate::vulkanr::data::Vertex) -> Vector3<f32> {
+    Vector3::new(vertex.pos.x, vertex.pos.y, vertex.pos.z)
+}
+
+fn pick_dominant_bone_from_triangle(
+    skin: &crate::animation::SkinData,
+    hit: &MeshTriangleHit,
+) -> Option<usize> {
+    let mut accumulated: std::collections::HashMap<u32, f32> = std::collections::HashMap::new();
+
+    for (slot, &vertex_index) in hit.vertex_indices.iter().enumerate() {
+        if vertex_index >= skin.bone_indices.len() || vertex_index >= skin.bone_weights.len() {
+            continue;
+        }
+        let bary_weight = hit.barycentric[slot];
+        let indices = &skin.bone_indices[vertex_index];
+        let weights = &skin.bone_weights[vertex_index];
+
+        let influences = [
+            (indices.x, weights.x),
+            (indices.y, weights.y),
+            (indices.z, weights.z),
+            (indices.w, weights.w),
+        ];
+
+        for (bone_id, weight) in influences {
+            if weight <= 0.0 {
+                continue;
+            }
+            *accumulated.entry(bone_id).or_insert(0.0) += bary_weight * weight;
+        }
+    }
+
+    accumulated
+        .into_iter()
+        .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+        .map(|(bone_id, _)| bone_id as usize)
+}
+
 pub fn build_box_bone_meshes_with_selection(
     skeleton: &Skeleton,
     global_transforms: &[Matrix4<f32>],
@@ -845,7 +990,139 @@ mod tests {
     use crate::animation::SkinData;
     use crate::ecs::{apply_skinning, compute_pose_global_transforms, create_pose_from_rest};
     use crate::loader::{LoadedNode, ModelLoadResult};
-    use cgmath::InnerSpace;
+    use crate::vulkanr::data::{Vertex, VertexData};
+    use crate::vulkanr::resource::graphics_resource::MeshBuffer;
+
+    fn make_mesh_buffer_single_triangle(
+        bone_indices: [[u32; 4]; 3],
+        bone_weights: [[f32; 4]; 3],
+        positions: [Vector3<f32>; 3],
+    ) -> MeshBuffer {
+        let mut mesh = MeshBuffer::default();
+        let mut vertex_data = VertexData::default();
+        for p in &positions {
+            let mut v = Vertex::default();
+            v.pos.x = p.x;
+            v.pos.y = p.y;
+            v.pos.z = p.z;
+            vertex_data.vertices.push(v);
+        }
+        vertex_data.indices = vec![0, 1, 2];
+        mesh.vertex_data = vertex_data;
+
+        let mut skin = SkinData::default();
+        skin.bone_indices = bone_indices
+            .iter()
+            .map(|bi| cgmath::Vector4::new(bi[0], bi[1], bi[2], bi[3]))
+            .collect();
+        skin.bone_weights = bone_weights
+            .iter()
+            .map(|bw| cgmath::Vector4::new(bw[0], bw[1], bw[2], bw[3]))
+            .collect();
+        skin.base_positions = positions.to_vec();
+        mesh.skin_data = Some(skin);
+
+        mesh
+    }
+
+    #[test]
+    fn select_bone_by_mesh_ray_picks_dominant_bone_on_centroid_hit() {
+        let mesh = make_mesh_buffer_single_triangle(
+            [[5, 0, 0, 0], [5, 0, 0, 0], [5, 0, 0, 0]],
+            [[1.0, 0.0, 0.0, 0.0]; 3],
+            [
+                Vector3::new(-1.0, -1.0, 0.0),
+                Vector3::new(1.0, -1.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            ],
+        );
+        let mesh_assets = MeshAssets { meshes: vec![mesh] };
+
+        let ray_origin = Vector3::new(0.0, 0.0, 5.0);
+        let ray_direction = Vector3::new(0.0, 0.0, -1.0);
+
+        let hit =
+            select_bone_by_mesh_ray(ray_origin, ray_direction, &mesh_assets, Matrix4::identity());
+
+        let (bone_index, _t) = hit.expect("expected a mesh ray hit");
+        assert_eq!(
+            bone_index, 5,
+            "all vertices weighted to bone 5, expected selection"
+        );
+    }
+
+    #[test]
+    fn select_bone_by_mesh_ray_uses_barycentric_weighting() {
+        let mesh = make_mesh_buffer_single_triangle(
+            [[1, 0, 0, 0], [2, 0, 0, 0], [3, 0, 0, 0]],
+            [[1.0, 0.0, 0.0, 0.0]; 3],
+            [
+                Vector3::new(-1.0, -1.0, 0.0),
+                Vector3::new(1.0, -1.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            ],
+        );
+        let mesh_assets = MeshAssets { meshes: vec![mesh] };
+
+        let ray_origin = Vector3::new(0.9, -0.9, 5.0);
+        let ray_direction = Vector3::new(0.0, 0.0, -1.0);
+
+        let hit =
+            select_bone_by_mesh_ray(ray_origin, ray_direction, &mesh_assets, Matrix4::identity());
+
+        let (bone_index, _t) = hit.expect("expected a mesh ray hit near vertex 1");
+        assert_eq!(
+            bone_index, 2,
+            "hit near vertex 1 (bone 2), expected dominant bone 2"
+        );
+    }
+
+    #[test]
+    fn select_bone_by_mesh_ray_returns_none_when_ray_misses_mesh() {
+        let mesh = make_mesh_buffer_single_triangle(
+            [[1, 0, 0, 0]; 3],
+            [[1.0, 0.0, 0.0, 0.0]; 3],
+            [
+                Vector3::new(-1.0, -1.0, 0.0),
+                Vector3::new(1.0, -1.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            ],
+        );
+        let mesh_assets = MeshAssets { meshes: vec![mesh] };
+
+        let ray_origin = Vector3::new(10.0, 10.0, 5.0);
+        let ray_direction = Vector3::new(0.0, 0.0, -1.0);
+
+        let hit =
+            select_bone_by_mesh_ray(ray_origin, ray_direction, &mesh_assets, Matrix4::identity());
+
+        assert!(hit.is_none(), "ray outside triangle should not hit");
+    }
+
+    #[test]
+    fn select_bone_by_mesh_ray_applies_entity_world_transform() {
+        let mesh = make_mesh_buffer_single_triangle(
+            [[7, 0, 0, 0]; 3],
+            [[1.0, 0.0, 0.0, 0.0]; 3],
+            [
+                Vector3::new(-1.0, -1.0, 0.0),
+                Vector3::new(1.0, -1.0, 0.0),
+                Vector3::new(0.0, 1.0, 0.0),
+            ],
+        );
+        let mesh_assets = MeshAssets { meshes: vec![mesh] };
+
+        let entity_transform = Matrix4::from_translation(Vector3::new(100.0, 0.0, 0.0));
+
+        let ray_origin = Vector3::new(100.0, 0.0, 5.0);
+        let ray_direction = Vector3::new(0.0, 0.0, -1.0);
+
+        let hit =
+            select_bone_by_mesh_ray(ray_origin, ray_direction, &mesh_assets, entity_transform);
+
+        let (bone_index, _t) = hit.expect("expected mesh hit after applying entity transform");
+        assert_eq!(bone_index, 7);
+    }
 
     fn load_stickman() -> Option<ModelLoadResult> {
         let path = "assets/models/stickman/stickman.glb";

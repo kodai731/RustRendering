@@ -4,10 +4,11 @@ use anyhow::Result;
 
 use crate::animation::{BoneId, BoneLocalPose};
 use crate::app::FrameContext;
-use crate::ecs::resource::gizmo::BoneGizmoData;
-use crate::ecs::resource::{BonePoseOverride, ClipLibrary, NodeAssets};
+use crate::ecs::resource::gizmo::{BoneGizmoData, BoneSelectionState};
+use crate::ecs::resource::{BonePoseOverride, ClipLibrary, NodeAssets, WeightHeatmapState};
 use crate::ecs::{
     playback_upload_animations, run_animation_pipeline, transform_propagation_system,
+    update_weight_heatmap,
 };
 
 pub struct AnimationUpdates {
@@ -59,9 +60,29 @@ pub fn run_animation_phase_ecs(ctx: &mut FrameContext) -> AnimationUpdates {
         }
     }
 
-    AnimationUpdates {
-        updated_meshes: eval_result.updated_meshes,
+    let heatmap_updated_meshes = apply_weight_heatmap_update(ctx);
+
+    let mut updated_meshes = eval_result.updated_meshes;
+    for mesh_index in heatmap_updated_meshes {
+        if !updated_meshes.contains(&mesh_index) {
+            updated_meshes.push(mesh_index);
+        }
     }
+
+    AnimationUpdates { updated_meshes }
+}
+
+fn apply_weight_heatmap_update(ctx: &mut FrameContext) -> Vec<usize> {
+    let selection = match ctx.world.get_resource::<BoneSelectionState>() {
+        Some(state) => state.clone(),
+        None => return Vec::new(),
+    };
+
+    let Some(mut heatmap) = ctx.world.get_resource_mut::<WeightHeatmapState>() else {
+        return Vec::new();
+    };
+
+    update_weight_heatmap(ctx.graphics, &mut heatmap, &selection)
 }
 
 fn find_skin_entity_transform(world: &crate::ecs::World) -> cgmath::Matrix4<f32> {

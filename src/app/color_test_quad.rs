@@ -193,6 +193,7 @@ unsafe fn create_quad_mesh_buffer(
         skeleton_id: None,
         node_index: None,
         base_vertices: Vec::new(),
+        base_colors: None,
     })
 }
 

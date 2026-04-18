@@ -2,7 +2,9 @@ use imgui::Condition;
 
 use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::gizmo::BoneGizmoData;
-use crate::ecs::resource::{CoordinateSpace, TransformGizmoMode, TransformGizmoState};
+use crate::ecs::resource::{
+    CoordinateSpace, TransformGizmoMode, TransformGizmoState, WeightHeatmapState,
+};
 use crate::ecs::World;
 
 use super::viewport_window::ViewportInfo;
@@ -13,9 +15,12 @@ const OVERLAY_WIDTH: f32 = 280.0;
 pub struct SceneOverlayState {
     pub model_path: String,
     pub load_status: String,
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
 }
+
+#[cfg(feature = "auto-rig")]
+use crate::ecs::resource::{AutoRigState, AutoRigStatus};
 
 pub fn build_scene_overlay(
     ui: &imgui::Ui,
@@ -36,7 +41,7 @@ pub fn build_scene_overlay(
         .focus_on_appearing(false)
         .save_settings(false)
         .build(|| {
-            build_model_section(ui, ui_events, overlay_state);
+            build_model_section(ui, ui_events, overlay_state, ecs_world);
             ui.separator();
 
             build_screenshot_section(ui, ui_events);
@@ -58,6 +63,7 @@ fn build_model_section(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
     state: &mut SceneOverlayState,
+    _ecs_world: &World,
 ) {
     if ui.button("Open FBX") {
         if let Some(path) = rfd::FileDialog::new()
@@ -96,10 +102,13 @@ fn build_model_section(
         }
     }
 
-    #[cfg(feature = "text-to-mesh")]
+    #[cfg(feature = "auto-rig")]
     if ui.button("Generate Mesh") {
         state.open_text_to_mesh_dialog = true;
     }
+
+    #[cfg(feature = "auto-rig")]
+    build_auto_rig_section(ui, ui_events, _ecs_world);
 
     let model_name = if state.model_path.is_empty() {
         "None"
@@ -108,6 +117,86 @@ fn build_model_section(
     };
     ui.text_wrapped(format!("Model: {}", model_name));
     ui.text(format!("Status: {}", state.load_status));
+}
+
+#[cfg(feature = "auto-rig")]
+fn build_auto_rig_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: &World) {
+    use crate::ecs::component::GlbSource;
+    use crate::ecs::resource::HierarchyState;
+    use crate::ecs::world::Parent;
+
+    let auto_rig_state = ecs_world.resource::<AutoRigState>();
+    let status = auto_rig_state.status.clone();
+    let joint_count = auto_rig_state.joint_count;
+    let bone_count = auto_rig_state.bone_count;
+    let gen_time = auto_rig_state.generation_time_ms;
+    let error_msg = auto_rig_state.error_message.clone();
+    drop(auto_rig_state);
+
+    match status {
+        AutoRigStatus::Idle => {
+            let hierarchy = ecs_world.resource::<HierarchyState>();
+            let selected = hierarchy.selected_entity;
+            drop(hierarchy);
+
+            let has_glb_source = selected.map_or(false, |entity| {
+                if ecs_world.get_component::<GlbSource>(entity).is_some() {
+                    return true;
+                }
+                if let Some(Parent(parent)) = ecs_world.get_component::<Parent>(entity) {
+                    return ecs_world.get_component::<GlbSource>(*parent).is_some();
+                }
+                false
+            });
+
+            if has_glb_source && ui.button("Auto Rig") {
+                ui_events.send(UIEvent::AutoRigGenerate {
+                    num_sample_points: 65536,
+                });
+            }
+        }
+
+        AutoRigStatus::WaitingForServer => {
+            ui.text("Rigging: waiting for server...");
+            if ui.button("Cancel##rig") {
+                ui_events.send(UIEvent::AutoRigDiscard);
+            }
+        }
+
+        AutoRigStatus::Rigging => {
+            ui.text("Rigging: processing...");
+            if ui.button("Cancel##rig") {
+                ui_events.send(UIEvent::AutoRigDiscard);
+            }
+        }
+
+        AutoRigStatus::Previewing => {
+            if let Some(gen_time) = gen_time {
+                ui.text(format!(
+                    "Preview: {} joints, {} bones ({:.1}s)",
+                    joint_count.unwrap_or(0),
+                    bone_count.unwrap_or(0),
+                    gen_time / 1000.0
+                ));
+            }
+            if ui.button("Apply Rig") {
+                ui_events.send(UIEvent::AutoRigApply);
+            }
+            ui.same_line();
+            if ui.button("Discard##rig") {
+                ui_events.send(UIEvent::AutoRigDiscard);
+            }
+        }
+
+        AutoRigStatus::Error => {
+            if let Some(ref msg) = error_msg {
+                ui.text_colored([1.0, 0.3, 0.3, 1.0], format!("Rig error: {}", msg));
+            }
+            if ui.button("Dismiss##rig") {
+                ui_events.send(UIEvent::AutoRigDiscard);
+            }
+        }
+    }
 }
 
 fn build_screenshot_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue) {
@@ -122,6 +211,12 @@ fn build_overlay_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world
             let mut visible = bone_gizmo.visible;
             if ui.checkbox("Show Bones", &mut visible) {
                 ui_events.send(UIEvent::SetBoneGizmoVisible(visible));
+            }
+        }
+        if let Some(heatmap) = ecs_world.get_resource::<WeightHeatmapState>() {
+            let mut enabled = heatmap.enabled;
+            if ui.checkbox("Show Weight Heatmap (selected bone)", &mut enabled) {
+                ui_events.send(UIEvent::SetWeightHeatmapEnabled(enabled));
             }
         }
     }
