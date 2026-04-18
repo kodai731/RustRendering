@@ -380,6 +380,7 @@ pub enum UIEvent {
     },
 
     SetBoneGizmoVisible(bool),
+    SetWeightHeatmapEnabled(bool),
     SetTransformGizmoMode(TransformGizmoMode),
     SetTransformGizmoSpace(CoordinateSpace),
     UpdateTransformGizmoState(Box<TransformGizmoState>),

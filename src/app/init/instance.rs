@@ -686,6 +686,8 @@ impl App {
         data.ecs_world.insert_resource(bone_gizmo_data);
         data.ecs_world
             .insert_resource(crate::ecs::resource::gizmo::BoneSelectionState::default());
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::WeightHeatmapState::default());
 
         let mut constraint_gizmo_data = ConstraintGizmoData::default();
         constraint_gizmo_data.wire_render_info.pipeline_id = Some(pipeline_ids.bone_wire);

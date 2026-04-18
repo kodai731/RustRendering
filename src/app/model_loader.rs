@@ -514,6 +514,13 @@ unsafe fn create_mesh_buffer(
     mesh.skeleton_id = loaded_mesh.skeleton_id;
     mesh.node_index = loaded_mesh.node_index;
     mesh.base_vertices = loaded_mesh.local_vertices.clone();
+    mesh.base_colors = Some(
+        mesh.vertex_data
+            .vertices
+            .iter()
+            .map(|v| cgmath::Vector4::new(v.color.x, v.color.y, v.color.z, v.color.w))
+            .collect(),
+    );
 
     mesh.vertex_buffer = RRVertexBuffer::new(
         instance,

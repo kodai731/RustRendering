@@ -276,6 +276,16 @@ pub fn ray_to_triangle_intersection(
     v1: Vector3<f32>,
     v2: Vector3<f32>,
 ) -> Option<f32> {
+    ray_to_triangle_barycentric(ray_origin, ray_direction, v0, v1, v2).map(|(t, _, _)| t)
+}
+
+pub fn ray_to_triangle_barycentric(
+    ray_origin: Vector3<f32>,
+    ray_direction: Vector3<f32>,
+    v0: Vector3<f32>,
+    v1: Vector3<f32>,
+    v2: Vector3<f32>,
+) -> Option<(f32, f32, f32)> {
     let edge1 = v1 - v0;
     let edge2 = v2 - v0;
     let h = ray_direction.cross(edge2);
@@ -306,7 +316,7 @@ pub fn ray_to_triangle_intersection(
         return None;
     }
 
-    Some(t)
+    Some((t, u, v))
 }
 
 #[cfg(test)]

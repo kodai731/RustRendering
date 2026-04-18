@@ -21,13 +21,19 @@ layout(set = 1, binding = 1) uniform MaterialUBO {
 
 layout(push_constant) uniform PushConstants {
     uint objectID;
+    uint heatmapMode;
 } pc;
 
 void main() {
     vec4 texColor = texture(texSampler, fragTexCoord);
     if (fragColor.a < 0.5) discard;
 
-    vec3 albedoRGB = texColor.rgb * fragColor.rgb * material.base_color.rgb;
+    vec3 albedoRGB;
+    if (pc.heatmapMode == 1u) {
+        albedoRGB = fragColor.rgb;
+    } else {
+        albedoRGB = texColor.rgb * fragColor.rgb * material.base_color.rgb;
+    }
 
     outPosition = vec4(fragWorldPos, 1.0);
     outNormal = vec4(normalize(fragWorldNormal), 1.0);

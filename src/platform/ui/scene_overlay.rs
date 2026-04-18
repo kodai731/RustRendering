@@ -2,7 +2,9 @@ use imgui::Condition;
 
 use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::gizmo::BoneGizmoData;
-use crate::ecs::resource::{CoordinateSpace, TransformGizmoMode, TransformGizmoState};
+use crate::ecs::resource::{
+    CoordinateSpace, TransformGizmoMode, TransformGizmoState, WeightHeatmapState,
+};
 use crate::ecs::World;
 
 use super::viewport_window::ViewportInfo;
@@ -209,6 +211,12 @@ fn build_overlay_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world
             let mut visible = bone_gizmo.visible;
             if ui.checkbox("Show Bones", &mut visible) {
                 ui_events.send(UIEvent::SetBoneGizmoVisible(visible));
+            }
+        }
+        if let Some(heatmap) = ecs_world.get_resource::<WeightHeatmapState>() {
+            let mut enabled = heatmap.enabled;
+            if ui.checkbox("Show Weight Heatmap (selected bone)", &mut enabled) {
+                ui_events.send(UIEvent::SetWeightHeatmapEnabled(enabled));
             }
         }
     }

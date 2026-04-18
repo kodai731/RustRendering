@@ -53,6 +53,7 @@ mod text_to_motion_systems;
 mod timeline_systems;
 pub mod transform_gizmo_systems;
 mod ui_event_systems;
+mod weight_heatmap_systems;
 
 pub use animation::*;
 #[cfg(feature = "auto-rig")]
@@ -100,3 +101,4 @@ pub use text_to_motion_systems::*;
 pub use timeline_systems::*;
 pub use transform_gizmo_systems::*;
 pub use ui_event_systems::*;
+pub use weight_heatmap_systems::*;

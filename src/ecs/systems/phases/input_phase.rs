@@ -11,11 +11,12 @@ use crate::ecs::resource::gizmo::{BoneDisplayStyle, BoneGizmoData, TransformGizm
 use crate::ecs::resource::CurveEditorState;
 use crate::ecs::resource::{
     BonePoseOverride, ClipLibrary, HierarchyDisplayMode, ImGuiInputCapture, KeyboardModifiers,
-    MouseInput, TimelineState, TransformGizmoMode, TransformGizmoState, ViewportInput,
+    MeshAssets, MouseInput, TimelineState, TransformGizmoMode, TransformGizmoState, ViewportInput,
 };
 use crate::ecs::systems::{
     compute_local_override_from_global_rotation, compute_local_override_from_global_scale,
-    compute_local_override_from_global_translation, select_bone_by_ray, transform_gizmo_systems,
+    compute_local_override_from_global_translation, select_bone_by_mesh_ray, select_bone_by_ray,
+    transform_gizmo_systems,
 };
 use crate::ecs::world::{Entity, GlobalTransform, Transform};
 use crate::ecs::{
@@ -304,7 +305,7 @@ fn process_bone_selection(ctx: &mut EcsContext) -> Result<bool> {
     };
     let skeleton = skeleton_ref.clone();
 
-    let hit = select_bone_by_ray(
+    let widget_hit = select_bone_by_ray(
         ray_origin,
         ray_direction,
         &skeleton,
@@ -313,6 +314,12 @@ fn process_bone_selection(ctx: &mut EcsContext) -> Result<bool> {
         mesh_scale,
         None,
     );
+
+    let hit = widget_hit.or_else(|| {
+        let entity_transform = find_animated_entity_transform(ctx.world)?;
+        let mesh_assets = ctx.world.resource::<MeshAssets>();
+        select_bone_by_mesh_ray(ray_origin, ray_direction, &mesh_assets, entity_transform)
+    });
 
     let bone_hit = hit.is_some();
 
@@ -995,6 +1002,15 @@ fn sync_curve_editor_bone(ctx: &mut EcsContext, new_active_bone: Option<BoneId>)
         let mut editor = ctx.world.resource_mut::<CurveEditorState>();
         editor.selected_bone_id = Some(bone_id);
     }
+}
+
+fn find_animated_entity_transform(world: &crate::ecs::World) -> Option<Matrix4<f32>> {
+    use crate::ecs::world::{Animator, GlobalTransform};
+
+    let (entity, _) = world.iter_components::<Animator>().next()?;
+    world
+        .get_component::<GlobalTransform>(entity)
+        .map(|gt| gt.0)
 }
 
 fn compute_animation_globals(

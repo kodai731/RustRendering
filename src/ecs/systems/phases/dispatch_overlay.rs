@@ -2,7 +2,7 @@ use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
     AutoExposure, DepthOfField, GridMeshData, HierarchyState, MessageLog, OnionSkinningConfig,
-    PhysicalCameraParameters, TransformGizmoState,
+    PhysicalCameraParameters, TransformGizmoState, WeightHeatmapState,
 };
 use crate::ecs::world::{Animator, World};
 
@@ -12,6 +12,14 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
             UIEvent::SetBoneGizmoVisible(visible) => {
                 if let Some(mut gizmo) = world.get_resource_mut::<BoneGizmoData>() {
                     gizmo.visible = *visible;
+                }
+            }
+            UIEvent::SetWeightHeatmapEnabled(enabled) => {
+                log!("UIEvent::SetWeightHeatmapEnabled({})", enabled);
+                if let Some(mut heatmap) = world.get_resource_mut::<WeightHeatmapState>() {
+                    heatmap.enabled = *enabled;
+                } else {
+                    log_warn!("WeightHeatmapState resource missing when toggling heatmap");
                 }
             }
             UIEvent::SetTransformGizmoMode(mode) => {
