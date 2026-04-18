@@ -863,14 +863,19 @@ fn create_ecs_entities(
 
     ensure_ecs_resources(world);
 
-    let first_editable_clip_id =
+    let mut first_editable_clip_id =
         register_clips_to_library(world, assets, loaded_clips, scene_will_provide_clips);
 
     register_node_assets(world, assets);
 
-    let has_animation = !loaded_clips.is_empty();
+    if first_editable_clip_id.is_none() && !scene_will_provide_clips && !assets.skeletons.is_empty()
+    {
+        first_editable_clip_id = Some(register_empty_editable_clip(world, assets));
+    }
 
-    let initial_schedule = if has_animation && !scene_will_provide_clips {
+    let has_playable_clip = first_editable_clip_id.is_some();
+
+    let initial_schedule = if has_playable_clip && !scene_will_provide_clips {
         build_initial_clip_schedule(first_editable_clip_id, world)
     } else {
         ClipSchedule::new()
@@ -883,7 +888,7 @@ fn create_ecs_entities(
         .with_visible(true)
         .with_editor_display(EntityIcon::Model, true);
 
-    if has_animation {
+    if has_playable_clip {
         parent_builder = parent_builder
             .with_animator(Animator::new())
             .with_clip_schedule(initial_schedule)
@@ -981,6 +986,34 @@ fn register_clips_to_library(
     }
 
     first_editable_clip_id
+}
+
+const EMPTY_CLIP_DEFAULT_DURATION_SECONDS: f32 = 5.0;
+
+fn register_empty_editable_clip(world: &mut World, assets: &mut AssetStorage) -> SourceClipId {
+    use crate::animation::editable::EditableAnimationClip;
+
+    let mut clip_library = world.resource_mut::<ClipLibrary>();
+    let mut editable = EditableAnimationClip::new(0, "New Animation".to_string());
+    editable.duration = EMPTY_CLIP_DEFAULT_DURATION_SECONDS;
+    let source_id = crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
+        &mut clip_library,
+        assets,
+        editable,
+    );
+    drop(clip_library);
+
+    let mut timeline_state = world.resource_mut::<TimelineState>();
+    timeline_state.current_clip_id = Some(source_id);
+    drop(timeline_state);
+
+    log!(
+        "Auto-created empty animation clip 'New Animation' (source_id={}, duration={}s) for model with no animations",
+        source_id,
+        EMPTY_CLIP_DEFAULT_DURATION_SECONDS
+    );
+
+    source_id
 }
 
 fn register_node_assets(world: &World, assets: &mut AssetStorage) {
