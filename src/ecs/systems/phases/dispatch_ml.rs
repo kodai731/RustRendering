@@ -90,69 +90,116 @@ pub fn dispatch_curve_suggestion_events(
     }
 }
 
-#[cfg(feature = "text-to-motion")]
-pub fn dispatch_text_to_motion_events(
+#[cfg(feature = "auto-rig")]
+pub fn dispatch_text_to_animation_events(
     events: &[crate::ecs::events::UIEvent],
     world: &mut crate::ecs::world::World,
-    assets: &mut crate::asset::AssetStorage,
+    assets: &crate::asset::AssetStorage,
 ) {
     use crate::ecs::events::UIEvent;
-    use crate::ecs::resource::{ClipLibrary, TextToMotionState, TimelineState};
-    use crate::ecs::systems::{text_to_motion_cancel, text_to_motion_submit};
-    use crate::grpc::GrpcThreadHandle;
+    use crate::ecs::resource::{AutoRigState, ModelState, TextToAnimationState};
+    use crate::ecs::systems::{
+        auto_rig_submit, detect_rig_presence, text_to_animation_begin, text_to_animation_cancel,
+        RigPresence,
+    };
+    use crate::grpc::{GrpcRequest, GrpcThreadHandle, TextToMotionRequest};
 
     const DEFAULT_ENDPOINT: &str = "http://localhost:50051";
 
     for event in events {
         match event {
-            UIEvent::TextToMotionGenerate {
+            UIEvent::TextToAnimationGenerate {
                 prompt,
                 duration_seconds,
             } => {
-                if !world.contains_resource::<GrpcThreadHandle>() {
-                    let handle = GrpcThreadHandle::spawn(DEFAULT_ENDPOINT);
-                    world.insert_resource(handle);
-                    log!("TextToMotion: spawned gRPC thread ({})", DEFAULT_ENDPOINT);
-                }
-
-                let handle = world.get_resource::<GrpcThreadHandle>();
-                let mut state = world.resource_mut::<TextToMotionState>();
-
-                if let Some(handle) = handle {
-                    text_to_motion_submit(&mut state, &*handle, prompt, *duration_seconds);
-                }
-            }
-
-            UIEvent::TextToMotionApply => {
-                let clip = {
-                    let mut state = world.resource_mut::<TextToMotionState>();
-                    state.generated_clip.take()
+                let entity = match resolve_entity_with_glb_source(world) {
+                    Some(e) => e,
+                    None => {
+                        let mut state = world.resource_mut::<TextToAnimationState>();
+                        crate::ecs::systems::text_to_animation_mark_error(
+                            &mut state,
+                            "No model with GlbSource selected".to_string(),
+                        );
+                        log_warn!("TextToAnimation: no selected entity with GlbSource");
+                        continue;
+                    }
                 };
 
-                if let Some(clip) = clip {
-                    let mut clip_library = world.resource_mut::<ClipLibrary>();
-                    let new_id =
-                        crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
-                            &mut clip_library,
-                            assets,
-                            clip,
+                let glb_data = match read_glb_bytes(world, entity) {
+                    Some(data) => data,
+                    None => {
+                        let mut state = world.resource_mut::<TextToAnimationState>();
+                        crate::ecs::systems::text_to_animation_mark_error(
+                            &mut state,
+                            "Failed to read GLB bytes".to_string(),
                         );
-                    drop(clip_library);
+                        continue;
+                    }
+                };
 
-                    let mut timeline = world.resource_mut::<TimelineState>();
-                    timeline.current_clip_id = Some(new_id);
+                let rig_present = {
+                    let model_state = world.resource::<ModelState>();
+                    detect_rig_presence(&model_state, assets)
+                };
 
-                    let mut state = world.resource_mut::<TextToMotionState>();
-                    text_to_motion_cancel(&mut state);
+                if !world.contains_resource::<GrpcThreadHandle>() {
+                    ensure_mesh_server_running(world);
+                    let handle = GrpcThreadHandle::spawn(DEFAULT_ENDPOINT);
+                    world.insert_resource(handle);
+                    log!(
+                        "TextToAnimation: spawned gRPC thread ({})",
+                        DEFAULT_ENDPOINT
+                    );
+                }
 
-                    log!("TextToMotion: applied clip (id={})", new_id);
+                {
+                    let mut state = world.resource_mut::<TextToAnimationState>();
+                    text_to_animation_begin(
+                        &mut state,
+                        prompt.clone(),
+                        *duration_seconds,
+                        entity,
+                        rig_present,
+                    );
+                }
+
+                let handle = match world.get_resource::<GrpcThreadHandle>() {
+                    Some(h) => h,
+                    None => continue,
+                };
+
+                match rig_present {
+                    RigPresence::Present => {
+                        log!(
+                            "TextToAnimation: skipping auto-rig, sending GenerateMotion (prompt='{}', duration={}s)",
+                            prompt,
+                            duration_seconds
+                        );
+                        handle.send(GrpcRequest::GenerateMotion(TextToMotionRequest {
+                            prompt: prompt.clone(),
+                            duration_seconds: *duration_seconds,
+                            target_fps: 30,
+                            glb_data,
+                        }));
+                    }
+                    RigPresence::Absent => {
+                        log!(
+                            "TextToAnimation: no rig detected, starting auto-rig first (prompt='{}')",
+                            prompt
+                        );
+                        drop(handle);
+                        let handle = world.get_resource::<GrpcThreadHandle>().unwrap();
+                        let mut auto_rig_state = world.resource_mut::<AutoRigState>();
+                        auto_rig_state.original_glb_backup = Some(glb_data.clone());
+                        auto_rig_submit(&mut auto_rig_state, &*handle, glb_data, entity);
+                    }
                 }
             }
 
-            UIEvent::TextToMotionCancel => {
-                let mut state = world.resource_mut::<TextToMotionState>();
-                text_to_motion_cancel(&mut state);
-                log!("TextToMotion: cancelled");
+            UIEvent::TextToAnimationCancel => {
+                let mut state = world.resource_mut::<TextToAnimationState>();
+                text_to_animation_cancel(&mut state);
+                log!("TextToAnimation: cancelled");
             }
 
             _ => {}
@@ -160,10 +207,133 @@ pub fn dispatch_text_to_motion_events(
     }
 }
 
+#[cfg(feature = "auto-rig")]
+fn resolve_entity_with_glb_source(
+    world: &crate::ecs::world::World,
+) -> Option<crate::ecs::world::Entity> {
+    use crate::ecs::resource::HierarchyState;
+
+    let selected = {
+        let hierarchy = world.resource::<HierarchyState>();
+        hierarchy.selected_entity?
+    };
+
+    resolve_parent_with_glb_source(world, selected)
+}
+
+#[cfg(feature = "auto-rig")]
+fn read_glb_bytes(
+    world: &crate::ecs::world::World,
+    entity: crate::ecs::world::Entity,
+) -> Option<Vec<u8>> {
+    use crate::ecs::component::GlbSource;
+
+    let source = world.get_component::<GlbSource>(entity)?;
+    match source.read_bytes() {
+        Ok(data) => Some(data),
+        Err(e) => {
+            log_error!("Failed to read GLB bytes from entity: {}", e);
+            None
+        }
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+fn find_first_entity_with_glb_source(
+    world: &crate::ecs::world::World,
+) -> Option<crate::ecs::world::Entity> {
+    use crate::ecs::component::GlbSource;
+
+    world
+        .iter_components::<GlbSource>()
+        .next()
+        .map(|(entity, _)| entity)
+}
+
+#[cfg(feature = "auto-rig")]
+pub fn dispatch_model_loaded_for_animation(
+    events: &[crate::ecs::events::UIEvent],
+    world: &mut crate::ecs::world::World,
+) {
+    use crate::ecs::events::{ModelLoadSource, UIEvent};
+    use crate::ecs::resource::{TextToAnimationState, TextToAnimationStatus};
+    use crate::ecs::systems::text_to_animation_advance_to_motion;
+    use crate::grpc::{GrpcRequest, GrpcThreadHandle, TextToMotionRequest};
+
+    for event in events {
+        if let UIEvent::ModelLoadedFromMemory { source } = event {
+            log!(
+                "dispatch_model_loaded_for_animation: received ModelLoadedFromMemory({:?})",
+                source
+            );
+            if *source != ModelLoadSource::AutoRigOutput {
+                continue;
+            }
+            let current_status = {
+                let state = world.resource::<TextToAnimationState>();
+                state.status.clone()
+            };
+            log!(
+                "dispatch_model_loaded_for_animation: TextToAnimationStatus={:?}",
+                current_status
+            );
+            if current_status != TextToAnimationStatus::AutoRigApplying {
+                continue;
+            }
+
+            let entity = match find_first_entity_with_glb_source(world) {
+                Some(e) => e,
+                None => {
+                    let mut state = world.resource_mut::<TextToAnimationState>();
+                    crate::ecs::systems::text_to_animation_mark_error(
+                        &mut state,
+                        "Rigged model has no GlbSource after load".to_string(),
+                    );
+                    continue;
+                }
+            };
+
+            let glb_data = match read_glb_bytes(world, entity) {
+                Some(data) => data,
+                None => {
+                    let mut state = world.resource_mut::<TextToAnimationState>();
+                    crate::ecs::systems::text_to_animation_mark_error(
+                        &mut state,
+                        "Failed to read rigged GLB after load".to_string(),
+                    );
+                    continue;
+                }
+            };
+
+            let (prompt, duration) = {
+                let mut state = world.resource_mut::<TextToAnimationState>();
+                text_to_animation_advance_to_motion(&mut state);
+                state.target_entity = Some(entity);
+                (state.prompt.clone(), state.duration_seconds)
+            };
+
+            log!(
+                "TextToAnimation: rigged model loaded, sending GenerateMotion (prompt='{}')",
+                prompt
+            );
+
+            if let Some(handle) = world.get_resource::<GrpcThreadHandle>() {
+                handle.send(GrpcRequest::GenerateMotion(TextToMotionRequest {
+                    prompt,
+                    duration_seconds: duration,
+                    target_fps: 30,
+                    glb_data,
+                }));
+            }
+        }
+    }
+}
+
 #[cfg(feature = "text-to-motion")]
 pub fn drain_grpc_responses(
     world: &mut crate::ecs::world::World,
-    assets: &crate::asset::AssetStorage,
+    assets: &mut crate::asset::AssetStorage,
+    deferred: &mut Vec<super::super::ui_event_systems::DeferredAction>,
 ) {
     use crate::grpc::{GrpcResponse, GrpcThreadHandle};
 
@@ -180,12 +350,18 @@ pub fn drain_grpc_responses(
 
     for response in responses {
         match response {
+            #[cfg(feature = "auto-rig")]
             GrpcResponse::MotionGenerated {
                 curves,
                 generation_time_ms,
                 model_used,
             } => {
                 apply_motion_response(world, assets, curves, generation_time_ms, model_used);
+            }
+
+            #[cfg(not(feature = "auto-rig"))]
+            GrpcResponse::MotionGenerated { .. } => {
+                log_warn!("MotionGenerated received but auto-rig feature is disabled");
             }
 
             #[cfg(feature = "auto-rig")]
@@ -206,15 +382,17 @@ pub fn drain_grpc_responses(
                 );
             }
 
-            GrpcResponse::ServerStatus {
-                ready,
-                active_model,
-                ..
-            } => {
-                use crate::ecs::resource::TextToMotionState;
-                if let Some(mut state) = world.get_resource_mut::<TextToMotionState>() {
-                    state.server_ready = ready;
-                    state.model_used = Some(active_model);
+            GrpcResponse::ServerStatus { ready, .. } => {
+                #[cfg(feature = "auto-rig")]
+                {
+                    use crate::ecs::resource::TextToAnimationState;
+                    if let Some(mut state) = world.get_resource_mut::<TextToAnimationState>() {
+                        state.server_ready = ready;
+                    }
+                }
+                #[cfg(not(feature = "auto-rig"))]
+                {
+                    let _ = ready;
                 }
             }
 
@@ -237,6 +415,7 @@ pub fn drain_grpc_responses(
                     joint_count,
                     bone_count,
                     generation_time_ms,
+                    deferred,
                 );
             }
 
@@ -252,21 +431,27 @@ pub fn drain_grpc_responses(
     }
 }
 
-#[cfg(feature = "text-to-motion")]
+#[cfg(feature = "auto-rig")]
 fn apply_motion_response(
     world: &mut crate::ecs::world::World,
-    assets: &crate::asset::AssetStorage,
+    assets: &mut crate::asset::AssetStorage,
     curves: Vec<crate::grpc::RawAnimationCurve>,
     generation_time_ms: f32,
     model_used: String,
 ) {
-    use crate::ecs::resource::{TextToMotionState, TextToMotionStatus};
+    use crate::ecs::resource::{
+        ClipLibrary, TextToAnimationState, TextToAnimationStatus, TimelineState,
+    };
+    use crate::ecs::systems::{text_to_animation_mark_done, text_to_animation_set_motion_result};
     use crate::grpc::convert_motion_response_to_clip;
 
-    let mut state = world.resource_mut::<TextToMotionState>();
-    if state.status != TextToMotionStatus::Generating {
-        return;
-    }
+    let (prompt, duration) = {
+        let state = world.resource::<TextToAnimationState>();
+        if state.status != TextToAnimationStatus::GeneratingMotion {
+            return;
+        }
+        (state.prompt.clone(), state.duration_seconds)
+    };
 
     let bone_name_to_id = assets
         .skeletons
@@ -275,22 +460,46 @@ fn apply_motion_response(
         .map(|sa| sa.skeleton.bone_name_to_id.clone())
         .unwrap_or_default();
 
-    let clip_name = format!("T2M: {}", truncate_prompt(&state.last_prompt, 30));
-    let clip =
-        convert_motion_response_to_clip(&curves, &clip_name, state.last_duration, &bone_name_to_id);
+    let clip_name = format!("t2a_{}", prompt_to_snake_case(&prompt, 30));
+    let clip = convert_motion_response_to_clip(&curves, &clip_name, duration, &bone_name_to_id);
+    let track_count = clip.tracks.len();
 
     log!(
-        "TextToMotion: generated clip '{}' with {} tracks in {:.0}ms (model: {})",
+        "TextToAnimation: generated clip '{}' with {} tracks in {:.0}ms (model: {})",
         clip_name,
-        clip.tracks.len(),
+        track_count,
         generation_time_ms,
         model_used
     );
 
-    state.status = TextToMotionStatus::Generated;
-    state.generated_clip = Some(clip);
-    state.generation_time_ms = Some(generation_time_ms);
-    state.model_used = Some(model_used);
+    {
+        let mut state = world.resource_mut::<TextToAnimationState>();
+        text_to_animation_set_motion_result(&mut state, clip, generation_time_ms, model_used);
+    }
+
+    let clip = {
+        let mut state = world.resource_mut::<TextToAnimationState>();
+        state.generated_clip.take()
+    };
+
+    if let Some(clip) = clip {
+        let mut clip_library = world.resource_mut::<ClipLibrary>();
+        let new_id = crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
+            &mut clip_library,
+            assets,
+            clip,
+        );
+        drop(clip_library);
+
+        let mut timeline = world.resource_mut::<TimelineState>();
+        timeline.current_clip_id = Some(new_id);
+        drop(timeline);
+
+        let mut state = world.resource_mut::<TextToAnimationState>();
+        text_to_animation_mark_done(&mut state);
+
+        log!("TextToAnimation: applied clip (id={})", new_id);
+    }
 }
 
 #[cfg(feature = "auto-rig")]
@@ -393,14 +602,24 @@ pub fn poll_mesh_server_status(world: &mut crate::ecs::world::World) {
 
 #[cfg(feature = "text-to-motion")]
 fn route_grpc_error(world: &mut crate::ecs::world::World, message: &str) {
-    use crate::ecs::resource::{TextToMotionState, TextToMotionStatus};
+    #[cfg(feature = "auto-rig")]
+    {
+        use crate::ecs::resource::{TextToAnimationState, TextToAnimationStatus};
+        use crate::ecs::systems::text_to_animation_mark_error;
 
-    if let Some(mut state) = world.get_resource_mut::<TextToMotionState>() {
-        if state.status == TextToMotionStatus::Generating {
-            log_error!("TextToMotion: error - {}", message);
-            state.status = TextToMotionStatus::Error;
-            state.error_message = Some(message.to_string());
-            return;
+        if let Some(mut state) = world.get_resource_mut::<TextToAnimationState>() {
+            let active = matches!(
+                state.status,
+                TextToAnimationStatus::AutoRigging
+                    | TextToAnimationStatus::AutoRigApplying
+                    | TextToAnimationStatus::GeneratingMotion
+                    | TextToAnimationStatus::ApplyingClip
+            );
+            if active {
+                log_error!("TextToAnimation: error - {}", message);
+                text_to_animation_mark_error(&mut state, message.to_string());
+                return;
+            }
         }
     }
 
@@ -439,13 +658,47 @@ fn route_grpc_error(world: &mut crate::ecs::world::World, message: &str) {
     log_warn!("gRPC error with no active request: {}", message);
 }
 
-#[cfg(feature = "text-to-motion")]
-fn truncate_prompt(prompt: &str, max_len: usize) -> String {
-    if prompt.len() <= max_len {
-        prompt.to_string()
+#[cfg(feature = "auto-rig")]
+fn prompt_to_snake_case(prompt: &str, max_len: usize) -> String {
+    let sanitized: String = prompt
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '_'
+            }
+        })
+        .collect();
+
+    let collapsed = collapse_repeated_underscores(&sanitized);
+    let trimmed = collapsed.trim_matches('_');
+    let truncated: String = trimmed.chars().take(max_len).collect();
+    let result = truncated.trim_end_matches('_').to_string();
+
+    if result.is_empty() {
+        "untitled".to_string()
     } else {
-        format!("{}...", &prompt[..max_len])
+        result
     }
+}
+
+#[cfg(feature = "auto-rig")]
+fn collapse_repeated_underscores(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut last_underscore = false;
+    for c in input.chars() {
+        if c == '_' {
+            if !last_underscore {
+                out.push('_');
+                last_underscore = true;
+            }
+        } else {
+            out.push(c);
+            last_underscore = false;
+        }
+    }
+    out
 }
 
 #[cfg(feature = "auto-rig")]
@@ -504,6 +757,7 @@ pub fn dispatch_text_to_mesh_events(
                     deferred.push(
                         super::super::ui_event_systems::DeferredAction::LoadModelFromMemory {
                             glb_data,
+                            source: crate::ecs::events::ModelLoadSource::TextToMeshOutput,
                         },
                     );
                     log!("TextToMesh: applying generated mesh to scene");
@@ -528,11 +782,16 @@ fn apply_rig_response(
     joint_count: u32,
     bone_count: u32,
     generation_time_ms: f32,
+    deferred: &mut Vec<super::super::ui_event_systems::DeferredAction>,
 ) {
-    use crate::ecs::resource::{AutoRigState, AutoRigStatus};
+    use crate::ecs::events::ModelLoadSource;
+    use crate::ecs::resource::{
+        AutoRigState, AutoRigStatus, TextToAnimationState, TextToAnimationStatus,
+    };
+    use crate::ecs::systems::text_to_animation_advance_to_apply_rig;
 
-    let mut state = world.resource_mut::<AutoRigState>();
-    if state.status != AutoRigStatus::Rigging {
+    let mut auto_rig = world.resource_mut::<AutoRigState>();
+    if auto_rig.status != AutoRigStatus::Rigging {
         return;
     }
 
@@ -544,11 +803,35 @@ fn apply_rig_response(
         generation_time_ms
     );
 
-    state.joint_count = Some(joint_count);
-    state.bone_count = Some(bone_count);
-    state.generation_time_ms = Some(generation_time_ms);
-    state.rigged_glb_data = Some(rigged_glb_data);
-    state.status = AutoRigStatus::Previewing;
+    auto_rig.joint_count = Some(joint_count);
+    auto_rig.bone_count = Some(bone_count);
+    auto_rig.generation_time_ms = Some(generation_time_ms);
+
+    let orchestrated =
+        world.resource::<TextToAnimationState>().status == TextToAnimationStatus::AutoRigging;
+
+    if orchestrated {
+        auto_rig.status = AutoRigStatus::Idle;
+        auto_rig.rigged_glb_data = None;
+        auto_rig.original_glb_backup = None;
+        auto_rig.target_entity = None;
+        drop(auto_rig);
+
+        let mut state = world.resource_mut::<TextToAnimationState>();
+        text_to_animation_advance_to_apply_rig(&mut state);
+        drop(state);
+
+        deferred.push(
+            super::super::ui_event_systems::DeferredAction::LoadModelFromMemory {
+                glb_data: rigged_glb_data,
+                source: ModelLoadSource::AutoRigOutput,
+            },
+        );
+        log!("TextToAnimation: rigged GLB queued for load (orchestrated)");
+    } else {
+        auto_rig.rigged_glb_data = Some(rigged_glb_data);
+        auto_rig.status = AutoRigStatus::Previewing;
+    }
 }
 
 #[cfg(feature = "auto-rig")]
@@ -612,7 +895,6 @@ pub fn dispatch_auto_rig_events(
     use crate::ecs::events::UIEvent;
     use crate::ecs::resource::{AutoRigState, AutoRigStatus, HierarchyState};
     use crate::ecs::systems::{auto_rig_cancel, auto_rig_submit};
-    use crate::ecs::world::Parent;
     use crate::grpc::GrpcThreadHandle;
 
     const DEFAULT_ENDPOINT: &str = "http://localhost:50051";
@@ -679,6 +961,7 @@ pub fn dispatch_auto_rig_events(
                     deferred.push(
                         super::super::ui_event_systems::DeferredAction::LoadModelFromMemory {
                             glb_data: rigged_glb,
+                            source: crate::ecs::events::ModelLoadSource::AutoRigOutput,
                         },
                     );
                     log!("AutoRig: applying rigged model to scene");
@@ -693,6 +976,7 @@ pub fn dispatch_auto_rig_events(
                         deferred.push(
                             super::super::ui_event_systems::DeferredAction::LoadModelFromMemory {
                                 glb_data: original_glb,
+                                source: crate::ecs::events::ModelLoadSource::UserFile,
                             },
                         );
                         log!("AutoRig: discarding, reverting to original model");

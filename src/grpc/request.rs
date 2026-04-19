@@ -2,6 +2,7 @@ pub struct TextToMotionRequest {
     pub prompt: String,
     pub duration_seconds: f32,
     pub target_fps: i32,
+    pub glb_data: Vec<u8>,
 }
 
 #[cfg(feature = "auto-rig")]

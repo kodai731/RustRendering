@@ -52,9 +52,9 @@ mod scene_state;
 mod spring_bone_editor_state;
 mod spring_bone_state;
 #[cfg(feature = "auto-rig")]
+mod text_to_animation_state;
+#[cfg(feature = "auto-rig")]
 mod text_to_mesh_state;
-#[cfg(feature = "text-to-motion")]
-mod text_to_motion_state;
 mod timeline_interaction_state;
 mod timeline_state;
 mod tone_mapping;
@@ -116,9 +116,9 @@ pub use scene_state::*;
 pub use spring_bone_editor_state::*;
 pub use spring_bone_state::*;
 #[cfg(feature = "auto-rig")]
+pub use text_to_animation_state::*;
+#[cfg(feature = "auto-rig")]
 pub use text_to_mesh_state::*;
-#[cfg(feature = "text-to-motion")]
-pub use text_to_motion_state::*;
 pub use timeline_interaction_state::*;
 pub use timeline_state::*;
 pub use tone_mapping::*;
