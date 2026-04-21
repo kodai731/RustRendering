@@ -51,6 +51,9 @@ impl System {
         let mut status_bar_state = StatusBarState::default();
         #[cfg(feature = "auto-rig")]
         let mut text_to_mesh_dialog_state = crate::platform::ui::TextToMeshDialogState::default();
+        #[cfg(feature = "auto-rig")]
+        let mut text_to_animation_dialog_state =
+            crate::platform::ui::TextToAnimationDialogState::default();
 
         event_loop
             .run(move |event, window_target| match event {
@@ -83,6 +86,8 @@ impl System {
                         &mut status_bar_state,
                         #[cfg(feature = "auto-rig")]
                         &mut text_to_mesh_dialog_state,
+                        #[cfg(feature = "auto-rig")]
+                        &mut text_to_animation_dialog_state,
                     );
                 }
 
@@ -107,6 +112,8 @@ fn dispatch_window_event(
     status_bar_state: &mut StatusBarState,
     #[cfg(feature = "auto-rig")]
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
+    #[cfg(feature = "auto-rig")]
+    text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
     match event {
         WindowEvent::CloseRequested => window_target.exit(),
@@ -150,6 +157,8 @@ fn dispatch_window_event(
                 status_bar_state,
                 #[cfg(feature = "auto-rig")]
                 text_to_mesh_dialog,
+                #[cfg(feature = "auto-rig")]
+                text_to_animation_dialog,
             );
         }
 
@@ -189,6 +198,8 @@ fn handle_redraw_requested(
     status_bar_state: &mut StatusBarState,
     #[cfg(feature = "auto-rig")]
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
+    #[cfg(feature = "auto-rig")]
+    text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
     let ui = imgui.frame();
 
@@ -213,6 +224,8 @@ fn handle_redraw_requested(
         load_status: model_state.load_status.clone(),
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
+        #[cfg(feature = "auto-rig")]
+        open_text_to_animation_dialog: false,
     };
     drop(model_state);
 
@@ -225,6 +238,8 @@ fn handle_redraw_requested(
         status_bar_state,
         #[cfg(feature = "auto-rig")]
         text_to_mesh_dialog,
+        #[cfg(feature = "auto-rig")]
+        text_to_animation_dialog,
     );
 
     #[cfg(debug_assertions)]
@@ -254,6 +269,8 @@ fn build_ui_windows(
     status_bar_state: &mut StatusBarState,
     #[cfg(feature = "auto-rig")]
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
+    #[cfg(feature = "auto-rig")]
+    text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
     let display_size = ui.io().display_size;
 
@@ -292,12 +309,22 @@ fn build_ui_windows(
             text_to_mesh_dialog.open = true;
             overlay_state.open_text_to_mesh_dialog = false;
         }
+        if overlay_state.open_text_to_animation_dialog {
+            text_to_animation_dialog.open = true;
+            overlay_state.open_text_to_animation_dialog = false;
+        }
 
         let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
         crate::platform::ui::build_text_to_mesh_dialog(
             ui,
             &mut *ui_events,
             text_to_mesh_dialog,
+            &app.data.ecs_world,
+        );
+        crate::platform::ui::build_text_to_animation_dialog(
+            ui,
+            &mut *ui_events,
+            text_to_animation_dialog,
             &app.data.ecs_world,
         );
     }
@@ -650,9 +677,16 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
         }
 
         #[cfg(feature = "auto-rig")]
-        DeferredAction::LoadModelFromMemory { glb_data } => {
+        DeferredAction::LoadModelFromMemory { glb_data, source } => {
             match app.load_model_from_glb(&glb_data) {
-                Ok(()) => {}
+                Ok(()) => {
+                    log!(
+                        "DeferredAction::LoadModelFromMemory: load OK, sending ModelLoadedFromMemory({:?})",
+                        source
+                    );
+                    let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
+                    ui_events.send(UIEvent::ModelLoadedFromMemory { source });
+                }
                 Err(e) => {
                     log_error!("Failed to load generated mesh: {}", e);
                     let mut state = app
@@ -825,13 +859,13 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         return;
     };
 
-    let source_glb_path = app
+    let source_bytes = app
         .data
         .ecs_world
         .get_resource::<crate::ecs::resource::GltfModelCache>()
-        .and_then(|cache| cache.source_path.clone());
+        .and_then(|cache| resolve_glb_bytes(&*cache));
 
-    let Some(source_glb_path) = source_glb_path else {
+    let Some(source_bytes) = source_bytes else {
         msg_error!("glTF export failed: no source glTF/GLB model loaded");
         return;
     };
@@ -846,8 +880,8 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         return;
     };
 
-    match crate::exporter::gltf_exporter::export_gltf_animation(
-        std::path::Path::new(&source_glb_path),
+    match crate::exporter::gltf_exporter::export_gltf_animation_from_bytes(
+        &source_bytes,
         &clip,
         &skeleton,
         &path,

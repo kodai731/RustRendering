@@ -1536,6 +1536,10 @@ fn convert_joint_animations_to_clip(joint_animations: &[Vec<JointAnimation>]) ->
 
         let mut channel = TransformChannel::default();
 
+        let has_translation_source = anims.iter().any(|a| !a.translations.is_empty());
+        let has_rotation_source = anims.iter().any(|a| !a.rotations.is_empty());
+        let has_scale_source = anims.iter().any(|a| !a.scales.is_empty());
+
         for &time in &all_times {
             let mut combined_translate = Matrix4::identity();
             let mut combined_rotation = Matrix4::identity();
@@ -1555,31 +1559,37 @@ fn convert_joint_animations_to_clip(joint_animations: &[Vec<JointAnimation>]) ->
                 }
             }
 
-            channel.translation.push(Keyframe::with_interpolation(
-                time,
-                Vector3::new(
-                    combined_translate[3][0],
-                    combined_translate[3][1],
-                    combined_translate[3][2],
-                ),
-                Interpolation::Step,
-            ));
+            if has_translation_source {
+                channel.translation.push(Keyframe::with_interpolation(
+                    time,
+                    Vector3::new(
+                        combined_translate[3][0],
+                        combined_translate[3][1],
+                        combined_translate[3][2],
+                    ),
+                    Interpolation::Step,
+                ));
+            }
 
-            channel.rotation.push(Keyframe::with_interpolation(
-                time,
-                matrix_to_quaternion(&combined_rotation),
-                Interpolation::Step,
-            ));
+            if has_rotation_source {
+                channel.rotation.push(Keyframe::with_interpolation(
+                    time,
+                    matrix_to_quaternion(&combined_rotation),
+                    Interpolation::Step,
+                ));
+            }
 
-            channel.scale.push(Keyframe::with_interpolation(
-                time,
-                Vector3::new(
-                    combined_scale[0][0],
-                    combined_scale[1][1],
-                    combined_scale[2][2],
-                ),
-                Interpolation::Step,
-            ));
+            if has_scale_source {
+                channel.scale.push(Keyframe::with_interpolation(
+                    time,
+                    Vector3::new(
+                        combined_scale[0][0],
+                        combined_scale[1][1],
+                        combined_scale[2][2],
+                    ),
+                    Interpolation::Step,
+                ));
+            }
         }
 
         if !channel.translation.is_empty()
@@ -1747,5 +1757,85 @@ fn matrix_to_quaternion(m: &Matrix4<f32>) -> Quaternion<f32> {
             (m[2][1] + m[1][2]) / s,
             0.25 * s,
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn make_identity_mat4() -> Mat4 {
+        Matrix4::identity()
+    }
+
+    fn make_translation_mat4(x: f32, y: f32, z: f32) -> Mat4 {
+        Matrix4::from_translation(Vector3::new(x, y, z))
+    }
+
+    fn make_rotation_y_mat4(radians: f32) -> Mat4 {
+        Matrix4::from_angle_y(cgmath::Rad(radians))
+    }
+
+    #[test]
+    fn convert_rotation_only_joint_animation_does_not_emit_translation_keyframes() {
+        let rotation_anim = JointAnimation {
+            key_frames: vec![0.0, 1.0, 2.0],
+            translations: Vec::new(),
+            rotations: vec![
+                make_identity_mat4(),
+                make_rotation_y_mat4(std::f32::consts::FRAC_PI_2),
+                make_rotation_y_mat4(std::f32::consts::PI),
+            ],
+            scales: Vec::new(),
+        };
+        let joint_animations = vec![vec![rotation_anim]];
+
+        let clip = convert_joint_animations_to_clip(&joint_animations);
+
+        let channel = clip.channels.get(&0).expect("channel for joint 0 exists");
+        assert!(
+            channel.translation.is_empty(),
+            "translation channel must stay empty when source has no translation data, \
+             so sample_clip_to_pose falls back to the bone rest translation"
+        );
+        assert!(
+            channel.scale.is_empty(),
+            "scale channel must stay empty when source has no scale data"
+        );
+        assert_eq!(
+            channel.rotation.len(),
+            3,
+            "rotation keyframes must be preserved"
+        );
+    }
+
+    #[test]
+    fn convert_translation_and_rotation_joint_animation_emits_both_channels() {
+        let translation_anim = JointAnimation {
+            key_frames: vec![0.0, 1.0],
+            translations: vec![
+                make_translation_mat4(1.0, 2.0, 3.0),
+                make_translation_mat4(4.0, 5.0, 6.0),
+            ],
+            rotations: Vec::new(),
+            scales: Vec::new(),
+        };
+        let rotation_anim = JointAnimation {
+            key_frames: vec![0.0, 1.0],
+            translations: Vec::new(),
+            rotations: vec![
+                make_identity_mat4(),
+                make_rotation_y_mat4(std::f32::consts::FRAC_PI_2),
+            ],
+            scales: Vec::new(),
+        };
+        let joint_animations = vec![vec![translation_anim, rotation_anim]];
+
+        let clip = convert_joint_animations_to_clip(&joint_animations);
+        let channel = clip.channels.get(&0).expect("channel for joint 0 exists");
+
+        assert_eq!(channel.translation.len(), 2);
+        assert_eq!(channel.rotation.len(), 2);
+        assert!(channel.scale.is_empty());
     }
 }

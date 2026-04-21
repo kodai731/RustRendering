@@ -12,6 +12,13 @@ message MotionRequest {
     int32 target_fps = 3;
     SkeletonType skeleton_type = 4;
     repeated BoneMapping bone_mappings = 5;
+    GlbSkeletonSpec glb_skeleton = 6;
+    bool internal_use_only = 7;
+}
+
+message GlbSkeletonSpec {
+    bytes glb_data = 1;
+    string skeleton_cache_id = 2;
 }
 
 enum SkeletonType {

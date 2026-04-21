@@ -332,11 +332,11 @@ impl App {
 
         #[cfg(feature = "text-to-motion")]
         data.ecs_world
-            .insert_resource(crate::ecs::resource::TextToMotionState::default());
-
-        #[cfg(feature = "text-to-motion")]
-        data.ecs_world
             .insert_resource(crate::ecs::resource::GrpcServerProcess::default());
+
+        #[cfg(feature = "auto-rig")]
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::TextToAnimationState::default());
 
         #[cfg(feature = "auto-rig")]
         data.ecs_world

@@ -17,6 +17,8 @@ pub struct SceneOverlayState {
     pub load_status: String,
     #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
+    #[cfg(feature = "auto-rig")]
+    pub open_text_to_animation_dialog: bool,
 }
 
 #[cfg(feature = "auto-rig")]
@@ -105,6 +107,14 @@ fn build_model_section(
     #[cfg(feature = "auto-rig")]
     if ui.button("Generate Mesh") {
         state.open_text_to_mesh_dialog = true;
+    }
+
+    #[cfg(feature = "auto-rig")]
+    {
+        ui.same_line();
+        if ui.button("Generate Animation") {
+            state.open_text_to_animation_dialog = true;
+        }
     }
 
     #[cfg(feature = "auto-rig")]

@@ -20,6 +20,14 @@ use crate::ecs::resource::{
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;
 
+#[cfg(feature = "auto-rig")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelLoadSource {
+    UserFile,
+    AutoRigOutput,
+    TextToMeshOutput,
+}
+
 #[derive(Clone, Debug)]
 pub enum UIEvent {
     LoadModel {
@@ -336,15 +344,17 @@ pub enum UIEvent {
     #[cfg(feature = "ml")]
     CurveSuggestionDismiss,
 
-    #[cfg(feature = "text-to-motion")]
-    TextToMotionGenerate {
+    #[cfg(feature = "auto-rig")]
+    TextToAnimationGenerate {
         prompt: String,
         duration_seconds: f32,
     },
-    #[cfg(feature = "text-to-motion")]
-    TextToMotionApply,
-    #[cfg(feature = "text-to-motion")]
-    TextToMotionCancel,
+    #[cfg(feature = "auto-rig")]
+    TextToAnimationCancel,
+    #[cfg(feature = "auto-rig")]
+    ModelLoadedFromMemory {
+        source: ModelLoadSource,
+    },
 
     #[cfg(feature = "auto-rig")]
     TextToMeshGenerate {

@@ -134,7 +134,9 @@ async fn ensure_connected(
         Ok(channel_builder) => match channel_builder.connect().await {
             Ok(channel) => {
                 *client = Some(
-                    proto::text_to_motion_service_client::TextToMotionServiceClient::new(channel),
+                    proto::text_to_motion_service_client::TextToMotionServiceClient::new(channel)
+                        .max_encoding_message_size(64 * 1024 * 1024)
+                        .max_decoding_message_size(64 * 1024 * 1024),
                 );
                 true
             }
@@ -240,8 +242,13 @@ async fn handle_generate_motion(
         prompt: req.prompt,
         duration_seconds: req.duration_seconds,
         target_fps: req.target_fps,
-        skeleton_type: proto::SkeletonType::VrmHumanoid as i32,
+        skeleton_type: proto::SkeletonType::Smpl22 as i32,
         bone_mappings: vec![],
+        glb_skeleton: Some(proto::GlbSkeletonSpec {
+            glb_data: req.glb_data,
+            skeleton_cache_id: String::new(),
+        }),
+        internal_use_only: true,
     };
 
     match c.generate_motion(tonic::Request::new(proto_request)).await {

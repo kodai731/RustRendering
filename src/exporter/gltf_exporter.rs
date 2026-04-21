@@ -21,7 +21,17 @@ pub fn export_gltf_animation(
     output_path: &Path,
 ) -> Result<()> {
     let raw_bytes = fs::read(source_glb_path)?;
-    let glb = Glb::from_slice(&raw_bytes).map_err(|e| anyhow!("Failed to parse GLB: {:?}", e))?;
+    export_gltf_animation_from_bytes(&raw_bytes, clip, skeleton, output_path)
+}
+
+pub fn export_gltf_animation_from_bytes(
+    source_glb_bytes: &[u8],
+    clip: &EditableAnimationClip,
+    skeleton: &Skeleton,
+    output_path: &Path,
+) -> Result<()> {
+    let glb =
+        Glb::from_slice(source_glb_bytes).map_err(|e| anyhow!("Failed to parse GLB: {:?}", e))?;
 
     let mut root: json::Root = json::Root::from_slice(&glb.json)
         .map_err(|e| anyhow!("Failed to parse glTF JSON: {:?}", e))?;

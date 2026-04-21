@@ -26,6 +26,7 @@ pub enum DeferredAction {
     #[cfg(feature = "auto-rig")]
     LoadModelFromMemory {
         glb_data: Vec<u8>,
+        source: crate::ecs::events::ModelLoadSource,
     },
     LoadModelAdditive {
         path: String,
