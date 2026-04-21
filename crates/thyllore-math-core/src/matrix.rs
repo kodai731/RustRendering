@@ -1,4 +1,4 @@
-use crate::math::vector::{approx_equal_vec4, ToArray4};
+use crate::vector::{approx_equal_vec4, ToArray4};
 use cgmath::{InnerSpace, Matrix3, Matrix4, Quaternion, Vector3};
 
 pub type Mat3 = cgmath::Matrix3<f32>;
@@ -60,9 +60,6 @@ pub unsafe fn rodrigues(
     let xs = n.x * s;
     let ys = n.y * s;
     let zs = n.z * s;
-    // rotate = glm::mat3(c + n.x * n.x * ac, n.x * n.y * ac + n.z * s, n.z * n.x * ac - n.y * s,
-    //     n.x * n.y * ac - n.z * s, c + n.y * n.y * ac, n.y * n.z * ac + n.x * s,
-    //     n.z * n.x * ac + n.y * s, n.y * n.z * ac - n.x * s, c + n.z * n.z * ac);
     *rotate = cgmath::Matrix3::new(
         c + n.x * n.x * ac,
         xyac + zs,

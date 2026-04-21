@@ -1,13 +1,13 @@
-use crate::math::matrix::Mat4;
-use crate::math::vector::Vector4;
+use crate::matrix::Mat4;
+use crate::vector::Vector4;
 use cgmath::{vec3, Deg, InnerSpace, Matrix4, Rad, SquareMatrix, Vector2, Vector3};
 use std::f32::EPSILON;
 
 pub fn fix_coord() -> Mat4 {
     Matrix4::from_cols(
-        Vector4::new(1.0, 0.0, 0.0, 0.0), // X ← X
-        Vector4::new(0.0, 0.0, 1.0, 0.0), // Y ← Z
-        Vector4::new(0.0, 1.0, 0.0, 0.0), // Z ← -Y
+        Vector4::new(1.0, 0.0, 0.0, 0.0),
+        Vector4::new(0.0, 0.0, 1.0, 0.0),
+        Vector4::new(0.0, 1.0, 0.0, 0.0),
         Vector4::new(0.0, 0.0, 0.0, 1.0),
     )
 }
@@ -16,7 +16,6 @@ pub unsafe fn view(
     direction: cgmath::Vector3<f32>,
     up: cgmath::Vector3<f32>,
 ) -> cgmath::Matrix4<f32> {
-    // glam look_to_rh 互換 (projection_y_flip との組み合わせで正しい向きになる)
     let forward = cgmath::Vector3::normalize(direction);
     let n_x = cgmath::Vector3::normalize(cgmath::Vector3::cross(forward, up));
     let n_y = cgmath::Vector3::cross(n_x, forward);

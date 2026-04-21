@@ -1,4 +1,4 @@
-use crate::math::matrix::Mat4;
+use crate::matrix::Mat4;
 use cgmath::{Vector2, Vector3};
 
 pub fn calculate_billboard_click_rect(

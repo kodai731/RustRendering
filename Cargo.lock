@@ -1558,6 +1558,7 @@ dependencies = [
  "bitflags 1.3.2",
  "cfg-if",
  "imgui-sys",
+ "memoffset 0.9.1",
  "mint",
  "parking_lot",
 ]
@@ -1570,6 +1571,8 @@ dependencies = [
  "cfg-if",
  "chlorine",
  "mint",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -3241,12 +3244,21 @@ dependencies = [
  "serde",
  "serde_json",
  "thiserror",
+ "thyllore-math-core",
  "tokio",
  "tonic",
  "tonic-build",
  "ufbx",
  "vulkanalia",
  "winit",
+]
+
+[[package]]
+name = "thyllore-math-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
 ]
 
 [[package]]
