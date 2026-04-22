@@ -1,10 +1,9 @@
 use std::collections::HashMap;
 
-use crate::animation::BoneId;
-use crate::ecs::resource::{CopiedKeyframe, KeyframeCopyBuffer};
-
-use crate::animation::editable::components::curve::PropertyType;
-use crate::animation::editable::components::mirror::{MirrorAxis, MirrorMapping};
+use crate::editable::components::curve::PropertyType;
+use crate::editable::components::keyframe_copy::{CopiedKeyframe, KeyframeCopyBuffer};
+use crate::editable::components::mirror::{MirrorAxis, MirrorMapping};
+use crate::BoneId;
 
 pub fn build_mirror_mapping(bone_names: &HashMap<BoneId, String>) -> MirrorMapping {
     let mut pairs = Vec::new();
@@ -151,7 +150,7 @@ mod tests {
 
     #[test]
     fn test_mirror_keyframes_translation_x_negated() {
-        use crate::animation::editable::{BezierHandle, InterpolationType, TangentWeightMode};
+        use crate::editable::{BezierHandle, InterpolationType, TangentWeightMode};
 
         let buffer = KeyframeCopyBuffer {
             entries: vec![CopiedKeyframe {

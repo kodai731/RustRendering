@@ -5,13 +5,12 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 
-use crate::animation::{AnimationClip, AnimationClipId, BoneId};
+use crate::{AnimationClip, AnimationClipId, BoneId};
 
 use super::super::components::clip::EditableAnimationClip;
 use super::super::components::keyframe::SourceClipId;
 use super::clip_convert::{clip_from_animation, clip_to_animation};
 
-// can be divided into data and free functions in the future
 #[derive(Clone, Debug, Default)]
 pub struct EditableClipManager {
     clips: HashMap<SourceClipId, EditableAnimationClip>,
@@ -147,7 +146,6 @@ impl EditableClipManager {
         ron::ser::to_writer_pretty(writer, clip, ron::ser::PrettyConfig::default())
             .with_context(|| format!("Failed to serialize clip to: {:?}", path))?;
 
-        log!("Saved animation clip '{}' to {:?}", clip.name, path);
         Ok(())
     }
 
@@ -163,13 +161,6 @@ impl EditableClipManager {
         self.next_clip_id += 1;
         clip.id = id;
         clip.source_path = Some(path.to_string_lossy().to_string());
-
-        log!(
-            "Loaded animation clip '{}' from {:?} (id={})",
-            clip.name,
-            path,
-            id
-        );
 
         self.clips.insert(id, clip);
         Ok(id)

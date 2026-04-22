@@ -1,4 +1,4 @@
-use crate::animation::BoneId;
+use crate::BoneId;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MirrorAxis {

@@ -1,8 +1,8 @@
 use std::collections::HashMap;
 
-use crate::animation::editable::components::clip::EditableAnimationClip;
-use crate::animation::editable::components::track::BoneTrack;
-use crate::animation::BoneId;
+use crate::editable::components::clip::EditableAnimationClip;
+use crate::editable::components::track::BoneTrack;
+use crate::BoneId;
 
 pub fn clip_recalculate_duration(clip: &mut EditableAnimationClip) {
     let mut max_time: f32 = 0.0;

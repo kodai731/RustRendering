@@ -7,7 +7,9 @@ pub use components::clip_group::*;
 pub use components::clip_instance::*;
 pub use components::curve::*;
 pub use components::keyframe::*;
+pub use components::keyframe_copy::*;
 pub use components::mirror::*;
+pub use components::snap_settings::*;
 pub use components::source_clip::*;
 pub use components::track::*;
 

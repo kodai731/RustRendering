@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::animation::BoneId;
+use crate::BoneId;
 
-use super::curve::PropertyType;
 use super::keyframe::SourceClipId;
 use super::track::BoneTrack;
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct EditableAnimationClip {
     pub id: SourceClipId,

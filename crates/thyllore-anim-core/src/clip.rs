@@ -1,7 +1,7 @@
 use cgmath::{Matrix4, Quaternion, Vector3};
 use std::collections::HashMap;
 
-pub use thyllore_model_core::{Bone, BoneId, Skeleton, SkeletonId, SkinData};
+use crate::{BoneId, Skeleton, SkeletonId};
 
 pub type AnimationClipId = u32;
 
@@ -114,7 +114,7 @@ impl TransformChannel {
             return Some(last_kf.value);
         }
 
-        let i = super::keyframe_search::find_keyframe_segment(keyframes, time);
+        let i = crate::keyframe_search::find_keyframe_segment(keyframes, time);
         let k0 = &keyframes[i];
         let k1 = &keyframes[i + 1];
         let t = (time - k0.time) / (k1.time - k0.time);
@@ -159,7 +159,7 @@ impl TransformChannel {
             return Some(last_kf.value);
         }
 
-        let i = super::keyframe_search::find_keyframe_segment(keyframes, time);
+        let i = crate::keyframe_search::find_keyframe_segment(keyframes, time);
         let k0 = &keyframes[i];
         let k1 = &keyframes[i + 1];
         let t = (time - k0.time) / (k1.time - k0.time);

@@ -1,6 +1,6 @@
 use cgmath::{Quaternion, Vector3};
 
-use super::BoneId;
+use crate::BoneId;
 
 pub type ConstraintId = u64;
 

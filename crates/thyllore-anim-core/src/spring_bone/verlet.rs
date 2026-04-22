@@ -1,6 +1,6 @@
 use cgmath::{InnerSpace, Matrix4, Quaternion, Vector3};
 
-use crate::animation::{compose_transform, decompose_transform, normalize_quat};
+use crate::{compose_transform, decompose_transform, normalize_quat};
 
 pub fn integrate_joint(
     current_tail: Vector3<f32>,

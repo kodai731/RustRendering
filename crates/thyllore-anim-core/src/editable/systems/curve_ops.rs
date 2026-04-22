@@ -1,10 +1,10 @@
-use crate::animation::editable::components::clip::EditableAnimationClip;
-use crate::animation::editable::components::curve::{PropertyCurve, PropertyType};
-use crate::animation::editable::components::keyframe::{
+use crate::editable::components::clip::EditableAnimationClip;
+use crate::editable::components::curve::{PropertyCurve, PropertyType};
+use crate::editable::components::keyframe::{
     BezierHandle, EditableKeyframe, InterpolationType, KeyframeId,
 };
-use crate::animation::editable::systems::tangent::{apply_auto_tangent, sample_bezier};
-use crate::animation::BoneId;
+use crate::editable::systems::tangent::{apply_auto_tangent, sample_bezier};
+use crate::BoneId;
 
 pub fn curve_add_keyframe(curve: &mut PropertyCurve, time: f32, value: f32) -> KeyframeId {
     let id = curve.allocate_keyframe_id();
@@ -148,12 +148,11 @@ pub fn curve_recalculate_auto_tangent_at(curve: &mut PropertyCurve, keyframe_id:
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::animation::editable::compute_handle_length;
-    use crate::animation::editable::TangentWeightMode;
+    use crate::editable::compute_handle_length;
+    use crate::editable::TangentWeightMode;
 
     fn make_curve_with_keyframes(times_values: &[(f32, f32)]) -> PropertyCurve {
-        let mut curve =
-            PropertyCurve::new(1, crate::animation::editable::PropertyType::TranslationX);
+        let mut curve = PropertyCurve::new(1, PropertyType::TranslationX);
         for &(time, value) in times_values {
             curve_add_keyframe(&mut curve, time, value);
         }
@@ -189,14 +188,13 @@ mod tests {
 
     #[test]
     fn test_curve_sample_empty() {
-        let curve = PropertyCurve::new(1, crate::animation::editable::PropertyType::TranslationX);
+        let curve = PropertyCurve::new(1, PropertyType::TranslationX);
         assert!(curve_sample(&curve, 0.5).is_none());
     }
 
     #[test]
     fn test_curve_add_and_remove_keyframe() {
-        let mut curve =
-            PropertyCurve::new(1, crate::animation::editable::PropertyType::TranslationX);
+        let mut curve = PropertyCurve::new(1, PropertyType::TranslationX);
         let id1 = curve_add_keyframe(&mut curve, 0.0, 1.0);
         let id2 = curve_add_keyframe(&mut curve, 1.0, 2.0);
         assert_eq!(curve.keyframe_count(), 2);
@@ -208,8 +206,7 @@ mod tests {
 
     #[test]
     fn test_curve_sort_after_add() {
-        let mut curve =
-            PropertyCurve::new(1, crate::animation::editable::PropertyType::TranslationX);
+        let mut curve = PropertyCurve::new(1, PropertyType::TranslationX);
         curve_add_keyframe(&mut curve, 2.0, 20.0);
         curve_add_keyframe(&mut curve, 0.0, 0.0);
         curve_add_keyframe(&mut curve, 1.0, 10.0);

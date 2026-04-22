@@ -1,4 +1,4 @@
-use super::Keyframe;
+use crate::Keyframe;
 
 pub fn find_keyframe_segment<T>(keyframes: &[Keyframe<T>], time: f32) -> usize {
     let idx = keyframes.partition_point(|kf| kf.time <= time);

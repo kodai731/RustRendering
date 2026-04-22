@@ -1,5 +1,5 @@
-use crate::animation::editable::components::curve::PropertyCurve;
-use crate::animation::editable::components::keyframe::{EditableKeyframe, InterpolationType};
+use crate::editable::components::curve::PropertyCurve;
+use crate::editable::components::keyframe::{EditableKeyframe, InterpolationType};
 
 pub fn collect_bake_times(curves: &[&PropertyCurve]) -> Vec<f32> {
     let has_bezier = curves.iter().any(|c| c.has_bezier_keyframes());
@@ -76,7 +76,7 @@ fn compute_bezier_subdivisions(k0: &EditableKeyframe, k1: &EditableKeyframe) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::animation::editable::{BezierHandle, EditableKeyframe, InterpolationType};
+    use crate::editable::{BezierHandle, EditableKeyframe, InterpolationType};
 
     fn make_bezier_kf(
         time: f32,

@@ -2,20 +2,20 @@ use std::collections::HashMap;
 
 use cgmath::Vector3;
 
-use crate::animation::editable::components::clip::EditableAnimationClip;
-use crate::animation::editable::components::curve::PropertyCurve;
-use crate::animation::editable::components::keyframe::{InterpolationType, SourceClipId};
-use crate::animation::editable::systems::bake::collect_bake_times;
-use crate::animation::editable::systems::curve_ops::{curve_add_keyframe, curve_sample};
-use crate::animation::{AnimationClip, BoneId, Keyframe, TransformChannel};
-use crate::math::{euler_degrees_to_quaternion, quaternion_to_euler_degrees};
+use crate::editable::components::clip::EditableAnimationClip;
+use crate::editable::components::curve::PropertyCurve;
+use crate::editable::components::keyframe::{InterpolationType, SourceClipId};
+use crate::editable::systems::bake::collect_bake_times;
+use crate::editable::systems::curve_ops::{curve_add_keyframe, curve_sample};
+use crate::{AnimationClip, BoneId, Keyframe, TransformChannel};
+use thyllore_math_core::{euler_degrees_to_quaternion, quaternion_to_euler_degrees};
 
 pub fn clip_from_animation(
     id: SourceClipId,
     clip: &AnimationClip,
     bone_names: &HashMap<BoneId, String>,
 ) -> EditableAnimationClip {
-    use crate::animation::Interpolation;
+    use crate::Interpolation;
 
     let mut editable = EditableAnimationClip::new(id, clip.name.clone());
     editable.duration = clip.duration;
@@ -129,7 +129,7 @@ fn import_vec3_keyframes(
     keyframes: &[Keyframe<Vector3<f32>>],
     curves: &mut [&mut PropertyCurve; 3],
 ) {
-    use crate::animation::Interpolation;
+    use crate::Interpolation;
 
     for (idx, kf) in keyframes.iter().enumerate() {
         let values = [kf.value.x, kf.value.y, kf.value.z];
@@ -156,7 +156,7 @@ fn import_vec3_keyframes(
 }
 
 fn set_cubic_bezier_handles(curve: &mut PropertyCurve, kf_id: u64, dt: f32, tangent_value: f32) {
-    use crate::animation::editable::components::keyframe::BezierHandle;
+    use crate::editable::components::keyframe::BezierHandle;
 
     if let Some(kf) = curve.get_keyframe_mut(kf_id) {
         kf.interpolation = InterpolationType::Bezier;
@@ -167,7 +167,7 @@ fn set_cubic_bezier_handles(curve: &mut PropertyCurve, kf_id: u64, dt: f32, tang
 }
 
 fn set_cubic_bezier_in_handles(curve: &mut PropertyCurve, kf_id: u64, dt: f32, tangent_value: f32) {
-    use crate::animation::editable::components::keyframe::BezierHandle;
+    use crate::editable::components::keyframe::BezierHandle;
 
     if let Some(kf) = curve.get_keyframe_mut(kf_id) {
         let handle_time = dt / 3.0;

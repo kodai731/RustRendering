@@ -1,6 +1,6 @@
 use cgmath::{Quaternion, Vector3};
 
-use super::SkeletonId;
+use crate::SkeletonId;
 
 #[derive(Clone, Debug)]
 pub struct BoneLocalPose {

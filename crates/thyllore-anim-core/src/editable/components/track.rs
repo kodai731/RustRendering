@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::animation::BoneId;
+use crate::BoneId;
 
 use super::curve::{PropertyCurve, PropertyType};
 use super::keyframe::CurveId;

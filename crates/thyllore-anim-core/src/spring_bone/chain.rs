@@ -1,4 +1,4 @@
-use crate::animation::{BoneId, Skeleton};
+use crate::{BoneId, Skeleton};
 
 pub fn build_evaluation_order(
     chains: &[(Vec<BoneId>,)],
