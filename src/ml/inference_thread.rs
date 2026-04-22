@@ -3,9 +3,10 @@ use std::thread;
 
 use anyhow::Result;
 use ort::session::Session;
-use ort::value::Tensor;
 
-use super::inference_request::{
+use thyllore_ml_core::copilot::input::{build_curve_copilot_tensors, build_curve_predict_tensor};
+use thyllore_ml_core::copilot::output::{parse_curve_copilot_output, parse_curve_predict_output};
+use thyllore_ml_core::{
     InferenceActorId, InferenceRequest, InferenceRequestKind, InferenceResult, InferenceResultKind,
 };
 
@@ -66,9 +67,7 @@ fn run_inference_loop(
     sender: mpsc::Sender<InferenceResult>,
 ) {
     while let Ok(request) = receiver.recv() {
-        let result = execute_inference(&mut session, &request);
-
-        match result {
+        match execute_inference(&mut session, &request) {
             Ok(result_kind) => {
                 let response = InferenceResult {
                     request_id: request.request_id,
@@ -92,15 +91,10 @@ fn execute_inference(
 ) -> Result<InferenceResultKind> {
     match &request.kind {
         InferenceRequestKind::CurvePredict { input } => {
-            let input_len = input.len();
-            let input_tensor = Tensor::from_array((vec![1i64, input_len as i64], input.clone()))?;
-
-            let outputs = session.run(ort::inputs![input_tensor])?;
-
-            let (_shape, output_data) = outputs[0].try_extract_tensor::<f32>()?;
-            let output_vec: Vec<f32> = output_data.to_vec();
-
-            Ok(InferenceResultKind::CurvePredict { output: output_vec })
+            let tensor = build_curve_predict_tensor(input)?;
+            let outputs = session.run(ort::inputs![tensor])?;
+            let output = parse_curve_predict_output(&outputs)?;
+            Ok(InferenceResultKind::CurvePredict { output })
         }
 
         InferenceRequestKind::CurveCopilotPredict {
@@ -110,86 +104,34 @@ fn execute_inference(
             bone_name_tokens,
             query_times,
             curve_window,
-        } => execute_curve_copilot(
-            session,
-            context,
-            *property_type_id,
-            topology_features,
-            bone_name_tokens,
-            query_times,
-            curve_window,
-        ),
-    }
-}
+        } => {
+            let tensors = build_curve_copilot_tensors(
+                context,
+                *property_type_id,
+                topology_features,
+                bone_name_tokens,
+                query_times,
+                curve_window,
+            )?;
 
-fn execute_curve_copilot(
-    session: &mut Session,
-    context: &[f32],
-    property_type_id: u32,
-    topology_features: &[f32],
-    bone_name_tokens: &[i64],
-    query_times: &[f32],
-    curve_window: &[f32],
-) -> Result<InferenceResultKind> {
-    use super::inference_request::CopilotStepPrediction;
+            let outputs = session.run(ort::inputs![
+                "context_keyframes" => tensors.context,
+                "property_type" => tensors.property_type,
+                "topology_features" => tensors.topology,
+                "bone_name_tokens" => tensors.bone_name,
+                "query_times" => tensors.query_times,
+                "curve_window" => tensors.curve_window
+            ])?;
 
-    let num_steps = query_times.len() as i64;
+            let steps = parse_curve_copilot_output(&outputs, query_times.len())?;
 
-    let context_tensor = Tensor::from_array((vec![1i64, 8, 6], context.to_vec()))?;
-    let property_type_tensor = Tensor::from_array((vec![1i64], vec![property_type_id as i64]))?;
-    let topology_tensor = Tensor::from_array((vec![1i64, 6], topology_features.to_vec()))?;
-    let name_tensor = Tensor::from_array((vec![1i64, 32], bone_name_tokens.to_vec()))?;
-    let query_times_tensor = Tensor::from_array((vec![1i64, num_steps], query_times.to_vec()))?;
-    let curve_window_len = curve_window.len() as i64;
-    let curve_window_tensor =
-        Tensor::from_array((vec![1i64, curve_window_len], curve_window.to_vec()))?;
+            log!(
+                "CurveCopilot raw output: {} steps, query_times={:?}",
+                steps.len(),
+                query_times
+            );
 
-    let outputs = session.run(ort::inputs![
-        "context_keyframes" => context_tensor,
-        "property_type" => property_type_tensor,
-        "topology_features" => topology_tensor,
-        "bone_name_tokens" => name_tensor,
-        "query_times" => query_times_tensor,
-        "curve_window" => curve_window_tensor
-    ])?;
-
-    let (_shape, prediction_data) = outputs[0].try_extract_tensor::<f32>()?;
-    let pred: Vec<f32> = prediction_data.to_vec();
-
-    let (_shape, confidence_data) = outputs[1].try_extract_tensor::<f32>()?;
-    let conf: Vec<f32> = confidence_data.to_vec();
-
-    log!("CurveCopilot confidence: {:?}", &conf);
-
-    const VALUES_PER_STEP: usize = 5;
-    let step_count = num_steps as usize;
-    let mut steps = Vec::with_capacity(step_count);
-
-    for i in 0..step_count {
-        let offset = i * VALUES_PER_STEP;
-        if offset + VALUES_PER_STEP > pred.len() {
-            break;
+            Ok(InferenceResultKind::CurveCopilotPredict { steps })
         }
-        let value = pred[offset];
-        let tangent_in = (pred[offset + 1], pred[offset + 2]);
-        let tangent_out = (pred[offset + 3], pred[offset + 4]);
-        let confidence = conf.get(i).copied().unwrap_or(0.0).clamp(0.0, 1.0);
-
-        steps.push(CopilotStepPrediction {
-            value,
-            tangent_in,
-            tangent_out,
-            confidence,
-        });
     }
-
-    log!(
-        "CurveCopilot raw output: {} steps, pred_len={}, conf_len={}, query_times={:?}",
-        steps.len(),
-        pred.len(),
-        conf.len(),
-        query_times
-    );
-
-    Ok(InferenceResultKind::CurveCopilotPredict { steps })
 }

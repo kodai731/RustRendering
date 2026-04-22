@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::animation::{BoneId, Skeleton};
+use crate::{BoneId, Skeleton};
 
 #[derive(Clone, Debug)]
 pub struct BoneTopologyFeatures {
@@ -167,22 +167,12 @@ fn compute_sibling_index(skeleton: &Skeleton, bone_id: BoneId) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cgmath::Matrix4;
 
     fn create_test_skeleton() -> Skeleton {
-        let mut skeleton = Skeleton {
-            id: 0,
-            name: "test".to_string(),
-            bones: Vec::new(),
-            bone_name_to_id: HashMap::new(),
-            root_bone_ids: Vec::new(),
-            root_transform: Matrix4::from_scale(1.0),
-        };
-
+        let mut skeleton = Skeleton::new("test");
         skeleton.add_bone("root", None);
         skeleton.add_bone("child", Some(0));
         skeleton.add_bone("leaf", Some(1));
-
         skeleton
     }
 
@@ -245,15 +235,7 @@ mod tests {
 
     #[test]
     fn test_branching_skeleton() {
-        let mut skeleton = Skeleton {
-            id: 0,
-            name: "branching".to_string(),
-            bones: Vec::new(),
-            bone_name_to_id: HashMap::new(),
-            root_bone_ids: Vec::new(),
-            root_transform: Matrix4::from_scale(1.0),
-        };
-
+        let mut skeleton = Skeleton::new("branching");
         skeleton.add_bone("root", None);
         skeleton.add_bone("left", Some(0));
         skeleton.add_bone("right", Some(0));

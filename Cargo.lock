@@ -3259,6 +3259,7 @@ dependencies = [
  "thiserror",
  "thyllore-anim-core",
  "thyllore-math-core",
+ "thyllore-ml-core",
  "thyllore-model-core",
  "tokio",
  "tonic",
@@ -3274,6 +3275,16 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "cgmath",
+]
+
+[[package]]
+name = "thyllore-ml-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "ort",
+ "thyllore-model-core",
 ]
 
 [[package]]

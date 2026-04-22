@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::animation::{BoneId, Skeleton};
+use crate::{BoneId, Skeleton};
 
 pub const BONE_NAME_TOKEN_LENGTH: usize = 32;
 pub const PAD_TOKEN: i64 = 0;
@@ -58,7 +58,6 @@ pub fn compute_bone_name_tokens(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cgmath::Matrix4;
 
     #[test]
     fn test_left_shoulder() {
@@ -66,8 +65,8 @@ mod tests {
         let non_pad: Vec<i64> = tokens.iter().copied().filter(|&t| t != PAD_TOKEN).collect();
 
         assert_eq!(non_pad.len(), 12);
-        assert_eq!(non_pad[0], 8 + 11); // 'l'
-        assert_eq!(non_pad[1], 8 + 4); // 'e'
+        assert_eq!(non_pad[0], 8 + 11);
+        assert_eq!(non_pad[1], 8 + 4);
     }
 
     #[test]
@@ -75,9 +74,9 @@ mod tests {
         let tokens = tokenize_bone_name("Bone.003_03");
         let non_pad: Vec<i64> = tokens.iter().copied().filter(|&t| t != PAD_TOKEN).collect();
 
-        assert!(non_pad.contains(&3)); // '.'
-        assert!(non_pad.contains(&2)); // '_'
-        assert!(non_pad.contains(&34)); // '0'
+        assert!(non_pad.contains(&3));
+        assert!(non_pad.contains(&2));
+        assert!(non_pad.contains(&34));
     }
 
     #[test]
@@ -87,7 +86,7 @@ mod tests {
 
         assert_eq!(tokens.len(), BONE_NAME_TOKEN_LENGTH);
         for &t in &tokens {
-            assert_eq!(t, 8); // 'a'
+            assert_eq!(t, 8);
         }
     }
 
@@ -115,21 +114,13 @@ mod tests {
         for &t in &tokens[..BONE_NAME_TOKEN_LENGTH - 2] {
             assert_eq!(t, PAD_TOKEN);
         }
-        assert_eq!(tokens[BONE_NAME_TOKEN_LENGTH - 2], 8); // 'a'
-        assert_eq!(tokens[BONE_NAME_TOKEN_LENGTH - 1], 9); // 'b'
+        assert_eq!(tokens[BONE_NAME_TOKEN_LENGTH - 2], 8);
+        assert_eq!(tokens[BONE_NAME_TOKEN_LENGTH - 1], 9);
     }
 
     #[test]
     fn test_compute_bone_name_tokens() {
-        let mut skeleton = Skeleton {
-            id: 0,
-            name: "test".to_string(),
-            bones: Vec::new(),
-            bone_name_to_id: HashMap::new(),
-            root_bone_ids: Vec::new(),
-            root_transform: Matrix4::from_scale(1.0),
-        };
-
+        let mut skeleton = Skeleton::new("test");
         skeleton.add_bone("root", None);
         skeleton.add_bone("child", Some(0));
 
