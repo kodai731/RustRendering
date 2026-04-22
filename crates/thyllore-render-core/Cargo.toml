@@ -1,0 +1,11 @@
+[package]
+name = "thyllore-render-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Layer 3 abstract render backend for ThylloreAnimation — pure GPU handle types and UBO structs. No ECS or Vulkan dependency"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+cgmath = "0.18"

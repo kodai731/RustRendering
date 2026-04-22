@@ -23,6 +23,10 @@ thyllore-math-core = { path = "crates/thyllore-math-core" }
 thyllore-model-core = { path = "crates/thyllore-model-core" }
 thyllore-anim-core = { path = "crates/thyllore-anim-core" }
 thyllore-ml-core = { path = "crates/thyllore-ml-core", optional = true }
+thyllore-importer-core = { path = "crates/thyllore-importer-core" }
+thyllore-exporter-core = { path = "crates/thyllore-exporter-core" }
+thyllore-render-core = { path = "crates/thyllore-render-core" }
+thyllore-vulkan-core = { path = "crates/thyllore-vulkan-core" }
 anyhow = "1"
 log = "0.4"
 cgmath = "0.18"
@@ -57,7 +61,7 @@ protox = { version = "0.7", optional = true }
 default = ["ml"]
 ml = ["dep:ort", "dep:thyllore-ml-core"]
 text-to-motion = ["dep:tonic", "dep:prost", "dep:tokio", "dep:tonic-build", "dep:protox"]
-auto-rig = ["text-to-motion"]
+auto-rig = ["text-to-motion", "thyllore-importer-core/auto-rig"]
 
 [dependencies.gltf]
 version = "1.4"

@@ -6,13 +6,7 @@ use crate::ecs::resource::billboard::BillboardData;
 use crate::ecs::resource::DistanceAttenuation;
 use crate::ecs::resource::ProjectionData;
 
-pub type MeshId = usize;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum BufferMemoryType {
-    DeviceLocal,
-    HostVisible,
-}
+pub use thyllore_render_core::{BufferMemoryType, MeshId};
 
 pub trait RenderBackend {
     unsafe fn upload_mesh_vertices(&mut self, mesh_id: MeshId) -> Result<()>;

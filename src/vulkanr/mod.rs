@@ -1,24 +1,27 @@
 pub mod backend;
-pub mod command;
 pub mod context;
-pub mod core;
-pub mod data;
-pub mod descriptor;
-pub mod pipeline;
-pub mod raytracing;
-pub mod render;
 pub mod renderer;
 pub mod resource;
-pub mod vulkan;
 
 pub use backend::VulkanBackend;
-pub use command::*;
-pub use context::*;
-pub use core::*;
-pub use data::*;
-pub use descriptor::*;
-pub use pipeline::*;
-pub use raytracing::*;
-pub use render::*;
-pub use resource::*;
-pub use vulkan::*;
+
+pub use thyllore_vulkan_core::core::{device, swapchain};
+pub use thyllore_vulkan_core::{
+    command, core, data, descriptor, pipeline, raytracing, render, vulkan,
+};
+
+pub use thyllore_vulkan_core::command::*;
+pub use thyllore_vulkan_core::core::*;
+pub use thyllore_vulkan_core::data::*;
+pub use thyllore_vulkan_core::descriptor::*;
+pub use thyllore_vulkan_core::pipeline::*;
+pub use thyllore_vulkan_core::raytracing::*;
+pub use thyllore_vulkan_core::render::*;
+pub use thyllore_vulkan_core::vulkan::*;
+
+pub mod buffer {
+    pub use thyllore_vulkan_core::resource::buffer::*;
+}
+pub mod image {
+    pub use thyllore_vulkan_core::resource::image::*;
+}

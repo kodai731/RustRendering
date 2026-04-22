@@ -19,7 +19,7 @@ use crate::ecs::resource::{
 };
 use crate::ecs::world::{Animator, Transform, World};
 use crate::loader::fbx::FbxModel;
-use crate::loader::texture::load_png_image;
+use crate::loader::load_png_image;
 use crate::loader::{ModelLoadResult, TextureSource};
 use crate::render::MaterialUBO;
 use crate::vulkanr::buffer::{RRIndexBuffer, RRVertexBuffer};

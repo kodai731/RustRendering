@@ -8,4 +8,5 @@ description = "Layer 1 static model definitions for ThylloreAnimation (Skeleton,
 repository = "https://github.com/kodai731/Thyllore-Animation"
 
 [dependencies]
+thyllore-math-core = { path = "../thyllore-math-core" }
 cgmath = "0.18"

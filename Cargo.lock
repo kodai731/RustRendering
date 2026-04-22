@@ -3258,15 +3258,51 @@ dependencies = [
  "serde_json",
  "thiserror",
  "thyllore-anim-core",
+ "thyllore-exporter-core",
+ "thyllore-importer-core",
  "thyllore-math-core",
  "thyllore-ml-core",
  "thyllore-model-core",
+ "thyllore-render-core",
+ "thyllore-vulkan-core",
  "tokio",
  "tonic",
  "tonic-build",
  "ufbx",
  "vulkanalia",
  "winit",
+]
+
+[[package]]
+name = "thyllore-exporter-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "fbxcel",
+ "gltf",
+ "serde_json",
+ "thyllore-anim-core",
+ "thyllore-importer-core",
+ "thyllore-math-core",
+ "thyllore-model-core",
+ "ufbx",
+]
+
+[[package]]
+name = "thyllore-importer-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "gltf",
+ "png 0.17.16",
+ "serde",
+ "serde_json",
+ "thyllore-anim-core",
+ "thyllore-math-core",
+ "thyllore-model-core",
+ "ufbx",
 ]
 
 [[package]]
@@ -3292,6 +3328,31 @@ name = "thyllore-model-core"
 version = "0.0.1"
 dependencies = [
  "cgmath",
+ "thyllore-math-core",
+]
+
+[[package]]
+name = "thyllore-render-core"
+version = "0.0.1"
+dependencies = [
+ "cgmath",
+]
+
+[[package]]
+name = "thyllore-vulkan-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "imgui",
+ "log",
+ "png 0.17.16",
+ "thiserror",
+ "thyllore-math-core",
+ "thyllore-model-core",
+ "thyllore-render-core",
+ "vulkanalia",
+ "winit",
 ]
 
 [[package]]
