@@ -3245,6 +3245,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "thyllore-math-core",
+ "thyllore-model-core",
  "tokio",
  "tonic",
  "tonic-build",
@@ -3258,6 +3259,13 @@ name = "thyllore-math-core"
 version = "0.0.1"
 dependencies = [
  "anyhow",
+ "cgmath",
+]
+
+[[package]]
+name = "thyllore-model-core"
+version = "0.0.1"
+dependencies = [
  "cgmath",
 ]
 

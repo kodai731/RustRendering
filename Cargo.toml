@@ -20,6 +20,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 thyllore-math-core = { path = "crates/thyllore-math-core" }
+thyllore-model-core = { path = "crates/thyllore-model-core" }
 anyhow = "1"
 log = "0.4"
 cgmath = "0.18"

@@ -1,0 +1,11 @@
+[package]
+name = "thyllore-model-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Layer 1 static model definitions for ThylloreAnimation (Skeleton, Bone, SkinData) — shared SSOT for ml-core, anim-core, importer-core"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+cgmath = "0.18"
