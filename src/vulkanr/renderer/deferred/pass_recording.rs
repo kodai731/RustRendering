@@ -5,29 +5,109 @@ use crate::app::App;
 use crate::ecs::resource::HierarchyState;
 use crate::ecs::world::MeshRef;
 
-use super::{CompositePass, GBufferPass, OnionSkinRenderPass, RayQueryPass};
-
 pub unsafe fn record_gbuffer_pass(
     app: &App,
     command_buffer: vk::CommandBuffer,
     image_index: usize,
 ) -> Result<()> {
-    let pass = GBufferPass::new(app)?;
+    let gbuffer = app
+        .data
+        .raytracing
+        .gbuffer
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("G-Buffer not initialized"))?;
+    let pipeline = app
+        .data
+        .raytracing
+        .gbuffer_pipeline
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("G-Buffer pipeline not initialized"))?;
     let render_targets = app.resource::<crate::vulkanr::context::RenderTargets>();
-    pass.record(
+    let render_pass = render_targets.render.gbuffer_render_pass;
+    let framebuffer = render_targets.render.gbuffer_framebuffer;
+    drop(render_targets);
+
+    let draw_mesh_indices = collect_gbuffer_mesh_indices(app);
+    let heatmap_mode = resolve_heatmap_mode(app);
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
+
+    thyllore_vulkan_core::renderer::record_gbuffer_pass(
+        &ctx,
+        gbuffer,
+        pipeline,
+        render_pass,
+        framebuffer,
+        &draw_mesh_indices,
+        heatmap_mode,
         command_buffer,
-        render_targets.render.gbuffer_render_pass,
-        render_targets.render.gbuffer_framebuffer,
-        image_index,
     )
 }
 
+fn collect_gbuffer_mesh_indices(app: &App) -> Vec<usize> {
+    let ecs_world = &app.data.ecs_world;
+    let ecs_assets = &app.data.ecs_assets;
+
+    if ecs_world.has_mesh_entities() {
+        ecs_world
+            .query_renderable()
+            .iter()
+            .filter_map(|&entity| {
+                let mesh_ref = ecs_world.get_component::<MeshRef>(entity)?;
+                let mesh_asset = ecs_assets.get_mesh(mesh_ref.mesh_asset_id)?;
+                if !mesh_asset.render_to_gbuffer {
+                    return None;
+                }
+                Some(mesh_asset.graphics_mesh_index)
+            })
+            .collect()
+    } else {
+        (0..app.data.graphics_resources.meshes.len()).collect()
+    }
+}
+
+fn resolve_heatmap_mode(app: &App) -> u32 {
+    app.data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::WeightHeatmapState>()
+        .map(|state| if state.enabled { 1 } else { 0 })
+        .unwrap_or(0)
+}
+
 pub unsafe fn record_ray_query_pass(app: &App, command_buffer: vk::CommandBuffer) -> Result<()> {
-    let pass = RayQueryPass::new(app)?;
+    let gbuffer = app
+        .data
+        .raytracing
+        .gbuffer
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("G-Buffer not initialized"))?;
+    let pipeline = app
+        .data
+        .raytracing
+        .ray_query_pipeline
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Ray Query pipeline not initialized"))?;
+    let descriptor = app
+        .data
+        .raytracing
+        .ray_query_descriptor
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Ray Query descriptor set not initialized"))?;
+
     let normal_offset = app
         .resource::<crate::ecs::resource::LightState>()
         .shadow_normal_offset;
-    pass.record(command_buffer, normal_offset)
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
+
+    thyllore_vulkan_core::renderer::record_ray_query_pass(
+        &ctx,
+        gbuffer,
+        pipeline,
+        descriptor,
+        normal_offset,
+        command_buffer,
+    )
 }
 
 fn collect_selected_mesh_ids(app: &App) -> Vec<u32> {
@@ -48,6 +128,47 @@ fn collect_selected_mesh_ids(app: &App) -> Vec<u32> {
     selected_ids
 }
 
+fn debug_view_mode_value(mode: crate::ecs::resource::DebugViewMode) -> i32 {
+    use crate::ecs::resource::DebugViewMode;
+    match mode {
+        DebugViewMode::Final => 0,
+        DebugViewMode::Position => 1,
+        DebugViewMode::Normal => 2,
+        DebugViewMode::ShadowMask => 3,
+        DebugViewMode::NdotL => 4,
+        DebugViewMode::LightDirection => 5,
+        DebugViewMode::ViewDepth => 6,
+        DebugViewMode::ObjectID => 7,
+        DebugViewMode::SelectionView => 8,
+        DebugViewMode::SelectionUBO => 9,
+    }
+}
+
+unsafe fn prepare_composite_resources<'a>(
+    app: &'a App,
+) -> Result<(
+    &'a crate::vulkanr::pipeline::RRPipeline,
+    &'a crate::vulkanr::descriptor::RRCompositeDescriptorSet,
+    i32,
+)> {
+    let pipeline = app
+        .data
+        .raytracing
+        .composite_pipeline
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Composite pipeline not initialized"))?;
+    let descriptor = app
+        .data
+        .raytracing
+        .composite_descriptor
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Composite descriptor set not initialized"))?;
+    let mode = app
+        .resource::<crate::ecs::resource::DebugViewState>()
+        .debug_view_mode;
+    Ok((pipeline, descriptor, debug_view_mode_value(mode)))
+}
+
 pub unsafe fn record_composite_pass(
     app: &mut App,
     command_buffer: vk::CommandBuffer,
@@ -63,11 +184,32 @@ pub unsafe fn record_composite_pass(
     let render_targets = app.resource::<crate::vulkanr::context::RenderTargets>();
     let render_pass = render_targets.render.render_pass;
     let framebuffer = render_targets.render.framebuffers[image_index];
+    let extent = app
+        .resource::<crate::vulkanr::context::SwapchainState>()
+        .swapchain
+        .swapchain_extent;
 
-    {
-        let pass = CompositePass::new(app)?;
-        pass.record(command_buffer, render_pass, framebuffer, image_index)?;
-    }
+    let (pipeline, descriptor, view_mode_value) = prepare_composite_resources(app)?;
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
+
+    thyllore_vulkan_core::renderer::begin_composite_render_pass(
+        &ctx,
+        render_pass,
+        framebuffer,
+        extent,
+        2,
+        command_buffer,
+    );
+    thyllore_vulkan_core::renderer::record_composite_draw(
+        &ctx,
+        pipeline,
+        descriptor,
+        extent,
+        view_mode_value,
+        command_buffer,
+    )?;
+    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index)?;
 
     app.record_imgui_rendering(command_buffer, draw_data)?;
     app.rrdevice.device.cmd_end_render_pass(command_buffer);
@@ -97,8 +239,28 @@ pub unsafe fn record_composite_to_offscreen(
     let framebuffer = offscreen.framebuffer;
     let extent = offscreen.extent();
 
-    let pass = CompositePass::new_for_offscreen(app, extent)?;
-    pass.record_to_offscreen(command_buffer, render_pass, framebuffer, image_index)?;
+    let (pipeline, descriptor, view_mode_value) = prepare_composite_resources(app)?;
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
+
+    thyllore_vulkan_core::renderer::begin_composite_render_pass(
+        &ctx,
+        render_pass,
+        framebuffer,
+        extent,
+        3,
+        command_buffer,
+    );
+    thyllore_vulkan_core::renderer::record_composite_draw(
+        &ctx,
+        pipeline,
+        descriptor,
+        extent,
+        view_mode_value,
+        command_buffer,
+    )?;
+    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index)?;
+    thyllore_vulkan_core::renderer::end_composite_render_pass(&ctx, command_buffer);
 
     Ok(())
 }
@@ -124,8 +286,20 @@ pub unsafe fn record_composite_to_hdr(
     let framebuffer = hdr_buffer.framebuffer;
     let extent = hdr_buffer.extent();
 
-    let pass = CompositePass::new_for_offscreen(app, extent)?;
-    pass.record_to_hdr(command_buffer, render_pass, framebuffer)?;
+    let (pipeline, descriptor, view_mode_value) = prepare_composite_resources(app)?;
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
+
+    thyllore_vulkan_core::renderer::record_composite_to_hdr_pass(
+        &ctx,
+        pipeline,
+        descriptor,
+        render_pass,
+        framebuffer,
+        extent,
+        view_mode_value,
+        command_buffer,
+    )?;
 
     Ok(())
 }
@@ -157,13 +331,7 @@ pub unsafe fn record_bloom(app: &App, command_buffer: vk::CommandBuffer) -> Resu
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Bloom descriptors not initialized"))?;
 
-    let ctx = thyllore_vulkan_core::FrameRenderContext {
-        device: &app.rrdevice,
-        graphics: &app.data.graphics_resources,
-        buffers: &app.data.buffer_registry,
-        pipelines: &app.data.pipeline_storage,
-        image_index: 0,
-    };
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
 
     thyllore_vulkan_core::renderer::record_bloom_pass(
         &ctx,
@@ -205,13 +373,7 @@ pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result
     let camera_ref: &crate::ecs::resource::PhysicalCameraParameters =
         camera_params.as_deref().unwrap_or(&camera_default);
 
-    let ctx = thyllore_vulkan_core::FrameRenderContext {
-        device: &app.rrdevice,
-        graphics: &app.data.graphics_resources,
-        buffers: &app.data.buffer_registry,
-        pipelines: &app.data.pipeline_storage,
-        image_index: 0,
-    };
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
 
     thyllore_vulkan_core::renderer::record_dof_pass(
         &ctx,
@@ -272,13 +434,7 @@ pub unsafe fn record_auto_exposure(app: &App, command_buffer: vk::CommandBuffer)
         .map(|t| 1.0 / 60.0 * t.speed.max(0.01))
         .unwrap_or(1.0 / 60.0);
 
-    let ctx = thyllore_vulkan_core::FrameRenderContext {
-        device: &app.rrdevice,
-        graphics: &app.data.graphics_resources,
-        buffers: &app.data.buffer_registry,
-        pipelines: &app.data.pipeline_storage,
-        image_index: 0,
-    };
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
 
     thyllore_vulkan_core::renderer::record_auto_exposure_pass(
         &ctx,
@@ -300,9 +456,28 @@ pub unsafe fn record_onion_skin_pass(
     command_buffer: vk::CommandBuffer,
     image_index: usize,
 ) -> Result<()> {
-    if let Some(pass) = OnionSkinRenderPass::new(app)? {
-        pass.record_ghost_pass(command_buffer, image_index)?;
+    let Some(resources) = app.data.raytracing.onion_skin_pass.as_ref() else {
+        return Ok(());
+    };
+    let Some(onion_skin_gpu) = app.data.onion_skin_gpu.as_ref() else {
+        return Ok(());
+    };
+    if onion_skin_gpu.source_mesh_index.is_none() {
+        return Ok(());
     }
+    if onion_skin_gpu.active_ghost_count() == 0 {
+        return Ok(());
+    }
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
+
+    thyllore_vulkan_core::renderer::record_onion_skin_ghost_pass(
+        &ctx,
+        resources,
+        onion_skin_gpu,
+        image_index,
+        command_buffer,
+    )?;
     Ok(())
 }
 
@@ -310,9 +485,26 @@ pub unsafe fn record_onion_skin_composite(
     app: &App,
     command_buffer: vk::CommandBuffer,
 ) -> Result<()> {
-    if let Some(pass) = OnionSkinRenderPass::new(app)? {
-        pass.record_composite_pass(command_buffer);
+    let Some(resources) = app.data.raytracing.onion_skin_pass.as_ref() else {
+        return Ok(());
+    };
+    let Some(onion_skin_gpu) = app.data.onion_skin_gpu.as_ref() else {
+        return Ok(());
+    };
+    if onion_skin_gpu.source_mesh_index.is_none() {
+        return Ok(());
     }
+    if onion_skin_gpu.active_ghost_count() == 0 {
+        return Ok(());
+    }
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
+
+    thyllore_vulkan_core::renderer::record_onion_skin_composite_pass(
+        &ctx,
+        resources,
+        command_buffer,
+    );
     Ok(())
 }
 
@@ -372,13 +564,7 @@ pub unsafe fn record_tonemap_to_offscreen(
     let lens_ref = lens.as_deref().unwrap_or(&lens_default);
     let bloom_ref = bloom.as_deref().unwrap_or(&bloom_default);
 
-    let ctx = thyllore_vulkan_core::FrameRenderContext {
-        device: &app.rrdevice,
-        graphics: &app.data.graphics_resources,
-        buffers: &app.data.buffer_registry,
-        pipelines: &app.data.pipeline_storage,
-        image_index,
-    };
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
     thyllore_vulkan_core::renderer::begin_tonemap_render_pass(
         &ctx,

@@ -57,78 +57,25 @@ impl<'a> OverlayRenderer<'a> {
         image_index: usize,
     ) -> Result<()> {
         let grid = self.app.resource::<GridMeshData>();
-        let pipeline_storage = self.pipeline_storage();
-
-        let vertex_buffer = match self
-            .buffer_registry
-            .get_vertex_buffer(grid.mesh.vertex_buffer_handle)
-        {
-            Some(b) => b,
-            None => return Ok(()),
-        };
-        let index_buffer = match self
-            .buffer_registry
-            .get_index_buffer(grid.mesh.index_buffer_handle)
-        {
-            Some(b) => b,
-            None => return Ok(()),
-        };
-
-        let pipeline_id = match grid.render_info.pipeline_id {
-            Some(id) => id,
-            None => return Ok(()),
-        };
-        let pipeline = match pipeline_storage.get(pipeline_id) {
-            Some(p) => p,
-            None => return Ok(()),
-        };
-
-        self.device.cmd_bind_pipeline(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            pipeline.pipeline,
-        );
-
-        self.device.cmd_set_line_width(command_buffer, 1.0);
-
-        self.device
-            .cmd_bind_vertex_buffers(command_buffer, 0, &[vertex_buffer], &[0]);
-
-        self.device
-            .cmd_bind_index_buffer(command_buffer, index_buffer, 0, vk::IndexType::UINT32);
-
-        let frame_set = self.graphics_resources.frame_set.sets[image_index];
-        self.device.cmd_bind_descriptor_sets(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            pipeline.pipeline_layout,
-            0,
-            &[frame_set],
-            &[],
-        );
-
-        let object_set_idx = self
-            .graphics_resources
-            .objects
-            .get_set_index(image_index, grid.render_info.object_index);
-        let object_set = self.graphics_resources.objects.sets[object_set_idx];
-        self.device.cmd_bind_descriptor_sets(
-            command_buffer,
-            vk::PipelineBindPoint::GRAPHICS,
-            pipeline.pipeline_layout,
-            2,
-            &[object_set],
-            &[],
-        );
-
         let index_count = if grid.show_y_axis_grid {
             grid.mesh.indices.len() as u32
         } else {
             grid.xz_only_index_count
         };
 
-        self.device
-            .cmd_draw_indexed(command_buffer, index_count, 1, 0, 0, 0);
+        let ctx = crate::ecs::systems::phases::build_frame_render_context(self.app, image_index);
+        let options = thyllore_vulkan_core::renderer::LineMeshDrawOptions {
+            line_width: 1.0,
+            index_count_override: Some(index_count),
+            bind_object_set: true,
+        };
+        thyllore_vulkan_core::renderer::record_line_mesh_draw(
+            &ctx,
+            &grid.mesh,
+            &grid.render_info,
+            &options,
+            command_buffer,
+        )?;
 
         Ok(())
     }
