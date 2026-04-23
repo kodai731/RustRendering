@@ -1,6 +1,7 @@
 pub mod auto_exposure_buffers;
 pub mod bloom_chain;
 pub mod buffer;
+pub mod buffer_registry;
 pub mod dof_buffer;
 pub mod dynamic_buffer;
 pub mod gbuffer;
@@ -10,10 +11,12 @@ pub mod image;
 pub mod mesh_buffer;
 pub mod offscreen;
 pub mod onion_skin_pass;
+pub mod pipeline_storage;
 
 pub use auto_exposure_buffers::AutoExposureBuffers;
 pub use bloom_chain::BloomChain;
 pub use buffer::*;
+pub use buffer_registry::GpuBufferRegistry;
 pub use dof_buffer::DofBuffer;
 pub use dynamic_buffer::*;
 pub use gbuffer::RRGBuffer;
@@ -22,3 +25,4 @@ pub use image::*;
 pub use mesh_buffer::*;
 pub use offscreen::OffscreenFramebuffer;
 pub use onion_skin_pass::OnionSkinPassResources;
+pub use pipeline_storage::PipelineStorage;

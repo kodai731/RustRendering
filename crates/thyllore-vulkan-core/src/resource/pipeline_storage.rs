@@ -1,5 +1,5 @@
-use crate::ecs::resource::PipelineId;
-use crate::vulkanr::pipeline::RRPipeline;
+use crate::pipeline::RRPipeline;
+use thyllore_render_core::PipelineId;
 
 #[derive(Default)]
 pub struct PipelineStorage {

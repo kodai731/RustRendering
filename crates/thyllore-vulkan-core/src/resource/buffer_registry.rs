@@ -4,13 +4,11 @@ use std::ptr::copy_nonoverlapping as memcpy;
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
-use crate::ecs::component::mesh::MeshData;
-use crate::ecs::systems::mesh_systems::{compute_vertex_layout, create_interleaved_buffer};
-use crate::render::{BufferMemoryType, IndexBufferHandle, VertexBufferHandle};
-use crate::vulkanr::buffer::{copy_buffer, create_buffer};
-use crate::vulkanr::command::RRCommandPool;
-use crate::vulkanr::device::RRDevice;
-use crate::vulkanr::vulkan::Instance;
+use crate::command::RRCommandPool;
+use crate::core::device::RRDevice;
+use crate::resource::buffer::{copy_buffer, create_buffer};
+use thyllore_model_core::mesh::{compute_vertex_layout, create_interleaved_buffer, MeshData};
+use thyllore_render_core::{BufferMemoryType, IndexBufferHandle, VertexBufferHandle};
 
 #[derive(Debug)]
 struct GpuBuffer {
@@ -509,12 +507,51 @@ impl GpuBufferRegistry {
 impl Drop for GpuBufferRegistry {
     fn drop(&mut self) {
         if self.has_leaked_buffers() {
-            eprintln!(
-                "[WARN] GpuBufferRegistry dropped without calling destroy_all(): {} vertex, {} index buffers leaked",
+            log_warn!(
+                "GpuBufferRegistry dropped without calling destroy_all(): {} vertex, {} index buffers leaked",
                 self.active_vertex_count(),
                 self.active_index_count(),
             );
         }
+    }
+}
+
+impl GpuBufferRegistry {
+    unsafe fn create_host_visible_buffer<T>(
+        &self,
+        instance: &Instance,
+        device: &RRDevice,
+        size: u64,
+        usage: vk::BufferUsageFlags,
+        data_ptr: *const u8,
+        data_count: usize,
+    ) -> Result<GpuBuffer> {
+        let (buffer, memory) = create_buffer(
+            instance,
+            device,
+            size,
+            usage,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+
+        if data_count > 0 {
+            let actual_size = size_of::<T>() * data_count;
+            let ptr = device.device.map_memory(
+                memory,
+                0,
+                actual_size as u64,
+                vk::MemoryMapFlags::empty(),
+            )?;
+            std::ptr::copy_nonoverlapping(data_ptr, ptr.cast(), actual_size);
+            device.device.unmap_memory(memory);
+        }
+
+        Ok(GpuBuffer {
+            buffer,
+            memory,
+            size,
+            is_host_visible: true,
+        })
     }
 }
 
@@ -596,44 +633,5 @@ mod tests {
         assert!(!registry.has_leaked_buffers());
         assert!(registry.free_vertex_slots.is_empty());
         assert!(registry.free_index_slots.is_empty());
-    }
-}
-
-impl GpuBufferRegistry {
-    unsafe fn create_host_visible_buffer<T>(
-        &self,
-        instance: &Instance,
-        device: &RRDevice,
-        size: u64,
-        usage: vk::BufferUsageFlags,
-        data_ptr: *const u8,
-        data_count: usize,
-    ) -> Result<GpuBuffer> {
-        let (buffer, memory) = create_buffer(
-            instance,
-            device,
-            size,
-            usage,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-
-        if data_count > 0 {
-            let actual_size = size_of::<T>() * data_count;
-            let ptr = device.device.map_memory(
-                memory,
-                0,
-                actual_size as u64,
-                vk::MemoryMapFlags::empty(),
-            )?;
-            std::ptr::copy_nonoverlapping(data_ptr, ptr.cast(), actual_size);
-            device.device.unmap_memory(memory);
-        }
-
-        Ok(GpuBuffer {
-            buffer,
-            memory,
-            size,
-            is_host_visible: true,
-        })
     }
 }

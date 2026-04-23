@@ -4,22 +4,7 @@ use crate::animation::BoneId;
 use crate::ecs::component::{GizmoDraggable, GizmoPosition, GizmoSelectable, LineMesh, RenderInfo};
 use crate::ecs::Entity;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
-pub enum TransformGizmoHandle {
-    #[default]
-    None,
-    AxisX,
-    AxisY,
-    AxisZ,
-    PlaneXY,
-    PlaneXZ,
-    PlaneYZ,
-    Center,
-    RingX,
-    RingY,
-    RingZ,
-    Trackball,
-}
+pub use thyllore_render_core::TransformGizmoHandle;
 
 #[derive(Clone, Debug)]
 pub struct TransformGizmoData {

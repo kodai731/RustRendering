@@ -4,14 +4,7 @@ use crate::animation::SkeletonId;
 use crate::ecs::component::{LineMesh, RenderInfo};
 use crate::ecs::resource::AnimationType;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub enum BoneDisplayStyle {
-    #[default]
-    Stick,
-    Octahedral,
-    Box,
-    Sphere,
-}
+pub use thyllore_render_core::BoneDisplayStyle;
 
 #[derive(Clone, Debug)]
 pub struct BoneGizmoData {
