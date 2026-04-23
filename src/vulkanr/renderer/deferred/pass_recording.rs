@@ -5,10 +5,7 @@ use crate::app::App;
 use crate::ecs::resource::HierarchyState;
 use crate::ecs::world::MeshRef;
 
-use super::{
-    AutoExposurePass, BloomPass, CompositePass, DofPass, GBufferPass, OnionSkinRenderPass,
-    RayQueryPass, ToneMapPass,
-};
+use super::{CompositePass, GBufferPass, OnionSkinRenderPass, RayQueryPass};
 
 pub unsafe fn record_gbuffer_pass(
     app: &App,
@@ -138,35 +135,94 @@ pub unsafe fn record_bloom(app: &App, command_buffer: vk::CommandBuffer) -> Resu
         .data
         .ecs_world
         .get_resource::<crate::ecs::resource::BloomSettings>();
-    let bloom_enabled = bloom_settings.map(|bs| bs.enabled).unwrap_or(false);
-
-    if !bloom_enabled {
+    let Some(bloom_settings) = bloom_settings else {
+        return Ok(());
+    };
+    if !bloom_settings.enabled {
         return Ok(());
     }
 
-    if app.data.viewport.bloom_chain.is_none()
-        || app.data.raytracing.bloom_downsample_pipeline.is_none()
-        || app.data.raytracing.bloom_upsample_pipeline.is_none()
-    {
+    let (Some(bloom_chain), Some(downsample_pipeline), Some(upsample_pipeline)) = (
+        app.data.viewport.bloom_chain.as_ref(),
+        app.data.raytracing.bloom_downsample_pipeline.as_ref(),
+        app.data.raytracing.bloom_upsample_pipeline.as_ref(),
+    ) else {
         return Ok(());
-    }
+    };
 
-    let pass = BloomPass::new(app)?;
-    pass.record(command_buffer)?;
+    let bloom_descriptors = app
+        .data
+        .raytracing
+        .bloom_descriptors
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("Bloom descriptors not initialized"))?;
+
+    let ctx = thyllore_vulkan_core::FrameRenderContext {
+        device: &app.rrdevice,
+        graphics: &app.data.graphics_resources,
+        buffers: &app.data.buffer_registry,
+        pipelines: &app.data.pipeline_storage,
+        image_index: 0,
+    };
+
+    thyllore_vulkan_core::renderer::record_bloom_pass(
+        &ctx,
+        downsample_pipeline,
+        upsample_pipeline,
+        bloom_descriptors,
+        bloom_chain,
+        &bloom_settings,
+        command_buffer,
+    )?;
 
     Ok(())
 }
 
 pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result<()> {
-    if app.data.raytracing.dof_pipeline.is_none()
-        || app.data.raytracing.dof_descriptor.is_none()
-        || app.data.viewport.dof_buffer.is_none()
-    {
+    let (Some(pipeline), Some(dof_descriptor), Some(dof_buffer)) = (
+        app.data.raytracing.dof_pipeline.as_ref(),
+        app.data.raytracing.dof_descriptor.as_ref(),
+        app.data.viewport.dof_buffer.as_ref(),
+    ) else {
         return Ok(());
-    }
+    };
 
-    let pass = DofPass::new(app)?;
-    pass.record(command_buffer)?;
+    let dof_settings = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::DepthOfField>();
+    let camera_params = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::PhysicalCameraParameters>();
+    let camera = app.resource::<crate::ecs::resource::Camera>();
+
+    let dof_default = crate::ecs::resource::DepthOfField::default();
+    let camera_default = crate::ecs::resource::PhysicalCameraParameters::default();
+
+    let dof_ref: &crate::ecs::resource::DepthOfField =
+        dof_settings.as_deref().unwrap_or(&dof_default);
+    let camera_ref: &crate::ecs::resource::PhysicalCameraParameters =
+        camera_params.as_deref().unwrap_or(&camera_default);
+
+    let ctx = thyllore_vulkan_core::FrameRenderContext {
+        device: &app.rrdevice,
+        graphics: &app.data.graphics_resources,
+        buffers: &app.data.buffer_registry,
+        pipelines: &app.data.pipeline_storage,
+        image_index: 0,
+    };
+
+    thyllore_vulkan_core::renderer::record_dof_pass(
+        &ctx,
+        pipeline,
+        dof_descriptor,
+        dof_buffer,
+        dof_ref,
+        camera_ref,
+        camera.near_plane,
+        command_buffer,
+    )?;
 
     Ok(())
 }
@@ -176,35 +232,65 @@ pub unsafe fn record_auto_exposure(app: &App, command_buffer: vk::CommandBuffer)
         .data
         .ecs_world
         .get_resource::<crate::ecs::resource::AutoExposure>();
-    let ae_enabled = ae_settings.map(|ae| ae.enabled).unwrap_or(false);
-
-    if !ae_enabled {
+    let Some(ae_settings) = ae_settings else {
+        return Ok(());
+    };
+    if !ae_settings.enabled {
         return Ok(());
     }
 
-    if app
-        .data
-        .raytracing
-        .auto_exposure_histogram_pipeline
-        .is_none()
-        || app.data.raytracing.auto_exposure_average_pipeline.is_none()
-        || app
-            .data
+    let (
+        Some(histogram_pipeline),
+        Some(average_pipeline),
+        Some(histogram_descriptor),
+        Some(average_descriptor),
+        Some(buffers),
+    ) = (
+        app.data
+            .raytracing
+            .auto_exposure_histogram_pipeline
+            .as_ref(),
+        app.data.raytracing.auto_exposure_average_pipeline.as_ref(),
+        app.data
             .raytracing
             .auto_exposure_histogram_descriptor
-            .is_none()
-        || app
-            .data
+            .as_ref(),
+        app.data
             .raytracing
             .auto_exposure_average_descriptor
-            .is_none()
-        || app.data.viewport.auto_exposure_buffers.is_none()
-    {
+            .as_ref(),
+        app.data.viewport.auto_exposure_buffers.as_ref(),
+    )
+    else {
         return Ok(());
-    }
+    };
 
-    let pass = AutoExposurePass::new(app)?;
-    pass.record(command_buffer)?;
+    let delta_time = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::TimelineState>()
+        .map(|t| 1.0 / 60.0 * t.speed.max(0.01))
+        .unwrap_or(1.0 / 60.0);
+
+    let ctx = thyllore_vulkan_core::FrameRenderContext {
+        device: &app.rrdevice,
+        graphics: &app.data.graphics_resources,
+        buffers: &app.data.buffer_registry,
+        pipelines: &app.data.pipeline_storage,
+        image_index: 0,
+    };
+
+    thyllore_vulkan_core::renderer::record_auto_exposure_pass(
+        &ctx,
+        histogram_pipeline,
+        average_pipeline,
+        histogram_descriptor,
+        average_descriptor,
+        buffers,
+        &ae_settings,
+        delta_time,
+        command_buffer,
+    )?;
 
     Ok(())
 }
@@ -246,8 +332,74 @@ pub unsafe fn record_tonemap_to_offscreen(
     let framebuffer = offscreen.framebuffer;
     let extent = offscreen.extent();
 
-    let pass = ToneMapPass::new(app, extent)?;
-    pass.record_to_offscreen(command_buffer, render_pass, framebuffer, image_index)?;
+    let pipeline = app
+        .data
+        .raytracing
+        .tonemap_pipeline
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("ToneMap pipeline not initialized"))?;
+    let descriptor = app
+        .data
+        .raytracing
+        .tonemap_descriptor
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("ToneMap descriptor not initialized"))?;
+
+    let tonemap_default = crate::ecs::resource::ToneMapping::default();
+    let exposure_default = crate::ecs::resource::Exposure::default();
+    let lens_default = crate::ecs::resource::LensEffects::default();
+    let bloom_default = crate::ecs::resource::BloomSettings::default();
+
+    let tonemap = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::ToneMapping>();
+    let exposure = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::Exposure>();
+    let lens = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::LensEffects>();
+    let bloom = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::BloomSettings>();
+
+    let tonemap_ref = tonemap.as_deref().unwrap_or(&tonemap_default);
+    let exposure_ref = exposure.as_deref().unwrap_or(&exposure_default);
+    let lens_ref = lens.as_deref().unwrap_or(&lens_default);
+    let bloom_ref = bloom.as_deref().unwrap_or(&bloom_default);
+
+    let ctx = thyllore_vulkan_core::FrameRenderContext {
+        device: &app.rrdevice,
+        graphics: &app.data.graphics_resources,
+        buffers: &app.data.buffer_registry,
+        pipelines: &app.data.pipeline_storage,
+        image_index,
+    };
+
+    thyllore_vulkan_core::renderer::begin_tonemap_render_pass(
+        &ctx,
+        render_pass,
+        framebuffer,
+        extent,
+        command_buffer,
+    );
+    thyllore_vulkan_core::renderer::record_tonemap_draw(
+        &ctx,
+        pipeline,
+        descriptor,
+        tonemap_ref,
+        exposure_ref,
+        lens_ref,
+        bloom_ref,
+        extent,
+        command_buffer,
+    )?;
+    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index)?;
+    thyllore_vulkan_core::renderer::end_tonemap_render_pass(&ctx, command_buffer);
 
     Ok(())
 }

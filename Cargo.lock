@@ -3336,6 +3336,8 @@ name = "thyllore-render-core"
 version = "0.0.1"
 dependencies = [
  "cgmath",
+ "thyllore-anim-core",
+ "thyllore-model-core",
 ]
 
 [[package]]

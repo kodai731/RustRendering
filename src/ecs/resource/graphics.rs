@@ -33,18 +33,7 @@ impl MaterialRegistry {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum AnimationType {
-    None,
-    Skeletal,
-    Node,
-}
-
-impl Default for AnimationType {
-    fn default() -> Self {
-        Self::None
-    }
-}
+pub use thyllore_anim_core::AnimationType;
 
 #[derive(Clone, Debug)]
 pub struct ModelState {

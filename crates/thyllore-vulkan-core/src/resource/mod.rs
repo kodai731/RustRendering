@@ -20,6 +20,7 @@ pub use buffer_registry::GpuBufferRegistry;
 pub use dof_buffer::DofBuffer;
 pub use dynamic_buffer::*;
 pub use gbuffer::RRGBuffer;
+pub use graphics_resource::GraphicsResources;
 pub use hdr_buffer::HdrBuffer;
 pub use image::*;
 pub use mesh_buffer::*;
