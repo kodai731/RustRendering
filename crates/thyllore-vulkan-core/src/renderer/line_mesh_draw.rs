@@ -4,27 +4,29 @@ use vulkanalia::prelude::v1_0::*;
 use crate::frame_context::FrameRenderContext;
 use crate::pipeline::RRPipeline;
 use crate::resource::GpuBufferRegistry;
-use thyllore_render_core::{LineMesh, RenderInfo};
+use thyllore_render_core::{DynamicMesh, RenderInfo};
 
 pub struct LineMeshDrawOptions {
-    pub line_width: f32,
+    pub line_width: Option<f32>,
     pub index_count_override: Option<u32>,
     pub bind_object_set: bool,
+    pub frame_set_override: Option<vk::DescriptorSet>,
 }
 
 impl Default for LineMeshDrawOptions {
     fn default() -> Self {
         Self {
-            line_width: 1.0,
+            line_width: Some(1.0),
             index_count_override: None,
             bind_object_set: true,
+            frame_set_override: None,
         }
     }
 }
 
-pub unsafe fn record_line_mesh_draw(
+pub unsafe fn record_line_mesh_draw<V>(
     ctx: &FrameRenderContext,
-    mesh: &LineMesh,
+    mesh: &DynamicMesh<V>,
     render_info: &RenderInfo,
     options: &LineMeshDrawOptions,
     cmd: vk::CommandBuffer,
@@ -67,12 +69,14 @@ pub unsafe fn record_line_mesh_draw(
 unsafe fn bind_line_pipeline(
     ctx: &FrameRenderContext,
     pipeline: &RRPipeline,
-    line_width: f32,
+    line_width: Option<f32>,
     cmd: vk::CommandBuffer,
 ) {
     let device = &ctx.device.device;
     device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
-    device.cmd_set_line_width(cmd, line_width);
+    if let Some(width) = line_width {
+        device.cmd_set_line_width(cmd, width);
+    }
 }
 
 unsafe fn bind_line_mesh_buffers(
@@ -91,13 +95,15 @@ unsafe fn bind_line_mesh_buffers(
     device.cmd_bind_vertex_buffers(cmd, 0, &[vertex_buffer], &[0]);
     device.cmd_bind_index_buffer(cmd, index_buffer, 0, vk::IndexType::UINT32);
 
-    let frame_set = graphics.frame_set.sets[image_index];
+    let descriptor_set_zero = options
+        .frame_set_override
+        .unwrap_or_else(|| graphics.frame_set.sets[image_index]);
     device.cmd_bind_descriptor_sets(
         cmd,
         vk::PipelineBindPoint::GRAPHICS,
         pipeline.pipeline_layout,
         0,
-        &[frame_set],
+        &[descriptor_set_zero],
         &[],
     );
 
@@ -115,4 +121,23 @@ unsafe fn bind_line_mesh_buffers(
             &[],
         );
     }
+}
+
+pub unsafe fn push_fragment_alpha_constant(
+    ctx: &FrameRenderContext,
+    pipeline_layout: vk::PipelineLayout,
+    alpha: f32,
+    cmd: vk::CommandBuffer,
+) {
+    let alpha_bytes = std::slice::from_raw_parts(
+        &alpha as *const f32 as *const u8,
+        std::mem::size_of::<f32>(),
+    );
+    ctx.device.device.cmd_push_constants(
+        cmd,
+        pipeline_layout,
+        vk::ShaderStageFlags::FRAGMENT,
+        0,
+        alpha_bytes,
+    );
 }

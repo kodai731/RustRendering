@@ -18,7 +18,9 @@ pub use composite::{
 };
 pub use dof::record_dof_pass;
 pub use gbuffer::record_gbuffer_pass;
-pub use line_mesh_draw::{record_line_mesh_draw, LineMeshDrawOptions};
+pub use line_mesh_draw::{
+    push_fragment_alpha_constant, record_line_mesh_draw, LineMeshDrawOptions,
+};
 pub use onion_skin::{record_onion_skin_composite_pass, record_onion_skin_ghost_pass};
 pub use onion_skin_buffers::{OnionSkinGhostBuffer, OnionSkinGpuState};
 pub use push_constants::{GBufferPushConstants, OnionSkinPushConstants};
