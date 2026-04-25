@@ -1,0 +1,86 @@
+name: Blender gRPC Parity
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'crates/thyllore-grpc-client/proto/**'
+      - 'crates/thyllore-grpc-client/src/**'
+      - 'crates/thyllore-grpc-client/build.rs'
+      - 'crates/thyllore-grpc-client/Cargo.toml'
+      - 'crates/thyllore-grpc-client/tests/grpc_parity_fixtures.rs'
+      - 'blender_addon/grpc_client/**'
+      - 'blender_addon/tests/**'
+      - 'scripts/gen_grpc_stubs.ps1'
+      - '.github/workflows/blender_grpc_parity.yml'
+  pull_request:
+    paths:
+      - 'crates/thyllore-grpc-client/proto/**'
+      - 'crates/thyllore-grpc-client/src/**'
+      - 'crates/thyllore-grpc-client/build.rs'
+      - 'crates/thyllore-grpc-client/Cargo.toml'
+      - 'crates/thyllore-grpc-client/tests/grpc_parity_fixtures.rs'
+      - 'blender_addon/grpc_client/**'
+      - 'blender_addon/tests/**'
+      - 'scripts/gen_grpc_stubs.ps1'
+      - '.github/workflows/blender_grpc_parity.yml'
+
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.11']
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Python tooling
+        run: |
+          python -m pip install --upgrade pip
+          pip install "grpcio>=1.60,<2" "grpcio-tools>=1.60,<2" "protobuf>=5.26,<6" "pytest>=8.0"
+
+      - name: Regenerate gRPC stubs and ensure no diff
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_grpc_stubs.ps1
+          git diff --exit-code blender_addon/grpc_client/stubs/
+
+      - name: Generate Rust parity fixtures
+        run: |
+          cargo test -p thyllore-grpc-client --features text-to-motion --test grpc_parity_fixtures generate_parity_fixtures -- --include-ignored
+
+      - name: Verify parity fixtures present
+        run: |
+          test -f blender_addon/tests/fixtures/rigging_request.bin
+          test -f blender_addon/tests/fixtures/motion_request.bin
+          test -f blender_addon/tests/fixtures/mesh_request.bin
+
+      - name: Run client retry tests
+        run: |
+          python -m pytest blender_addon/tests/test_client_retry.py -v
+
+      - name: Run bit-identical parity tests
+        run: |
+          python -m pytest blender_addon/tests/test_grpc_parity.py -v
+
+      - name: Cargo test (Blender smoke graceful skip)
+        run: |
+          cargo test -p thyllore-grpc-client --features auto-rig --test blender_grpc_smoke_tests -- --nocapture

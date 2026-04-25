@@ -3403,11 +3403,14 @@ dependencies = [
 name = "thyllore-grpc-client"
 version = "0.0.1"
 dependencies = [
+ "hex",
  "prost",
  "protox",
+ "serde_json",
  "thyllore-anim-core",
  "thyllore-model-core",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-build",
 ]

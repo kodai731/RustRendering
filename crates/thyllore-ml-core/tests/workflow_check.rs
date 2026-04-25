@@ -9,8 +9,7 @@ fn workflow_path() -> PathBuf {
 
 fn read_workflow() -> String {
     let path = workflow_path();
-    fs::read_to_string(&path)
-        .unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
+    fs::read_to_string(&path).unwrap_or_else(|e| panic!("failed to read {}: {}", path.display(), e))
 }
 
 #[test]
@@ -58,7 +57,9 @@ fn ci_must_run_pytest_against_python_parity() {
 #[test]
 fn ci_must_generate_rust_fixtures_before_pytest() {
     let content = read_workflow();
-    let fixture_pos = content.find("parity_fixtures generate_parity_fixtures").expect(
+    let fixture_pos = content
+        .find("parity_fixtures generate_parity_fixtures")
+        .expect(
         "python_parity.yml must run 'cargo test --test parity_fixtures generate_parity_fixtures' \
          before pytest so that Rust fixtures (JSON files compared by Python) exist",
     );
