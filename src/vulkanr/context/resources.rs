@@ -139,7 +139,7 @@ use crate::ecs::systems::camera_systems::{
     compute_camera_direction, compute_camera_position, compute_camera_up,
 };
 use crate::platform::ImguiData;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 pub struct CameraState {
     pub camera: Camera,

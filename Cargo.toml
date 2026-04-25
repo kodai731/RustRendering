@@ -1,3 +1,6 @@
+[workspace]
+members = ["crates/*"]
+
 [package]
 name = "thyllore-animation"
 version = "0.0.1-preview"
@@ -16,6 +19,15 @@ path = "src/main.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+thyllore-math-core = { path = "crates/thyllore-math-core" }
+thyllore-model-core = { path = "crates/thyllore-model-core" }
+thyllore-anim-core = { path = "crates/thyllore-anim-core" }
+thyllore-ml-core = { path = "crates/thyllore-ml-core", optional = true }
+thyllore-importer-core = { path = "crates/thyllore-importer-core" }
+thyllore-exporter-core = { path = "crates/thyllore-exporter-core" }
+thyllore-render-core = { path = "crates/thyllore-render-core" }
+thyllore-vulkan-core = { path = "crates/thyllore-vulkan-core" }
+thyllore-grpc-client = { path = "crates/thyllore-grpc-client", optional = true }
 anyhow = "1"
 log = "0.4"
 cgmath = "0.18"
@@ -38,19 +50,12 @@ rfd = "0.15"
 ron = "0.8"
 fbxcel = { version = "0.9", features = ["writer"] }
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "download-binaries", "copy-dylibs", "tls-native"], optional = true }
-tonic = { version = "0.12", optional = true }
-prost = { version = "0.13", optional = true }
-tokio = { version = "1", features = ["rt"], optional = true }
-
-[build-dependencies]
-tonic-build = { version = "0.12", optional = true }
-protox = { version = "0.7", optional = true }
 
 [features]
 default = ["ml"]
-ml = ["dep:ort"]
-text-to-motion = ["dep:tonic", "dep:prost", "dep:tokio", "dep:tonic-build", "dep:protox"]
-auto-rig = ["text-to-motion"]
+ml = ["dep:ort", "dep:thyllore-ml-core"]
+text-to-motion = ["dep:thyllore-grpc-client", "thyllore-grpc-client/text-to-motion"]
+auto-rig = ["text-to-motion", "thyllore-grpc-client/auto-rig", "thyllore-importer-core/auto-rig"]
 
 [dependencies.gltf]
 version = "1.4"

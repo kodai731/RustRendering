@@ -19,7 +19,7 @@ use crate::ecs::resource::{
 };
 use crate::ecs::world::{Animator, Transform, World};
 use crate::loader::fbx::FbxModel;
-use crate::loader::texture::load_png_image;
+use crate::loader::load_png_image;
 use crate::loader::{ModelLoadResult, TextureSource};
 use crate::render::MaterialUBO;
 use crate::vulkanr::buffer::{RRIndexBuffer, RRVertexBuffer};
@@ -27,16 +27,16 @@ use crate::vulkanr::command::RRCommandPool;
 use crate::vulkanr::data as vulkan_data;
 use crate::vulkanr::data::VertexData;
 use crate::vulkanr::device::RRDevice;
-use crate::vulkanr::image::{
-    create_image_view, create_texture_image_pixel, create_texture_sampler,
-};
-use crate::vulkanr::raytracing::acceleration::RRAccelerationStructure;
 use crate::vulkanr::resource::graphics_resource::{
     GraphicsResources, MaterialId, MeshBuffer, NodeData,
 };
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::swapchain::RRSwapchain;
 use crate::vulkanr::vulkan::Instance;
+use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
+use thyllore_vulkan_core::resource::image::{
+    create_image_view, create_texture_image_pixel, create_texture_sampler,
+};
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 pub unsafe fn load_model_from_file_system(
     path: &str,

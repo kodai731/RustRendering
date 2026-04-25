@@ -1558,6 +1558,7 @@ dependencies = [
  "bitflags 1.3.2",
  "cfg-if",
  "imgui-sys",
+ "memoffset 0.9.1",
  "mint",
  "parking_lot",
 ]
@@ -1570,6 +1571,8 @@ dependencies = [
  "cfg-if",
  "chlorine",
  "mint",
+ "pkg-config",
+ "vcpkg",
 ]
 
 [[package]]
@@ -3216,6 +3219,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "thyllore-anim-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "ron",
+ "serde",
+ "serde_json",
+ "thyllore-math-core",
+ "thyllore-model-core",
+]
+
+[[package]]
 name = "thyllore-animation"
 version = "0.0.1-preview"
 dependencies = [
@@ -3233,18 +3249,120 @@ dependencies = [
  "once_cell",
  "ort",
  "png 0.17.16",
- "prost",
- "protox",
  "raw-window-handle",
  "rfd",
  "ron",
  "serde",
  "serde_json",
  "thiserror",
+ "thyllore-anim-core",
+ "thyllore-exporter-core",
+ "thyllore-grpc-client",
+ "thyllore-importer-core",
+ "thyllore-math-core",
+ "thyllore-ml-core",
+ "thyllore-model-core",
+ "thyllore-render-core",
+ "thyllore-vulkan-core",
+ "ufbx",
+ "vulkanalia",
+ "winit",
+]
+
+[[package]]
+name = "thyllore-exporter-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "fbxcel",
+ "gltf",
+ "serde_json",
+ "thyllore-anim-core",
+ "thyllore-importer-core",
+ "thyllore-math-core",
+ "thyllore-model-core",
+ "ufbx",
+]
+
+[[package]]
+name = "thyllore-grpc-client"
+version = "0.0.1"
+dependencies = [
+ "prost",
+ "protox",
+ "thyllore-anim-core",
+ "thyllore-model-core",
  "tokio",
  "tonic",
  "tonic-build",
+]
+
+[[package]]
+name = "thyllore-importer-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "gltf",
+ "png 0.17.16",
+ "serde",
+ "serde_json",
+ "thyllore-anim-core",
+ "thyllore-math-core",
+ "thyllore-model-core",
  "ufbx",
+]
+
+[[package]]
+name = "thyllore-math-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+]
+
+[[package]]
+name = "thyllore-ml-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "ort",
+ "thyllore-model-core",
+]
+
+[[package]]
+name = "thyllore-model-core"
+version = "0.0.1"
+dependencies = [
+ "cgmath",
+ "thyllore-math-core",
+]
+
+[[package]]
+name = "thyllore-render-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "thyllore-anim-core",
+ "thyllore-model-core",
+]
+
+[[package]]
+name = "thyllore-vulkan-core"
+version = "0.0.1"
+dependencies = [
+ "anyhow",
+ "cgmath",
+ "imgui",
+ "log",
+ "png 0.17.16",
+ "thiserror",
+ "thyllore-math-core",
+ "thyllore-model-core",
+ "thyllore-render-core",
  "vulkanalia",
  "winit",
 ]

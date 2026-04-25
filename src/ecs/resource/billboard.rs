@@ -1,23 +1,8 @@
-use cgmath::{Matrix4, Vector3};
-
-use crate::ecs::component::{DynamicMesh, RenderInfo};
+use crate::ecs::component::RenderInfo;
 use crate::vulkanr::descriptor::RRBillboardDescriptorSet;
 use crate::vulkanr::image::RRImage;
 
-#[repr(C)]
-#[derive(Clone, Debug, Copy, Default)]
-pub struct BillboardVertex {
-    pub pos: [f32; 3],
-    pub tex_coord: [f32; 2],
-}
-
-pub type BillboardMesh = DynamicMesh<BillboardVertex>;
-
-#[derive(Clone, Debug)]
-pub struct BillboardTransform {
-    pub position: Vector3<f32>,
-    pub model_matrix: Matrix4<f32>,
-}
+pub use thyllore_render_core::{BillboardMesh, BillboardTransform, BillboardVertex};
 
 #[derive(Clone, Debug, Default)]
 pub struct BillboardRenderState {

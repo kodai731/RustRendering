@@ -1,0 +1,16 @@
+[package]
+name = "thyllore-ml-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Layer 2 ML inference core for ThylloreAnimation (tokenizer, topology, copilot input/output). References only thyllore-model-core, never thyllore-anim-core — enforced by Cargo dep graph"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+thyllore-model-core = { path = "../thyllore-model-core" }
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "download-binaries", "copy-dylibs", "tls-native"] }
+anyhow = "1"
+
+[dev-dependencies]
+cgmath = "0.18"

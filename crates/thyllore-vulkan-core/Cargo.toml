@@ -1,0 +1,21 @@
+[package]
+name = "thyllore-vulkan-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Layer 2 Vulkan primitive wrapper for ThylloreAnimation (device, command, buffer, image, render pass, pipeline cache, acceleration structure). No ECS dependency"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+thyllore-math-core = { path = "../thyllore-math-core" }
+thyllore-model-core = { path = "../thyllore-model-core" }
+thyllore-render-core = { path = "../thyllore-render-core" }
+anyhow = "1"
+cgmath = "0.18"
+log = "0.4"
+vulkanalia = { version = "=0.26.0", features = ["libloading", "provisional", "window"] }
+winit = "0.29"
+thiserror = "1"
+png = "0.17"
+imgui = { path = "../../vendor/imgui", features = ["tables-api", "docking"] }

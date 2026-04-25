@@ -1,24 +1,6 @@
 use cgmath::Vector3;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DistanceAttenuation {
-    Enabled,
-    Disabled,
-}
-
-impl DistanceAttenuation {
-    pub fn is_enabled(self) -> bool {
-        self == Self::Enabled
-    }
-
-    pub fn as_int(self) -> i32 {
-        if self == Self::Enabled {
-            1
-        } else {
-            0
-        }
-    }
-}
+pub use thyllore_render_core::DistanceAttenuation;
 
 #[derive(Clone, Debug)]
 pub struct LightState {
