@@ -2,25 +2,27 @@ use anyhow::Result;
 use std::rc::Rc;
 use vulkanalia::prelude::v1_0::*;
 
-use crate::vulkanr::buffer::create_buffer;
-use crate::vulkanr::command::RRCommandPool;
-use crate::vulkanr::core::RRDevice;
-use crate::vulkanr::data::{self as vulkan_data, SceneUniformData};
-use crate::vulkanr::descriptor::{
+use crate::command::RRCommandPool;
+use crate::core::device::RRDevice;
+use crate::core::swapchain::RRSwapchain;
+use crate::data::{self as vulkan_data, SceneUniformData};
+use crate::descriptor::{
     RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
     RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
     RRRayQueryDescriptorSet, RRToneMapDescriptorSet,
 };
-use crate::vulkanr::image::{create_nearest_sampler, create_texture_sampler};
-use crate::vulkanr::pipeline::{
-    DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline, VertexInputConfig,
+use crate::pipeline::{
+    BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
+    VertexInputConfig,
 };
-use crate::vulkanr::raytracing::acceleration::RRAccelerationStructure;
-use crate::vulkanr::render::RRRender;
-use crate::vulkanr::renderer::deferred::gbuffer::{GBufferPushConstants, OnionSkinPushConstants};
-use crate::vulkanr::resource::graphics_resource::{GraphicsResources, MeshBuffer};
-use crate::vulkanr::resource::{OnionSkinPassResources, RRGBuffer};
-use crate::vulkanr::swapchain::RRSwapchain;
+use crate::raytracing::RRAccelerationStructure;
+use crate::render::RRRender;
+use crate::renderer::push_constants::{GBufferPushConstants, OnionSkinPushConstants};
+use crate::resource::buffer::create_buffer;
+use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
+use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
+use crate::resource::{BloomChain, OnionSkinPassResources, RRGBuffer};
+use crate::{log, log_warn};
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
@@ -275,12 +277,12 @@ impl RayTracingData {
         .custom_render_pass(ghost_render_pass)
         .mrt_attachments(1)
         .msaa_samples(vk::SampleCountFlags::_1)
-        .depth_test(crate::vulkanr::pipeline::DepthTestConfig {
+        .depth_test(DepthTestConfig {
             test_enable: false,
             write_enable: false,
             compare_op: vk::CompareOp::ALWAYS,
         })
-        .blend(crate::vulkanr::pipeline::BlendConfig {
+        .blend(BlendConfig {
             enable: true,
             src_color_factor: vk::BlendFactor::SRC_ALPHA,
             dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
@@ -328,7 +330,7 @@ impl RayTracingData {
         .no_depth_test()
         .custom_render_pass(composite_render_pass)
         .msaa_samples(vk::SampleCountFlags::_1)
-        .blend(crate::vulkanr::pipeline::BlendConfig {
+        .blend(BlendConfig {
             enable: true,
             src_color_factor: vk::BlendFactor::ONE,
             dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
@@ -434,7 +436,7 @@ impl RayTracingData {
         rrdevice: &RRDevice,
         rrrender: &RRRender,
         hdr_image_view: vk::ImageView,
-        bloom_chain: &crate::vulkanr::resource::BloomChain,
+        bloom_chain: &BloomChain,
     ) -> Result<()> {
         let mip_count = bloom_chain.mip_levels.len();
         let total_sets = (mip_count + mip_count.saturating_sub(1)) as u32;
@@ -493,7 +495,7 @@ impl RayTracingData {
         .no_depth_test()
         .custom_render_pass(bloom_chain.upsample_render_pass)
         .msaa_samples(vk::SampleCountFlags::_1)
-        .blend(crate::vulkanr::pipeline::BlendConfig {
+        .blend(BlendConfig {
             enable: true,
             src_color_factor: vk::BlendFactor::ONE,
             dst_color_factor: vk::BlendFactor::ONE,

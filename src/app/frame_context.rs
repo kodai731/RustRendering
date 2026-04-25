@@ -16,10 +16,10 @@ use crate::vulkanr::command::RRCommandPool;
 use crate::vulkanr::device::RRDevice;
 use crate::vulkanr::renderer::onion_skin_buffers::OnionSkinGpuState;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::resource::GpuBufferRegistry;
 use crate::vulkanr::vulkan::Instance;
 use crate::vulkanr::VulkanBackend;
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 pub struct FrameContext<'a> {
     pub instance: &'a Instance,

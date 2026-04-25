@@ -3,10 +3,10 @@ use std::rc::Rc;
 use crate::vulkanr::command::RRCommandPool;
 use crate::vulkanr::core::device::RRDevice;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::resource::GpuBufferRegistry;
 use crate::vulkanr::vulkan::Instance;
 use crate::vulkanr::VulkanBackend;
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 pub struct RenderContext<'a> {
     pub instance: &'a Instance,

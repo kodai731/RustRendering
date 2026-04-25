@@ -12,6 +12,7 @@ pub mod mesh_buffer;
 pub mod offscreen;
 pub mod onion_skin_pass;
 pub mod pipeline_storage;
+pub mod raytracing_data;
 
 pub use auto_exposure_buffers::AutoExposureBuffers;
 pub use bloom_chain::BloomChain;
@@ -27,3 +28,4 @@ pub use mesh_buffer::*;
 pub use offscreen::OffscreenFramebuffer;
 pub use onion_skin_pass::OnionSkinPassResources;
 pub use pipeline_storage::PipelineStorage;
+pub use raytracing_data::RayTracingData;

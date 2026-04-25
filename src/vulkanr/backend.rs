@@ -16,13 +16,14 @@ use crate::render::{
 };
 use crate::vulkanr::command::RRCommandPool;
 use crate::vulkanr::core::device::RRDevice;
-use crate::vulkanr::data::{SceneUniformData, Vertex};
+use crate::vulkanr::data::Vertex;
 use crate::vulkanr::image::RRImage;
-use crate::vulkanr::raytracing::acceleration::RRAccelerationStructure;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::resource::GpuBufferRegistry;
 use crate::vulkanr::vulkan::Instance;
+use thyllore_vulkan_core::data::SceneUniformData;
+use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 pub struct VulkanBackend<'a> {
     pub instance: &'a Instance,

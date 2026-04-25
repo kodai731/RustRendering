@@ -4,7 +4,7 @@ use crate::ecs::resource::{Camera, LightState};
 use crate::ecs::systems::camera_systems::compute_camera_position;
 use crate::ecs::world::World;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 pub fn log_shadow_debug_info(
     world: &World,
