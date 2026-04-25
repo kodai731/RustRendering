@@ -57,3 +57,17 @@ crates/thyllore-ml-core/tests/python_parity/fixtures/
 blender_addon/tests/__pycache__/
 blender_addon/grpc_client/__pycache__/
 blender_addon/grpc_client/stubs/__pycache__/
+
+# Phase 4: Ed25519 license signing private keys -- never commit
+secrets/
+
+# Phase 4: vendored wheels are populated by scripts/build_blender_addon.ps1
+# from pip download / maturin build outputs. Hashes/manifest are committed.
+blender_addon/wheels/*.whl
+
+# Phase 4: built ZIP artifacts
+blender_addon/__pycache__/
+blender_addon/license/__pycache__/
+blender_addon/operators/__pycache__/
+blender_addon/modal/__pycache__/
+blender_addon/panels/__pycache__/
