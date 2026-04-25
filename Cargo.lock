@@ -3249,8 +3249,6 @@ dependencies = [
  "once_cell",
  "ort",
  "png 0.17.16",
- "prost",
- "protox",
  "raw-window-handle",
  "rfd",
  "ron",
@@ -3259,15 +3257,13 @@ dependencies = [
  "thiserror",
  "thyllore-anim-core",
  "thyllore-exporter-core",
+ "thyllore-grpc-client",
  "thyllore-importer-core",
  "thyllore-math-core",
  "thyllore-ml-core",
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-vulkan-core",
- "tokio",
- "tonic",
- "tonic-build",
  "ufbx",
  "vulkanalia",
  "winit",
@@ -3287,6 +3283,19 @@ dependencies = [
  "thyllore-math-core",
  "thyllore-model-core",
  "ufbx",
+]
+
+[[package]]
+name = "thyllore-grpc-client"
+version = "0.0.1"
+dependencies = [
+ "prost",
+ "protox",
+ "thyllore-anim-core",
+ "thyllore-model-core",
+ "tokio",
+ "tonic",
+ "tonic-build",
 ]
 
 [[package]]

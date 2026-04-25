@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 
-use crate::animation::editable::{
+use thyllore_anim_core::editable::{
     curve_add_keyframe_with_tangents, BezierHandle, EditableAnimationClip, InterpolationType,
     PropertyType,
 };
-use crate::animation::BoneId;
+use thyllore_anim_core::BoneId;
 
-use super::request::{RawAnimationCurve, RawCurveKeyframe};
+use crate::request::{RawAnimationCurve, RawCurveKeyframe};
 
 pub fn convert_motion_response_to_clip(
     curves: &[RawAnimationCurve],
