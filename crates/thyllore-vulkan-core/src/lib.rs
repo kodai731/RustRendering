@@ -1,6 +1,7 @@
 #[macro_use]
 mod logger_compat;
 
+pub mod backend;
 pub mod command;
 pub mod core;
 pub mod data;
@@ -13,6 +14,7 @@ pub mod renderer;
 pub mod resource;
 pub mod vulkan;
 
+pub use backend::VulkanBackend;
 pub use command::*;
 pub use core::*;
 pub use data::*;

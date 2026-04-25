@@ -8,6 +8,7 @@ description = "Layer 3 abstract render backend for ThylloreAnimation — pure GP
 repository = "https://github.com/kodai731/Thyllore-Animation"
 
 [dependencies]
+anyhow = "1"
 cgmath = "0.18"
 thyllore-anim-core = { path = "../thyllore-anim-core" }
 thyllore-model-core = { path = "../thyllore-model-core" }

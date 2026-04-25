@@ -1,12 +1,15 @@
+pub mod backend;
 mod billboard;
 mod buffer_handle;
 mod gizmo;
 mod gizmo_data;
 mod mesh;
+mod projection;
 mod render_data;
 mod settings;
 mod ubo;
 
+pub use backend::RenderBackend;
 pub use billboard::{BillboardMesh, BillboardTransform, BillboardVertex};
 pub use buffer_handle::{BufferHandle, IndexBufferHandle, VertexBufferHandle};
 pub use gizmo::{
@@ -15,6 +18,7 @@ pub use gizmo::{
 };
 pub use gizmo_data::{BoneGizmoData, ConstraintGizmoData, GridMeshData, LightGizmoData};
 pub use mesh::{DynamicMesh, GpuMeshRef, LineMesh, MeshScale, RenderInfo};
+pub use projection::{DistanceAttenuation, ProjectionData};
 pub use render_data::{MeshHandle, ObjectIndex, RenderData, SkeletonHandle};
 pub use settings::{
     AutoExposure, BloomSettings, DepthOfField, Exposure, LensEffects, PhysicalCameraParameters,
