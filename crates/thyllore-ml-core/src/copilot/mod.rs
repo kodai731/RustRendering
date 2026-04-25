@@ -4,6 +4,7 @@ pub mod output;
 pub mod property;
 pub mod query;
 pub mod sampling;
+pub mod session;
 pub mod types;
 pub mod window;
 
