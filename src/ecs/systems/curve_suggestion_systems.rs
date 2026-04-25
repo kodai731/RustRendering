@@ -1,6 +1,5 @@
 use crate::animation::editable::{
-    curve_add_keyframe, curve_add_keyframe_with_tangents, BezierHandle, InterpolationType,
-    PropertyCurve, PropertyType,
+    curve_add_keyframe_with_tangents, BezierHandle, InterpolationType, PropertyCurve, PropertyType,
 };
 use crate::animation::BoneId;
 use crate::ecs::resource::{
@@ -8,154 +7,59 @@ use crate::ecs::resource::{
     InferenceActorState,
 };
 use crate::ml::{InferenceActorId, InferenceRequestKind, InferenceResultKind};
+use thyllore_ml_core::copilot::context::flatten_context;
+use thyllore_ml_core::copilot::property::{property_kind_to_id, PropertyKind};
+use thyllore_ml_core::copilot::query::generate_query_times;
+use thyllore_ml_core::copilot::window::sample_window;
 
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
 const MAX_CONTEXT_KEYFRAMES: usize = 8;
-const FEATURES_PER_KEYFRAME: usize = 6;
-const CONTEXT_SIZE: usize = MAX_CONTEXT_KEYFRAMES * FEATURES_PER_KEYFRAME;
 const MAX_STEPS: usize = 4;
-const PAE_WINDOW_SIZE: usize = 64;
 const MIN_CURVE_STD: f32 = 0.01;
 
-pub fn curve_suggestion_extract_context(
-    curve: &PropertyCurve,
-    _property_type: PropertyType,
-    max_keyframes: usize,
-    clip_duration: f32,
-) -> (Vec<f32>, f32, f32) {
-    let keyframes = &curve.keyframes;
-    let count = keyframes.len().min(max_keyframes);
-    let start = keyframes.len().saturating_sub(max_keyframes);
+struct FlatKeyframes {
+    times: Vec<f32>,
+    values: Vec<f32>,
+    in_dt: Vec<f32>,
+    in_dv: Vec<f32>,
+    out_dt: Vec<f32>,
+    out_dv: Vec<f32>,
+}
 
-    let window = &keyframes[start..start + count];
-
-    let curve_mean = if count > 0 {
-        window.iter().map(|kf| kf.value).sum::<f32>() / count as f32
-    } else {
-        0.0
+fn flatten_keyframes(curve: &PropertyCurve) -> FlatKeyframes {
+    let n = curve.keyframes.len();
+    let mut flat = FlatKeyframes {
+        times: Vec::with_capacity(n),
+        values: Vec::with_capacity(n),
+        in_dt: Vec::with_capacity(n),
+        in_dv: Vec::with_capacity(n),
+        out_dt: Vec::with_capacity(n),
+        out_dv: Vec::with_capacity(n),
     };
-
-    let curve_std = if count > 0 {
-        let variance = window
-            .iter()
-            .map(|kf| (kf.value - curve_mean).powi(2))
-            .sum::<f32>()
-            / count as f32;
-        variance.sqrt().max(1e-6)
-    } else {
-        1e-6
-    };
-
-    let total_size = max_keyframes * FEATURES_PER_KEYFRAME;
-    let mut context = vec![0.0f32; total_size];
-    let duration = clip_duration.max(0.001);
-    let padding_offset = (max_keyframes - count) * FEATURES_PER_KEYFRAME;
-
-    for (i, kf) in window.iter().enumerate() {
-        let offset = padding_offset + i * FEATURES_PER_KEYFRAME;
-        context[offset] = kf.time / duration;
-        context[offset + 1] = (kf.value - curve_mean) / curve_std;
-        context[offset + 2] = kf.in_tangent.time_offset / duration;
-        context[offset + 3] = kf.in_tangent.value_offset / curve_std;
-        context[offset + 4] = kf.out_tangent.time_offset / duration;
-        context[offset + 5] = kf.out_tangent.value_offset / curve_std;
+    for kf in &curve.keyframes {
+        flat.times.push(kf.time);
+        flat.values.push(kf.value);
+        flat.in_dt.push(kf.in_tangent.time_offset);
+        flat.in_dv.push(kf.in_tangent.value_offset);
+        flat.out_dt.push(kf.out_tangent.time_offset);
+        flat.out_dv.push(kf.out_tangent.value_offset);
     }
-
-    (context, curve_mean, curve_std)
+    flat
 }
 
-fn property_type_to_id(property_type: PropertyType) -> u32 {
-    match property_type {
-        PropertyType::TranslationX => 0,
-        PropertyType::TranslationY => 1,
-        PropertyType::TranslationZ => 2,
-        PropertyType::RotationX => 3,
-        PropertyType::RotationY => 4,
-        PropertyType::RotationZ => 5,
-        PropertyType::ScaleX => 6,
-        PropertyType::ScaleY => 7,
-        PropertyType::ScaleZ => 8,
+fn property_type_to_kind(pt: PropertyType) -> PropertyKind {
+    match pt {
+        PropertyType::TranslationX => PropertyKind::TranslationX,
+        PropertyType::TranslationY => PropertyKind::TranslationY,
+        PropertyType::TranslationZ => PropertyKind::TranslationZ,
+        PropertyType::RotationX => PropertyKind::RotationX,
+        PropertyType::RotationY => PropertyKind::RotationY,
+        PropertyType::RotationZ => PropertyKind::RotationZ,
+        PropertyType::ScaleX => PropertyKind::ScaleX,
+        PropertyType::ScaleY => PropertyKind::ScaleY,
+        PropertyType::ScaleZ => PropertyKind::ScaleZ,
     }
-}
-
-fn sample_curve_linear(curve: &PropertyCurve, t: f32) -> f32 {
-    let keyframes = &curve.keyframes;
-    if keyframes.is_empty() {
-        return 0.0;
-    }
-    if keyframes.len() == 1 || t <= keyframes[0].time {
-        return keyframes[0].value;
-    }
-    let last = &keyframes[keyframes.len() - 1];
-    if t >= last.time {
-        return last.value;
-    }
-
-    for w in keyframes.windows(2) {
-        let (a, b) = (&w[0], &w[1]);
-        if t >= a.time && t <= b.time {
-            let dt = b.time - a.time;
-            if dt < 1e-9 {
-                return a.value;
-            }
-            let ratio = (t - a.time) / dt;
-            return a.value + (b.value - a.value) * ratio;
-        }
-    }
-
-    last.value
-}
-
-pub fn curve_suggestion_extract_window(
-    curve: &PropertyCurve,
-    t_start: f32,
-    t_end: f32,
-    curve_mean: f32,
-    curve_std: f32,
-) -> Vec<f32> {
-    let mut window = vec![0.0f32; PAE_WINDOW_SIZE];
-
-    if curve.keyframes.is_empty() || (t_end - t_start).abs() < 1e-8 {
-        return window;
-    }
-
-    for i in 0..PAE_WINDOW_SIZE {
-        let t = t_start + (i as f32 / (PAE_WINDOW_SIZE - 1) as f32) * (t_end - t_start);
-        let value = sample_curve_linear(curve, t);
-        window[i] = (value - curve_mean) / curve_std;
-    }
-
-    window
-}
-
-fn generate_query_times(curve: &PropertyCurve, current_time: f32, clip_duration: f32) -> Vec<f32> {
-    let duration = clip_duration.max(0.001);
-
-    let future_kf_times: Vec<f32> = curve
-        .keyframes
-        .iter()
-        .filter(|kf| kf.time > current_time + 1e-6)
-        .take(MAX_STEPS)
-        .map(|kf| kf.time / duration)
-        .collect();
-
-    if !future_kf_times.is_empty() {
-        return future_kf_times;
-    }
-
-    let remaining = duration - current_time;
-    if remaining <= 0.0 {
-        return vec![current_time / duration];
-    }
-
-    let step_count = MAX_STEPS;
-    let mut times = Vec::with_capacity(step_count);
-    for i in 0..step_count {
-        let t = current_time + remaining * (i as f32 + 1.0) / step_count as f32;
-        times.push(t / duration);
-    }
-    times
 }
 
 pub fn curve_suggestion_submit(
@@ -174,22 +78,27 @@ pub fn curve_suggestion_submit(
         return;
     }
 
-    let (context, curve_mean, curve_std) = curve_suggestion_extract_context(
-        curve,
-        property_type,
+    let flat = flatten_keyframes(curve);
+    let context = flatten_context(
+        &flat.times,
+        &flat.values,
+        &flat.in_dt,
+        &flat.in_dv,
+        &flat.out_dt,
+        &flat.out_dv,
         MAX_CONTEXT_KEYFRAMES,
         clip_duration,
     );
 
-    if curve_std < MIN_CURVE_STD {
+    if context.curve_std < MIN_CURVE_STD {
         return;
     }
 
-    let property_type_id = property_type_to_id(property_type);
+    let property_type_id = property_kind_to_id(property_type_to_kind(property_type));
     let topology_features = topology_cache.get(bone_id).to_vec();
     let bone_name_tokens = name_token_cache.get(bone_id).to_vec();
 
-    let query_times = generate_query_times(curve, current_time, clip_duration);
+    let query_times = generate_query_times(&flat.times, current_time, clip_duration, MAX_STEPS);
 
     let context_start_time = curve
         .keyframes
@@ -203,12 +112,13 @@ pub fn curve_suggestion_submit(
         .last()
         .map(|t| t * clip_duration.max(0.001))
         .unwrap_or(clip_duration);
-    let curve_window = curve_suggestion_extract_window(
-        curve,
+    let curve_window = sample_window(
+        &flat.times,
+        &flat.values,
         context_start_time,
         last_query_time,
-        curve_mean,
-        curve_std,
+        context.curve_mean,
+        context.curve_std,
     );
 
     let denorm_query_times: Vec<f32> = query_times
@@ -217,12 +127,12 @@ pub fn curve_suggestion_submit(
         .collect();
 
     let kind = InferenceRequestKind::CurveCopilotPredict {
-        context,
+        context: context.flat,
         property_type_id,
         topology_features,
         bone_name_tokens,
         query_times,
-        curve_window,
+        curve_window: curve_window.to_vec(),
     };
 
     if let Some(request_id) = inference_actor_submit(inference_state, actor_id, kind) {
@@ -230,8 +140,8 @@ pub fn curve_suggestion_submit(
         suggestion_state.pending_bone_id = Some(bone_id);
         suggestion_state.pending_property_type = Some(property_type);
         suggestion_state.pending_clip_duration = Some(clip_duration);
-        suggestion_state.pending_curve_mean = Some(curve_mean);
-        suggestion_state.pending_curve_std = Some(curve_std);
+        suggestion_state.pending_curve_mean = Some(context.curve_mean);
+        suggestion_state.pending_curve_std = Some(context.curve_std);
         suggestion_state.pending_query_times = Some(denorm_query_times);
     }
 }
@@ -336,7 +246,7 @@ pub fn curve_suggestion_dismiss(suggestion_state: &mut CurveSuggestionState) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::animation::editable::CurveId;
+    use crate::animation::editable::{curve_add_keyframe, CurveId};
 
     fn create_test_curve(keyframe_count: usize) -> PropertyCurve {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
@@ -345,85 +255,6 @@ mod tests {
             curve_add_keyframe(&mut curve, time, (i as f32).sin());
         }
         curve
-    }
-
-    #[test]
-    fn test_extract_context_basic() {
-        let curve = create_test_curve(5);
-        let (context, _mean, _std) =
-            curve_suggestion_extract_context(&curve, PropertyType::TranslationX, 8, 4.0);
-
-        assert_eq!(context.len(), CONTEXT_SIZE);
-
-        let padding = (8 - 5) * FEATURES_PER_KEYFRAME;
-        assert!(context[padding] > 0.0);
-    }
-
-    #[test]
-    fn test_extract_context_right_aligned_padding() {
-        let curve = create_test_curve(2);
-        let (context, _mean, _std) =
-            curve_suggestion_extract_context(&curve, PropertyType::TranslationX, 8, 4.0);
-
-        assert_eq!(context.len(), CONTEXT_SIZE);
-
-        let padding_size = (8 - 2) * FEATURES_PER_KEYFRAME;
-        for i in 0..padding_size {
-            assert_eq!(
-                context[i], 0.0,
-                "leading padding at index {} should be 0",
-                i
-            );
-        }
-
-        assert!(
-            context[padding_size] > 0.0,
-            "first keyframe should be non-zero after padding"
-        );
-    }
-
-    #[test]
-    fn test_extract_context_normalization() {
-        let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::RotationX);
-        curve_add_keyframe(&mut curve, 1.0, 90.0);
-        curve_add_keyframe(&mut curve, 2.0, 180.0);
-
-        let (context, curve_mean, curve_std) =
-            curve_suggestion_extract_context(&curve, PropertyType::RotationX, 8, 4.0);
-
-        assert!((curve_mean - 135.0).abs() < 0.001, "mean should be 135.0");
-        assert!((curve_std - 45.0).abs() < 0.001, "std should be 45.0");
-
-        let padding = (8 - 2) * FEATURES_PER_KEYFRAME;
-        assert!(
-            (context[padding] - 0.25).abs() < 0.001,
-            "time should be 1.0/4.0 = 0.25"
-        );
-        assert!(
-            (context[padding + 1] - (-1.0)).abs() < 0.001,
-            "value should be (90.0 - 135.0) / 45.0 = -1.0"
-        );
-        assert!(
-            (context[padding + FEATURES_PER_KEYFRAME + 1] - 1.0).abs() < 0.001,
-            "value should be (180.0 - 135.0) / 45.0 = 1.0"
-        );
-    }
-
-    #[test]
-    fn test_extract_context_constant_curve() {
-        let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::RotationX);
-        curve_add_keyframe(&mut curve, 0.0, 42.0);
-        curve_add_keyframe(&mut curve, 1.0, 42.0);
-        curve_add_keyframe(&mut curve, 2.0, 42.0);
-
-        let (_context, curve_mean, curve_std) =
-            curve_suggestion_extract_context(&curve, PropertyType::RotationX, 8, 4.0);
-
-        assert!((curve_mean - 42.0).abs() < 0.001, "mean should be 42.0");
-        assert!(
-            (curve_std - 1e-6).abs() < 1e-7,
-            "std should be clamped to 1e-6"
-        );
     }
 
     #[test]
@@ -466,11 +297,5 @@ mod tests {
         curve_suggestion_apply(&suggestion, &mut curve);
 
         assert_eq!(curve.keyframe_count(), before_count + 1);
-    }
-
-    #[test]
-    fn test_property_type_to_id() {
-        assert_eq!(property_type_to_id(PropertyType::TranslationX), 0);
-        assert_eq!(property_type_to_id(PropertyType::ScaleZ), 8);
     }
 }
