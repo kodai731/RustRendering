@@ -47,9 +47,13 @@ jobs:
         working-directory: crates/thyllore-ml-core
         run: cargo test --test parity_fixtures generate_parity_fixtures
 
-      - name: Build & install thyllore_ml_core
+      - name: Build wheel
         working-directory: crates/thyllore-ml-core
-        run: maturin develop --release --features python
+        run: maturin build --release --features python --out dist
+
+      - name: Install wheel
+        working-directory: crates/thyllore-ml-core
+        run: pip install --force-reinstall $(ls dist/*.whl)
 
       - name: Run Python parity tests
         working-directory: crates/thyllore-ml-core
