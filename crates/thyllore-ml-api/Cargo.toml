@@ -1,0 +1,15 @@
+[package]
+name = "thyllore-ml-api"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "L2 stable contract: trait + bincode schema between thyllore-ml-core (impl) and the PyO3 wheel. Changes here require coordinated wheel rebuild and end-user reinstall — keep this surface minimal."
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+[dev-dependencies]
+serde_json = "1"

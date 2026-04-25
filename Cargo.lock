@@ -2761,6 +2761,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pythonize"
+version = "0.23.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "91a6ee7a084f913f98d70cdc3ebec07e852b735ae3059a1500db2661265da9ff"
+dependencies = [
+ "pyo3",
+ "serde",
+]
+
+[[package]]
 name = "quick-xml"
 version = "0.38.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3440,6 +3450,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "thyllore-ml-api"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror",
+]
+
+[[package]]
 name = "thyllore-ml-core"
 version = "0.0.1"
 dependencies = [
@@ -3448,6 +3467,9 @@ dependencies = [
  "numpy",
  "ort",
  "pyo3",
+ "pythonize",
+ "serde_json",
+ "thyllore-ml-api",
  "thyllore-model-core",
 ]
 

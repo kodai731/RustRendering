@@ -1,4 +1,5 @@
 pub mod copilot;
+mod ops_impl;
 mod tokenizer;
 mod topology;
 
@@ -6,6 +7,7 @@ mod topology;
 mod pybindings;
 
 pub use copilot::*;
+pub use ops_impl::MlCoreImpl;
 pub use tokenizer::*;
 pub use topology::*;
 
