@@ -2,6 +2,9 @@ pub mod copilot;
 mod tokenizer;
 mod topology;
 
+#[cfg(feature = "python")]
+mod pybindings;
+
 pub use copilot::*;
 pub use tokenizer::*;
 pub use topology::*;

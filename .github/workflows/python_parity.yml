@@ -1,0 +1,60 @@
+name: Python Parity Test
+
+on:
+  push:
+    branches: [main, develop]
+    paths:
+      - 'crates/thyllore-ml-core/**'
+      - '.github/workflows/python_parity.yml'
+  pull_request:
+    paths:
+      - 'crates/thyllore-ml-core/**'
+      - '.github/workflows/python_parity.yml'
+
+jobs:
+  parity:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ['3.10', '3.11', '3.12']
+    runs-on: ${{ matrix.os }}
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: 'crates/thyllore-ml-core'
+
+      - name: Install Python deps
+        run: pip install maturin pytest "numpy>=1.21,<3.0"
+
+      - name: Generate Rust fixtures
+        working-directory: crates/thyllore-ml-core
+        run: cargo test --test parity_fixtures generate_parity_fixtures
+
+      - name: Build wheel
+        working-directory: crates/thyllore-ml-core
+        run: maturin build --release --features python --out dist
+
+      - name: Install wheel
+        working-directory: crates/thyllore-ml-core
+        run: pip install --force-reinstall $(ls dist/*.whl)
+
+      - name: Run Python parity tests
+        working-directory: crates/thyllore-ml-core
+        run: pytest tests/python_parity/ -v

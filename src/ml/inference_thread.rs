@@ -2,10 +2,8 @@ use std::sync::mpsc;
 use std::thread;
 
 use anyhow::Result;
-use ort::session::Session;
 
-use thyllore_ml_core::copilot::input::{build_curve_copilot_tensors, build_curve_predict_tensor};
-use thyllore_ml_core::copilot::output::{parse_curve_copilot_output, parse_curve_predict_output};
+use thyllore_ml_core::copilot::session::Session;
 use thyllore_ml_core::{
     InferenceActorId, InferenceRequest, InferenceRequestKind, InferenceResult, InferenceResultKind,
 };
@@ -21,10 +19,7 @@ impl InferenceThreadHandle {
         let (req_tx, req_rx) = mpsc::channel::<InferenceRequest>();
         let (res_tx, res_rx) = mpsc::channel::<InferenceResult>();
 
-        let session = Session::builder()?
-            .with_intra_threads(2)?
-            .with_inter_threads(1)?
-            .commit_from_file(model_path)?;
+        let session = Session::from_onnx_path(model_path)?;
 
         let join_handle = thread::Builder::new()
             .name(format!("inference-actor-{}", actor_id))
@@ -91,9 +86,7 @@ fn execute_inference(
 ) -> Result<InferenceResultKind> {
     match &request.kind {
         InferenceRequestKind::CurvePredict { input } => {
-            let tensor = build_curve_predict_tensor(input)?;
-            let outputs = session.run(ort::inputs![tensor])?;
-            let output = parse_curve_predict_output(&outputs)?;
+            let output = session.run_curve_predict(input)?;
             Ok(InferenceResultKind::CurvePredict { output })
         }
 
@@ -105,7 +98,7 @@ fn execute_inference(
             query_times,
             curve_window,
         } => {
-            let tensors = build_curve_copilot_tensors(
+            let steps = session.run_curve_copilot(
                 context,
                 *property_type_id,
                 topology_features,
@@ -113,17 +106,6 @@ fn execute_inference(
                 query_times,
                 curve_window,
             )?;
-
-            let outputs = session.run(ort::inputs![
-                "context_keyframes" => tensors.context,
-                "property_type" => tensors.property_type,
-                "topology_features" => tensors.topology,
-                "bone_name_tokens" => tensors.bone_name,
-                "query_times" => tensors.query_times,
-                "curve_window" => tensors.curve_window
-            ])?;
-
-            let steps = parse_curve_copilot_output(&outputs, query_times.len())?;
 
             log!(
                 "CurveCopilot raw output: {} steps, query_times={:?}",
