@@ -60,8 +60,3 @@ auto-rig = ["text-to-motion", "thyllore-grpc-client/auto-rig", "thyllore-importe
 [dependencies.gltf]
 version = "1.4"
 features = ["extras", "names", "extensions"]
-
-[dev-dependencies]
-tonic = "0.12"
-tokio = { version = "1", features = ["rt", "sync", "macros", "net", "time"] }
-tokio-stream = { version = "0.1", features = ["net"] }

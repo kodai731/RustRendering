@@ -3,7 +3,7 @@
 //! Mirrors the pattern used by `tests/gltf_export_tests.rs` for graceful
 //! skipping when Blender is unavailable.
 //!
-//! Run: cargo test --features auto-rig --test blender_grpc_smoke_tests -- --nocapture
+//! Run: cargo test -p thyllore-grpc-client --features auto-rig --test blender_grpc_smoke_tests -- --nocapture
 
 #![cfg(feature = "auto-rig")]
 
@@ -17,6 +17,14 @@ use thyllore_grpc_client::proto;
 use thyllore_grpc_client::proto::auto_rigging_service_server::{
     AutoRiggingService, AutoRiggingServiceServer,
 };
+
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root (two levels above grpc-client crate)")
+        .to_path_buf()
+}
 
 #[derive(Default, Clone)]
 struct CapturedRequest {
@@ -165,8 +173,8 @@ fn start_mock_tonic_server() -> MockServerHandle {
 }
 
 fn read_blender_path() -> Option<String> {
-    let paths_file = Path::new(".claude/local/paths.md");
-    let content = std::fs::read_to_string(paths_file).ok()?;
+    let paths_file = workspace_root().join(".claude/local/paths.md");
+    let content = std::fs::read_to_string(&paths_file).ok()?;
     for line in content.lines() {
         if let Some(rest) = line.strip_prefix("- BlenderPath = ") {
             let path = rest.trim().to_string();
@@ -194,13 +202,14 @@ fn blender_grpc_smoke_auto_rig() {
         }
     };
 
-    let script_path = Path::new("blender_addon/tests/smoke_auto_rig.py");
+    let root = workspace_root();
+    let script_path = root.join("blender_addon/tests/smoke_auto_rig.py");
     if !script_path.exists() {
         eprintln!("Skipping: blender_addon/tests/smoke_auto_rig.py not found");
         return;
     }
 
-    let stubs_pb2 = Path::new("blender_addon/grpc_client/stubs/animation_ml_pb2.py");
+    let stubs_pb2 = root.join("blender_addon/grpc_client/stubs/animation_ml_pb2.py");
     if !stubs_pb2.exists() {
         eprintln!(
             "Skipping: gRPC Python stubs not generated. \
@@ -215,9 +224,9 @@ fn blender_grpc_smoke_auto_rig() {
     let output_glb = std::env::temp_dir().join("blender_grpc_smoke_output.glb");
     let _ = std::fs::remove_file(&output_glb);
 
-    let script_abs = canonicalize_no_prefix(script_path);
+    let script_abs = canonicalize_no_prefix(&script_path);
     let output_abs = canonicalize_no_prefix(&output_glb);
-    let pythonpath = canonicalize_no_prefix(Path::new("."));
+    let pythonpath = canonicalize_no_prefix(&root);
 
     let result = Command::new(&blender_path)
         .args([

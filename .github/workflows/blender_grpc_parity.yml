@@ -83,4 +83,4 @@ jobs:
 
       - name: Cargo test (Blender smoke graceful skip)
         run: |
-          cargo test --features auto-rig --test blender_grpc_smoke_tests -- --nocapture
+          cargo test -p thyllore-grpc-client --features auto-rig --test blender_grpc_smoke_tests -- --nocapture

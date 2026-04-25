@@ -3378,9 +3378,6 @@ dependencies = [
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-vulkan-core",
- "tokio",
- "tokio-stream",
- "tonic",
  "ufbx",
  "vulkanalia",
  "winit",
@@ -3413,6 +3410,7 @@ dependencies = [
  "thyllore-anim-core",
  "thyllore-model-core",
  "tokio",
+ "tokio-stream",
  "tonic",
  "tonic-build",
 ]
