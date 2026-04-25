@@ -1,0 +1,5 @@
+certifi-2024.12.14-py3-none-any.whl  1275f7a45be9464efc1173084eaa30f866fe2e47d389406136d332ed4967ec56
+grpcio_status-1.71.2-py3-none-any.whl  803c98cb6a8b7dc6dbb785b1111aed739f241ab5e9da0bba96888aa74704cfd3
+grpcio-1.71.2-cp310-cp310-win_amd64.whl  ea7f12d5c6d903a8ddf639fbf19a3554cf983aa088a7928088ebb697edb24d28
+protobuf-5.29.6-cp310-abi3-win_amd64.whl  7e6ad413275be172f67fdee0f43484b6de5a904cc1c3ea9804cb6fe2ff366eda
+thyllore_ml_core-0.0.1-cp310-abi3-win_amd64.whl  555722563128b33a9ef063f63e80e1a1743894d97b5a0312cd9dca1edd29964f
