@@ -1,0 +1,6 @@
+# Force LF for generated Python stubs so cross-platform `git diff --exit-code` works.
+blender_addon/grpc_client/stubs/*.py text eol=lf
+blender_addon/grpc_client/stubs/*.pyi text eol=lf
+
+# Treat parity fixture binaries as binary so diffs do not pollute review.
+blender_addon/tests/fixtures/*.bin binary

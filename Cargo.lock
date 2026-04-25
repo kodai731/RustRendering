@@ -3378,6 +3378,9 @@ dependencies = [
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-vulkan-core",
+ "tokio",
+ "tokio-stream",
+ "tonic",
  "ufbx",
  "vulkanalia",
  "winit",
@@ -3403,8 +3406,10 @@ dependencies = [
 name = "thyllore-grpc-client"
 version = "0.0.1"
 dependencies = [
+ "hex",
  "prost",
  "protox",
+ "serde_json",
  "thyllore-anim-core",
  "thyllore-model-core",
  "tokio",
