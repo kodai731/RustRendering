@@ -61,9 +61,15 @@ blender_addon/grpc_client/stubs/__pycache__/
 # Phase 4: Ed25519 license signing private keys -- never commit
 secrets/
 
-# Phase 4: vendored wheels are populated by scripts/build_blender_addon.ps1
-# from pip download / maturin build outputs. Hashes/manifest are committed.
+# Phase 4: vendored wheels are populated by scripts/collect_wheels.ps1 from
+# `pip download` / maturin outputs. Wheel binaries themselves and the
+# host-dependent SHA256 manifest are not committed (they vary per platform
+# and per build host's glibc); supply-chain integrity is delegated to pip's
+# PyPI signature checks for now. Phase 6 will revisit with
+# `pip --require-hashes` (see ../SharedData/document/Rust_Rendering/Design/
+# 20260421_CommonaizeBlenderAddon/20260421_BlenderAddonCommonizationDesign.md).
 blender_addon/wheels/*.whl
+blender_addon/wheels/HASHES.txt
 
 # Phase 4: built ZIP artifacts
 blender_addon/__pycache__/

@@ -22,14 +22,29 @@ $PlatformConfig = @{
     "win_amd64" = @{
         BlenderName  = "windows-x64"
         WheelSuffix  = "win_amd64"
+        # Multiple regex anchors: a wheel is accepted for Windows if any of
+        # these matches its filename. This tolerates wheels that come with
+        # several platform tags (grpcio dual-tag, maturin manylinux_2_34, ...).
+        WheelMatchers = @("win_amd64\.whl$")
     }
     "linux_x86_64" = @{
         BlenderName  = "linux-x64"
         WheelSuffix  = "manylinux2014_x86_64"
+        # Accept any glibc-tagged x86_64 Linux wheel:
+        #   manylinux2014_x86_64.whl
+        #   manylinux_2_17_x86_64.manylinux2014_x86_64.whl (PEP 600 dual)
+        #   manylinux_2_34_x86_64.whl (maturin on Ubuntu 24)
+        #   linux_x86_64.whl (no manylinux tag — must be vetted manually)
+        WheelMatchers = @(
+            "manylinux2014_x86_64\.whl$",
+            "manylinux_2_\d+_x86_64\.whl$",
+            "linux_x86_64\.whl$"
+        )
     }
     "macosx_arm64" = @{
         BlenderName  = "macos-arm64"
         WheelSuffix  = "macosx_11_0_arm64"
+        WheelMatchers = @("macosx_\d+_\d+_arm64\.whl$")
     }
 }[$Platform]
 
@@ -81,14 +96,20 @@ if (-not (Test-Path $WheelsDir)) {
     throw "Stage directory has no wheels/. Run scripts/collect_wheels.ps1 first."
 }
 
-$WheelSuffix = $PlatformConfig.WheelSuffix
 $AllWheels = Get-ChildItem -Path $WheelsDir -Filter "*.whl"
 $KeptWheels = New-Object System.Collections.Generic.List[string]
 
 foreach ($wheel in $AllWheels) {
     $name = $wheel.Name
-    # Keep pure-Python (py3-none-any) and platform-matched wheels.
-    if ($name -like "*-py3-none-any.whl" -or $name -like "*-$WheelSuffix.whl") {
+    $isPureWheel = $name -match "py3-none-any\.whl$"
+    $isPlatformWheel = $false
+    foreach ($pattern in $PlatformConfig.WheelMatchers) {
+        if ($name -match $pattern) {
+            $isPlatformWheel = $true
+            break
+        }
+    }
+    if ($isPureWheel -or $isPlatformWheel) {
         $KeptWheels.Add($name)
     } else {
         Remove-Item -Path $wheel.FullName -Force

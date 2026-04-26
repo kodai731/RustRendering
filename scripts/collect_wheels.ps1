@@ -73,7 +73,10 @@ if (-not $SkipMaturin) {
     }
 }
 
-Write-Host "[collect_wheels] Computing SHA256 manifest..." -ForegroundColor Cyan
+# SHA256 manifest written for local debugging only — gitignored.
+# Phase 6 will replace this with `pip --require-hashes` on a committed
+# requirements lock file (see parent design doc).
+Write-Host "[collect_wheels] Writing local SHA256 manifest (gitignored)..." -ForegroundColor Cyan
 $HashesFile = Join-Path $AbsWheels "HASHES.txt"
 $Lines = New-Object System.Collections.Generic.List[string]
 foreach ($wheel in Get-ChildItem $AbsWheels -Filter "*.whl" | Sort-Object Name) {
@@ -84,4 +87,3 @@ foreach ($wheel in Get-ChildItem $AbsWheels -Filter "*.whl" | Sort-Object Name) 
 
 $WheelCount = (Get-ChildItem $AbsWheels -Filter "*.whl").Count
 Write-Host "[collect_wheels] Done. $WheelCount wheels in $AbsWheels"
-Write-Host "[collect_wheels] HASHES.txt updated. Commit it if the wheel set is intentional."
