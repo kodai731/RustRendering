@@ -59,6 +59,57 @@ crate (e.g., `gltf_export_tests.rs`, `ecs_tests.rs`). These can ONLY run on deve
 machines where `vendor/imgui-sys/build.rs` exists locally. They must NOT be wired into
 GitHub Actions workflows.
 
+## Linux Verification — Prefer WSL2 Before Touching CI
+
+**IMPORTANT:** When you need to verify Linux behavior from a Windows development
+machine (Blender extension validate, manylinux wheel layout, glibc-dependent
+binaries), **try WSL2 first** before adding new CI runs or asking the user to
+spin up a Linux VM.
+
+### Why
+
+- WSL2 Ubuntu has the same glibc + Python toolchain that GitHub Actions
+  `ubuntu-latest` uses; manylinux wheel filename tags, TOML parsing, and
+  Blender CLI behavior reproduce 1:1 between the two environments.
+- Local WSL2 turnaround is ~30 seconds (build + validate). A CI failure
+  round-trip is several minutes per push and consumes runner minutes.
+- Phase 4 PR #97 caught three TOML/manifest defects locally via WSL2 in one
+  iteration after CI had already failed twice without surfacing the root cause.
+
+### How to Apply
+
+Before pushing CI-only fixes for Linux issues:
+
+1. **Install Blender 4.2 LTS into WSL2 Ubuntu** (one-time):
+   ```bash
+   wsl -d Ubuntu -- bash -lc '
+   mkdir -p ~/blender_test && cd ~/blender_test &&
+   wget -q -O blender.tar.xz https://download.blender.org/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz &&
+   tar -xf blender.tar.xz && mv blender-4.2.0-linux-x64 blender && rm blender.tar.xz
+   '
+   ```
+2. **Reproduce the CI environment locally** by collecting Linux wheels via WSL2
+   (`pip download --platform manylinux2014_x86_64 ...`, `maturin build`).
+3. **Run the actual CI step** (`build_blender_addon.ps1`,
+   `blender --command extension validate ...`) before pushing.
+4. **Add a `cargo test` shim** that orchestrates this when feasible — the
+   pattern used by
+   `crates/thyllore-grpc-client/tests/blender_addon_linux_validate.rs`:
+   - `#[ignore]` so default `cargo test` skips it.
+   - Detect `wsl.exe` + WSL Blender at `~/blender_test/blender/blender`
+     (overridable via `THYLLORE_WSL_BLENDER_PATH`) and skip with a clear
+     message when missing.
+   - Run with `cargo test -p thyllore-grpc-client --test
+     blender_addon_linux_validate -- --ignored --nocapture`.
+
+### When CI is Still the Right Choice
+
+- The bug only reproduces on macOS/arm64 hardware that WSL2 does not provide.
+- The defect needs the exact GitHub Actions runner image (rare for our scope).
+- A long-running matrix is required and developer machine cost is too high.
+
+In all other cases, exhaust local WSL2 verification first.
+
 The project includes integration tests in the `tests/` directory:
 
 ## Test Files

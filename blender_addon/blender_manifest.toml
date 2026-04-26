@@ -1,0 +1,50 @@
+schema_version = "1.0.0"
+
+id = "thyllore_animation"
+version = "0.0.1"
+name = "Thyllore Animation"
+tagline = "AI rig, mesh-generation, and FCurve copilot for Blender"
+maintainer = "kodai731 <kodai731@example.com>"
+
+type = "add-on"
+
+# Minimum supported Blender. Blender 4.0/4.1 fall back to bl_info-based
+# legacy add-on installation; only 4.2+ uses this manifest directly.
+blender_version_min = "4.2.0"
+
+# SPDX identifiers — Blender 4.2 extension policy requires GPL-2.0-or-later for
+# code that links to bpy. Bundled wheels and the proprietary thyllore_ml_core
+# .pyd are documented under THIRD_PARTY_LICENSES.md inside the ZIP.
+license = ["SPDX:GPL-2.0-or-later"]
+
+# Vendored Python wheels. The "PLATFORM" placeholders are substituted by
+# scripts/build_blender_addon.ps1 when producing per-platform ZIPs.
+# Source layout intentionally lists them: build_blender_addon.ps1 prunes the
+# list down to the active platform's wheels.
+wheels = [
+    "./wheels/thyllore_ml_core-0.0.1-cp310-abi3-PLATFORM.whl",
+    "./wheels/grpcio-1.71.2-cp310-abi3-PLATFORM.whl",
+    "./wheels/grpcio_status-1.71.2-py3-none-any.whl",
+    "./wheels/protobuf-5.29.6-cp310-abi3-PLATFORM.whl",
+    "./wheels/certifi-2024.12.14-py3-none-any.whl",
+]
+
+# Platform — replaced by build_blender_addon.ps1 with one of:
+#   "windows-x64", "linux-x64", "macos-arm64", "macos-x64"
+platforms = ["PLATFORM_BLENDER_NAME"]
+
+# UI-visible permissions Blender displays to the user before activation.
+# All top-level scalar keys above must precede any [table] header (TOML rule).
+[permissions]
+network = "Send mesh/prompt to AI servers (rig/mesh/motion)"
+files = "Import generated GLB / write FCurve keyframes"
+
+# Files excluded from the extension ZIP.
+[build]
+paths_exclude_pattern = [
+    "tests/",
+    "**/__pycache__/",
+    "**/*.pyc",
+    ".pytest_cache/",
+    "*.egg-info/",
+]
