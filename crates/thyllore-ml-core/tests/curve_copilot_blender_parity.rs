@@ -27,34 +27,11 @@ fn read_paths_md_value(key: &str) -> Option<String> {
     None
 }
 
-fn resolve_fixture_root() -> Option<PathBuf> {
+fn resolve_fixture_root() -> PathBuf {
     if let Ok(p) = env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
-        return Some(PathBuf::from(p));
+        return PathBuf::from(p);
     }
-    if let Ok(p) = env::var("THYLLORE_SHARED_DATA_PATH") {
-        return Some(PathBuf::from(p).join("fixtures").join("ml_parity"));
-    }
-    let primary_key = if cfg!(unix) {
-        "SharedDataPathWSL"
-    } else {
-        "SharedDataPath"
-    };
-    let secondary_key = if cfg!(unix) {
-        "SharedDataPath"
-    } else {
-        "SharedDataPathWSL"
-    };
-    for key in [primary_key, secondary_key] {
-        if let Some(value) = read_paths_md_value(key) {
-            let normalized = if cfg!(windows) && value.starts_with(r"\\") {
-                value.replace('\\', "/")
-            } else {
-                value
-            };
-            return Some(PathBuf::from(normalized).join("fixtures").join("ml_parity"));
-        }
-    }
-    None
+    workspace_root().join("fixtures").join("ml_parity")
 }
 
 fn resolve_blender_executable() -> Option<PathBuf> {
@@ -86,10 +63,7 @@ fn resolve_wheel_dir() -> PathBuf {
 }
 
 fn resolve_ort_dylib_path() -> Option<PathBuf> {
-    if let Ok(p) = env::var("ORT_DYLIB_PATH") {
-        return Some(PathBuf::from(p));
-    }
-    let candidate = if cfg!(windows) {
+    let vendor_candidate = if cfg!(windows) {
         workspace_root()
             .join("vendor")
             .join("onnxruntime")
@@ -104,20 +78,22 @@ fn resolve_ort_dylib_path() -> Option<PathBuf> {
             .join("lib")
             .join("libonnxruntime.so")
     };
-    if candidate.exists() {
-        Some(candidate)
-    } else {
-        None
+    if vendor_candidate.exists() {
+        return Some(vendor_candidate);
     }
+    if let Ok(p) = env::var("ORT_DYLIB_PATH") {
+        let path = PathBuf::from(p);
+        if path.exists() {
+            return Some(path);
+        }
+    }
+    None
 }
 
 #[test]
 #[ignore]
 fn curve_copilot_typed_and_call_op_paths_match_in_blender() {
-    let Some(fixture_root) = resolve_fixture_root() else {
-        eprintln!("skip: cannot resolve fixture root");
-        return;
-    };
+    let fixture_root = resolve_fixture_root();
     if !fixture_root.exists() {
         eprintln!(
             "skip: fixture root {} not found; run scripts/generate_parity_fixtures.sh",

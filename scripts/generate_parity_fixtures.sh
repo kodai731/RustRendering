@@ -1,17 +1,31 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-FORCE=0
-SHARED_DATA_PATH=""
+ONNX_REPO="kodai731/thyllore-curve-copilot"
+ONNX_REVISION="${THYLLORE_ONNX_REVISION:-main}"
+ONNX_FILENAME="curve_copilot.onnx"
+
+FORCE_DOWNLOAD=0
+FIXTURE_ROOT=""
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --force) FORCE=1; shift ;;
-        --shared-data-path) SHARED_DATA_PATH="$2"; shift 2 ;;
+        --force) FORCE_DOWNLOAD=1; shift ;;
+        --fixture-root) FIXTURE_ROOT="$2"; shift 2 ;;
         -h|--help)
-            echo "Usage: $0 [--force] [--shared-data-path PATH]"
-            echo "Regenerates the ml_parity fixture set from cargo test output and"
-            echo "refreshes manifest.json under <SharedDataPath>/fixtures/ml_parity/."
+            cat <<EOF
+Usage: $0 [--force] [--fixture-root PATH]
+
+Regenerates the ml_parity fixture set into <fixture-root> by:
+  1. Downloading the curve_copilot ONNX model from HuggingFace
+     ($ONNX_REPO @ $ONNX_REVISION) unless already cached
+  2. Running the Rust fixture generators (cargo test --ignored) which produce
+     proto/*.bin and numpy/*.json from synthetic seeds + ONNX inference
+  3. Writing manifest.json with sha256 + size for every regenerated file
+
+Default fixture root: <workspace>/fixtures/ml_parity (override with
+THYLLORE_PARITY_FIXTURE_OUTPUT or --fixture-root).
+EOF
             exit 0
             ;;
         *) echo "unknown arg: $1" >&2; exit 2 ;;
@@ -20,42 +34,27 @@ done
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WORKSPACE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-PATHS_FILE="$WORKSPACE_ROOT/.claude/local/paths.md"
 
-if [[ -z "$SHARED_DATA_PATH" ]]; then
-    if [[ ! -f "$PATHS_FILE" ]]; then
-        echo "ERROR: paths.md not found at $PATHS_FILE" >&2
-        exit 1
-    fi
-    SHARED_DATA_PATH=$(grep -E '^- SharedDataPathWSL\s*=' "$PATHS_FILE" \
-        | sed -E 's/^- SharedDataPathWSL\s*=\s*//' | tr -d '\r' || true)
-    if [[ -z "$SHARED_DATA_PATH" ]]; then
-        echo "ERROR: SharedDataPathWSL not found in $PATHS_FILE" >&2
-        exit 1
-    fi
+if [[ -z "$FIXTURE_ROOT" ]]; then
+    FIXTURE_ROOT="${THYLLORE_PARITY_FIXTURE_OUTPUT:-$WORKSPACE_ROOT/fixtures/ml_parity}"
 fi
-
-FIXTURE_ROOT="$SHARED_DATA_PATH/fixtures/ml_parity"
 echo "fixture root: $FIXTURE_ROOT"
-mkdir -p "$FIXTURE_ROOT/glb" "$FIXTURE_ROOT/proto" "$FIXTURE_ROOT/onnx" "$FIXTURE_ROOT/numpy"
+mkdir -p "$FIXTURE_ROOT/proto" "$FIXTURE_ROOT/onnx" "$FIXTURE_ROOT/numpy"
 
-EXPORTS_DIR="$SHARED_DATA_PATH/exports"
-if [[ ! -d "$EXPORTS_DIR" ]]; then
-    echo "ERROR: $EXPORTS_DIR not found" >&2
-    exit 1
-fi
+ONNX_LOCAL="$FIXTURE_ROOT/onnx/$ONNX_FILENAME"
+ONNX_URL="https://huggingface.co/$ONNX_REPO/resolve/$ONNX_REVISION/$ONNX_FILENAME"
 
-LATEST_ONNX=$(ls -1 "$EXPORTS_DIR"/curve_copilot_*.onnx 2>/dev/null | sort | tail -n 1 || true)
-if [[ -z "$LATEST_ONNX" ]]; then
-    echo "ERROR: no curve_copilot_*.onnx found in $EXPORTS_DIR" >&2
-    exit 1
+if [[ "$FORCE_DOWNLOAD" -eq 1 || ! -f "$ONNX_LOCAL" ]]; then
+    echo "downloading ONNX: $ONNX_URL -> $ONNX_LOCAL"
+    curl -fL --retry 3 --retry-delay 2 -o "$ONNX_LOCAL.tmp" "$ONNX_URL"
+    mv -f "$ONNX_LOCAL.tmp" "$ONNX_LOCAL"
+else
+    echo "ONNX already present at $ONNX_LOCAL (use --force to re-download)"
 fi
-echo "copying onnx: $LATEST_ONNX -> $FIXTURE_ROOT/onnx/curve_copilot.onnx"
-cp -f "$LATEST_ONNX" "$FIXTURE_ROOT/onnx/curve_copilot.onnx"
 
 export THYLLORE_PARITY_FIXTURE_OUTPUT="$FIXTURE_ROOT"
 
-echo "==> generating Tier A proto fixtures"
+echo "==> generating gRPC proto fixtures"
 (
     cd "$WORKSPACE_ROOT"
     CARGO_TARGET_DIR="$WORKSPACE_ROOT/target-linux" \
@@ -64,22 +63,20 @@ echo "==> generating Tier A proto fixtures"
         -- --ignored --nocapture
 )
 
-echo "==> generating Tier B (curve_copilot) input + golden fixtures"
-# WSL2 has no Linux onnxruntime.so vendored; delegate Tier B inference to the
-# Windows host cargo, which has the vendored onnxruntime.dll.
-if [[ -e /proc/version && $(grep -ci microsoft /proc/version) -gt 0 ]]; then
-    WIN_FIXTURE_ROOT=$(echo "$FIXTURE_ROOT" \
-        | sed -E 's|^/home/kodai/Projects/SharedData|//wsl.localhost/Ubuntu/home/kodai/Projects/SharedData|')
-    WIN_WORKSPACE=$(wslpath -w "$WORKSPACE_ROOT")
-    cmd.exe /c "set THYLLORE_PARITY_FIXTURE_OUTPUT=${WIN_FIXTURE_ROOT}&& cd /D ${WIN_WORKSPACE}&& cargo test -p thyllore-ml-core --test curve_copilot_fixture_generator generate_curve_copilot_input_and_golden_fixtures -- --ignored --nocapture" \
-        || { echo "ERROR: Windows cargo Tier B generation failed" >&2; exit 1; }
-else
-    (
-        cd "$WORKSPACE_ROOT"
-        cargo test -p thyllore-ml-core --test curve_copilot_fixture_generator \
-            generate_curve_copilot_input_and_golden_fixtures -- --ignored --nocapture
-    )
+echo "==> generating curve_copilot input + golden fixtures"
+# Run native cargo; ort needs libonnxruntime.so / .dll to load via ORT_DYLIB_PATH.
+# vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so must be
+# extracted before running on Linux/WSL2 (one-time setup, see docs).
+ORT_DYLIB_VENDOR_LINUX="$WORKSPACE_ROOT/vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so"
+if [[ -z "${ORT_DYLIB_PATH:-}" && -f "$ORT_DYLIB_VENDOR_LINUX" ]]; then
+    export ORT_DYLIB_PATH="$ORT_DYLIB_VENDOR_LINUX"
 fi
+(
+    cd "$WORKSPACE_ROOT"
+    CARGO_TARGET_DIR="$WORKSPACE_ROOT/target-linux" \
+        cargo test -p thyllore-ml-core --test curve_copilot_fixture_generator \
+        generate_curve_copilot_input_and_golden_fixtures -- --ignored --nocapture
+)
 
 unset THYLLORE_PARITY_FIXTURE_OUTPUT
 
@@ -87,7 +84,7 @@ COMMIT=$(cd "$WORKSPACE_ROOT" && git rev-parse --short=8 HEAD 2>/dev/null || ech
 GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 echo "==> writing manifest.json"
-python3 - "$FIXTURE_ROOT" "$COMMIT" "$GENERATED_AT" <<'PY'
+python3 - "$FIXTURE_ROOT" "$COMMIT" "$GENERATED_AT" "$ONNX_REVISION" <<'PY'
 import hashlib
 import json
 import os
@@ -97,12 +94,14 @@ from pathlib import Path
 fixture_root = Path(sys.argv[1])
 commit = sys.argv[2]
 generated_at = sys.argv[3]
+onnx_revision = sys.argv[4]
 
 manifest = {
     "schema_version": 1,
     "generated_at": generated_at,
     "generator": "scripts/generate_parity_fixtures.sh",
     "thyllore_animation_commit": commit,
+    "onnx_huggingface_revision": onnx_revision,
     "proto_version": "v1",
     "fixtures": {},
 }
@@ -126,8 +125,4 @@ PY
 
 echo
 echo "fixtures regenerated at $FIXTURE_ROOT"
-echo "next: commit manifest.json + new files in SharedData repository:"
-echo "  cd $SHARED_DATA_PATH"
-echo "  git status fixtures/ml_parity"
-echo "  git add fixtures/ml_parity"
-echo "  git commit -m \"regenerate ml_parity fixtures (ThylloreAnimation @ $COMMIT)\""
+echo "ONNX revision: $ONNX_REVISION"

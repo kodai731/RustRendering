@@ -82,15 +82,37 @@ def select_first_location_x_fcurve(armature_object):
     target_data_path = f'pose.bones["{ROOT_BONE_NAME}"].location'
     for fcurve in action.fcurves:
         if fcurve.data_path == target_data_path and fcurve.array_index == 0:
-            action.fcurves.active = fcurve
             return fcurve
     raise RuntimeError("curve_copilot smoke: location.x FCurve not found")
 
 
-def configure_preferences(onnx_path):
+def enable_addon():
+    """Enable the thyllore_animation add-on regardless of install style.
+
+    Returns the resolved package name so callers can index
+    ``bpy.context.preferences.addons[...]``.
+    """
+    import bpy
+    import addon_utils
+
+    candidates = ["bl_ext.user_default.thyllore_animation", "thyllore_animation"]
+    for module_name in candidates:
+        loaded_default, loaded_state = addon_utils.check(module_name)
+        if loaded_default or loaded_state:
+            return module_name
+        try:
+            bpy.ops.preferences.addon_enable(module=module_name)
+            return module_name
+        except RuntimeError:
+            continue
+    raise RuntimeError(
+        "thyllore_animation add-on is not installed; tried " + ", ".join(candidates)
+    )
+
+
+def configure_preferences(addon_pkg, onnx_path):
     import bpy
 
-    addon_pkg = "thyllore_animation"
     prefs = bpy.context.preferences.addons[addon_pkg].preferences
     prefs.curve_copilot_model_path = onnx_path
     prefs.enable_curve_copilot = True
@@ -126,13 +148,15 @@ def main():
 
     import bpy
 
+    addon_pkg = enable_addon()
+
     bpy.ops.object.select_all(action="SELECT")
     bpy.ops.object.delete(use_global=False)
 
     armature_object = build_minimal_armature()
     insert_initial_keyframes(armature_object)
     fcurve = select_first_location_x_fcurve(armature_object)
-    configure_preferences(str(onnx_path).replace("\\", "/"))
+    configure_preferences(addon_pkg, str(onnx_path).replace("\\", "/"))
 
     try:
         operator_status, pre_count, post_count = run_curve_copilot_operator(

@@ -48,34 +48,11 @@ fn read_paths_md_value(key: &str) -> Option<String> {
     None
 }
 
-fn resolve_fixture_root() -> Option<PathBuf> {
+fn resolve_fixture_root() -> PathBuf {
     if let Ok(p) = env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
-        return Some(PathBuf::from(p));
+        return PathBuf::from(p);
     }
-    if let Ok(p) = env::var("THYLLORE_SHARED_DATA_PATH") {
-        return Some(PathBuf::from(p).join("fixtures").join("ml_parity"));
-    }
-    let primary = if cfg!(unix) {
-        "SharedDataPathWSL"
-    } else {
-        "SharedDataPath"
-    };
-    let secondary = if cfg!(unix) {
-        "SharedDataPath"
-    } else {
-        "SharedDataPathWSL"
-    };
-    for key in [primary, secondary] {
-        if let Some(value) = read_paths_md_value(key) {
-            let normalized = if cfg!(windows) && value.starts_with(r"\\") {
-                value.replace('\\', "/")
-            } else {
-                value
-            };
-            return Some(PathBuf::from(normalized).join("fixtures").join("ml_parity"));
-        }
-    }
-    None
+    workspace_root().join("fixtures").join("ml_parity")
 }
 
 fn resolve_blender_executable() -> Option<PathBuf> {
@@ -105,10 +82,7 @@ fn resolve_blender_executable() -> Option<PathBuf> {
 #[test]
 #[ignore]
 fn grpc_request_wire_bytes_match_across_rust_and_blender() {
-    let Some(fixture_root) = resolve_fixture_root() else {
-        eprintln!("skip: cannot resolve fixture root");
-        return;
-    };
+    let fixture_root = resolve_fixture_root();
     if !fixture_root.exists() {
         eprintln!(
             "skip: fixture root {} not found; run scripts/generate_parity_fixtures.sh",
@@ -272,6 +246,7 @@ fn run_blender_client(
         .arg(result_dir)
         .env("THYLLORE_HEADLESS", "1")
         .env("THYLLORE_FORCE_MOCK_SERVER", "1")
+        .env("THYLLORE_TEST_BYPASS_LICENSE", "1")
         .output()
         .expect("spawn blender");
 

@@ -25,6 +25,8 @@ on:
 
 env:
   BLENDER_VERSION: "4.2.0"
+  ONNX_REPO: "kodai731/thyllore-curve-copilot"
+  ONNX_REVISION: "main"
 
 jobs:
   parity:
@@ -67,16 +69,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: ThylloreAnimation
-
-      - name: Checkout SharedData (sparse, fixtures only)
-        uses: actions/checkout@v4
-        with:
-          repository: kodai731/SharedData
-          path: SharedData
-          token: ${{ secrets.SHAREDDATA_TOKEN }}
-          sparse-checkout: |
-            fixtures/ml_parity
-          lfs: true
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -121,12 +113,21 @@ jobs:
           echo "path=$BLENDER_EXE" >> "$GITHUB_OUTPUT"
           "$BLENDER_EXE" --version
 
-      - name: Verify fixture hashes
+      - name: Cache curve_copilot ONNX from HuggingFace
+        id: cache-onnx
+        uses: actions/cache@v4
+        with:
+          path: ThylloreAnimation/fixtures/ml_parity/onnx/curve_copilot.onnx
+          key: curve-copilot-onnx-${{ env.ONNX_REVISION }}
+
+      - name: Download curve_copilot ONNX from HuggingFace (cache miss)
+        if: steps.cache-onnx.outputs.cache-hit != 'true'
         working-directory: ThylloreAnimation
-        env:
-          THYLLORE_SHARED_DATA_PATH: ${{ github.workspace }}/SharedData
         run: |
-          cargo test -p thyllore-grpc-client --test fixture_hash_check -- --nocapture
+          mkdir -p fixtures/ml_parity/onnx
+          curl -fL --retry 3 --retry-delay 2 \
+            -o fixtures/ml_parity/onnx/curve_copilot.onnx \
+            "https://huggingface.co/${ONNX_REPO}/resolve/${ONNX_REVISION}/curve_copilot.onnx"
 
       - name: Build wheel (maturin)
         working-directory: ThylloreAnimation/crates/thyllore-ml-core
@@ -156,11 +157,24 @@ jobs:
           bpy.ops.wm.save_userpref()
           "
 
+      - name: Generate parity fixtures (proto + numpy)
+        working-directory: ThylloreAnimation
+        env:
+          THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
+        run: |
+          cargo test -p thyllore-grpc-client --features auto-rig,text-to-motion \
+            --test grpc_fixture_generator generate_grpc_request_response_fixtures \
+            -- --ignored --nocapture
+          cargo test -p thyllore-ml-core \
+            --test curve_copilot_fixture_generator generate_curve_copilot_input_and_golden_fixtures \
+            -- --ignored --nocapture
+
       - name: Run curve_copilot Blender parity (typed vs call_op_json)
         working-directory: ThylloreAnimation
         env:
-          THYLLORE_SHARED_DATA_PATH: ${{ github.workspace }}/SharedData
+          THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
+          THYLLORE_TEST_BYPASS_LICENSE: "1"
         run: |
           cargo test -p thyllore-ml-core --test curve_copilot_blender_parity \
             curve_copilot_typed_and_call_op_paths_match_in_blender -- --ignored --nocapture
@@ -168,8 +182,9 @@ jobs:
       - name: Run curve_copilot Operator headless smoke
         working-directory: ThylloreAnimation
         env:
-          THYLLORE_SHARED_DATA_PATH: ${{ github.workspace }}/SharedData
+          THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
+          THYLLORE_TEST_BYPASS_LICENSE: "1"
         run: |
           cargo test -p thyllore-grpc-client \
             --test curve_copilot_operator_smoke curve_copilot_operator_runs_under_background \
@@ -178,8 +193,9 @@ jobs:
       - name: Run gRPC request wire-bytes + response parity
         working-directory: ThylloreAnimation
         env:
-          THYLLORE_SHARED_DATA_PATH: ${{ github.workspace }}/SharedData
+          THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
+          THYLLORE_TEST_BYPASS_LICENSE: "1"
         run: |
           cargo test -p thyllore-grpc-client \
             --test grpc_request_wire_parity grpc_request_wire_bytes_match_across_rust_and_blender \

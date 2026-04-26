@@ -60,17 +60,53 @@ def write_canonical_json(path, value):
     Path(path).write_text(text)
 
 
-def import_stubs_from_addon():
-    from thyllore_animation.grpc_client.stubs import (  # type: ignore
-        animation_ml_pb2,
-        animation_ml_pb2_grpc,
+def enable_addon_and_import_stubs():
+    """Enable the thyllore_animation add-on (legacy or extension) and return its proto stubs.
+
+    The extension install path differs between Blender 4.0 (legacy add-on,
+    package = ``thyllore_animation``) and 4.2+ (extension, package =
+    ``bl_ext.user_default.thyllore_animation``). Try both and import stubs
+    from whichever loads.
+    """
+    import bpy
+    import addon_utils
+    import importlib
+
+    candidates = [
+        ("bl_ext.user_default.thyllore_animation", "bl_ext.user_default.thyllore_animation.grpc_client.stubs"),
+        ("thyllore_animation", "thyllore_animation.grpc_client.stubs"),
+    ]
+    last_error = None
+    for module_name, stubs_module in candidates:
+        loaded_default, loaded_state = addon_utils.check(module_name)
+        if not (loaded_default or loaded_state):
+            try:
+                bpy.ops.preferences.addon_enable(module=module_name)
+            except RuntimeError as e:
+                last_error = e
+                continue
+        try:
+            stubs_pkg = importlib.import_module(stubs_module)
+            pb2 = importlib.import_module(stubs_module + ".animation_ml_pb2")
+            pb2_grpc = importlib.import_module(stubs_module + ".animation_ml_pb2_grpc")
+            return pb2, pb2_grpc
+        except ImportError as e:
+            last_error = e
+            continue
+    raise RuntimeError(
+        f"thyllore_animation add-on / proto stubs not importable; last error: {last_error}"
     )
-    return animation_ml_pb2, animation_ml_pb2_grpc
 
 
 def open_channel(server_url):
     import grpc  # type: ignore
-    return grpc.insecure_channel(server_url)
+
+    target = server_url
+    for prefix in ("http://", "https://"):
+        if target.startswith(prefix):
+            target = target[len(prefix):]
+            break
+    return grpc.insecure_channel(target)
 
 
 def auto_rig_response_to_canonical(response):
@@ -204,7 +240,7 @@ def main():
     result_dir = Path(args.result_dir)
     result_dir.mkdir(parents=True, exist_ok=True)
 
-    stubs = import_stubs_from_addon()
+    stubs = enable_addon_and_import_stubs()
     channel = open_channel(args.server_url)
     try:
         run_auto_rig(stubs, channel, fixture_root, result_dir)

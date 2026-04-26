@@ -6,7 +6,11 @@ param(
     [string[]]$Platforms = @("win_amd64", "manylinux2014_x86_64", "macosx_11_0_arm64"),
     [string]$GrpcioVersion = "1.71.2",
     [string]$ProtobufVersion = "5.29.6",
-    [string]$CertifiVersion = "2024.12.14"
+    [string]$CertifiVersion = "2024.12.14",
+    # Blender 4.2 LTS bundles Python 3.11. grpcio publishes per-version cp wheels
+    # (no abi3), so the abi tag must match the embedded interpreter or the
+    # compiled extension fails to load with "cannot import name 'cygrpc'".
+    [string]$PythonAbi = "cp311"
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,7 +34,7 @@ if (-not $SkipPipDownload) {
                 "protobuf==$ProtobufVersion",
                 "certifi==$CertifiVersion",
                 "--platform", $platform,
-                "--abi", "cp310",
+                "--abi", $PythonAbi,
                 "--implementation", "cp",
                 "--only-binary=:all:",
                 "--dest", $AbsWheels,

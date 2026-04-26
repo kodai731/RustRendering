@@ -1,20 +1,24 @@
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use thyllore_ml_api::{
     CopilotRequest, CopilotRequestWire, CopilotResponseWire, MlOps, OP_RUN_CURVE_COPILOT,
 };
 use thyllore_ml_core::MlCoreImpl;
 
-fn fixture_root_from_env() -> Option<PathBuf> {
-    env::var("THYLLORE_PARITY_FIXTURE_OUTPUT")
-        .ok()
-        .map(PathBuf::from)
-        .or_else(|| {
-            env::var("THYLLORE_SHARED_DATA_PATH")
-                .ok()
-                .map(|p| PathBuf::from(p).join("fixtures").join("ml_parity"))
-        })
+fn workspace_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root")
+        .to_path_buf()
+}
+
+fn resolve_fixture_root() -> PathBuf {
+    if let Ok(p) = env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
+        return PathBuf::from(p);
+    }
+    workspace_root().join("fixtures").join("ml_parity")
 }
 
 fn canonical_onnx_path(fixture_root: &std::path::Path) -> String {
@@ -57,13 +61,7 @@ fn build_synthetic_request(model_path: String, seed: u32, frequency: f32) -> Cop
 #[test]
 #[ignore]
 fn typed_and_call_op_paths_are_bit_identical() {
-    let Some(fixture_root) = fixture_root_from_env() else {
-        eprintln!(
-            "skip: set THYLLORE_PARITY_FIXTURE_OUTPUT or THYLLORE_SHARED_DATA_PATH to the \
-             fixtures/ml_parity root"
-        );
-        return;
-    };
+    let fixture_root = resolve_fixture_root();
     let onnx_path = canonical_onnx_path(&fixture_root);
     if !std::path::Path::new(&onnx_path).exists() {
         eprintln!("skip: onnx not found at {onnx_path}");

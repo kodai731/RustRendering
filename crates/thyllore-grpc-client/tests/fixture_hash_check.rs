@@ -15,65 +15,16 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn resolve_fixture_root() -> Option<PathBuf> {
+fn resolve_fixture_root() -> PathBuf {
     if let Ok(p) = std::env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
-        return Some(PathBuf::from(p));
+        return PathBuf::from(p);
     }
-    if let Ok(p) = std::env::var("THYLLORE_SHARED_DATA_PATH") {
-        return Some(PathBuf::from(p).join("fixtures").join("ml_parity"));
-    }
-    let shared_data = read_shared_data_path_from_paths_md()?;
-    Some(PathBuf::from(shared_data).join("fixtures").join("ml_parity"))
-}
-
-fn read_shared_data_path_from_paths_md() -> Option<String> {
-    let paths_md = workspace_root().join(".claude/local/paths.md");
-    let content = fs::read_to_string(&paths_md).ok()?;
-
-    let primary_key = if cfg!(unix) {
-        "SharedDataPathWSL"
-    } else {
-        "SharedDataPath"
-    };
-    let secondary_key = if cfg!(unix) {
-        "SharedDataPath"
-    } else {
-        "SharedDataPathWSL"
-    };
-
-    for key in [primary_key, secondary_key] {
-        let prefix = format!("- {key} = ");
-        for line in content.lines() {
-            if let Some(rest) = line.strip_prefix(prefix.as_str()) {
-                let value = rest.trim();
-                if !value.is_empty() {
-                    return Some(normalize_unc_for_rust(value));
-                }
-            }
-        }
-    }
-    None
-}
-
-// `\\wsl.localhost\...` (canonical UNC) is rejected by std::fs on Windows for
-// the wsl.localhost virtual provider; the forward-slash form is accepted.
-fn normalize_unc_for_rust(value: &str) -> String {
-    if cfg!(windows) && value.starts_with(r"\\") {
-        value.replace('\\', "/")
-    } else {
-        value.to_string()
-    }
+    workspace_root().join("fixtures").join("ml_parity")
 }
 
 #[test]
 fn fixture_root_matches_manifest() {
-    let Some(root) = resolve_fixture_root() else {
-        eprintln!(
-            "skip: cannot resolve fixture root. Set THYLLORE_SHARED_DATA_PATH \
-             or THYLLORE_PARITY_FIXTURE_OUTPUT, or ensure paths.md exists."
-        );
-        return;
-    };
+    let root = resolve_fixture_root();
 
     if !root.exists() {
         eprintln!(

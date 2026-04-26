@@ -73,31 +73,28 @@ fn resolve_blender_executable() -> Option<PathBuf> {
     None
 }
 
-fn resolve_fixture_root() -> Option<PathBuf> {
+fn resolve_fixture_root() -> PathBuf {
     if let Ok(p) = env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
-        return Some(PathBuf::from(p));
+        return PathBuf::from(p);
     }
-    if let Ok(p) = env::var("THYLLORE_SHARED_DATA_PATH") {
-        return Some(PathBuf::from(p).join("fixtures").join("ml_parity"));
+    workspace_root().join("fixtures").join("ml_parity")
+}
+
+fn resolve_ort_dylib_path() -> Option<PathBuf> {
+    let vendor_candidate = if cfg!(windows) {
+        workspace_root()
+            .join("vendor/onnxruntime/onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll")
+    } else {
+        workspace_root()
+            .join("vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so")
+    };
+    if vendor_candidate.exists() {
+        return Some(vendor_candidate);
     }
-    let primary = if cfg!(unix) {
-        "SharedDataPathWSL"
-    } else {
-        "SharedDataPath"
-    };
-    let secondary = if cfg!(unix) {
-        "SharedDataPath"
-    } else {
-        "SharedDataPathWSL"
-    };
-    for key in [primary, secondary] {
-        if let Some(value) = read_paths_md_value(key) {
-            let normalized = if cfg!(windows) && value.starts_with(r"\\") {
-                value.replace('\\', "/")
-            } else {
-                value
-            };
-            return Some(PathBuf::from(normalized).join("fixtures").join("ml_parity"));
+    if let Ok(p) = env::var("ORT_DYLIB_PATH") {
+        let path = PathBuf::from(p);
+        if path.exists() {
+            return Some(path);
         }
     }
     None
@@ -143,10 +140,7 @@ fn curve_copilot_operator_runs_under_background() {
         return;
     };
 
-    let Some(fixture_root) = resolve_fixture_root() else {
-        eprintln!("skip: cannot resolve fixture root");
-        return;
-    };
+    let fixture_root = resolve_fixture_root();
     let onnx = fixture_root.join("onnx/curve_copilot.onnx");
     if !onnx.exists() {
         eprintln!(
@@ -167,7 +161,8 @@ fn curve_copilot_operator_runs_under_background() {
     let temp = tempfile::tempdir().expect("create temp dir");
     let result_path = temp.path().join(SMOKE_RESULT_NAME);
 
-    let output = Command::new(&blender)
+    let mut command = Command::new(&blender);
+    command
         .args(["--background", "--factory-startup", "--python"])
         .arg(&script)
         .arg("--")
@@ -177,6 +172,13 @@ fn curve_copilot_operator_runs_under_background() {
         .arg(&onnx)
         .env("THYLLORE_HEADLESS", "1")
         .env("THYLLORE_FORCE_MOCK_SERVER", "1")
+        .env("THYLLORE_TEST_BYPASS_LICENSE", "1");
+
+    if let Some(dylib_path) = resolve_ort_dylib_path() {
+        command.env("ORT_DYLIB_PATH", &dylib_path);
+    }
+
+    let output = command
         .output()
         .expect("spawn Blender for Tier B smoke");
 

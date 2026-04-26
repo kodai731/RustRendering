@@ -1,63 +1,55 @@
 param(
     [switch]$Force,
-    [string]$SharedDataPath = $null
+    [string]$FixtureRoot = $null,
+    [string]$OnnxRevision = $null
 )
 
 $ErrorActionPreference = "Stop"
 
+$OnnxRepo = "kodai731/thyllore-curve-copilot"
+$OnnxFilename = "curve_copilot.onnx"
+if (-not $OnnxRevision) {
+    $OnnxRevision = if ($env:THYLLORE_ONNX_REVISION) { $env:THYLLORE_ONNX_REVISION } else { "main" }
+}
+
 $ScriptDir = $PSScriptRoot
 $WorkspaceRoot = (Resolve-Path (Join-Path $ScriptDir "..")).Path
-$PathsFile = Join-Path $WorkspaceRoot ".claude/local/paths.md"
 
-if (-not $SharedDataPath) {
-    if (-not (Test-Path $PathsFile)) {
-        throw "paths.md not found at $PathsFile"
+if (-not $FixtureRoot) {
+    if ($env:THYLLORE_PARITY_FIXTURE_OUTPUT) {
+        $FixtureRoot = $env:THYLLORE_PARITY_FIXTURE_OUTPUT
+    } else {
+        $FixtureRoot = Join-Path $WorkspaceRoot "fixtures\ml_parity"
     }
-    $sharedDataMatches = Select-String -Path $PathsFile -Pattern "^-\s*SharedDataPath\s*=\s*(.+)$"
-    if (-not $sharedDataMatches) {
-        throw "SharedDataPath not found in $PathsFile"
-    }
-    $SharedDataPath = $sharedDataMatches[0].Matches[0].Groups[1].Value.Trim()
+}
+Write-Host "fixture root: $FixtureRoot"
+
+$null = New-Item -Force -ItemType Directory -Path `
+    (Join-Path $FixtureRoot "proto"), `
+    (Join-Path $FixtureRoot "onnx"), `
+    (Join-Path $FixtureRoot "numpy")
+
+$OnnxLocal = Join-Path $FixtureRoot "onnx\$OnnxFilename"
+$OnnxUrl = "https://huggingface.co/$OnnxRepo/resolve/$OnnxRevision/$OnnxFilename"
+
+if ($Force -or -not (Test-Path $OnnxLocal)) {
+    Write-Host "downloading ONNX: $OnnxUrl -> $OnnxLocal"
+    Invoke-WebRequest -Uri $OnnxUrl -OutFile "$OnnxLocal.tmp" -UseBasicParsing
+    Move-Item -Force "$OnnxLocal.tmp" $OnnxLocal
+} else {
+    Write-Host "ONNX already present at $OnnxLocal (use -Force to re-download)"
 }
 
-# `wsl.localhost` UNC must use forward slashes for std::fs on Windows.
-$SharedDataPathForRust = $SharedDataPath
-if ($SharedDataPathForRust.StartsWith("\\")) {
-    $SharedDataPathForRust = $SharedDataPathForRust.Replace("\", "/")
-}
-
-$FixtureRoot = "$SharedDataPath\fixtures\ml_parity"
-$FixtureRootForRust = "$SharedDataPathForRust/fixtures/ml_parity"
-Write-Host "fixture root (Windows view): $FixtureRoot"
-Write-Host "fixture root (Rust view):    $FixtureRootForRust"
-
-$null = New-Item -Force -ItemType Directory -Path "$FixtureRoot\glb" `
-    , "$FixtureRoot\proto", "$FixtureRoot\onnx", "$FixtureRoot\numpy"
-
-$ExportsDir = "$SharedDataPath\exports"
-if (-not (Test-Path $ExportsDir)) {
-    throw "Exports dir not found: $ExportsDir"
-}
-
-$LatestOnnx = Get-ChildItem -Path $ExportsDir -Filter "curve_copilot_*.onnx" `
-    | Sort-Object Name `
-    | Select-Object -Last 1
-if (-not $LatestOnnx) {
-    throw "No curve_copilot_*.onnx found in $ExportsDir"
-}
-Write-Host "copying onnx: $($LatestOnnx.FullName) -> $FixtureRoot\onnx\curve_copilot.onnx"
-Copy-Item -Force $LatestOnnx.FullName "$FixtureRoot\onnx\curve_copilot.onnx"
-
-$env:THYLLORE_PARITY_FIXTURE_OUTPUT = $FixtureRootForRust
+$env:THYLLORE_PARITY_FIXTURE_OUTPUT = $FixtureRoot
 
 Push-Location $WorkspaceRoot
 try {
-    Write-Host "==> generating Tier B (curve_copilot) input + golden fixtures"
+    Write-Host "==> generating curve_copilot input + golden fixtures"
     cargo test -p thyllore-ml-core --test curve_copilot_fixture_generator `
         generate_curve_copilot_input_and_golden_fixtures -- --ignored --nocapture
-    if ($LASTEXITCODE -ne 0) { throw "ml-core fixture generation failed" }
+    if ($LASTEXITCODE -ne 0) { throw "curve_copilot fixture generation failed" }
 
-    Write-Host "==> generating Tier A proto fixtures"
+    Write-Host "==> generating gRPC proto fixtures"
     cargo test -p thyllore-grpc-client --features auto-rig,text-to-motion `
         --test grpc_fixture_generator generate_grpc_request_response_fixtures `
         -- --ignored --nocapture
@@ -89,19 +81,19 @@ Get-ChildItem -Recurse -File -Path $FixtureRoot `
     }
 
 $Manifest = [ordered]@{
-    schema_version            = 1
-    generated_at              = $GeneratedAt
-    generator                 = "scripts/generate_parity_fixtures.ps1"
-    thyllore_animation_commit = $Commit
-    proto_version             = "v1"
-    fixtures                  = $Fixtures
+    schema_version              = 1
+    generated_at                = $GeneratedAt
+    generator                   = "scripts/generate_parity_fixtures.ps1"
+    thyllore_animation_commit   = $Commit
+    onnx_huggingface_revision   = $OnnxRevision
+    proto_version               = "v1"
+    fixtures                    = $Fixtures
 }
 
 $Json = $Manifest | ConvertTo-Json -Depth 10
-Set-Content -Path "$FixtureRoot\manifest.json" -Value $Json -NoNewline
-Add-Content -Path "$FixtureRoot\manifest.json" -Value ""
+Set-Content -Path (Join-Path $FixtureRoot "manifest.json") -Value $Json -NoNewline
+Add-Content -Path (Join-Path $FixtureRoot "manifest.json") -Value ""
 
 Write-Host ""
 Write-Host "fixtures regenerated at $FixtureRoot"
-Write-Host "next: commit manifest.json + new files in SharedData (run from WSL2 bash recommended):"
-Write-Host "  wsl -d Ubuntu -- bash -lc 'cd /home/kodai/Projects/SharedData && git add fixtures/ml_parity && git commit -m `"regenerate ml_parity fixtures`"'"
+Write-Host "ONNX revision: $OnnxRevision"

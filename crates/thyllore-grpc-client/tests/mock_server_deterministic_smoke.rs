@@ -19,33 +19,11 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn resolve_fixture_root() -> Option<PathBuf> {
+fn resolve_fixture_root() -> PathBuf {
     if let Ok(p) = std::env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
-        return Some(PathBuf::from(p));
+        return PathBuf::from(p);
     }
-    if let Ok(p) = std::env::var("THYLLORE_SHARED_DATA_PATH") {
-        return Some(PathBuf::from(p).join("fixtures").join("ml_parity"));
-    }
-    let paths_md = workspace_root().join(".claude/local/paths.md");
-    let content = std::fs::read_to_string(paths_md).ok()?;
-    let key = if cfg!(unix) {
-        "SharedDataPathWSL"
-    } else {
-        "SharedDataPath"
-    };
-    let prefix = format!("- {key} = ");
-    for line in content.lines() {
-        if let Some(rest) = line.strip_prefix(prefix.as_str()) {
-            let value = rest.trim();
-            let normalized = if cfg!(windows) && value.starts_with(r"\\") {
-                value.replace('\\', "/")
-            } else {
-                value.to_string()
-            };
-            return Some(PathBuf::from(normalized).join("fixtures").join("ml_parity"));
-        }
-    }
-    None
+    workspace_root().join("fixtures").join("ml_parity")
 }
 
 fn build_client_runtime() -> tokio::runtime::Runtime {
@@ -95,10 +73,7 @@ fn echo_mode_returns_synthesized_response_and_records_request() {
 
 #[test]
 fn deterministic_mode_returns_fixture_response() {
-    let Some(root) = resolve_fixture_root() else {
-        eprintln!("skip: cannot resolve fixture root");
-        return;
-    };
+    let root = resolve_fixture_root();
     if !root.join("proto/rigging_response.bin").exists() {
         eprintln!(
             "skip: rigging_response.bin missing at {}; run scripts/generate_parity_fixtures.sh",
