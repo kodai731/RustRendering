@@ -58,12 +58,20 @@ def stage_onnxruntime_dylib_next_to_pyd(extract_dir):
     pyd_dir = extract_dir / "thyllore_ml_core"
     if not pyd_dir.exists():
         return
-    target = pyd_dir / Path(dylib_path).name
-    if not target.exists():
-        shutil.copy2(dylib_path, target)
+
+    source_dir = Path(dylib_path).parent
+    for sibling in source_dir.iterdir():
+        if not sibling.is_file():
+            continue
+        if sibling.suffix.lower() not in (".dll", ".so", ".dylib"):
+            continue
+        target = pyd_dir / sibling.name
+        if not target.exists():
+            shutil.copy2(sibling, target)
+
     if hasattr(os, "add_dll_directory"):
         os.add_dll_directory(str(pyd_dir))
-    os.environ["ORT_DYLIB_PATH"] = str(target)
+    os.environ["ORT_DYLIB_PATH"] = str(pyd_dir / Path(dylib_path).name)
 
 
 def read_input_fixture(fixture_root, case_id):
