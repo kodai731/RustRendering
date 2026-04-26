@@ -41,6 +41,7 @@ jobs:
             blender_extract_cmd: "tar -xf blender.tar.xz"
             blender_exe_relative: "blender-4.2.0-linux-x64/blender"
             extension_platform: "linux_x86_64"
+            wheel_platform: "manylinux2014_x86_64"
           - os: windows-latest
             blender_target: windows-x64
             blender_archive: blender.zip
@@ -48,6 +49,7 @@ jobs:
             blender_extract_cmd: "7z x blender.zip"
             blender_exe_relative: "blender-4.2.0-windows-x64/blender.exe"
             extension_platform: "win_amd64"
+            wheel_platform: "win_amd64"
           - os: macos-14
             blender_target: macos-arm64
             blender_archive: blender.dmg
@@ -58,6 +60,7 @@ jobs:
               hdiutil detach /Volumes/BlenderPhase5
             blender_exe_relative: "blender.app/Contents/MacOS/Blender"
             extension_platform: "macosx_arm64"
+            wheel_platform: "macosx_11_0_arm64"
     runs-on: ${{ matrix.os }}
 
     defaults:
@@ -85,9 +88,6 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-
-      - name: Install maturin
-        run: pip install "maturin>=1.4,<2"
 
       - name: Cache Blender 4.2 LTS
         id: cache-blender
@@ -129,17 +129,24 @@ jobs:
             -o fixtures/ml_parity/onnx/curve_copilot.onnx \
             "https://huggingface.co/${ONNX_REPO}/resolve/${ONNX_REVISION}/curve_copilot.onnx"
 
-      - name: Build wheel (maturin)
-        working-directory: ThylloreAnimation/crates/thyllore-ml-core
+      - name: Generate dev keypair (CI only — not committed)
+        working-directory: ThylloreAnimation
+        shell: pwsh
         run: |
-          maturin build --release --features python --out dist
-          ls -la dist/
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
+
+      - name: Collect vendored wheels (pip download + maturin)
+        working-directory: ThylloreAnimation
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1 `
+              -Platforms ${{ matrix.wheel_platform }}
 
       - name: Build Phase 4 extension ZIP
         working-directory: ThylloreAnimation
         shell: pwsh
         run: |
-          ./scripts/build_blender_addon.ps1 -Platform ${{ matrix.extension_platform }}
+          ./scripts/build_blender_addon.ps1 -Platform ${{ matrix.extension_platform }} -SkipBlenderValidate
           Get-ChildItem dist/
 
       - name: Install extension into Blender user dir
@@ -148,14 +155,9 @@ jobs:
           BLENDER_EXE: ${{ steps.blender-path.outputs.path }}
         run: |
           set -e
-          ZIP=$(ls dist/blender_addon-*-${{ matrix.extension_platform }}.zip | head -n 1)
+          ZIP=$(ls dist/thyllore_animation_addon-*-${{ matrix.extension_platform }}.zip | head -n 1)
           echo "Installing $ZIP"
-          "$BLENDER_EXE" --background --factory-startup --python-expr "
-          import bpy
-          bpy.ops.preferences.addon_install(filepath='${ZIP}')
-          bpy.ops.preferences.addon_enable(module='thyllore_animation')
-          bpy.ops.wm.save_userpref()
-          "
+          "$BLENDER_EXE" --command extension install-file --repo user_default --enable "$ZIP"
 
       - name: Generate parity fixtures (proto + numpy)
         working-directory: ThylloreAnimation
