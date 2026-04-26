@@ -42,6 +42,10 @@ jobs:
             blender_exe_relative: "blender-4.2.0-linux-x64/blender"
             extension_platform: "linux_x86_64"
             wheel_platform: "manylinux2014_x86_64"
+            ort_archive: onnxruntime-linux-x64-1.23.2.tgz
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-linux-x64-1.23.2.tgz"
+            ort_extract_cmd: "tar -xzf onnxruntime-linux-x64-1.23.2.tgz"
+            ort_dylib_relative: "vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so"
           - os: windows-latest
             blender_target: windows-x64
             blender_archive: blender.zip
@@ -50,6 +54,10 @@ jobs:
             blender_exe_relative: "blender-4.2.0-windows-x64/blender.exe"
             extension_platform: "win_amd64"
             wheel_platform: "win_amd64"
+            ort_archive: onnxruntime-win-x64-1.23.2.zip
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-win-x64-1.23.2.zip"
+            ort_extract_cmd: "7z x onnxruntime-win-x64-1.23.2.zip"
+            ort_dylib_relative: "vendor/onnxruntime/onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll"
           - os: macos-14
             blender_target: macos-arm64
             blender_archive: blender.dmg
@@ -61,6 +69,10 @@ jobs:
             blender_exe_relative: "blender.app/Contents/MacOS/Blender"
             extension_platform: "macosx_arm64"
             wheel_platform: "macosx_11_0_arm64"
+            ort_archive: onnxruntime-osx-arm64-1.23.2.tgz
+            ort_url: "https://github.com/microsoft/onnxruntime/releases/download/v1.23.2/onnxruntime-osx-arm64-1.23.2.tgz"
+            ort_extract_cmd: "tar -xzf onnxruntime-osx-arm64-1.23.2.tgz"
+            ort_dylib_relative: "vendor/onnxruntime/onnxruntime-osx-arm64-1.23.2/lib/libonnxruntime.dylib"
     runs-on: ${{ matrix.os }}
 
     defaults:
@@ -113,6 +125,23 @@ jobs:
           echo "path=$BLENDER_EXE" >> "$GITHUB_OUTPUT"
           "$BLENDER_EXE" --version
 
+      - name: Cache ONNX Runtime ${{ matrix.blender_target }}
+        id: cache-ort
+        uses: actions/cache@v4
+        with:
+          path: ThylloreAnimation/vendor/onnxruntime
+          key: ort-${{ matrix.blender_target }}-1.23.2
+
+      - name: Download and extract ONNX Runtime (cache miss)
+        if: steps.cache-ort.outputs.cache-hit != 'true'
+        working-directory: ThylloreAnimation
+        run: |
+          mkdir -p vendor/onnxruntime
+          cd vendor/onnxruntime
+          curl -L -o ${{ matrix.ort_archive }} "${{ matrix.ort_url }}"
+          ${{ matrix.ort_extract_cmd }}
+          rm ${{ matrix.ort_archive }}
+
       - name: Cache curve_copilot ONNX from HuggingFace
         id: cache-onnx
         uses: actions/cache@v4
@@ -163,6 +192,7 @@ jobs:
         working-directory: ThylloreAnimation
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-grpc-client --features auto-rig,text-to-motion \
             --test grpc_fixture_generator generate_grpc_request_response_fixtures \
@@ -177,6 +207,7 @@ jobs:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
           THYLLORE_TEST_BYPASS_LICENSE: "1"
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-ml-core --test curve_copilot_blender_parity \
             curve_copilot_typed_and_call_op_paths_match_in_blender -- --ignored --nocapture
@@ -187,6 +218,7 @@ jobs:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
           THYLLORE_TEST_BYPASS_LICENSE: "1"
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-grpc-client \
             --test curve_copilot_operator_smoke curve_copilot_operator_runs_under_background \
@@ -198,6 +230,7 @@ jobs:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
           THYLLORE_TEST_BYPASS_LICENSE: "1"
+          ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-grpc-client \
             --test grpc_request_wire_parity grpc_request_wire_bytes_match_across_rust_and_blender \
