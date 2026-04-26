@@ -44,7 +44,14 @@ $PlatformConfig = @{
     "macosx_arm64" = @{
         BlenderName  = "macos-arm64"
         WheelSuffix  = "macosx_11_0_arm64"
-        WheelMatchers = @("macosx_\d+_\d+_arm64\.whl$")
+        # macOS wheels may be arm64-only (cp* native) or universal2
+        # (single binary containing both arm64 and x86_64 slices).
+        # grpcio and protobuf publish universal2 wheels for cp310, so
+        # the arm64-only regex alone drops them and the build fails.
+        WheelMatchers = @(
+            "macosx_\d+_\d+_arm64\.whl$",
+            "macosx_\d+_\d+_universal2\.whl$"
+        )
     }
 }[$Platform]
 
