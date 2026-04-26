@@ -10,18 +10,18 @@ const TOPOLOGY_LEN: usize = 6;
 const BONE_NAME_TOKENS: usize = 32;
 const QUERY_TIMES: usize = 4;
 const CURVE_WINDOW_LEN: usize = 64;
+const ONNX_RELATIVE_PATH: &str = "onnx/curve_copilot.onnx";
 
 fn fixture_root_from_env() -> PathBuf {
     PathBuf::from(
-        env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT")
-            .expect("THYLLORE_PHASE5_FIXTURE_OUTPUT must be set"),
+        env::var("THYLLORE_PARITY_FIXTURE_OUTPUT")
+            .expect("THYLLORE_PARITY_FIXTURE_OUTPUT must be set"),
     )
 }
 
 fn canonical_onnx_path() -> String {
     fixture_root_from_env()
-        .join("onnx")
-        .join("curve_copilot.onnx")
+        .join(ONNX_RELATIVE_PATH)
         .to_string_lossy()
         .replace('\\', "/")
 }
@@ -32,15 +32,20 @@ fn f32_bits(v: f32) -> u32 {
 
 #[test]
 #[ignore]
-fn generate_phase5_curve_copilot_fixtures() {
+fn generate_curve_copilot_input_and_golden_fixtures() {
     let numpy_dir = fixture_root_from_env().join("numpy");
     fs::create_dir_all(&numpy_dir).expect("create numpy fixture dir");
 
     let core = MlCoreImpl::new();
-    let model_path = canonical_onnx_path();
+    let model_path_absolute = canonical_onnx_path();
+    assert!(
+        std::path::Path::new(&model_path_absolute).exists(),
+        "onnx model not found at {model_path_absolute}; \
+         the generator script must copy it from the SharedData exports first"
+    );
 
     for case in [Case::Short, Case::Medium, Case::Long] {
-        let request = build_request(case, &model_path);
+        let request = build_request(case, &model_path_absolute);
         write_input_json(&numpy_dir, case, &request);
 
         let response = core
@@ -131,8 +136,8 @@ fn build_request(case: Case, model_path: &str) -> CopilotRequest {
 fn write_input_json(numpy_dir: &std::path::Path, case: Case, request: &CopilotRequest) {
     let mut json = String::from("{\n");
     json.push_str(&format!(
-        "  \"model_path\": {},\n",
-        json_escape_string(&request.model_path)
+        "  \"onnx_relative_path\": {},\n",
+        json_escape_string(ONNX_RELATIVE_PATH)
     ));
     json.push_str(&format!(
         "  \"property_type\": {},\n",

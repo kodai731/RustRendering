@@ -77,3 +77,15 @@ blender_addon/license/__pycache__/
 blender_addon/operators/__pycache__/
 blender_addon/modal/__pycache__/
 blender_addon/panels/__pycache__/
+
+# build outputs
+release/
+target-linux/
+**/dist-linux/
+
+# native build artifacts (anywhere in the tree)
+*.whl
+*.so
+*.dylib
+*.pyd
+*.dll

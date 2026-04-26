@@ -16,7 +16,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn resolve_fixture_root() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT") {
+    if let Ok(p) = std::env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
         return Some(PathBuf::from(p));
     }
     if let Ok(p) = std::env::var("THYLLORE_SHARED_DATA_PATH") {
@@ -70,7 +70,7 @@ fn fixture_root_matches_manifest() {
     let Some(root) = resolve_fixture_root() else {
         eprintln!(
             "skip: cannot resolve fixture root. Set THYLLORE_SHARED_DATA_PATH \
-             or THYLLORE_PHASE5_FIXTURE_OUTPUT, or ensure paths.md exists."
+             or THYLLORE_PARITY_FIXTURE_OUTPUT, or ensure paths.md exists."
         );
         return;
     };

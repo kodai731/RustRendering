@@ -9,14 +9,14 @@ use thyllore_grpc_client::proto;
 
 fn fixture_root_from_env() -> PathBuf {
     PathBuf::from(
-        env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT")
-            .expect("THYLLORE_PHASE5_FIXTURE_OUTPUT must be set"),
+        env::var("THYLLORE_PARITY_FIXTURE_OUTPUT")
+            .expect("THYLLORE_PARITY_FIXTURE_OUTPUT must be set"),
     )
 }
 
 #[test]
 #[ignore]
-fn generate_phase5_proto_fixtures() {
+fn generate_grpc_request_response_fixtures() {
     let proto_dir = fixture_root_from_env().join("proto");
     fs::create_dir_all(&proto_dir).expect("create proto fixture dir");
 

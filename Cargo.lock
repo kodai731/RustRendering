@@ -3477,6 +3477,7 @@ dependencies = [
  "protox",
  "serde_json",
  "sha2",
+ "tempfile",
  "thyllore-anim-core",
  "thyllore-model-core",
  "tokio",
@@ -3529,6 +3530,7 @@ dependencies = [
  "pyo3",
  "pythonize",
  "serde_json",
+ "tempfile",
  "thyllore-ml-api",
  "thyllore-model-core",
 ]

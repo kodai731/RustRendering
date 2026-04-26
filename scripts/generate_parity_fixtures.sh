@@ -53,14 +53,14 @@ fi
 echo "copying onnx: $LATEST_ONNX -> $FIXTURE_ROOT/onnx/curve_copilot.onnx"
 cp -f "$LATEST_ONNX" "$FIXTURE_ROOT/onnx/curve_copilot.onnx"
 
-export THYLLORE_PHASE5_FIXTURE_OUTPUT="$FIXTURE_ROOT"
+export THYLLORE_PARITY_FIXTURE_OUTPUT="$FIXTURE_ROOT"
 
 echo "==> generating Tier A proto fixtures"
 (
     cd "$WORKSPACE_ROOT"
     CARGO_TARGET_DIR="$WORKSPACE_ROOT/target-linux" \
         cargo test -p thyllore-grpc-client --features auto-rig,text-to-motion \
-        --test parity_fixtures_phase5 generate_phase5_proto_fixtures \
+        --test grpc_fixture_generator generate_grpc_request_response_fixtures \
         -- --ignored --nocapture
 )
 
@@ -71,17 +71,17 @@ if [[ -e /proc/version && $(grep -ci microsoft /proc/version) -gt 0 ]]; then
     WIN_FIXTURE_ROOT=$(echo "$FIXTURE_ROOT" \
         | sed -E 's|^/home/kodai/Projects/SharedData|//wsl.localhost/Ubuntu/home/kodai/Projects/SharedData|')
     WIN_WORKSPACE=$(wslpath -w "$WORKSPACE_ROOT")
-    cmd.exe /c "set THYLLORE_PHASE5_FIXTURE_OUTPUT=${WIN_FIXTURE_ROOT}&& cd /D ${WIN_WORKSPACE}&& cargo test -p thyllore-ml-core --test parity_fixtures_phase5 generate_phase5_curve_copilot_fixtures -- --ignored --nocapture" \
+    cmd.exe /c "set THYLLORE_PARITY_FIXTURE_OUTPUT=${WIN_FIXTURE_ROOT}&& cd /D ${WIN_WORKSPACE}&& cargo test -p thyllore-ml-core --test curve_copilot_fixture_generator generate_curve_copilot_input_and_golden_fixtures -- --ignored --nocapture" \
         || { echo "ERROR: Windows cargo Tier B generation failed" >&2; exit 1; }
 else
     (
         cd "$WORKSPACE_ROOT"
-        cargo test -p thyllore-ml-core --test parity_fixtures_phase5 \
-            generate_phase5_curve_copilot_fixtures -- --ignored --nocapture
+        cargo test -p thyllore-ml-core --test curve_copilot_fixture_generator \
+            generate_curve_copilot_input_and_golden_fixtures -- --ignored --nocapture
     )
 fi
 
-unset THYLLORE_PHASE5_FIXTURE_OUTPUT
+unset THYLLORE_PARITY_FIXTURE_OUTPUT
 
 COMMIT=$(cd "$WORKSPACE_ROOT" && git rev-parse --short=8 HEAD 2>/dev/null || echo "unknown")
 GENERATED_AT=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

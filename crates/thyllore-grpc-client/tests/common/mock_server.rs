@@ -24,6 +24,7 @@ const MOTION_RESPONSE_FIXTURE: &str = "motion_response.bin";
 const MESH_RESPONSE_FIXTURE: &str = "mesh_response.bin";
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub enum MockServerConfig {
     EchoDefault,
     DeterministicFromFixtures(PathBuf),

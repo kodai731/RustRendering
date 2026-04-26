@@ -7,7 +7,7 @@ import bpy
 from bpy.types import Operator
 
 from ..grpc_client import AnimationCurve, MotionClient, MotionInput
-from ..modal import AsyncDispatcher
+from ..modal import AsyncDispatcher, is_headless
 from ._grpc_helpers import build_server_config_from_preferences, grpc_error_message
 
 
@@ -69,7 +69,7 @@ class THYLLORE_OT_TextToMotion(Operator):
         return obj is not None and obj.type == "ARMATURE"
 
     def invoke(self, context, event):
-        if event is None or context.window is None:
+        if is_headless() or event is None or context.window is None:
             return self._execute_synchronous(context)
         return context.window_manager.invoke_props_dialog(self, width=400)
 

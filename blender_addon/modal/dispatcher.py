@@ -6,9 +6,44 @@ the Modal Operator's Timer tick on the main thread.
 """
 from __future__ import annotations
 
+import os
 import queue
 import threading
 from typing import Any, Callable, Optional, Tuple
+
+
+HEADLESS_ENV_VAR = "THYLLORE_HEADLESS"
+
+
+def is_headless() -> bool:
+    """Return True when the addon is running under a headless test harness.
+
+    Modal operators bypass their worker-thread / Timer pipeline in this mode
+    and call the gRPC / PyO3 entry point synchronously inside ``execute``,
+    because ``bpy.app.timers`` does not tick under ``blender --background``.
+    """
+    return os.environ.get(HEADLESS_ENV_VAR) == "1"
+
+
+def run_sync_if_headless(
+    target: Callable[..., Any],
+    *args: Any,
+    **kwargs: Any,
+) -> Optional[Tuple[str, Any]]:
+    """Synchronous fallback for headless mode.
+
+    Returns the same ``("ok", result)`` / ``("err", exc)`` tuple shape that
+    ``AsyncDispatcher.poll()`` would yield, so call sites can share a single
+    result-handling branch. Returns ``None`` when not in headless mode, so the
+    caller can fall through to the normal Modal path.
+    """
+    if not is_headless():
+        return None
+    try:
+        result = target(*args, **kwargs)
+        return ("ok", result)
+    except BaseException as exc:  # noqa: BLE001
+        return ("err", exc)
 
 
 class AsyncDispatcher:

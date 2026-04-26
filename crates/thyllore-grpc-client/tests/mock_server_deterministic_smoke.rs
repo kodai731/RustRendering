@@ -20,7 +20,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn resolve_fixture_root() -> Option<PathBuf> {
-    if let Ok(p) = std::env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT") {
+    if let Ok(p) = std::env::var("THYLLORE_PARITY_FIXTURE_OUTPUT") {
         return Some(PathBuf::from(p));
     }
     if let Ok(p) = std::env::var("THYLLORE_SHARED_DATA_PATH") {

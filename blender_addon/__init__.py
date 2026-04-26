@@ -44,6 +44,8 @@ except ImportError:
 
 
 if _BPY_AVAILABLE:
+    import os  # noqa: E402
+
     from . import license  # noqa: E402
     from . import operators  # noqa: E402
     from . import panels  # noqa: E402
@@ -51,6 +53,31 @@ if _BPY_AVAILABLE:
 
     _REGISTERED_LICENSE_FAILURE: bool = False
     _REGISTERED_ABI_FAILURE: bool = False
+
+    FORCE_MOCK_SERVER_ENV_VAR = "THYLLORE_FORCE_MOCK_SERVER"
+    MOCK_SERVER_HOST = "127.0.0.1"
+    MOCK_SERVER_PORT = 50051
+
+    def _apply_mock_server_pin_if_requested() -> None:
+        """Pin server_host / server_port / use_tls to the local mock server.
+
+        Triggered by ``THYLLORE_FORCE_MOCK_SERVER=1`` (set by the parity test
+        orchestrator before launching Blender). The override lives only in the
+        in-memory ``AddonPreferences`` instance for the duration of this
+        Blender process; the user's saved preferences are not touched.
+        """
+        if os.environ.get(FORCE_MOCK_SERVER_ENV_VAR) != "1":
+            return
+        prefs = preferences.get_preferences()
+        if prefs is None:
+            return
+        prefs.server_host = MOCK_SERVER_HOST
+        prefs.server_port = MOCK_SERVER_PORT
+        prefs.use_tls = False
+        print(
+            f"[Thyllore] mock server pin active: "
+            f"server pinned to {MOCK_SERVER_HOST}:{MOCK_SERVER_PORT}"
+        )
 
     def _check_wheel_abi() -> tuple[bool, str]:
         """Verify the thyllore_ml_core wheel's ``__abi_marker__``.
@@ -102,6 +129,7 @@ if _BPY_AVAILABLE:
         preferences.register()
         operators.register()
         panels.register()
+        _apply_mock_server_pin_if_requested()
         _REGISTERED_LICENSE_FAILURE = False
         _REGISTERED_ABI_FAILURE = False
         print("[Thyllore] Addon registered successfully")
