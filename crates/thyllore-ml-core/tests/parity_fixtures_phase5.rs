@@ -1,43 +1,3 @@
-//! Phase 5 — Tier B parity fixture generator.
-//!
-//! Run from WSL2 (recommended) for native ext4 I/O speed:
-//!     export THYLLORE_PHASE5_FIXTURE_OUTPUT=/home/kodai/Projects/SharedData/fixtures/ml_parity
-//!     cargo test -p thyllore-ml-core --test parity_fixtures_phase5 \
-//!         generate_phase5_curve_copilot_fixtures -- --ignored --nocapture
-//!
-//! Run from Windows native cargo (fallback, slower):
-//!     $env:THYLLORE_PHASE5_FIXTURE_OUTPUT = "//wsl.localhost/Ubuntu/home/kodai/Projects/SharedData/fixtures/ml_parity"
-//!     cargo test -p thyllore-ml-core --test parity_fixtures_phase5 `
-//!         generate_phase5_curve_copilot_fixtures -- --ignored --nocapture
-//!
-//! Output schema (one JSON per case, paired input + golden):
-//!     numpy/curve_copilot_input_<case>.json
-//!         {
-//!           "model_path": "...",
-//!           "property_type": 0,
-//!           "context_bits":          [u32; 48],   // 8 keyframes * 6 features, f32::to_bits()
-//!           "topology_features_bits":[u32; 6],
-//!           "bone_name_tokens":      [i64; 32],
-//!           "query_times_bits":      [u32; Q],
-//!           "curve_window_bits":     [u32; 64]
-//!         }
-//!     numpy/curve_copilot_golden_<case>.json
-//!         {
-//!           "predictions": [
-//!             { "value_bits": u32,
-//!               "tangent_in_bits":  [u32; 2],
-//!               "tangent_out_bits": [u32; 2],
-//!               "confidence_bits":  u32 },
-//!             ...
-//!           ]
-//!         }
-//!
-//! Bit-identical preservation: all f32 values are serialized as `to_bits() -> u32`
-//! to round-trip through JSON without precision loss (Phase 2 established pattern).
-//!
-//! No `python` feature gate is needed — the generator only uses `ort` (always
-//! linked) and writes JSON manually.
-
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -45,27 +5,21 @@ use std::path::PathBuf;
 use thyllore_ml_api::{CopilotRequest, CopilotResponse, MlOps};
 use thyllore_ml_core::MlCoreImpl;
 
-// All shapes are fixed by the curve_copilot.onnx model.
-// query_times in particular is hardcoded to 4 in the trained model
-// (`MAX_STEPS = 4` in src/ecs/systems/curve_suggestion_systems.rs);
-// fixtures only vary in input values, not dimensions.
 const CONTEXT_LEN: usize = 8 * 6;
 const TOPOLOGY_LEN: usize = 6;
 const BONE_NAME_TOKENS: usize = 32;
 const QUERY_TIMES: usize = 4;
 const CURVE_WINDOW_LEN: usize = 64;
 
-fn fixture_root() -> PathBuf {
+fn fixture_root_from_env() -> PathBuf {
     PathBuf::from(
-        env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT").expect(
-            "set THYLLORE_PHASE5_FIXTURE_OUTPUT to the fixtures/ml_parity root \
-             (e.g. /home/kodai/Projects/SharedData/fixtures/ml_parity)",
-        ),
+        env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT")
+            .expect("THYLLORE_PHASE5_FIXTURE_OUTPUT must be set"),
     )
 }
 
-fn onnx_model_path() -> String {
-    fixture_root()
+fn canonical_onnx_path() -> String {
+    fixture_root_from_env()
         .join("onnx")
         .join("curve_copilot.onnx")
         .to_string_lossy()
@@ -79,20 +33,20 @@ fn f32_bits(v: f32) -> u32 {
 #[test]
 #[ignore]
 fn generate_phase5_curve_copilot_fixtures() {
-    let out_dir = fixture_root().join("numpy");
-    fs::create_dir_all(&out_dir).expect("create numpy fixture dir");
+    let numpy_dir = fixture_root_from_env().join("numpy");
+    fs::create_dir_all(&numpy_dir).expect("create numpy fixture dir");
 
     let core = MlCoreImpl::new();
-    let model_path = onnx_model_path();
+    let model_path = canonical_onnx_path();
 
     for case in [Case::Short, Case::Medium, Case::Long] {
         let request = build_request(case, &model_path);
-        write_input_json(&out_dir, case, &request);
+        write_input_json(&numpy_dir, case, &request);
 
         let response = core
             .run_curve_copilot(request)
             .unwrap_or_else(|e| panic!("run_curve_copilot failed for {case:?}: {e:?}"));
-        write_golden_json(&out_dir, case, &response);
+        write_golden_json(&numpy_dir, case, &response);
 
         eprintln!(
             "wrote fixtures for {case:?}: {} predictions",
@@ -111,17 +65,13 @@ enum Case {
 impl Case {
     fn label(self) -> &'static str {
         match self {
-            // Cases differ in input value patterns, not in array dimensions
-            // (curve_copilot.onnx fixes all shapes including query_times = 4).
-            Case::Short => "short",   // smooth low-frequency curve, translation
-            Case::Medium => "medium", // mid-frequency, rotation property
-            Case::Long => "long",     // high-frequency + larger context, scale
+            Case::Short => "short",
+            Case::Medium => "medium",
+            Case::Long => "long",
         }
     }
 
-    fn property_type(self) -> u32 {
-        // Maps to PropertyType enum order in the proto:
-        //   0: TRANSLATION_X, 3: ROTATION_X, 6: SCALE_X (approximate IDs)
+    fn property_type_id(self) -> u32 {
         match self {
             Case::Short => 0,
             Case::Medium => 3,
@@ -129,7 +79,7 @@ impl Case {
         }
     }
 
-    fn frequency_hz(self) -> f32 {
+    fn curve_frequency_hz(self) -> f32 {
         match self {
             Case::Short => 0.5,
             Case::Medium => 1.5,
@@ -137,7 +87,7 @@ impl Case {
         }
     }
 
-    fn seed(self) -> u32 {
+    fn rng_seed(self) -> u32 {
         match self {
             Case::Short => 0xA1A1_A1A1,
             Case::Medium => 0xB2B2_B2B2,
@@ -147,7 +97,7 @@ impl Case {
 }
 
 fn build_request(case: Case, model_path: &str) -> CopilotRequest {
-    let mut rng = LinearRng::new(case.seed());
+    let mut rng = LinearRng::new(case.rng_seed());
 
     let context: Vec<f32> = (0..CONTEXT_LEN).map(|_| rng.next_f32_signed()).collect();
     let topology_features: Vec<f32> = (0..TOPOLOGY_LEN).map(|_| rng.next_f32()).collect();
@@ -155,23 +105,21 @@ fn build_request(case: Case, model_path: &str) -> CopilotRequest {
         .map(|i| (i as i64) % 31 + 1)
         .collect();
 
-    // Fixed-size query times: evenly spaced over a 4 second clip.
     let query_times: Vec<f32> = (0..QUERY_TIMES)
         .map(|i| (i as f32 + 1.0) * 4.0 / (QUERY_TIMES as f32 + 1.0))
         .collect();
 
-    // Synthetic sin curve at the case's frequency.
-    let freq = case.frequency_hz();
+    let frequency = case.curve_frequency_hz();
     let curve_window: Vec<f32> = (0..CURVE_WINDOW_LEN)
         .map(|i| {
             let t = i as f32 / (CURVE_WINDOW_LEN as f32 - 1.0);
-            (t * std::f32::consts::TAU * freq).sin() * 0.5
+            (t * std::f32::consts::TAU * frequency).sin() * 0.5
         })
         .collect();
 
     CopilotRequest {
         model_path: model_path.to_string(),
-        property_type: case.property_type(),
+        property_type: case.property_type_id(),
         context,
         topology_features,
         bone_name_tokens,
@@ -180,11 +128,11 @@ fn build_request(case: Case, model_path: &str) -> CopilotRequest {
     }
 }
 
-fn write_input_json(out_dir: &std::path::Path, case: Case, request: &CopilotRequest) {
+fn write_input_json(numpy_dir: &std::path::Path, case: Case, request: &CopilotRequest) {
     let mut json = String::from("{\n");
     json.push_str(&format!(
         "  \"model_path\": {},\n",
-        json_string(&request.model_path)
+        json_escape_string(&request.model_path)
     ));
     json.push_str(&format!(
         "  \"property_type\": {},\n",
@@ -212,11 +160,11 @@ fn write_input_json(out_dir: &std::path::Path, case: Case, request: &CopilotRequ
     ));
     json.push_str("}\n");
 
-    let path = out_dir.join(format!("curve_copilot_input_{}.json", case.label()));
+    let path = numpy_dir.join(format!("curve_copilot_input_{}.json", case.label()));
     fs::write(&path, json).unwrap_or_else(|e| panic!("write {path:?}: {e}"));
 }
 
-fn write_golden_json(out_dir: &std::path::Path, case: Case, response: &CopilotResponse) {
+fn write_golden_json(numpy_dir: &std::path::Path, case: Case, response: &CopilotResponse) {
     let mut json = String::from("{\n  \"predictions\": [");
     for (i, step) in response.predictions.iter().enumerate() {
         if i > 0 {
@@ -242,7 +190,7 @@ fn write_golden_json(out_dir: &std::path::Path, case: Case, response: &CopilotRe
     }
     json.push_str("\n  ]\n}\n");
 
-    let path = out_dir.join(format!("curve_copilot_golden_{}.json", case.label()));
+    let path = numpy_dir.join(format!("curve_copilot_golden_{}.json", case.label()));
     fs::write(&path, json).unwrap_or_else(|e| panic!("write {path:?}: {e}"));
 }
 
@@ -256,7 +204,7 @@ fn i64_array_to_json(values: &[i64]) -> String {
     format!("[{}]", parts.join(", "))
 }
 
-fn json_string(s: &str) -> String {
+fn json_escape_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     out.push('"');
     for c in s.chars() {
@@ -274,8 +222,6 @@ fn json_string(s: &str) -> String {
     out
 }
 
-/// Linear congruential generator for deterministic fixture content.
-/// Not for cryptographic use; only so all test runs produce identical fixtures.
 struct LinearRng {
     state: u32,
 }
@@ -286,7 +232,6 @@ impl LinearRng {
     }
 
     fn next_u32(&mut self) -> u32 {
-        // Numerical Recipes constants
         self.state = self
             .state
             .wrapping_mul(1_664_525)
@@ -295,7 +240,6 @@ impl LinearRng {
     }
 
     fn next_f32(&mut self) -> f32 {
-        // mantissa-only 24 bit fraction in [0, 1)
         (self.next_u32() & 0x00FF_FFFF) as f32 / ((1u32 << 24) as f32)
     }
 

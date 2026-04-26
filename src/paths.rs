@@ -1,6 +1,4 @@
-// Note: WSL2 UNC paths use forward slashes because the `wsl.localhost` virtual
-// provider does not resolve the canonical `\\server\share` backslash form on
-// Windows; `//server/share/...` is accepted by the Win32 API and `std::fs`.
+// Forward-slash UNC: `\\wsl.localhost\...` is not resolved by std::fs.
 pub const SHARED_DATA_DIR: &str = "//wsl.localhost/Ubuntu/home/kodai/Projects/SharedData";
 pub const SHARED_EXPORTS_DIR: &str =
     "//wsl.localhost/Ubuntu/home/kodai/Projects/SharedData/exports";

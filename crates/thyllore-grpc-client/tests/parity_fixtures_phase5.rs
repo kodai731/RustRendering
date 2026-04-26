@@ -1,26 +1,3 @@
-//! Phase 5 — Tier A proto wire-bytes fixture generator.
-//!
-//! Run from WSL2 (recommended):
-//!     export THYLLORE_PHASE5_FIXTURE_OUTPUT=/home/kodai/Projects/SharedData/fixtures/ml_parity
-//!     cargo test -p thyllore-grpc-client --features auto-rig,text-to-motion \
-//!         --test parity_fixtures_phase5 generate_phase5_proto_fixtures \
-//!         -- --ignored --nocapture
-//!
-//! Outputs (one *.bin per request/response pair):
-//!     proto/rigging_request.bin     proto/rigging_response.bin
-//!     proto/motion_request.bin      proto/motion_response.bin
-//!     proto/mesh_request.bin        proto/mesh_response.bin
-//!
-//! These are produced via `prost::Message::encode_to_vec()` and are byte-for-byte
-//! comparable against Python `protobuf.SerializeToString()`. Phase 5 mock server
-//! reads `*_response.bin` and returns it verbatim; both Rust and Blender clients
-//! re-encode `*_request.bin`-equivalent objects and the orchestrator confirms
-//! sha256 of the wire bytes match.
-//!
-//! Map fields are intentionally absent from the proto definition: their
-//! iteration order is non-deterministic in `protobuf`/`prost`, which would
-//! break wire-bytes parity. See proto_invariants.rs for the assertion.
-
 #![cfg(feature = "text-to-motion")]
 
 use std::env;
@@ -30,55 +7,53 @@ use std::path::PathBuf;
 use prost::Message;
 use thyllore_grpc_client::proto;
 
-fn fixture_root() -> PathBuf {
+fn fixture_root_from_env() -> PathBuf {
     PathBuf::from(
-        env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT").expect(
-            "set THYLLORE_PHASE5_FIXTURE_OUTPUT to the fixtures/ml_parity root \
-             (e.g. /home/kodai/Projects/SharedData/fixtures/ml_parity)",
-        ),
+        env::var("THYLLORE_PHASE5_FIXTURE_OUTPUT")
+            .expect("THYLLORE_PHASE5_FIXTURE_OUTPUT must be set"),
     )
 }
 
 #[test]
 #[ignore]
 fn generate_phase5_proto_fixtures() {
-    let proto_dir = fixture_root().join("proto");
+    let proto_dir = fixture_root_from_env().join("proto");
     fs::create_dir_all(&proto_dir).expect("create proto fixture dir");
 
-    write_pair(
+    write_encoded(
         &proto_dir,
         "rigging_request",
         rigging_request_fixture().encode_to_vec(),
     );
-    write_pair(
+    write_encoded(
         &proto_dir,
         "rigging_response",
         rigging_response_fixture().encode_to_vec(),
     );
-    write_pair(
+    write_encoded(
         &proto_dir,
         "motion_request",
         motion_request_fixture().encode_to_vec(),
     );
-    write_pair(
+    write_encoded(
         &proto_dir,
         "motion_response",
         motion_response_fixture().encode_to_vec(),
     );
-    write_pair(
+    write_encoded(
         &proto_dir,
         "mesh_request",
         mesh_request_fixture().encode_to_vec(),
     );
-    write_pair(
+    write_encoded(
         &proto_dir,
         "mesh_response",
         mesh_response_fixture().encode_to_vec(),
     );
 }
 
-fn write_pair(dir: &std::path::Path, name: &str, bytes: Vec<u8>) {
-    let path = dir.join(format!("{name}.bin"));
+fn write_encoded(dir: &std::path::Path, fixture_name: &str, bytes: Vec<u8>) {
+    let path = dir.join(format!("{fixture_name}.bin"));
     fs::write(&path, &bytes).unwrap_or_else(|e| panic!("write {path:?}: {e}"));
     eprintln!("wrote {} ({} bytes)", path.display(), bytes.len());
 }

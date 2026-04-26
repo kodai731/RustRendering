@@ -1,14 +1,3 @@
-# Phase 5 — Regenerate ml_parity fixtures (Windows pwsh fallback).
-#
-# Recommended path is `bash scripts/generate_parity_fixtures.sh` from WSL2 for
-# native ext4 I/O speed. Use this script only when WSL2 is unavailable; UNC
-# writes are noticeably slower (~5x).
-#
-# Usage:
-#   pwsh -File scripts/generate_parity_fixtures.ps1 [-Force] [-SharedDataPath <path>]
-#
-# Resolves SharedDataPath (Windows UNC) from .claude/local/paths.md by default.
-
 param(
     [switch]$Force,
     [string]$SharedDataPath = $null
@@ -24,15 +13,14 @@ if (-not $SharedDataPath) {
     if (-not (Test-Path $PathsFile)) {
         throw "paths.md not found at $PathsFile"
     }
-    $matches = Select-String -Path $PathsFile -Pattern "^-\s*SharedDataPath\s*=\s*(.+)$"
-    if (-not $matches) {
+    $sharedDataMatches = Select-String -Path $PathsFile -Pattern "^-\s*SharedDataPath\s*=\s*(.+)$"
+    if (-not $sharedDataMatches) {
         throw "SharedDataPath not found in $PathsFile"
     }
-    $SharedDataPath = $matches[0].Matches[0].Groups[1].Value.Trim()
+    $SharedDataPath = $sharedDataMatches[0].Matches[0].Groups[1].Value.Trim()
 }
 
-# Rust on Windows requires forward-slash UNC for `wsl.localhost`. Normalize for
-# any std::fs path passed downstream via env var.
+# `wsl.localhost` UNC must use forward slashes for std::fs on Windows.
 $SharedDataPathForRust = $SharedDataPath
 if ($SharedDataPathForRust.StartsWith("\\")) {
     $SharedDataPathForRust = $SharedDataPathForRust.Replace("\", "/")
@@ -46,7 +34,6 @@ Write-Host "fixture root (Rust view):    $FixtureRootForRust"
 $null = New-Item -Force -ItemType Directory -Path "$FixtureRoot\glb" `
     , "$FixtureRoot\proto", "$FixtureRoot\onnx", "$FixtureRoot\numpy"
 
-# Refresh canonical onnx from exports/.
 $ExportsDir = "$SharedDataPath\exports"
 if (-not (Test-Path $ExportsDir)) {
     throw "Exports dir not found: $ExportsDir"
@@ -81,7 +68,6 @@ finally {
     Remove-Item Env:\THYLLORE_PHASE5_FIXTURE_OUTPUT -ErrorAction SilentlyContinue
 }
 
-# manifest.json
 $Commit = (& git -C $WorkspaceRoot rev-parse --short=8 HEAD 2>$null)
 if (-not $Commit) { $Commit = "unknown" }
 $GeneratedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
@@ -89,9 +75,9 @@ $GeneratedAt = (Get-Date).ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ssZ")
 Write-Host "==> writing manifest.json"
 
 $Fixtures = [ordered]@{}
-$skipNames = @("manifest.json", "README.md", ".gitkeep")
+$ExcludedNames = @("manifest.json", "README.md", ".gitkeep")
 Get-ChildItem -Recurse -File -Path $FixtureRoot `
-    | Where-Object { $skipNames -notcontains $_.Name } `
+    | Where-Object { $ExcludedNames -notcontains $_.Name } `
     | Sort-Object FullName `
     | ForEach-Object {
         $rel = $_.FullName.Substring($FixtureRoot.Length + 1).Replace("\", "/")
