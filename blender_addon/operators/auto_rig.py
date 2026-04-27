@@ -12,7 +12,7 @@ import bpy
 from bpy.types import Operator
 
 from ..grpc_client import AutoRigClient, AutoRigInput
-from ..modal import AsyncDispatcher
+from ..modal import AsyncDispatcher, is_headless
 from ._grpc_helpers import (
     build_server_config_from_preferences,
     grpc_error_message,
@@ -44,9 +44,7 @@ class THYLLORE_OT_AutoRig(Operator):
         return obj is not None and obj.type == "MESH"
 
     def invoke(self, context, event):
-        # Headless fallback for Phase 5 testing -- ``event is None`` happens when
-        # invoked from a script via bpy.ops.thyllore.auto_rig('EXEC_DEFAULT').
-        if event is None or context.window is None:
+        if is_headless() or event is None or context.window is None:
             return self._execute_synchronous(context)
         return self._start_modal(context)
 

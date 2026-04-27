@@ -220,7 +220,27 @@ New-Item -ItemType Directory -Path $AbsOutDir -Force | Out-Null
 $ZipPath = Join-Path $AbsOutDir "thyllore_animation_addon-$Version-$Platform.zip"
 if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
 
-Compress-Archive -Path "$StageDir/*" -DestinationPath $ZipPath -CompressionLevel Optimal
+# Compress-Archive on Windows PowerShell 5.1 (.NET Framework) emits ZIP entry
+# names with backslash separators, which Linux/macOS unzip treats as flat
+# filenames -- breaking the addon's package layout. Build the ZIP manually so
+# every entry name uses forward slashes, regardless of the host filename.
+Add-Type -AssemblyName "System.IO.Compression"
+Add-Type -AssemblyName "System.IO.Compression.FileSystem"
+$AbsStageDir = (Resolve-Path $StageDir).Path
+$Zip = [System.IO.Compression.ZipFile]::Open(
+    $ZipPath, [System.IO.Compression.ZipArchiveMode]::Create
+)
+try {
+    Get-ChildItem -Recurse -File -Path $AbsStageDir | ForEach-Object {
+        $RelPath = $_.FullName.Substring($AbsStageDir.Length).TrimStart('\', '/').Replace('\', '/')
+        [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+            $Zip, $_.FullName, $RelPath, [System.IO.Compression.CompressionLevel]::Optimal
+        )
+    }
+}
+finally {
+    $Zip.Dispose()
+}
 
 # ---------------------------------------------------------------------------
 # 8. Report

@@ -13,7 +13,7 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
-python = ["dep:pyo3", "dep:numpy", "dep:serde_json", "dep:pythonize"]
+python = ["dep:pyo3", "dep:numpy", "dep:pythonize"]
 
 [dependencies]
 thyllore-ml-api = { path = "../thyllore-ml-api" }
@@ -21,9 +21,12 @@ thyllore-model-core = { path = "../thyllore-model-core" }
 ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "download-binaries", "copy-dylibs", "tls-native"] }
 anyhow = "1"
 cgmath = "0.18"
+serde_json = "1"
 
 pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310"], optional = true }
 numpy = { version = "0.23", optional = true }
-serde_json = { version = "1", optional = true }
 pythonize = { version = "0.23", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
 

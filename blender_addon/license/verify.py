@@ -137,12 +137,31 @@ def verify_license_token(token: str) -> LicenseStatus:
     )
 
 
+_HEADLESS_ENV_VAR = "THYLLORE_HEADLESS"
+_TEST_BYPASS_ENV_VAR = "THYLLORE_TEST_BYPASS_LICENSE"
+
+
 def verify_license_from_preferences() -> LicenseStatus:
     """Read ``license_key`` from AddonPreferences and verify it.
 
     The environment variable ``THYLLORE_LICENSE`` overrides the Preferences
-    value, which is convenient for headless smoke tests in Phase 5 CI.
+    value, which is convenient for headless smoke tests.
+
+    For automated parity tests that must skip licensing entirely, setting both
+    ``THYLLORE_HEADLESS=1`` and ``THYLLORE_TEST_BYPASS_LICENSE=1`` returns a
+    synthetic-valid status. Both flags are required so production users
+    (who do not run with HEADLESS) can never trigger the bypass.
     """
+    if (
+        os.environ.get(_HEADLESS_ENV_VAR) == "1"
+        and os.environ.get(_TEST_BYPASS_ENV_VAR) == "1"
+    ):
+        return LicenseStatus(
+            is_valid=True,
+            user_email="test@bypass.local",
+            tier="test",
+        )
+
     license_key = ""
     try:
         import bpy  # type: ignore

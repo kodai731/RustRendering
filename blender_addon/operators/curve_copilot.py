@@ -117,7 +117,7 @@ def _find_active_fcurve(armature: bpy.types.Object):
     fcurves = armature.animation_data.action.fcurves
     if not fcurves:
         return None
-    return fcurves.active or fcurves[0]
+    return getattr(fcurves, "active", None) or fcurves[0]
 
 
 def _resolve_model_path(prefs) -> str:

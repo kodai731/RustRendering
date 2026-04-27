@@ -10,8 +10,9 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use thyllore_ml_api::{
-    CopilotRequest, CopilotResponse, CopilotStepPrediction, CurvePredictRequest,
-    CurvePredictResponse, MlError, MlOps, SkeletonSnapshot, TopologyResult,
+    CopilotRequest, CopilotRequestWire, CopilotResponse, CopilotResponseWire,
+    CopilotStepPrediction, CurvePredictRequest, CurvePredictResponse, MlError, MlOps,
+    SkeletonSnapshot, TopologyResult, OP_RUN_CURVE_COPILOT,
 };
 use thyllore_model_core::{BoneId, Skeleton};
 
@@ -154,18 +155,32 @@ impl MlOps for MlCoreImpl {
         })
     }
 
-    fn call_op(&self, op_name: &str, _payload: &[u8]) -> Result<Vec<u8>, MlError> {
-        // Phase 4 ships no generic ops yet; the dispatcher exists so that future
-        // experimental features (skin_weight_repair, easing_suggest, ...) can be
-        // added without bumping ABI_MARKER. See FourLayerStability.md §5.2.
-        Err(MlError::unsupported(op_name))
+    fn call_op(&self, op_name: &str, payload: &[u8]) -> Result<Vec<u8>, MlError> {
+        match op_name {
+            OP_RUN_CURVE_COPILOT => self.dispatch_run_curve_copilot(payload),
+            _ => Err(MlError::unsupported(op_name)),
+        }
     }
 
     fn capabilities(&self) -> Vec<&'static str> {
-        // Add a feature id here when a new operator becomes user-visible.
-        // Operators check this list in their `poll` method to decide whether
-        // to gray out, so missing entries are safe (just hide the button).
         vec!["curve_copilot", "curve_predict", "compute_topology"]
+    }
+}
+
+impl MlCoreImpl {
+    fn dispatch_run_curve_copilot(&self, payload: &[u8]) -> Result<Vec<u8>, MlError> {
+        let wire_request: CopilotRequestWire = serde_json::from_slice(payload).map_err(|e| {
+            MlError::schema(
+                OP_RUN_CURVE_COPILOT,
+                format!("payload decode failed: {e}"),
+            )
+        })?;
+        let typed_request = wire_request.into_typed();
+        let typed_response = self.run_curve_copilot(typed_request)?;
+        let wire_response = CopilotResponseWire::from_typed(&typed_response);
+        serde_json::to_vec(&wire_response).map_err(|e| {
+            MlError::internal(format!("response encode failed for {OP_RUN_CURVE_COPILOT}: {e}"))
+        })
     }
 }
 
@@ -294,13 +309,39 @@ mod tests {
         let bad_request = CopilotRequest {
             model_path: "/tmp/does-not-matter.onnx".into(),
             property_type: 0,
-            context: vec![0.0; 7], // wrong size — should be 48
+            context: vec![0.0; 7],
             topology_features: vec![0.0; 6],
             bone_name_tokens: vec![0; 32],
             query_times: vec![1.0],
             curve_window: vec![0.0; 64],
         };
         let err = impl_.run_curve_copilot(bad_request).unwrap_err();
+        assert!(matches!(err, MlError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn call_op_run_curve_copilot_rejects_malformed_payload() {
+        let impl_ = MlCoreImpl::new();
+        let err = impl_
+            .call_op(OP_RUN_CURVE_COPILOT, b"not valid json")
+            .unwrap_err();
+        assert!(matches!(err, MlError::SchemaMismatch { .. }));
+    }
+
+    #[test]
+    fn call_op_run_curve_copilot_validates_input_shapes() {
+        let impl_ = MlCoreImpl::new();
+        let wire_request = CopilotRequestWire {
+            model_path: "/tmp/does-not-matter.onnx".into(),
+            property_type: 0,
+            context_bits: vec![0; 7],
+            topology_features_bits: vec![0; 6],
+            bone_name_tokens: vec![0; 32],
+            query_times_bits: vec![1u32.to_le()],
+            curve_window_bits: vec![0; 64],
+        };
+        let payload = serde_json::to_vec(&wire_request).expect("encode wire request");
+        let err = impl_.call_op(OP_RUN_CURVE_COPILOT, &payload).unwrap_err();
         assert!(matches!(err, MlError::InvalidRequest(_)));
     }
 }
