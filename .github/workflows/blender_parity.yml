@@ -125,6 +125,21 @@ jobs:
           echo "path=$BLENDER_EXE" >> "$GITHUB_OUTPUT"
           "$BLENDER_EXE" --version
 
+      - name: Upgrade Blender bundled CRT (Windows only)
+        if: matrix.os == 'windows-latest'
+        shell: pwsh
+        run: |
+          $blenderCrt = "${{ github.workspace }}/blender_install/blender-4.2.0-windows-x64/blender.crt"
+          if (-not (Test-Path $blenderCrt)) { exit 0 }
+          $bundled = [Version]((Get-Item "$blenderCrt/msvcp140.dll").VersionInfo.ProductVersion)
+          $system = [Version]((Get-Item "C:/Windows/System32/msvcp140.dll").VersionInfo.ProductVersion)
+          if ($bundled -ge $system) { Write-Host "no upgrade needed ($bundled >= $system)"; exit 0 }
+          Write-Host "upgrading CRT $bundled -> $system (onnxruntime 1.23.2 needs newer MSVC ABI)"
+          foreach ($name in 'msvcp140.dll','msvcp140_1.dll','msvcp140_2.dll','msvcp140_atomic_wait.dll','msvcp140_codecvt_ids.dll','vcruntime140.dll','vcruntime140_1.dll','concrt140.dll') {
+            $src = "C:/Windows/System32/$name"
+            if (Test-Path $src) { Copy-Item -Force $src "$blenderCrt/$name" }
+          }
+
       - name: Cache ONNX Runtime ${{ matrix.blender_target }}
         id: cache-ort
         uses: actions/cache@v4

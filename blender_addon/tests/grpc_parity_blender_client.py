@@ -57,7 +57,7 @@ def sha256_hex(data):
 
 def write_canonical_json(path, value):
     text = json.dumps(value, sort_keys=True, indent=2) + "\n"
-    Path(path).write_text(text)
+    Path(path).write_bytes(text.encode("utf-8"))
 
 
 def enable_addon_and_import_stubs():

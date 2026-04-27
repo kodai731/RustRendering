@@ -142,7 +142,7 @@ def run_call_op_json_path(tml, input_fixture, model_path):
 
 
 def write_predictions_json(path, predictions_dict):
-    Path(path).write_text(json.dumps(predictions_dict, indent=2, sort_keys=True) + "\n")
+    Path(path).write_bytes((json.dumps(predictions_dict, indent=2, sort_keys=True) + "\n").encode("utf-8"))
 
 
 def main():

@@ -128,7 +128,7 @@ def run_curve_copilot_operator(armature_object, fcurve):
 
 
 def write_result(path, payload):
-    Path(path).write_text(json.dumps(payload, sort_keys=True, indent=2) + "\n")
+    Path(path).write_bytes((json.dumps(payload, sort_keys=True, indent=2) + "\n").encode("utf-8"))
 
 
 def main():
