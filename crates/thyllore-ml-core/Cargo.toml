@@ -23,9 +23,9 @@ anyhow = "1"
 cgmath = "0.18"
 serde_json = "1"
 
-pyo3 = { version = "0.23", features = ["extension-module", "abi3-py310"], optional = true }
-numpy = { version = "0.23", optional = true }
-pythonize = { version = "0.23", optional = true }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py310"], optional = true }
+numpy = { version = "0.24", optional = true }
+pythonize = { version = "0.24", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
