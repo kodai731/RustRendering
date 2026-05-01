@@ -246,7 +246,8 @@ fn run_blender_client(
         .arg(result_dir)
         .env("THYLLORE_HEADLESS", "1")
         .env("THYLLORE_FORCE_MOCK_SERVER", "1")
-        .env("THYLLORE_TEST_BYPASS_LICENSE", "1")
+        // Phase 5.5 MVP: THYLLORE_TEST_BYPASS_LICENSE removed (no license module).
+        // Phase 6 will reintroduce when Auth Backend ships.
         .output()
         .expect("spawn blender");
 

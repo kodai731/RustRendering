@@ -186,31 +186,40 @@ Write-Host "curve_copilot.onnx: $OnnxLocalPath"
 
 $psExe = Resolve-PowerShellExe
 
-$publicKeyPath = Join-Path $RepoRoot "blender_addon/license/public_key.pem"
-$publicKeyBackup = $null
-if (Test-Path $publicKeyPath) {
-    $publicKeyBackup = [System.IO.File]::ReadAllBytes($publicKeyPath)
-}
-
-function Restore-PublicKey {
-    if ($script:publicKeyBackup -and (Test-Path $script:publicKeyPath)) {
-        $current = [System.IO.File]::ReadAllBytes($script:publicKeyPath)
-        if (-not [System.Linq.Enumerable]::SequenceEqual([byte[]]$current, [byte[]]$script:publicKeyBackup)) {
-            [System.IO.File]::WriteAllBytes($script:publicKeyPath, $script:publicKeyBackup)
-            Write-Host "Restored $script:publicKeyPath to original"
-        }
-    }
-}
-
-trap {
-    Restore-PublicKey
-    break
-}
+# Phase 5.5 MVP: license verification removed -- the production public key
+# backup/restore and dev keypair generation steps below are kept commented out
+# so Phase 6 (Auth Backend reintroduction) can re-enable them in one block.
+# Inline-deleting the logic would force git-archaeology when license/ is
+# revived in a different shape.
+#
+# $publicKeyPath = Join-Path $RepoRoot "blender_addon/license/public_key.pem"
+# $publicKeyBackup = $null
+# if (Test-Path $publicKeyPath) {
+#     $publicKeyBackup = [System.IO.File]::ReadAllBytes($publicKeyPath)
+# }
+#
+# function Restore-PublicKey {
+#     if ($script:publicKeyBackup -and (Test-Path $script:publicKeyPath)) {
+#         $current = [System.IO.File]::ReadAllBytes($script:publicKeyPath)
+#         if (-not [System.Linq.Enumerable]::SequenceEqual([byte[]]$current, [byte[]]$script:publicKeyBackup)) {
+#             [System.IO.File]::WriteAllBytes($script:publicKeyPath, $script:publicKeyBackup)
+#             Write-Host "Restored $script:publicKeyPath to original"
+#         }
+#     }
+# }
+#
+# trap {
+#     Restore-PublicKey
+#     break
+# }
 
 if (-not $SkipBuild) {
-    Write-Step "Generating dev keypair (will be restored after run)"
-    & $psExe -NoProfile -ExecutionPolicy Bypass -File "$RepoRoot/scripts/gen_license_keypair.ps1"
-    if ($LASTEXITCODE -ne 0) { throw "gen_license_keypair.ps1 failed" }
+    # Phase 5.5 MVP: license keypair generation removed (no license module).
+    # Phase 6 will reintroduce this when the Auth Backend public key is wired
+    # back into the addon.
+    # Write-Step "Generating dev keypair (will be restored after run)"
+    # & $psExe -NoProfile -ExecutionPolicy Bypass -File "$RepoRoot/scripts/gen_license_keypair.ps1"
+    # if ($LASTEXITCODE -ne 0) { throw "gen_license_keypair.ps1 failed" }
 
     Write-Step "Collecting vendored wheels (win_amd64)"
     & $psExe -NoProfile -ExecutionPolicy Bypass -File "$RepoRoot/scripts/collect_wheels.ps1" `
@@ -243,7 +252,9 @@ if ($LASTEXITCODE -ne 0) { throw "extension install-file failed" }
 
 $env:THYLLORE_PARITY_FIXTURE_OUTPUT = $FixtureRoot
 $env:THYLLORE_BLENDER_PATH = $resolvedBlender
-$env:THYLLORE_TEST_BYPASS_LICENSE = "1"
+# Phase 5.5 MVP: THYLLORE_TEST_BYPASS_LICENSE removed (no license module).
+# Phase 6 will reintroduce when Auth Backend ships.
+# $env:THYLLORE_TEST_BYPASS_LICENSE = "1"
 $env:THYLLORE_HEADLESS = "1"
 $env:ORT_DYLIB_PATH = $OrtDylibPath
 

@@ -111,15 +111,37 @@ class THYLLORE_PT_PlaceholderLicenseFailure(Panel):
         op.module = (__package__ or "blender_addon.panels").rsplit(".", 1)[0]
 
 
-_MAIN_PANELS = (
+_TIER_A_PANELS = (
     THYLLORE_PT_AutoRig,
     THYLLORE_PT_TextToMesh,
-    THYLLORE_PT_TextToMotion,
-    THYLLORE_PT_CurveCopilot,
 )
 
 
+def _resolve_main_panels() -> tuple[type[Panel], ...]:
+    """Return the panel classes registered for the current Variant.
+
+    Each panel is only registered when its backing operator was successfully
+    imported. Phase 5.5 lite Variant ships Curve Copilot only until the
+    text_to_motion PyO3 rewrite lands, after which both Tier B panels become
+    available regardless of Tier A inclusion.
+    """
+    from .. import operators
+
+    panels: list[type[Panel]] = []
+    if operators.has_tier_a():
+        panels.extend(_TIER_A_PANELS)
+    if operators.has_text_to_motion():
+        panels.append(THYLLORE_PT_TextToMotion)
+    panels.append(THYLLORE_PT_CurveCopilot)
+    return tuple(panels)
+
+
+_MAIN_PANELS: tuple[type[Panel], ...] = ()
+
+
 def register() -> None:
+    global _MAIN_PANELS
+    _MAIN_PANELS = _resolve_main_panels()
     for cls in _MAIN_PANELS:
         bpy.utils.register_class(cls)
 
@@ -136,3 +158,5 @@ def unregister() -> None:
             bpy.utils.unregister_class(cls)
         except RuntimeError:
             pass
+
+

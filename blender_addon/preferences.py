@@ -1,7 +1,13 @@
 """Addon preferences UI and accessor.
 
-Stores the gRPC server endpoint, license key, device id, and Tier B
-(Curve Copilot) configuration. Read by Operators via :func:`get_preferences`.
+Phase 5.5 MVP variant: the lite ZIP excludes Tier A operators and the
+``grpc_client`` package, so the gRPC / license fields below are present in the
+preference data model but their UI is gated on
+``operators.has_tier_a()`` -- they only appear when the full Variant bundles
+the Tier A operators that consume them. This keeps the same
+``AddonPreferences`` class binary-compatible across Variants and lets Phase 6
+(Auth Backend reintroduction) repopulate the existing fields without a
+migration step.
 """
 from __future__ import annotations
 
@@ -12,8 +18,8 @@ from bpy.props import BoolProperty, FloatProperty, IntProperty, StringProperty
 from bpy.types import AddonPreferences, Operator
 
 # Resolve the addon's package name so AddonPreferences.bl_idname matches the
-# top-level extension id (legacy install: "blender_addon"; extension install:
-# "thyllore_animation"). __package__ is the parent package.
+# top-level extension id (legacy install: "blender_addon"; lite extension:
+# "thyllore_animation_lite"; full extension: "thyllore_animation").
 ADDON_PACKAGE = __package__ or "blender_addon"
 
 
@@ -23,7 +29,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
     server_host: StringProperty(  # type: ignore[valid-type]
         name="Server Host",
         default="127.0.0.1",
-        description="gRPC server hostname or IP",
+        description="gRPC server hostname or IP (full Variant only)",
     )
     server_port: IntProperty(  # type: ignore[valid-type]
         name="Server Port",
@@ -47,7 +53,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
         name="License Key",
         default="",
         subtype="PASSWORD",
-        description="License token issued by Thyllore Cloud (Polar.sh)",
+        description="License token (Phase 6 Auth Backend; ignored in MVP)",
     )
     device_id: StringProperty(  # type: ignore[valid-type]
         name="Device ID",
@@ -67,27 +73,48 @@ class ThylloreAnimationPreferences(AddonPreferences):
         description="Path to curve_copilot.onnx (leave empty to use bundled model)",
     )
 
+    text_to_motion_model_dir: StringProperty(  # type: ignore[valid-type]
+        name="Text-to-Motion Cache Dir",
+        default="",
+        subtype="DIR_PATH",
+        description="Directory for the lazily-downloaded light_t2m.onnx (leave empty for ~/.cache/thyllore/light_t2m/)",
+    )
+
     def draw(self, context):
+        from . import operators
+
         layout = self.layout
-
-        box = layout.box()
-        box.label(text="Server (Tier A - gRPC)", icon="URL")
-        box.prop(self, "server_host")
-        box.prop(self, "server_port")
-        box.prop(self, "use_tls")
-        box.prop(self, "deadline_seconds")
-
-        box = layout.box()
-        box.label(text="License", icon="LOCKED")
-        box.prop(self, "license_key")
-        row = box.row()
-        row.label(text=f"Device: {self.device_id or '(not set)'}")
-        row.operator("thyllore.regenerate_device_id", text="Regenerate")
 
         box = layout.box()
         box.label(text="Curve Copilot (Tier B - PyO3)", icon="FCURVE")
         box.prop(self, "enable_curve_copilot")
         box.prop(self, "curve_copilot_model_path")
+
+        if operators.has_text_to_motion():
+            box = layout.box()
+            box.label(text="Text to Motion (Tier B - PyO3)", icon="POSE_HLT")
+            box.prop(self, "text_to_motion_model_dir")
+            box.label(text="Models are downloaded from HuggingFace on first use.")
+
+        if operators.has_tier_a():
+            box = layout.box()
+            box.label(text="Server (Tier A - gRPC)", icon="URL")
+            box.prop(self, "server_host")
+            box.prop(self, "server_port")
+            box.prop(self, "use_tls")
+            box.prop(self, "deadline_seconds")
+
+            box = layout.box()
+            box.label(text="License", icon="LOCKED")
+            box.prop(self, "license_key")
+            row = box.row()
+            row.label(text=f"Device: {self.device_id or '(not set)'}")
+            row.operator("thyllore.regenerate_device_id", text="Regenerate")
+        else:
+            layout.label(
+                text="Tier A cloud features (mesh / auto-rig) require Phase 6 SaaS upgrade.",
+                icon="INFO",
+            )
 
 
 class THYLLORE_OT_RegenerateDeviceID(Operator):

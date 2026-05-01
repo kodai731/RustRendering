@@ -173,11 +173,14 @@ jobs:
             -o fixtures/ml_parity/onnx/curve_copilot.onnx \
             "https://huggingface.co/${ONNX_REPO}/resolve/${ONNX_REVISION}/curve_copilot.onnx"
 
-      - name: Generate dev keypair (CI only — not committed)
-        working-directory: ThylloreAnimation
-        shell: pwsh
-        run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
+      # Phase 5.5 MVP removes the license module; the keypair generation step is
+      # left as a no-op so the workflow stays readable when Phase 6 reintroduces
+      # the Auth Backend public key wiring.
+      # - name: Generate dev keypair (CI only — not committed)
+      #   working-directory: ThylloreAnimation
+      #   shell: pwsh
+      #   run: |
+      #     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
 
       - name: Collect vendored wheels (pip download + maturin)
         working-directory: ThylloreAnimation
@@ -221,7 +224,7 @@ jobs:
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
-          THYLLORE_TEST_BYPASS_LICENSE: "1"
+          # Phase 5.5 MVP: license module removed (Phase 6 reintroduces).
           ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-ml-core --test curve_copilot_blender_parity \
@@ -232,7 +235,7 @@ jobs:
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
-          THYLLORE_TEST_BYPASS_LICENSE: "1"
+          # Phase 5.5 MVP: license module removed (Phase 6 reintroduces).
           ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-grpc-client \
@@ -244,7 +247,7 @@ jobs:
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
-          THYLLORE_TEST_BYPASS_LICENSE: "1"
+          # Phase 5.5 MVP: license module removed (Phase 6 reintroduces).
           ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-grpc-client \

@@ -58,10 +58,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install "cryptography>=42" "maturin>=1.5"
 
-      - name: Generate dev keypair (CI only — not committed)
-        shell: pwsh
-        run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
+      # Phase 5.5 MVP removes the license module; keypair step kept commented
+      # for one-line reactivation when Phase 6 ships the Auth Backend.
+      # - name: Generate dev keypair (CI only — not committed)
+      #   shell: pwsh
+      #   run: |
+      #     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
 
       - name: Collect vendored wheels
         shell: pwsh

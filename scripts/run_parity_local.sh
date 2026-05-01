@@ -143,29 +143,36 @@ if [[ ! -f "$ONNX_LOCAL_PATH" ]]; then
 fi
 echo "curve_copilot.onnx: $ONNX_LOCAL_PATH"
 
-PUBLIC_KEY_PATH="$REPO_ROOT/blender_addon/license/public_key.pem"
-PUBLIC_KEY_BACKUP=""
-if [[ -f "$PUBLIC_KEY_PATH" ]]; then
-    PUBLIC_KEY_BACKUP="$(mktemp)"
-    cp "$PUBLIC_KEY_PATH" "$PUBLIC_KEY_BACKUP"
-fi
-
-restore_public_key() {
-    if [[ -n "$PUBLIC_KEY_BACKUP" && -f "$PUBLIC_KEY_BACKUP" ]]; then
-        if ! cmp -s "$PUBLIC_KEY_BACKUP" "$PUBLIC_KEY_PATH"; then
-            cp "$PUBLIC_KEY_BACKUP" "$PUBLIC_KEY_PATH"
-            echo "Restored $PUBLIC_KEY_PATH to original"
-        fi
-        rm -f "$PUBLIC_KEY_BACKUP"
-    fi
-}
-trap restore_public_key EXIT
+# Phase 5.5 MVP: license verification removed -- the public key backup/restore
+# and dev keypair generation steps below are kept commented out so Phase 6
+# (Auth Backend reintroduction) can re-enable them in one block.
+#
+# PUBLIC_KEY_PATH="$REPO_ROOT/blender_addon/license/public_key.pem"
+# PUBLIC_KEY_BACKUP=""
+# if [[ -f "$PUBLIC_KEY_PATH" ]]; then
+#     PUBLIC_KEY_BACKUP="$(mktemp)"
+#     cp "$PUBLIC_KEY_PATH" "$PUBLIC_KEY_BACKUP"
+# fi
+#
+# restore_public_key() {
+#     if [[ -n "$PUBLIC_KEY_BACKUP" && -f "$PUBLIC_KEY_BACKUP" ]]; then
+#         if ! cmp -s "$PUBLIC_KEY_BACKUP" "$PUBLIC_KEY_PATH"; then
+#             cp "$PUBLIC_KEY_BACKUP" "$PUBLIC_KEY_PATH"
+#             echo "Restored $PUBLIC_KEY_PATH to original"
+#         fi
+#         rm -f "$PUBLIC_KEY_BACKUP"
+#     fi
+# }
+# trap restore_public_key EXIT
 
 if [[ "$SKIP_BUILD" -eq 0 ]]; then
-    write_step "Generating dev keypair (will be restored after run)"
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO_ROOT/scripts/gen_license_keypair.ps1" || {
-        echo "(pwsh not available on Linux — skipping keypair, tests use bypass env)"
-    }
+    # Phase 5.5 MVP: license keypair generation removed (no license module).
+    # Phase 6 will reintroduce when the Auth Backend public key is wired back
+    # into the addon.
+    # write_step "Generating dev keypair (will be restored after run)"
+    # pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO_ROOT/scripts/gen_license_keypair.ps1" || {
+    #     echo "(pwsh not available on Linux — skipping keypair, tests use bypass env)"
+    # }
 
     write_step "Collecting vendored wheels (manylinux2014_x86_64)"
     pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO_ROOT/scripts/collect_wheels.ps1" \
@@ -197,7 +204,9 @@ echo "Installing $zip_path"
 
 export THYLLORE_PARITY_FIXTURE_OUTPUT="$FIXTURE_ROOT"
 export THYLLORE_BLENDER_PATH="$resolved_blender"
-export THYLLORE_TEST_BYPASS_LICENSE=1
+# Phase 5.5 MVP: THYLLORE_TEST_BYPASS_LICENSE removed (no license module).
+# Phase 6 will reintroduce when Auth Backend ships.
+# export THYLLORE_TEST_BYPASS_LICENSE=1
 export THYLLORE_HEADLESS=1
 export ORT_DYLIB_PATH="$ORT_DYLIB_PATH_LINUX"
 

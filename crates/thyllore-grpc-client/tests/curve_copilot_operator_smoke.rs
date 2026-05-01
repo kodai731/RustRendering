@@ -171,8 +171,9 @@ fn curve_copilot_operator_runs_under_background() {
         .arg("--onnx")
         .arg(&onnx)
         .env("THYLLORE_HEADLESS", "1")
-        .env("THYLLORE_FORCE_MOCK_SERVER", "1")
-        .env("THYLLORE_TEST_BYPASS_LICENSE", "1");
+        .env("THYLLORE_FORCE_MOCK_SERVER", "1");
+    // Phase 5.5 MVP: license module removed; bypass env no longer consumed.
+    // Phase 6 will reintroduce both the module and this env var.
 
     if let Some(dylib_path) = resolve_ort_dylib_path() {
         command.env("ORT_DYLIB_PATH", &dylib_path);

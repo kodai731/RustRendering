@@ -1,0 +1,38 @@
+schema_version = "1.0.0"
+
+# MVP variant -- distinct id so users can install both the lite (offline,
+# unauthenticated, $30-$40 buyout) and full (Phase 6 SaaS, subscription) ZIPs
+# side by side without conflicts.
+id = "thyllore_animation_lite"
+version = "0.0.1"
+name = "Thyllore Animation Lite"
+tagline = "Offline FCurve copilot + Text-to-Motion for Blender"
+maintainer = "kodai731 <kodai731@example.com>"
+
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-2.0-or-later"]
+
+# Tier B-only wheel set. Tier A (grpcio / grpcio-status / protobuf / certifi)
+# is intentionally excluded -- the lite Variant does not bundle the gRPC
+# client and ships ~30 MB lighter than the full Variant.
+wheels = [
+    "./wheels/thyllore_ml_core-0.0.1-cp310-abi3-PLATFORM.whl",
+]
+
+platforms = ["PLATFORM_BLENDER_NAME"]
+
+[permissions]
+files = "Read bundled ONNX model and write FCurve / Action keyframes"
+network = "Download light_t2m.onnx from HuggingFace on first use (Tier B Text-to-Motion)"
+
+[build]
+paths_exclude_pattern = [
+    "tests/",
+    "**/__pycache__/",
+    "**/*.pyc",
+    ".pytest_cache/",
+    "*.egg-info/",
+]
