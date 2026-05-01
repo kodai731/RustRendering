@@ -198,6 +198,144 @@ fn mvp_addon_zip_lite_variant_is_structurally_valid() {
 
     let inspection = inspect_zip(&zip_path).expect("read ZIP entries");
     assert_inspection(&inspection);
+
+    run_blender_extension_validate(&zip_path);
+}
+
+enum BlenderRunner {
+    Native(PathBuf),
+    Wsl { blender_path_wsl: String },
+}
+
+fn run_blender_extension_validate(zip_path: &Path) {
+    let runner = match locate_blender_42_runner() {
+        Some(r) => r,
+        None => {
+            eprintln!(
+                "Skipping `blender --command extension validate`: \
+                 set THYLLORE_BLENDER_PATH to a Blender 4.2 binary, \
+                 install Blender 4.2 at the standard path, \
+                 or install into WSL2 at ~/blender_test/blender/blender \
+                 (override with THYLLORE_WSL_BLENDER_PATH). \
+                 CI runs this check on every platform."
+            );
+            return;
+        }
+    };
+
+    let mut command = match &runner {
+        BlenderRunner::Native(path) => {
+            eprintln!("Running `extension validate` via native {}", path.display());
+            let mut cmd = Command::new(path);
+            cmd.args([
+                "--command",
+                "extension",
+                "validate",
+                zip_path.to_str().expect("zip path utf-8"),
+            ]);
+            cmd
+        }
+        BlenderRunner::Wsl { blender_path_wsl } => {
+            let zip_wsl = win_path_to_wsl(zip_path);
+            eprintln!("Running `extension validate` via WSL2 {blender_path_wsl} on {zip_wsl}");
+            let mut cmd = Command::new("wsl.exe");
+            cmd.args([
+                blender_path_wsl,
+                "--command",
+                "extension",
+                "validate",
+                &zip_wsl,
+            ]);
+            cmd
+        }
+    };
+
+    let output = command.output().expect("spawn blender for extension validate");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "blender --command extension validate failed for {}\n\
+         exit={:?}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}",
+        zip_path.display(),
+        output.status.code()
+    );
+    assert!(
+        !stdout.contains("FATAL_ERROR") && !stderr.contains("FATAL_ERROR"),
+        "blender extension validate emitted FATAL_ERROR despite exit 0\n\
+         --- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
+    );
+}
+
+fn locate_blender_42_runner() -> Option<BlenderRunner> {
+    if let Ok(p) = env::var("THYLLORE_BLENDER_PATH") {
+        let path = PathBuf::from(p);
+        if path.is_file() {
+            return Some(BlenderRunner::Native(path));
+        }
+    }
+
+    let native_candidates: Vec<PathBuf> = if cfg!(target_os = "windows") {
+        vec![PathBuf::from(
+            r"C:\Program Files\Blender Foundation\Blender 4.2\blender.exe",
+        )]
+    } else if cfg!(target_os = "macos") {
+        vec![PathBuf::from(
+            "/Applications/Blender.app/Contents/MacOS/Blender",
+        )]
+    } else {
+        let mut v = vec![PathBuf::from("/opt/blender/blender")];
+        if let Ok(home) = env::var("HOME") {
+            v.push(PathBuf::from(home).join("blender_test/blender/blender"));
+        }
+        v
+    };
+
+    if let Some(p) = native_candidates.into_iter().find(|p| p.is_file()) {
+        return Some(BlenderRunner::Native(p));
+    }
+
+    if cfg!(target_os = "windows") && wsl_available() {
+        let blender_wsl = env::var("THYLLORE_WSL_BLENDER_PATH")
+            .unwrap_or_else(|_| "~/blender_test/blender/blender".into());
+        if wsl_blender_present(&blender_wsl) {
+            return Some(BlenderRunner::Wsl {
+                blender_path_wsl: blender_wsl,
+            });
+        }
+    }
+
+    None
+}
+
+fn wsl_available() -> bool {
+    Command::new("wsl.exe")
+        .args(["--status"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn wsl_blender_present(blender_path_wsl: &str) -> bool {
+    Command::new("wsl.exe")
+        .args(["bash", "-lc", &format!("test -x {blender_path_wsl}")])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false)
+}
+
+fn win_path_to_wsl(p: &Path) -> String {
+    let s = p.to_string_lossy();
+    if let Some(rest) = s.strip_prefix(r"\\?\") {
+        return win_path_to_wsl(Path::new(rest));
+    }
+    let bytes = s.as_bytes();
+    if bytes.len() >= 2 && bytes[1] == b':' {
+        let drive = (bytes[0] as char).to_ascii_lowercase();
+        let tail = &s[2..].replace('\\', "/");
+        return format!("/mnt/{drive}{tail}");
+    }
+    s.replace('\\', "/")
 }
 
 #[derive(Debug, Default)]

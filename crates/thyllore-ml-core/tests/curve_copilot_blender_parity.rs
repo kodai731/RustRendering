@@ -189,6 +189,10 @@ fn run_blender_parity_script(
     if let Some(dylib_path) = resolve_ort_dylib_path() {
         command.env("ORT_DYLIB_PATH", &dylib_path);
     }
+    command.env(
+        "THYLLORE_EXPECTED_ABI_MARKER",
+        thyllore_ml_api::ABI_MARKER.to_string(),
+    );
 
     let output = command.output().expect("spawn blender");
 

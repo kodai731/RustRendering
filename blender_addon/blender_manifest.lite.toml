@@ -26,7 +26,7 @@ platforms = ["PLATFORM_BLENDER_NAME"]
 
 [permissions]
 files = "Read bundled ONNX model and write FCurve / Action keyframes"
-network = "Download light_t2m.onnx from HuggingFace on first use (Tier B Text-to-Motion)"
+network = "Download Text-to-Motion model from HuggingFace on first use"
 
 [build]
 paths_exclude_pattern = [

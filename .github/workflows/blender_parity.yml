@@ -224,6 +224,19 @@ jobs:
             --test curve_copilot_fixture_generator generate_curve_copilot_input_and_golden_fixtures \
             -- --ignored --nocapture
 
+      - name: Write fixture manifest + verify integrity
+        working-directory: ThylloreAnimation
+        env:
+          THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
+          ONNX_REVISION: main
+        run: |
+          cargo test -p thyllore-grpc-client \
+            --test fixture_manifest_writer write_manifest_from_fixture_dir \
+            -- --ignored --nocapture
+          cargo test -p thyllore-grpc-client \
+            --test fixture_hash_check fixture_root_matches_manifest \
+            -- --ignored --nocapture
+
       - name: Run curve_copilot Blender parity (typed vs call_op_json)
         working-directory: ThylloreAnimation
         env:

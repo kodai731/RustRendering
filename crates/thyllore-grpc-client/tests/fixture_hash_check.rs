@@ -22,7 +22,20 @@ fn resolve_fixture_root() -> PathBuf {
     workspace_root().join("fixtures").join("ml_parity")
 }
 
+// Marked `#[ignore]` to align with CI: the test depends on
+// `fixtures/ml_parity/manifest.json` being in sync with the fixture files,
+// which only happens after the full generator chain runs:
+//   1. cargo test --test grpc_fixture_generator              (--ignored)
+//   2. cargo test --test curve_copilot_fixture_generator     (--ignored)
+//   3. cargo test --test fixture_manifest_writer             (--ignored)
+//
+// `fixtures/` is gitignored so a fresh checkout has no manifest -- the test
+// would skip there. On developer machines a stale manifest from a previous
+// `scripts/generate_parity_fixtures.sh` run causes false sha mismatches when
+// only the cargo generators are re-run. Default `cargo test` excludes this
+// gate; the parity workflows in CI invoke it explicitly with `--ignored`.
 #[test]
+#[ignore = "run after generators + manifest_writer (see file header)"]
 fn fixture_root_matches_manifest() {
     let root = resolve_fixture_root();
 
