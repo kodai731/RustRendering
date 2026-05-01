@@ -190,6 +190,7 @@ jobs:
               -Platforms ${{ matrix.wheel_platform }}
 
       - name: Build Phase 4 extension ZIP
+        id: build
         working-directory: ThylloreAnimation
         shell: pwsh
         run: |
@@ -200,9 +201,13 @@ jobs:
         working-directory: ThylloreAnimation
         env:
           BLENDER_EXE: ${{ steps.blender-path.outputs.path }}
+          ZIP: ${{ steps.build.outputs.zip_path }}
         run: |
           set -e
-          ZIP=$(ls dist/thyllore_animation_addon-*-${{ matrix.extension_platform }}.zip | head -n 1)
+          if [[ -z "$ZIP" || ! -f "$ZIP" ]]; then
+              echo "::error::build_blender_addon.ps1 did not emit zip_path output (sentinel missing)" >&2
+              exit 1
+          fi
           echo "Installing $ZIP"
           "$BLENDER_EXE" --command extension install-file --repo user_default --enable "$ZIP"
 

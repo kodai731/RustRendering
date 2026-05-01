@@ -72,6 +72,7 @@ jobs:
               -Platforms ${{ matrix.wheel_platform }}
 
       - name: Build addon ZIP (incl. ABI marker verify)
+        id: build
         shell: pwsh
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1 `
@@ -82,8 +83,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: thyllore_animation_addon-${{ matrix.platform }}
-          path: dist/thyllore_animation_addon-*.zip
+          path: ${{ steps.build.outputs.zip_path }}
           retention-days: 7
+          if-no-files-found: error
 
   validate:
     name: Validate ZIP via Blender 4.2 LTS
@@ -107,5 +109,9 @@ jobs:
 
       - name: Validate extension
         run: |
-          ZIP=$(ls dist/thyllore_animation_addon-*.zip | head -n1)
+          ZIP=$(ls dist/*.zip | head -n1)
+          if [[ -z "$ZIP" ]]; then
+              echo "::error::No ZIP found in downloaded artifact" >&2
+              exit 1
+          fi
           /opt/blender/blender --command extension validate "$ZIP"

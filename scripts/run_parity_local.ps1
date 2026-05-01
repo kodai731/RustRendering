@@ -233,11 +233,13 @@ if (-not $SkipBuild) {
 }
 
 Write-Step "Installing Blender extension into user dir"
-$zip = Get-ChildItem (Join-Path $RepoRoot "dist") -Filter "thyllore_animation_addon-*-win_amd64.zip" |
-    Sort-Object LastWriteTime -Descending |
-    Select-Object -First 1
-if (-not $zip) {
-    throw "No extension ZIP found under dist/. Re-run without -SkipBuild."
+$sentinel = Join-Path $RepoRoot "dist/.last_built_zip"
+if (-not (Test-Path $sentinel)) {
+    throw "No extension ZIP found via $sentinel. Re-run without -SkipBuild."
+}
+$zipPath = (Get-Content $sentinel -Raw).TrimStart([char]0xFEFF).Trim()
+if (-not (Test-Path $zipPath)) {
+    throw "Sentinel $sentinel points to missing file: $zipPath"
 }
 
 $existingExtensionDir = Join-Path $env:APPDATA "Blender Foundation\Blender\4.2\extensions\user_default\thyllore_animation"
@@ -246,8 +248,8 @@ if (Test-Path $existingExtensionDir) {
     Remove-Item -Recurse -Force $existingExtensionDir
 }
 
-Write-Host "Installing $($zip.FullName)"
-& $resolvedBlender --command extension install-file --repo user_default --enable $zip.FullName
+Write-Host "Installing $zipPath"
+& $resolvedBlender --command extension install-file --repo user_default --enable $zipPath
 if ($LASTEXITCODE -ne 0) { throw "extension install-file failed" }
 
 $env:THYLLORE_PARITY_FIXTURE_OUTPUT = $FixtureRoot

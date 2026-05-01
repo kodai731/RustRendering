@@ -333,5 +333,13 @@ Write-Host "[build_blender_addon] Created: $ZipPath" -ForegroundColor Green
 Write-Host "[build_blender_addon] Size:    $SizeMb MiB"
 Write-Host "[build_blender_addon] SHA256:  $Hash"
 
-# Cleanup stage
+$Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+$SentinelPath = Join-Path $AbsOutDir ".last_built_zip"
+[System.IO.File]::WriteAllText($SentinelPath, $ZipPath, $Utf8NoBom)
+
+if ($env:GITHUB_OUTPUT) {
+    $GhOut = "zip_path=$ZipPath`nzip_name=$(Split-Path -Leaf $ZipPath)`n"
+    [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $GhOut, $Utf8NoBom)
+}
+
 Remove-Item -Recurse -Force $StageDir

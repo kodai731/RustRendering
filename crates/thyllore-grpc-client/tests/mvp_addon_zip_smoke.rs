@@ -162,11 +162,29 @@ fn mvp_addon_zip_lite_variant_is_structurally_valid() {
         );
     }
 
-    let zip_path = root.join(format!("dist/thyllore_animation_lite-0.0.1-{platform}.zip"));
+    let sentinel = root.join("dist/.last_built_zip");
+    let zip_path_str = fs::read_to_string(&sentinel).unwrap_or_else(|e| {
+        panic!(
+            "build_blender_addon.ps1 reported success but sentinel {} is unreadable: {e}",
+            sentinel.display()
+        )
+    });
+    let zip_path = PathBuf::from(zip_path_str.trim_start_matches('\u{FEFF}').trim());
     assert!(
         zip_path.exists(),
-        "lite ZIP missing at {} (build script reported success)",
+        "sentinel {} points to missing file: {}",
+        sentinel.display(),
         zip_path.display()
+    );
+
+    let zip_name = zip_path
+        .file_name()
+        .expect("zip path has no filename")
+        .to_string_lossy();
+    let expected_prefix = format!("thyllore_animation_lite-0.0.1-{platform}");
+    assert!(
+        zip_name.starts_with(&expected_prefix) && zip_name.ends_with(".zip"),
+        "lite ZIP filename {zip_name} does not match expected prefix {expected_prefix}*.zip"
     );
 
     let metadata = fs::metadata(&zip_path).expect("stat ZIP");

@@ -81,6 +81,7 @@ blender_addon/panels/__pycache__/
 release/
 target-linux/
 **/dist-linux/
+dist/.last_built_zip
 
 # CI parity test fixtures (regenerated from ONNX + synthetic seeds)
 fixtures/

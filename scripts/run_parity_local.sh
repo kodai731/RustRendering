@@ -187,9 +187,10 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
 fi
 
 write_step "Installing Blender extension into user dir"
-zip_path="$(ls -t "$REPO_ROOT/dist"/thyllore_animation_addon-*-linux_x86_64.zip 2>/dev/null | head -n 1 || true)"
-if [[ -z "$zip_path" ]]; then
-    echo "No extension ZIP found under dist/. Re-run without --skip-build." >&2
+sentinel="$REPO_ROOT/dist/.last_built_zip"
+zip_path="$(cat "$sentinel" 2>/dev/null | sed $'1s/^\xEF\xBB\xBF//' || true)"
+if [[ -z "$zip_path" || ! -f "$zip_path" ]]; then
+    echo "No extension ZIP found via $sentinel. Re-run without --skip-build." >&2
     exit 1
 fi
 
