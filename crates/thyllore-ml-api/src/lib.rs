@@ -29,4 +29,10 @@ pub use wire::{
 /// - Adding a field to a request/response struct: requires bump unless the
 ///   struct uses `#[serde(default)]` for the new field.
 /// - Removing or renaming a method, field, or error variant: bump.
-pub const ABI_MARKER: u32 = 1;
+///
+/// History:
+/// - 1: Phase 4 initial release (curve_copilot only).
+/// - 2: Phase 5.5 — text_to_motion entry point added (PyO3 facade exposes
+///   `PyMotionSession`). Older addons binding `EXPECTED_ABI_MARKER = 1` will
+///   refuse to register against this wheel and prompt the user to update.
+pub const ABI_MARKER: u32 = 2;

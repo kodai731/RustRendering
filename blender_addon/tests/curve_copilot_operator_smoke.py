@@ -95,7 +95,12 @@ def enable_addon():
     import bpy
     import addon_utils
 
-    candidates = ["bl_ext.user_default.thyllore_animation", "thyllore_animation"]
+    candidates = [
+        "bl_ext.user_default.thyllore_animation_lite",
+        "thyllore_animation_lite",
+        "bl_ext.user_default.thyllore_animation",
+        "thyllore_animation",
+    ]
     for module_name in candidates:
         loaded_default, loaded_state = addon_utils.check(module_name)
         if loaded_default or loaded_state:

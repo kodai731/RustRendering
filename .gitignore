@@ -73,7 +73,6 @@ blender_addon/wheels/HASHES.txt
 
 # Phase 4: built ZIP artifacts
 blender_addon/__pycache__/
-blender_addon/license/__pycache__/
 blender_addon/operators/__pycache__/
 blender_addon/modal/__pycache__/
 blender_addon/panels/__pycache__/
@@ -82,6 +81,7 @@ blender_addon/panels/__pycache__/
 release/
 target-linux/
 **/dist-linux/
+dist/.last_built_zip
 
 # CI parity test fixtures (regenerated from ONNX + synthetic seeds)
 fixtures/

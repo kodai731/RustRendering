@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+if [[ "${OSTYPE:-}" == "msys" || "${OSTYPE:-}" == "cygwin" || -n "${MSYSTEM:-}" ]]; then
+    echo "ERROR: This script must be run from WSL2 bash, not Git Bash / MSYS2 / Cygwin." >&2
+    echo "       MSYS path translation creates broken directories like 'C:\\Program Files\\Git\\home\\...'" >&2
+    echo "       under the workspace root. Re-run from WSL2:" >&2
+    echo "         wsl bash scripts/generate_parity_fixtures.sh \"\$@\"" >&2
+    exit 1
+fi
+
 ONNX_REPO="kodai731/thyllore-curve-copilot"
 ONNX_REVISION="${THYLLORE_ONNX_REVISION:-main}"
 ONNX_FILENAME="curve_copilot.onnx"

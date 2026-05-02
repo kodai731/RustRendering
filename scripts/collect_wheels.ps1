@@ -11,7 +11,13 @@ param(
     # (no abi3), so the abi tag must match the embedded interpreter or the
     # compiled extension fails to load with "cannot import name 'cygrpc'".
     [string]$PythonAbi = "cp311",
-    [string]$PythonVersion = "3.11"
+    [string]$PythonVersion = "3.11",
+
+    # MVP "lite" Variant skips Tier A wheels (grpcio / grpcio-status /
+    # protobuf / certifi), saving ~30 MB per platform ZIP. The full Variant
+    # collects everything needed for both Tier A and Tier B operation.
+    [ValidateSet("lite", "full")]
+    [string]$Variant = "lite"
 )
 
 $ErrorActionPreference = "Stop"
@@ -21,41 +27,45 @@ $AbsWheels = Join-Path $RepoRoot $WheelsDir
 New-Item -ItemType Directory -Path $AbsWheels -Force | Out-Null
 
 if (-not $SkipPipDownload) {
-    Write-Host "[collect_wheels] Downloading vendored runtime wheels..." -ForegroundColor Cyan
-    # pip writes status to stderr; tolerate that without surfacing as an error
-    $PrevErrorAction = $ErrorActionPreference
-    $ErrorActionPreference = "Continue"
-    try {
-        foreach ($platform in $Platforms) {
-            Write-Host "  Platform: $platform"
-            $pipArgs = @(
-                "-m", "pip", "download",
-                "grpcio==$GrpcioVersion",
-                "grpcio-status==$GrpcioVersion",
-                "protobuf==$ProtobufVersion",
-                "certifi==$CertifiVersion",
-                "--platform", $platform,
-                "--abi", $PythonAbi,
-                "--implementation", "cp",
-                "--python-version", $PythonVersion,
-                "--only-binary=:all:",
-                "--dest", $AbsWheels,
-                "--no-deps"
-            )
-            $output = & python @pipArgs 2>&1
-            if ($LASTEXITCODE -ne 0) {
-                Write-Host ($output -join "`n")
-                throw "pip download failed for $platform"
+    if ($Variant -eq "lite") {
+        Write-Host "[collect_wheels] Variant=lite -- skipping Tier A wheels (grpcio / protobuf / certifi)" -ForegroundColor DarkYellow
+    } else {
+        Write-Host "[collect_wheels] Downloading vendored runtime wheels..." -ForegroundColor Cyan
+        # pip writes status to stderr; tolerate that without surfacing as an error
+        $PrevErrorAction = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            foreach ($platform in $Platforms) {
+                Write-Host "  Platform: $platform"
+                $pipArgs = @(
+                    "-m", "pip", "download",
+                    "grpcio==$GrpcioVersion",
+                    "grpcio-status==$GrpcioVersion",
+                    "protobuf==$ProtobufVersion",
+                    "certifi==$CertifiVersion",
+                    "--platform", $platform,
+                    "--abi", $PythonAbi,
+                    "--implementation", "cp",
+                    "--python-version", $PythonVersion,
+                    "--only-binary=:all:",
+                    "--dest", $AbsWheels,
+                    "--no-deps"
+                )
+                $output = & python @pipArgs 2>&1
+                if ($LASTEXITCODE -ne 0) {
+                    Write-Host ($output -join "`n")
+                    throw "pip download failed for $platform"
+                }
             }
+        } finally {
+            $ErrorActionPreference = $PrevErrorAction
         }
-    } finally {
-        $ErrorActionPreference = $PrevErrorAction
-    }
 
-    # certifi and grpcio_status are pure Python (py3-none-any) — pip downloads
-    # the same file three times, which is harmless but wastes one download.
-    # The duplicates are deduplicated automatically because the filename is
-    # identical.
+        # certifi and grpcio_status are pure Python (py3-none-any) — pip downloads
+        # the same file three times, which is harmless but wastes one download.
+        # The duplicates are deduplicated automatically because the filename is
+        # identical.
+    }
 }
 
 if (-not $SkipMaturin) {

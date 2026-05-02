@@ -53,7 +53,13 @@ Write-Host "`nRunning integration tests..." -ForegroundColor Gray
 cargo test --test ecs_tests --no-default-features --no-fail-fast 2>&1 | Tee-Object -Append -FilePath "log/log_test.txt"
 $integrationResult = $LASTEXITCODE
 
-$LASTEXITCODE = if ($libResult -ne 0) { $libResult } else { $integrationResult }
+Write-Host "`nRunning thyllore-grpc-client CI gates (addon ZIP smoke + ABI SSOT)..." -ForegroundColor Gray
+cargo test -p thyllore-grpc-client --no-default-features --no-fail-fast 2>&1 | Tee-Object -Append -FilePath "log/log_test.txt"
+$grpcClientResult = $LASTEXITCODE
+
+$LASTEXITCODE = if ($libResult -ne 0) { $libResult }
+                elseif ($integrationResult -ne 0) { $integrationResult }
+                else { $grpcClientResult }
 
 # 結果を表示
 if ($LASTEXITCODE -eq 0) {

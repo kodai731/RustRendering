@@ -173,33 +173,41 @@ jobs:
             -o fixtures/ml_parity/onnx/curve_copilot.onnx \
             "https://huggingface.co/${ONNX_REPO}/resolve/${ONNX_REVISION}/curve_copilot.onnx"
 
-      - name: Generate dev keypair (CI only — not committed)
-        working-directory: ThylloreAnimation
-        shell: pwsh
-        run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
+      # Phase 5.5 MVP removes the license module; the keypair generation step is
+      # left as a no-op so the workflow stays readable when Phase 6 reintroduces
+      # the Auth Backend public key wiring.
+      # - name: Generate dev keypair (CI only — not committed)
+      #   working-directory: ThylloreAnimation
+      #   shell: pwsh
+      #   run: |
+      #     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
 
-      - name: Collect vendored wheels (pip download + maturin)
+      - name: Collect vendored wheels (pip download + maturin) -- full Variant for Tier A
         working-directory: ThylloreAnimation
         shell: pwsh
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1 `
-              -Platforms ${{ matrix.wheel_platform }}
+              -Platforms ${{ matrix.wheel_platform }} -Variant full
 
-      - name: Build Phase 4 extension ZIP
+      - name: Build Phase 4 extension ZIP (full Variant -- parity needs Tier A grpc_client/ and text_to_motion.py)
+        id: build
         working-directory: ThylloreAnimation
         shell: pwsh
         run: |
-          ./scripts/build_blender_addon.ps1 -Platform ${{ matrix.extension_platform }} -SkipBlenderValidate
+          ./scripts/build_blender_addon.ps1 -Platform ${{ matrix.extension_platform }} -Variant full -SkipBlenderValidate
           Get-ChildItem dist/
 
       - name: Install extension into Blender user dir
         working-directory: ThylloreAnimation
         env:
           BLENDER_EXE: ${{ steps.blender-path.outputs.path }}
+          ZIP: ${{ steps.build.outputs.zip_path }}
         run: |
           set -e
-          ZIP=$(ls dist/thyllore_animation_addon-*-${{ matrix.extension_platform }}.zip | head -n 1)
+          if [[ -z "$ZIP" || ! -f "$ZIP" ]]; then
+              echo "::error::build_blender_addon.ps1 did not emit zip_path output (sentinel missing)" >&2
+              exit 1
+          fi
           echo "Installing $ZIP"
           "$BLENDER_EXE" --command extension install-file --repo user_default --enable "$ZIP"
 
@@ -216,12 +224,25 @@ jobs:
             --test curve_copilot_fixture_generator generate_curve_copilot_input_and_golden_fixtures \
             -- --ignored --nocapture
 
+      - name: Write fixture manifest + verify integrity
+        working-directory: ThylloreAnimation
+        env:
+          THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
+          ONNX_REVISION: main
+        run: |
+          cargo test -p thyllore-grpc-client \
+            --test fixture_manifest_writer write_manifest_from_fixture_dir \
+            -- --ignored --nocapture
+          cargo test -p thyllore-grpc-client \
+            --test fixture_hash_check fixture_root_matches_manifest \
+            -- --ignored --nocapture
+
       - name: Run curve_copilot Blender parity (typed vs call_op_json)
         working-directory: ThylloreAnimation
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
-          THYLLORE_TEST_BYPASS_LICENSE: "1"
+          # Phase 5.5 MVP: license module removed (Phase 6 reintroduces).
           ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-ml-core --test curve_copilot_blender_parity \
@@ -232,7 +253,7 @@ jobs:
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
-          THYLLORE_TEST_BYPASS_LICENSE: "1"
+          # Phase 5.5 MVP: license module removed (Phase 6 reintroduces).
           ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-grpc-client \
@@ -244,7 +265,7 @@ jobs:
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
           THYLLORE_BLENDER_PATH: ${{ steps.blender-path.outputs.path }}
-          THYLLORE_TEST_BYPASS_LICENSE: "1"
+          # Phase 5.5 MVP: license module removed (Phase 6 reintroduces).
           ORT_DYLIB_PATH: ${{ github.workspace }}/ThylloreAnimation/${{ matrix.ort_dylib_relative }}
         run: |
           cargo test -p thyllore-grpc-client \

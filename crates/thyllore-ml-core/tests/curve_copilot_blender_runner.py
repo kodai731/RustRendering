@@ -155,9 +155,18 @@ def main():
     import thyllore_ml_core as tml
 
     abi_marker = tml.__abi_marker__
-    if abi_marker != 1:
+    expected_marker_env = os.environ.get("THYLLORE_EXPECTED_ABI_MARKER", "")
+    if not expected_marker_env:
         print(
-            f"ERROR: __abi_marker__ mismatch (got {abi_marker}, expected 1)",
+            "ERROR: THYLLORE_EXPECTED_ABI_MARKER env var not set; "
+            "Rust caller must inject thyllore_ml_api::ABI_MARKER",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    expected_marker = int(expected_marker_env)
+    if abi_marker != expected_marker:
+        print(
+            f"ERROR: __abi_marker__ mismatch (got {abi_marker}, expected {expected_marker})",
             file=sys.stderr,
         )
         sys.exit(2)

@@ -4,6 +4,13 @@ param(
     [ValidateSet("win_amd64", "linux_x86_64", "macosx_arm64")]
     [string]$Platform,
 
+    # MVP "lite" Variant ships only Tier B (curve_copilot, and once the
+    # light_t2m PyO3 rewrite lands, text_to_motion). The "full" Variant adds
+    # the Tier A gRPC operators (auto_rig / text_to_mesh) and is intended for
+    # the Phase 6 SaaS-authenticated deployment.
+    [ValidateSet("lite", "full")]
+    [string]$Variant = "lite",
+
     [string]$Version = "0.0.1",
 
     [string]$OutputDir = "dist",
@@ -55,17 +62,31 @@ $PlatformConfig = @{
     }
 }[$Platform]
 
-Write-Host "[build_blender_addon] Platform: $Platform -> Blender: $($PlatformConfig.BlenderName), wheel: $($PlatformConfig.WheelSuffix)" -ForegroundColor Cyan
+Write-Host "[build_blender_addon] Platform: $Platform -> Blender: $($PlatformConfig.BlenderName), wheel: $($PlatformConfig.WheelSuffix), variant: $Variant" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
 # 1. Stage directory (mirror blender_addon/ minus excluded paths)
 # ---------------------------------------------------------------------------
 
-$StageDir = Join-Path $RepoRoot "build/blender_addon_stage_$Platform"
+$StageDir = Join-Path $RepoRoot "build/blender_addon_stage_${Platform}_${Variant}"
 if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
 New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
 $Source = Join-Path $RepoRoot "blender_addon"
+
+# Tier A files excluded from the lite Variant ZIP. These stay in the source
+# tree so Phase 6 (full Variant restoration) does not need to revive them
+# from git history; the build script just leaves them out of the artifact.
+$LiteExcludeRelPaths = @(
+    "operators/auto_rig.py",
+    "operators/text_to_mesh.py",
+    "operators/_grpc_helpers.py",
+    "grpc_client",
+    "blender_manifest.toml"
+)
+# text_to_motion currently still routes through gRPC; exclude it from lite
+# until the PyO3 rewrite (phase5_5_onnx/Phase5_5_TextToMotionMlCore.md) ships.
+$LiteExcludeRelPaths += "operators/text_to_motion.py"
 
 # Use robocopy on Windows, cp -a on POSIX. We are running PowerShell on
 # Windows; if pwsh is invoked on Linux/macOS the path separators still work
@@ -95,7 +116,26 @@ if ($IsWindows -or $env:OS -like "*Windows*") {
 }
 
 # ---------------------------------------------------------------------------
-# 2. Filter wheels/ down to platform-matching files
+# 1b. Apply Variant-specific pruning (lite removes Tier A files)
+# ---------------------------------------------------------------------------
+
+if ($Variant -eq "lite") {
+    foreach ($rel in $LiteExcludeRelPaths) {
+        $abs = Join-Path $StageDir $rel
+        if (Test-Path $abs) {
+            Remove-Item -Recurse -Force $abs
+            Write-Host "[build_blender_addon] (lite) excluded: $rel" -ForegroundColor DarkYellow
+        }
+    }
+} else {
+    # Full Variant uses the canonical manifest, so the lite copy is removed
+    # from the stage to avoid shipping a duplicate.
+    $LiteManifestStage = Join-Path $StageDir "blender_manifest.lite.toml"
+    if (Test-Path $LiteManifestStage) { Remove-Item -Force $LiteManifestStage }
+}
+
+# ---------------------------------------------------------------------------
+# 2. Filter wheels/ down to platform-matching files (and Variant-allowed names)
 # ---------------------------------------------------------------------------
 
 $WheelsDir = Join-Path $StageDir "wheels"
@@ -103,11 +143,30 @@ if (-not (Test-Path $WheelsDir)) {
     throw "Stage directory has no wheels/. Run scripts/collect_wheels.ps1 first."
 }
 
+# Tier B-only wheel families allowed in the lite Variant. Anything not
+# matching is dropped before platform filtering.
+$LiteAllowedWheelPrefixes = @("thyllore_ml_core")
+
 $AllWheels = Get-ChildItem -Path $WheelsDir -Filter "*.whl"
 $KeptWheels = New-Object System.Collections.Generic.List[string]
 
 foreach ($wheel in $AllWheels) {
     $name = $wheel.Name
+
+    if ($Variant -eq "lite") {
+        $isAllowedForLite = $false
+        foreach ($prefix in $LiteAllowedWheelPrefixes) {
+            if ($name.StartsWith($prefix)) {
+                $isAllowedForLite = $true
+                break
+            }
+        }
+        if (-not $isAllowedForLite) {
+            Remove-Item -Path $wheel.FullName -Force
+            continue
+        }
+    }
+
     $isPureWheel = $name -match "py3-none-any\.whl$"
     $isPlatformWheel = $false
     foreach ($pattern in $PlatformConfig.WheelMatchers) {
@@ -130,16 +189,31 @@ if (Test-Path $StagedHashes) { Remove-Item -Force $StagedHashes }
 $StagedReadme = Join-Path $WheelsDir "README.md"
 if (Test-Path $StagedReadme) { Remove-Item -Force $StagedReadme }
 
-if ($KeptWheels.Count -lt 4) {
-    throw "Expected at least 4 wheels for $Platform, got $($KeptWheels.Count) (found: $($KeptWheels -join ', '))"
+$MinWheels = if ($Variant -eq "lite") { 1 } else { 4 }
+if ($KeptWheels.Count -lt $MinWheels) {
+    throw "Expected at least $MinWheels wheels for $Platform/$Variant, got $($KeptWheels.Count) (found: $($KeptWheels -join ', '))"
 }
-Write-Host "[build_blender_addon] Kept $($KeptWheels.Count) wheels for $Platform" -ForegroundColor Cyan
+Write-Host "[build_blender_addon] Kept $($KeptWheels.Count) wheels for $Platform/$Variant" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
-# 3. Substitute placeholders in blender_manifest.toml
+# 3. Substitute placeholders in the Variant's manifest
 # ---------------------------------------------------------------------------
 
-$ManifestPath = Join-Path $StageDir "blender_manifest.toml"
+# The lite Variant uses blender_manifest.lite.toml (id = thyllore_animation_lite),
+# the full Variant uses the canonical blender_manifest.toml. The non-active
+# manifest copy is removed from the stage so the ZIP carries exactly one.
+$CanonicalManifestStage = Join-Path $StageDir "blender_manifest.toml"
+$LiteManifestStage = Join-Path $StageDir "blender_manifest.lite.toml"
+
+if ($Variant -eq "lite") {
+    if (-not (Test-Path $LiteManifestStage)) {
+        throw "blender_manifest.lite.toml missing from stage; expected at $LiteManifestStage"
+    }
+    if (Test-Path $CanonicalManifestStage) { Remove-Item -Force $CanonicalManifestStage }
+    Move-Item -Force $LiteManifestStage $CanonicalManifestStage
+}
+
+$ManifestPath = $CanonicalManifestStage
 $ManifestContent = [System.IO.File]::ReadAllText($ManifestPath, [System.Text.Encoding]::UTF8)
 $ManifestContent = $ManifestContent -replace 'PLATFORM_BLENDER_NAME', $PlatformConfig.BlenderName
 
@@ -217,7 +291,12 @@ if (-not $SkipBlenderValidate) {
 $AbsOutDir = Join-Path $RepoRoot $OutputDir
 New-Item -ItemType Directory -Path $AbsOutDir -Force | Out-Null
 
-$ZipPath = Join-Path $AbsOutDir "thyllore_animation_addon-$Version-$Platform.zip"
+$ZipBaseName = if ($Variant -eq "lite") {
+    "thyllore_animation_lite"
+} else {
+    "thyllore_animation_addon"
+}
+$ZipPath = Join-Path $AbsOutDir "$ZipBaseName-$Version-$Platform.zip"
 if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
 
 # Compress-Archive on Windows PowerShell 5.1 (.NET Framework) emits ZIP entry
@@ -254,5 +333,13 @@ Write-Host "[build_blender_addon] Created: $ZipPath" -ForegroundColor Green
 Write-Host "[build_blender_addon] Size:    $SizeMb MiB"
 Write-Host "[build_blender_addon] SHA256:  $Hash"
 
-# Cleanup stage
+$Utf8NoBom = New-Object System.Text.UTF8Encoding $false
+$SentinelPath = Join-Path $AbsOutDir ".last_built_zip"
+[System.IO.File]::WriteAllText($SentinelPath, $ZipPath, $Utf8NoBom)
+
+if ($env:GITHUB_OUTPUT) {
+    $GhOut = "zip_path=$ZipPath`nzip_name=$(Split-Path -Leaf $ZipPath)`n"
+    [System.IO.File]::AppendAllText($env:GITHUB_OUTPUT, $GhOut, $Utf8NoBom)
+}
+
 Remove-Item -Recurse -Force $StageDir

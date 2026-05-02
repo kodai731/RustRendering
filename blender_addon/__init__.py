@@ -4,8 +4,12 @@ Layer responsibility (see Phase4_AddonRegistration.md and Phase4_FourLayerStabil
 - This file performs the L4 -> L3 boundary check (``__abi_marker__``) and
   orchestrates registration of preferences / operators / panels.
 - All actual operator logic lives in ``operators/``; all panel UI in ``panels/``.
-- License verification gates registration so an invalid license shows a
-  PlaceholderPanel instead of crashing Blender.
+- Tier A operators (text_to_mesh / auto_rig) are registered only when their
+  modules are present in the installed ZIP -- the ``-Variant lite`` MVP build
+  excludes them, so ``operators.has_tier_a()`` returns False at runtime and
+  panels skip their UI.
+- Phase 5.5: license verification removed (MVP is unauthenticated). Phase 6
+  will reintroduce it as an Auth Backend round-trip in a fresh module.
 """
 from __future__ import annotations
 
@@ -13,9 +17,9 @@ bl_info = {
     "name": "Thyllore Animation",
     "author": "kodai731",
     "version": (0, 0, 1),
-    "blender": (4, 0, 0),
+    "blender": (4, 2, 0),
     "location": "View3D > N-Panel > Thyllore Animation",
-    "description": "AI-driven animation toolkit (Auto Rig / Text-to-Mesh / Curve Copilot)",
+    "description": "AI-driven animation toolkit (Curve Copilot / Text-to-Motion)",
     "category": "Animation",
     "support": "COMMUNITY",
 }
@@ -28,7 +32,7 @@ _bootstrap.insert_wheels_to_sys_path()
 
 # Expected ABI marker -- must match crates/thyllore-ml-api/src/lib.rs::ABI_MARKER.
 # Bump in lockstep with that constant when the L2 trait has breaking changes.
-EXPECTED_ABI_MARKER: int = 1
+EXPECTED_ABI_MARKER: int = 2
 
 
 # Skip importing bpy-dependent modules during pure-package consumption (e.g.,
@@ -46,12 +50,10 @@ except ImportError:
 if _BPY_AVAILABLE:
     import os  # noqa: E402
 
-    from . import license  # noqa: E402
     from . import operators  # noqa: E402
     from . import panels  # noqa: E402
     from . import preferences  # noqa: E402
 
-    _REGISTERED_LICENSE_FAILURE: bool = False
     _REGISTERED_ABI_FAILURE: bool = False
 
     FORCE_MOCK_SERVER_ENV_VAR = "THYLLORE_FORCE_MOCK_SERVER"
@@ -61,15 +63,18 @@ if _BPY_AVAILABLE:
     def _apply_mock_server_pin_if_requested() -> None:
         """Pin server_host / server_port / use_tls to the local mock server.
 
-        Triggered by ``THYLLORE_FORCE_MOCK_SERVER=1`` (set by the parity test
-        orchestrator before launching Blender). The override lives only in the
-        in-memory ``AddonPreferences`` instance for the duration of this
-        Blender process; the user's saved preferences are not touched.
+        Triggered by ``THYLLORE_FORCE_MOCK_SERVER=1`` for the parity test
+        orchestrator. The override lives only in the in-memory
+        ``AddonPreferences`` instance for the duration of this Blender process.
+        Skipped silently when the lite Variant strips the gRPC preference
+        fields.
         """
         if os.environ.get(FORCE_MOCK_SERVER_ENV_VAR) != "1":
             return
         prefs = preferences.get_preferences()
         if prefs is None:
+            return
+        if not hasattr(prefs, "server_host"):
             return
         prefs.server_host = MOCK_SERVER_HOST
         prefs.server_port = MOCK_SERVER_PORT
@@ -84,7 +89,7 @@ if _BPY_AVAILABLE:
 
         Wheel absence is NOT treated as ABI failure -- the curve_copilot
         operator will simply gray-out via tml.capabilities() while Tier A
-        operators continue to work.
+        operators continue to work in the full Variant.
         """
         try:
             import thyllore_ml_core as tml  # type: ignore
@@ -102,7 +107,7 @@ if _BPY_AVAILABLE:
         return True, ""
 
     def register() -> None:
-        global _REGISTERED_LICENSE_FAILURE, _REGISTERED_ABI_FAILURE
+        global _REGISTERED_ABI_FAILURE
 
         abi_ok, abi_err = _check_wheel_abi()
         if not abi_ok:
@@ -112,34 +117,18 @@ if _BPY_AVAILABLE:
             print(f"[Thyllore] {abi_err}")
             return
 
-        license_status = license.verify.verify_license_from_preferences()
-        if not license_status.is_valid:
-            preferences.register()
-            panels.register_placeholder(
-                error_message=license_status.error_message
-            )
-            _REGISTERED_LICENSE_FAILURE = True
-            print(
-                f"[Thyllore] License verification failed "
-                f"({license_status.error_message}); "
-                f"only Preferences + PlaceholderPanel registered"
-            )
-            return
-
         preferences.register()
         operators.register()
         panels.register()
         _apply_mock_server_pin_if_requested()
-        _REGISTERED_LICENSE_FAILURE = False
         _REGISTERED_ABI_FAILURE = False
         print("[Thyllore] Addon registered successfully")
 
     def unregister() -> None:
-        global _REGISTERED_LICENSE_FAILURE, _REGISTERED_ABI_FAILURE
+        global _REGISTERED_ABI_FAILURE
 
         panels.unregister()
-        if not _REGISTERED_LICENSE_FAILURE and not _REGISTERED_ABI_FAILURE:
+        if not _REGISTERED_ABI_FAILURE:
             operators.unregister()
         preferences.unregister()
-        _REGISTERED_LICENSE_FAILURE = False
         _REGISTERED_ABI_FAILURE = False

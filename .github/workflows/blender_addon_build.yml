@@ -9,7 +9,6 @@ on:
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
       - 'scripts/collect_wheels.ps1'
-      - 'scripts/verify_wheel_hashes.ps1'
       - '.github/workflows/blender_addon_build.yml'
   pull_request:
     paths:
@@ -18,7 +17,6 @@ on:
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
       - 'scripts/collect_wheels.ps1'
-      - 'scripts/verify_wheel_hashes.ps1'
       - '.github/workflows/blender_addon_build.yml'
 
 jobs:
@@ -58,10 +56,12 @@ jobs:
           python -m pip install --upgrade pip
           pip install "cryptography>=42" "maturin>=1.5"
 
-      - name: Generate dev keypair (CI only — not committed)
-        shell: pwsh
-        run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
+      # Phase 5.5 MVP removes the license module; keypair step kept commented
+      # for one-line reactivation when Phase 6 ships the Auth Backend.
+      # - name: Generate dev keypair (CI only — not committed)
+      #   shell: pwsh
+      #   run: |
+      #     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
 
       - name: Collect vendored wheels
         shell: pwsh
@@ -70,6 +70,7 @@ jobs:
               -Platforms ${{ matrix.wheel_platform }}
 
       - name: Build addon ZIP (incl. ABI marker verify)
+        id: build
         shell: pwsh
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1 `
@@ -80,8 +81,9 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: thyllore_animation_addon-${{ matrix.platform }}
-          path: dist/thyllore_animation_addon-*.zip
+          path: ${{ steps.build.outputs.zip_path }}
           retention-days: 7
+          if-no-files-found: error
 
   validate:
     name: Validate ZIP via Blender 4.2 LTS
@@ -105,5 +107,9 @@ jobs:
 
       - name: Validate extension
         run: |
-          ZIP=$(ls dist/thyllore_animation_addon-*.zip | head -n1)
+          ZIP=$(ls dist/*.zip | head -n1)
+          if [[ -z "$ZIP" ]]; then
+              echo "::error::No ZIP found in downloaded artifact" >&2
+              exit 1
+          fi
           /opt/blender/blender --command extension validate "$ZIP"
