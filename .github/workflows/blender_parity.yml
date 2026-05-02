@@ -182,19 +182,19 @@ jobs:
       #   run: |
       #     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
 
-      - name: Collect vendored wheels (pip download + maturin)
+      - name: Collect vendored wheels (pip download + maturin) -- full Variant for Tier A
         working-directory: ThylloreAnimation
         shell: pwsh
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1 `
-              -Platforms ${{ matrix.wheel_platform }}
+              -Platforms ${{ matrix.wheel_platform }} -Variant full
 
-      - name: Build Phase 4 extension ZIP
+      - name: Build Phase 4 extension ZIP (full Variant -- parity needs Tier A grpc_client/ and text_to_motion.py)
         id: build
         working-directory: ThylloreAnimation
         shell: pwsh
         run: |
-          ./scripts/build_blender_addon.ps1 -Platform ${{ matrix.extension_platform }} -SkipBlenderValidate
+          ./scripts/build_blender_addon.ps1 -Platform ${{ matrix.extension_platform }} -Variant full -SkipBlenderValidate
           Get-ChildItem dist/
 
       - name: Install extension into Blender user dir

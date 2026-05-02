@@ -9,7 +9,6 @@ on:
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
       - 'scripts/collect_wheels.ps1'
-      - 'scripts/verify_wheel_hashes.ps1'
       - '.github/workflows/blender_addon_build.yml'
   pull_request:
     paths:
@@ -18,7 +17,6 @@ on:
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
       - 'scripts/collect_wheels.ps1'
-      - 'scripts/verify_wheel_hashes.ps1'
       - '.github/workflows/blender_addon_build.yml'
 
 jobs:
