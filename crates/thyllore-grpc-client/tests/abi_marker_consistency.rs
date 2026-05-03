@@ -27,8 +27,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn read(path: &Path) -> String {
-    fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()))
+    fs::read_to_string(path).unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()))
 }
 
 fn extract_rust_const(source: &str) -> Option<u32> {
@@ -65,11 +64,10 @@ fn rust_abi_marker_matches_addon_expected_value() {
     );
 
     let addon_source = read(&root.join("blender_addon/__init__.py"));
-    let addon_value =
-        extract_python_int(&addon_source, "EXPECTED_ABI_MARKER: int =").expect(
-            "EXPECTED_ABI_MARKER not found in blender_addon/__init__.py -- \
+    let addon_value = extract_python_int(&addon_source, "EXPECTED_ABI_MARKER: int =").expect(
+        "EXPECTED_ABI_MARKER not found in blender_addon/__init__.py -- \
              expected `EXPECTED_ABI_MARKER: int = N`",
-        );
+    );
 
     assert_eq!(
         rust_value, addon_value,
@@ -82,8 +80,7 @@ fn rust_abi_marker_matches_addon_expected_value() {
 #[test]
 fn blender_runner_does_not_hardcode_abi_marker_value() {
     let root = workspace_root();
-    let runner_path =
-        root.join("crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py");
+    let runner_path = root.join("crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py");
     let source = read(&runner_path);
 
     let lines: Vec<&str> = source.lines().collect();

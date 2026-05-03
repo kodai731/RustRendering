@@ -82,8 +82,7 @@ fn resolve_fixture_root() -> PathBuf {
 
 fn resolve_ort_dylib_path() -> Option<PathBuf> {
     let vendor_candidate = if cfg!(windows) {
-        workspace_root()
-            .join("vendor/onnxruntime/onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll")
+        workspace_root().join("vendor/onnxruntime/onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll")
     } else {
         workspace_root()
             .join("vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so")
@@ -111,10 +110,7 @@ fn assert_smoke_result_ok(result_path: &Path, stdout: &str, stderr: &str) {
     let parsed: serde_json::Value = serde_json::from_str(&text)
         .unwrap_or_else(|e| panic!("smoke result not JSON: {e}\n{text}"));
 
-    let ok = parsed
-        .get("ok")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+    let ok = parsed.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
     assert!(
         ok,
         "curve_copilot operator smoke reported ok=false:\n{text}\n--- stdout ---\n{stdout}\n--- stderr ---\n{stderr}"
@@ -179,9 +175,7 @@ fn curve_copilot_operator_runs_under_background() {
         command.env("ORT_DYLIB_PATH", &dylib_path);
     }
 
-    let output = command
-        .output()
-        .expect("spawn Blender for Tier B smoke");
+    let output = command.output().expect("spawn Blender for Tier B smoke");
 
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);

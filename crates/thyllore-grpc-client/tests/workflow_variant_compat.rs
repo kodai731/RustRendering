@@ -150,8 +150,7 @@ fn locate_test_file(test_name: &str) -> Option<PathBuf> {
         "thyllore-model-core",
     ];
     for c in CRATES {
-        let path =
-            workspace_root().join(format!("crates/{c}/tests/{test_name}.rs"));
+        let path = workspace_root().join(format!("crates/{c}/tests/{test_name}.rs"));
         if path.exists() {
             return Some(path);
         }

@@ -51,8 +51,7 @@ impl OrchestratorContext {
                 .expect("THYLLORE_PARITY_FIXTURE_ROOT must be set"),
         );
         let result_dir = PathBuf::from(
-            env::var("THYLLORE_PARITY_RESULT_DIR")
-                .expect("THYLLORE_PARITY_RESULT_DIR must be set"),
+            env::var("THYLLORE_PARITY_RESULT_DIR").expect("THYLLORE_PARITY_RESULT_DIR must be set"),
         );
         Self {
             server_url,
@@ -63,14 +62,14 @@ impl OrchestratorContext {
 }
 
 async fn run_auto_rig(context: &OrchestratorContext) {
-    let request: proto::RiggingRequest = decode_fixture(&context.fixture_root, RIGGING_REQUEST_FIXTURE);
+    let request: proto::RiggingRequest =
+        decode_fixture(&context.fixture_root, RIGGING_REQUEST_FIXTURE);
 
-    let mut client =
-        proto::auto_rigging_service_client::AutoRiggingServiceClient::connect(
-            context.server_url.clone(),
-        )
-        .await
-        .expect("connect AutoRigging");
+    let mut client = proto::auto_rigging_service_client::AutoRiggingServiceClient::connect(
+        context.server_url.clone(),
+    )
+    .await
+    .expect("connect AutoRigging");
     let response = client
         .generate_rig(request)
         .await
@@ -84,14 +83,14 @@ async fn run_auto_rig(context: &OrchestratorContext) {
 }
 
 async fn run_text_to_motion(context: &OrchestratorContext) {
-    let request: proto::MotionRequest = decode_fixture(&context.fixture_root, MOTION_REQUEST_FIXTURE);
+    let request: proto::MotionRequest =
+        decode_fixture(&context.fixture_root, MOTION_REQUEST_FIXTURE);
 
-    let mut client =
-        proto::text_to_motion_service_client::TextToMotionServiceClient::connect(
-            context.server_url.clone(),
-        )
-        .await
-        .expect("connect TextToMotion");
+    let mut client = proto::text_to_motion_service_client::TextToMotionServiceClient::connect(
+        context.server_url.clone(),
+    )
+    .await
+    .expect("connect TextToMotion");
     let response = client
         .generate_motion(request)
         .await
@@ -107,12 +106,11 @@ async fn run_text_to_motion(context: &OrchestratorContext) {
 async fn run_mesh(context: &OrchestratorContext) {
     let request: proto::MeshRequest = decode_fixture(&context.fixture_root, MESH_REQUEST_FIXTURE);
 
-    let mut client =
-        proto::mesh_generation_service_client::MeshGenerationServiceClient::connect(
-            context.server_url.clone(),
-        )
-        .await
-        .expect("connect MeshGeneration");
+    let mut client = proto::mesh_generation_service_client::MeshGenerationServiceClient::connect(
+        context.server_url.clone(),
+    )
+    .await
+    .expect("connect MeshGeneration");
     let response = client
         .generate_mesh(request)
         .await
@@ -127,17 +125,14 @@ async fn run_mesh(context: &OrchestratorContext) {
 
 fn decode_fixture<M: Message + Default>(fixture_root: &Path, relative: &str) -> M {
     let path = fixture_root.join(relative);
-    let bytes = fs::read(&path)
-        .unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()));
-    M::decode(bytes.as_slice())
-        .unwrap_or_else(|e| panic!("decode {}: {e}", path.display()))
+    let bytes = fs::read(&path).unwrap_or_else(|e| panic!("read fixture {}: {e}", path.display()));
+    M::decode(bytes.as_slice()).unwrap_or_else(|e| panic!("decode {}: {e}", path.display()))
 }
 
 fn write_canonical_json(path: &Path, value: &serde_json::Value) {
     let text = serde_json::to_string_pretty(value)
         .unwrap_or_else(|e| panic!("serialize {}: {e}", path.display()));
-    fs::write(path, text + "\n")
-        .unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
+    fs::write(path, text + "\n").unwrap_or_else(|e| panic!("write {}: {e}", path.display()));
 }
 
 fn auto_rig_response_to_canonical(response: &proto::RiggingResponse) -> serde_json::Value {
@@ -236,8 +231,11 @@ fn motion_response_to_canonical(response: &proto::MotionResponse) -> serde_json:
         serde_json::Value::Number(response.generation_time_ms.to_bits().into()),
     );
 
-    let curves: Vec<serde_json::Value> =
-        response.curves.iter().map(animation_curve_to_canonical).collect();
+    let curves: Vec<serde_json::Value> = response
+        .curves
+        .iter()
+        .map(animation_curve_to_canonical)
+        .collect();
     root.insert("curves".to_string(), serde_json::Value::Array(curves));
 
     serde_json::Value::Object(root.into_iter().collect())
@@ -256,10 +254,7 @@ fn animation_curve_to_canonical(curve: &proto::AnimationCurve) -> serde_json::Va
 
     let keyframes: Vec<serde_json::Value> =
         curve.keyframes.iter().map(keyframe_to_canonical).collect();
-    entry.insert(
-        "keyframes".to_string(),
-        serde_json::Value::Array(keyframes),
-    );
+    entry.insert("keyframes".to_string(), serde_json::Value::Array(keyframes));
 
     serde_json::Value::Object(entry.into_iter().collect())
 }

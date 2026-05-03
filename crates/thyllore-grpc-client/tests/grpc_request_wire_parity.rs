@@ -115,8 +115,7 @@ fn grpc_request_wire_bytes_match_across_rust_and_blender() {
         return;
     };
 
-    let blender_script = workspace_root()
-        .join("blender_addon/tests/grpc_parity_blender_client.py");
+    let blender_script = workspace_root().join("blender_addon/tests/grpc_parity_blender_client.py");
     if !blender_script.exists() {
         panic!(
             "grpc_parity_blender_client.py missing at {}",
@@ -135,7 +134,13 @@ fn grpc_request_wire_bytes_match_across_rust_and_blender() {
     run_rust_client(&server_url, &fixture_root, &result_dir);
     let rust_request_sha = collect_request_sha(&server, "rust");
 
-    run_blender_client(&blender, &blender_script, &server_url, &fixture_root, &result_dir);
+    run_blender_client(
+        &blender,
+        &blender_script,
+        &server_url,
+        &fixture_root,
+        &result_dir,
+    );
     let blender_request_sha = collect_request_sha(&server, "blender");
 
     drop(server);
@@ -229,18 +234,9 @@ fn run_blender_client(
     result_dir: &Path,
 ) {
     let output = Command::new(blender)
-        .args([
-            "--background",
-            "--factory-startup",
-            "--python",
-        ])
+        .args(["--background", "--factory-startup", "--python"])
         .arg(script)
-        .args([
-            "--",
-            "--server-url",
-            server_url,
-            "--fixture-root",
-        ])
+        .args(["--", "--server-url", server_url, "--fixture-root"])
         .arg(fixture_root)
         .arg("--result-dir")
         .arg(result_dir)
@@ -311,4 +307,3 @@ fn assert_canonical_responses_match(result_dir: &Path) {
         );
     }
 }
-
