@@ -42,8 +42,8 @@ pub fn call_op_json<'py>(
     op_name: &str,
     payload: Bound<'py, PyAny>,
 ) -> PyResult<Bound<'py, PyAny>> {
-    let payload_value: serde_json::Value =
-        depythonize(&payload).map_err(|e| PyValueError::new_err(format!("payload not JSON-compatible: {e}")))?;
+    let payload_value: serde_json::Value = depythonize(&payload)
+        .map_err(|e| PyValueError::new_err(format!("payload not JSON-compatible: {e}")))?;
 
     let payload_bytes = serde_json::to_vec(&payload_value)
         .map_err(|e| PyRuntimeError::new_err(format!("payload encode failed: {e}")))?;

@@ -16,7 +16,7 @@ mod status_bar;
 mod text_to_animation_dialog;
 #[cfg(feature = "auto-rig")]
 mod text_to_mesh_dialog;
-mod timeline_window;
+pub(crate) mod timeline_window;
 mod viewport_window;
 
 pub use bottom_panel::*;

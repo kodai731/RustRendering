@@ -123,10 +123,7 @@ impl MlOps for MlCoreImpl {
         Ok(CurvePredictResponse { flat_output })
     }
 
-    fn compute_topology(
-        &self,
-        skeleton: &SkeletonSnapshot,
-    ) -> Result<TopologyResult, MlError> {
+    fn compute_topology(&self, skeleton: &SkeletonSnapshot) -> Result<TopologyResult, MlError> {
         if !skeleton.is_well_formed() {
             return Err(MlError::invalid(
                 "SkeletonSnapshot has mismatched parent_indices/local_matrices length",
@@ -170,16 +167,15 @@ impl MlOps for MlCoreImpl {
 impl MlCoreImpl {
     fn dispatch_run_curve_copilot(&self, payload: &[u8]) -> Result<Vec<u8>, MlError> {
         let wire_request: CopilotRequestWire = serde_json::from_slice(payload).map_err(|e| {
-            MlError::schema(
-                OP_RUN_CURVE_COPILOT,
-                format!("payload decode failed: {e}"),
-            )
+            MlError::schema(OP_RUN_CURVE_COPILOT, format!("payload decode failed: {e}"))
         })?;
         let typed_request = wire_request.into_typed();
         let typed_response = self.run_curve_copilot(typed_request)?;
         let wire_response = CopilotResponseWire::from_typed(&typed_response);
         serde_json::to_vec(&wire_response).map_err(|e| {
-            MlError::internal(format!("response encode failed for {OP_RUN_CURVE_COPILOT}: {e}"))
+            MlError::internal(format!(
+                "response encode failed for {OP_RUN_CURVE_COPILOT}: {e}"
+            ))
         })
     }
 }
