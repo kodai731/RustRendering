@@ -38,10 +38,8 @@ fn blender_addon_linux_zip_validates_via_wsl() {
         return;
     }
 
-    let blender_path =
-        std::env::var("THYLLORE_WSL_BLENDER_PATH").unwrap_or_else(|_| {
-            "$HOME/blender_test/blender/blender".to_string()
-        });
+    let blender_path = std::env::var("THYLLORE_WSL_BLENDER_PATH")
+        .unwrap_or_else(|_| "$HOME/blender_test/blender/blender".to_string());
 
     if !is_wsl_available() {
         eprintln!("Skipping: wsl.exe is not available on PATH");
@@ -59,17 +57,15 @@ fn blender_addon_linux_zip_validates_via_wsl() {
     let root = workspace_root();
     let build_script = root.join("scripts/build_blender_addon.ps1");
     if !build_script.exists() {
-        eprintln!("Skipping: build script missing at {}", build_script.display());
+        eprintln!(
+            "Skipping: build script missing at {}",
+            build_script.display()
+        );
         return;
     }
 
     let build_output = Command::new("powershell.exe")
-        .args([
-            "-NoProfile",
-            "-ExecutionPolicy",
-            "Bypass",
-            "-File",
-        ])
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(&build_script)
         .args(["-Platform", "linux_x86_64", "-SkipBlenderValidate"])
         .current_dir(&root)
@@ -162,8 +158,7 @@ fn win_path_to_wsl(p: &Path) -> String {
     let s = p.to_string_lossy().replace('\\', "/");
     if let Some(rest) = s.strip_prefix(|c: char| c.is_ascii_alphabetic()) {
         if let Some(rest) = rest.strip_prefix(':') {
-            let drive_letter =
-                s.chars().next().expect("drive letter").to_ascii_lowercase();
+            let drive_letter = s.chars().next().expect("drive letter").to_ascii_lowercase();
             return format!("/mnt/{}{}", drive_letter, rest);
         }
     }

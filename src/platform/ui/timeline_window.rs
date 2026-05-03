@@ -1,8 +1,6 @@
 use imgui::Condition;
 
-use crate::animation::editable::{
-    curve_sample, BlendMode, EditableAnimationClip, PropertyCurve, SourceClipId,
-};
+use crate::animation::editable::{BlendMode, SourceClipId};
 use crate::animation::BoneId;
 use crate::ecs::component::{
     ClipGroupSnapshot, ClipInstanceSnapshot, ClipTrackEntry, ClipTrackSnapshot,
@@ -15,15 +13,12 @@ use crate::ecs::resource::{
 
 use super::layout_snapshot::LayoutSnapshot;
 
-const TRACK_LABEL_WIDTH: f32 = 150.0;
+pub(crate) const TRACK_LABEL_WIDTH: f32 = 150.0;
 const TIME_RULER_HEIGHT: f32 = 30.0;
-const PIXELS_PER_SECOND: f32 = 80.0;
+pub(crate) const PIXELS_PER_SECOND: f32 = 80.0;
 const PLAYHEAD_HANDLE_SIZE: f32 = 10.0;
 const CLIP_TRACK_HEIGHT: f32 = 28.0;
 const CLIP_EDGE_DRAG_WIDTH: f32 = 5.0;
-const TRACK_HEIGHT: f32 = 24.0;
-const CURVE_HEIGHT: f32 = 80.0;
-const MAX_VISIBLE_TRACKS: usize = 64;
 const CLIP_BLOCK_COLORS: [[f32; 4]; 4] = [
     [0.3, 0.5, 0.8, 0.9],
     [0.5, 0.7, 0.3, 0.9],
@@ -54,6 +49,7 @@ pub fn build_timeline_window(
         .build(|| {
             build_transport_controls(ui, ui_events, state, clip_library, curve_editor_state);
             ui.separator();
+            handle_middle_drag_pan(ui, state);
             build_timeline_content(
                 ui,
                 ui_events,
@@ -109,7 +105,7 @@ fn build_transport_controls(
         state.current_time, duration
     ));
 
-    let available_width = ui.content_region_avail()[0] - TRACK_LABEL_WIDTH;
+    let available_width = state.last_visible_width.max(1.0);
     let clip_duration = duration.max(1.0);
     let (min_zoom, max_zoom) = compute_zoom_limits(
         available_width,
@@ -195,28 +191,45 @@ fn build_timeline_content(
     clip_track_snapshot: &ClipTrackSnapshot,
 ) {
     let content_region = ui.content_region_avail();
-    let current_clip = state.current_clip_id.and_then(|id| clip_library.get(id));
+    let visible_width = (content_region[0] - TRACK_LABEL_WIDTH).max(1.0);
+    state.last_visible_width = visible_width;
 
+    let current_clip = state.current_clip_id.and_then(|id| clip_library.get(id));
     let duration = current_clip.map(|c| c.duration).unwrap_or(5.0);
     let pixels_per_second = PIXELS_PER_SECOND * state.zoom_level;
     let display_duration = duration;
-    let timeline_width =
-        (display_duration * pixels_per_second).max(content_region[0] - TRACK_LABEL_WIDTH);
+    let timeline_width = (display_duration * pixels_per_second).max(visible_width);
 
-    build_time_ruler_with_scrub(
-        ui,
-        ui_events,
-        state,
-        interaction,
-        timeline_width,
-        display_duration,
-    );
+    let ruler_child_height = TIME_RULER_HEIGHT + ui.text_line_height_with_spacing() + 4.0;
+    let synced_scroll_x = state.scroll_offset;
+
+    ui.child_window("timeline_ruler")
+        .size([content_region[0], ruler_child_height])
+        .scroll_bar(false)
+        .horizontal_scrollbar(true)
+        .build(|| {
+            ui.set_scroll_x(synced_scroll_x);
+            build_time_ruler_with_scrub(
+                ui,
+                ui_events,
+                state,
+                interaction,
+                timeline_width,
+                display_duration,
+            );
+        });
     ui.separator();
 
     let remaining = ui.content_region_avail();
     ui.child_window("timeline_tracks")
         .size(remaining)
+        .horizontal_scrollbar(true)
         .build(|| {
+            if state.pan_pending_delta_x.abs() >= 0.01 {
+                let new_scroll = (ui.scroll_x() + state.pan_pending_delta_x).max(0.0);
+                ui.set_scroll_x(new_scroll);
+                state.pan_pending_delta_x = 0.0;
+            }
             if !clip_track_snapshot.entries.is_empty() {
                 build_clip_tracks_section(
                     ui,
@@ -229,6 +242,7 @@ fn build_timeline_content(
                     timeline_width,
                 );
             }
+            state.scroll_offset = ui.scroll_x();
         });
 }
 
@@ -262,7 +276,7 @@ fn build_time_ruler_with_scrub(
         .filled(true)
         .build();
 
-    let tick_interval = calculate_tick_interval(state.zoom_level);
+    let tick_interval = calculate_tick_interval(pixels_per_second);
     let mut time = 0.0;
     while time <= display_duration {
         let x = ruler_start_x + time * pixels_per_second;
@@ -371,349 +385,33 @@ fn handle_scrub_interaction(
     ui_events.send(UIEvent::TimelineSetTime(new_time));
 }
 
-fn calculate_tick_interval(zoom_level: f32) -> f32 {
-    if zoom_level < 0.5 {
+fn calculate_tick_interval(pixels_per_second: f32) -> f32 {
+    const TARGET_MINOR_SPACING_PX: f32 = 20.0;
+    let raw = TARGET_MINOR_SPACING_PX / pixels_per_second.max(0.001);
+    nice_round_step(raw)
+}
+
+fn nice_round_step(raw: f32) -> f32 {
+    if raw <= 0.0 || !raw.is_finite() {
+        return 1.0;
+    }
+    let exp = raw.log10().floor();
+    let base = 10f32.powf(exp);
+    let mantissa = raw / base;
+
+    let nice_mantissa = if mantissa <= 1.0 {
         1.0
-    } else if zoom_level < 1.0 {
-        0.5
-    } else if zoom_level < 2.0 {
-        0.25
+    } else if mantissa <= 2.0 {
+        2.0
+    } else if mantissa <= 2.5 {
+        2.5
+    } else if mantissa <= 5.0 {
+        5.0
     } else {
-        0.1
-    }
-}
-
-fn build_tracks_area(
-    ui: &imgui::Ui,
-    ui_events: &mut UIEventQueue,
-    state: &TimelineState,
-    clip: &EditableAnimationClip,
-    timeline_width: f32,
-) {
-    let content_region = ui.content_region_avail();
-
-    ui.child_window("tracks_scroll")
-        .size([content_region[0], content_region[1]])
-        .horizontal_scrollbar(true)
-        .build(|| {
-            build_tracks(ui, ui_events, state, clip, timeline_width);
-        });
-}
-
-fn build_tracks(
-    ui: &imgui::Ui,
-    ui_events: &mut UIEventQueue,
-    state: &TimelineState,
-    clip: &EditableAnimationClip,
-    timeline_width: f32,
-) {
-    let mut sorted_bone_ids: Vec<BoneId> = clip.tracks.keys().copied().collect();
-    sorted_bone_ids.sort();
-
-    let total_tracks = sorted_bone_ids.len();
-    let visible_tracks: Vec<_> = sorted_bone_ids
-        .into_iter()
-        .take(MAX_VISIBLE_TRACKS)
-        .collect();
-
-    if total_tracks > MAX_VISIBLE_TRACKS {
-        ui.text_colored(
-            [1.0, 0.7, 0.3, 1.0],
-            &format!("Showing {}/{} tracks", MAX_VISIBLE_TRACKS, total_tracks),
-        );
-    }
-
-    for bone_id in visible_tracks {
-        if let Some(track) = clip.tracks.get(&bone_id) {
-            let is_expanded = state.is_track_expanded(bone_id);
-
-            build_track_row(
-                ui,
-                ui_events,
-                state,
-                bone_id,
-                &track.bone_name,
-                is_expanded,
-                track.has_any_keyframes(),
-                clip.duration,
-                timeline_width,
-                track,
-            );
-        }
-    }
-}
-
-fn build_track_row(
-    ui: &imgui::Ui,
-    ui_events: &mut UIEventQueue,
-    state: &TimelineState,
-    bone_id: BoneId,
-    bone_name: &str,
-    is_expanded: bool,
-    has_keyframes: bool,
-    duration: f32,
-    timeline_width: f32,
-    track: &crate::animation::editable::BoneTrack,
-) {
-    let expand_char = if is_expanded { "v" } else { ">" };
-
-    if ui.small_button(&format!("{}##{}", expand_char, bone_id)) {
-        ui_events.send(UIEvent::TimelineToggleTrack(bone_id));
-    }
-
-    ui.same_line();
-
-    let is_spring_bone = state.baked_bone_ids.contains(&bone_id);
-    let display_name = if is_spring_bone {
-        let name = if bone_name.len() > 11 {
-            &bone_name[..8]
-        } else {
-            bone_name
-        };
-        format!("[SB] {}", name)
-    } else if bone_name.len() > 15 {
-        format!("{}...", &bone_name[..12])
-    } else {
-        bone_name.to_string()
+        10.0
     };
 
-    let color = if has_keyframes {
-        [1.0, 1.0, 1.0, 1.0]
-    } else {
-        [0.5, 0.5, 0.5, 1.0]
-    };
-
-    ui.text_colored(color, &display_name);
-
-    ui.same_line_with_pos(TRACK_LABEL_WIDTH);
-
-    let row_height = if is_expanded {
-        CURVE_HEIGHT
-    } else {
-        TRACK_HEIGHT
-    };
-
-    ui.child_window(&format!("track_area_{}", bone_id))
-        .size([timeline_width.max(200.0), row_height])
-        .build(|| {
-            if is_expanded {
-                draw_curve_area(ui, state, track, duration, timeline_width);
-            } else {
-                draw_keyframe_markers(ui, state, track, duration, timeline_width);
-            }
-        });
-}
-
-fn draw_keyframe_markers(
-    ui: &imgui::Ui,
-    state: &TimelineState,
-    track: &crate::animation::editable::BoneTrack,
-    duration: f32,
-    timeline_width: f32,
-) {
-    if duration <= 0.0 {
-        return;
-    }
-
-    let draw_list = ui.get_window_draw_list();
-    let cursor_pos = ui.cursor_screen_pos();
-    let pixels_per_second = PIXELS_PER_SECOND * state.zoom_level;
-
-    draw_list
-        .add_rect(
-            cursor_pos,
-            [cursor_pos[0] + timeline_width, cursor_pos[1] + TRACK_HEIGHT],
-            [0.2, 0.2, 0.2, 1.0],
-        )
-        .filled(true)
-        .build();
-
-    let keyframe_times = track.collect_all_keyframe_times();
-    let marker_count = keyframe_times.len().min(100);
-
-    for time in keyframe_times.into_iter().take(marker_count) {
-        let x = cursor_pos[0] + time * pixels_per_second;
-        let y_center = cursor_pos[1] + TRACK_HEIGHT * 0.5;
-
-        draw_list
-            .add_rect(
-                [x - 2.0, y_center - 6.0],
-                [x + 2.0, y_center + 6.0],
-                [0.9, 0.7, 0.2, 1.0],
-            )
-            .filled(true)
-            .build();
-    }
-
-    draw_track_playhead(
-        &draw_list,
-        cursor_pos,
-        state.current_time,
-        pixels_per_second,
-        TRACK_HEIGHT,
-    );
-}
-
-fn draw_curve_area(
-    ui: &imgui::Ui,
-    state: &TimelineState,
-    track: &crate::animation::editable::BoneTrack,
-    duration: f32,
-    timeline_width: f32,
-) {
-    if duration <= 0.0 {
-        return;
-    }
-
-    let draw_list = ui.get_window_draw_list();
-    let cursor_pos = ui.cursor_screen_pos();
-    let pixels_per_second = PIXELS_PER_SECOND * state.zoom_level;
-
-    draw_list
-        .add_rect(
-            cursor_pos,
-            [cursor_pos[0] + timeline_width, cursor_pos[1] + CURVE_HEIGHT],
-            [0.15, 0.15, 0.18, 1.0],
-        )
-        .filled(true)
-        .build();
-
-    let center_y = cursor_pos[1] + CURVE_HEIGHT * 0.5;
-    draw_list
-        .add_line(
-            [cursor_pos[0], center_y],
-            [cursor_pos[0] + timeline_width, center_y],
-            [0.3, 0.3, 0.3, 1.0],
-        )
-        .build();
-
-    let curves_to_draw: Vec<(&PropertyCurve, [f32; 4])> = vec![
-        (&track.translation_x, [1.0, 0.3, 0.3, 1.0]),
-        (&track.translation_y, [0.3, 1.0, 0.3, 1.0]),
-        (&track.translation_z, [0.3, 0.3, 1.0, 1.0]),
-        (&track.rotation_x, [1.0, 0.5, 0.5, 0.8]),
-        (&track.rotation_y, [0.5, 1.0, 0.5, 0.8]),
-        (&track.rotation_z, [0.5, 0.5, 1.0, 0.8]),
-    ];
-
-    for (curve, color) in curves_to_draw {
-        if curve.is_empty() {
-            continue;
-        }
-
-        draw_single_curve(
-            &draw_list,
-            cursor_pos,
-            curve,
-            color,
-            duration,
-            pixels_per_second,
-            CURVE_HEIGHT,
-            timeline_width,
-        );
-    }
-
-    draw_track_playhead(
-        &draw_list,
-        cursor_pos,
-        state.current_time,
-        pixels_per_second,
-        CURVE_HEIGHT,
-    );
-}
-
-fn draw_single_curve(
-    draw_list: &imgui::DrawListMut,
-    cursor_pos: [f32; 2],
-    curve: &PropertyCurve,
-    color: [f32; 4],
-    duration: f32,
-    pixels_per_second: f32,
-    height: f32,
-    timeline_width: f32,
-) {
-    if curve.keyframes.is_empty() {
-        return;
-    }
-
-    let sample_count = calculate_sample_count(timeline_width);
-
-    let (min_val, max_val) = calculate_value_range(curve);
-    let value_range = (max_val - min_val).max(0.001);
-
-    let step = duration / sample_count as f32;
-    let mut prev_point: Option<[f32; 2]> = None;
-
-    for i in 0..=sample_count {
-        let time = (i as f32) * step;
-        if let Some(value) = curve_sample(curve, time) {
-            let x = cursor_pos[0] + time * pixels_per_second;
-            let normalized = (value - min_val) / value_range;
-            let y = cursor_pos[1] + height - (normalized * height * 0.8 + height * 0.1);
-
-            let current_point = [x, y];
-
-            if let Some(prev) = prev_point {
-                draw_list.add_line(prev, current_point, color).build();
-            }
-
-            prev_point = Some(current_point);
-        }
-    }
-
-    for kf in &curve.keyframes {
-        let x = cursor_pos[0] + kf.time * pixels_per_second;
-        let normalized = (kf.value - min_val) / value_range;
-        let y = cursor_pos[1] + height - (normalized * height * 0.8 + height * 0.1);
-
-        draw_list
-            .add_circle([x, y], 4.0, color)
-            .filled(true)
-            .build();
-    }
-}
-
-fn calculate_value_range(curve: &PropertyCurve) -> (f32, f32) {
-    let mut min_val = f32::MAX;
-    let mut max_val = f32::MIN;
-
-    for kf in &curve.keyframes {
-        min_val = min_val.min(kf.value);
-        max_val = max_val.max(kf.value);
-    }
-
-    if min_val == max_val {
-        min_val -= 0.5;
-        max_val += 0.5;
-    }
-
-    (min_val, max_val)
-}
-
-fn calculate_sample_count(width: f32) -> usize {
-    let base_samples = 30;
-    let samples_per_100px = 10;
-    let additional = ((width / 100.0) as usize) * samples_per_100px;
-    (base_samples + additional).min(150)
-}
-
-fn draw_track_playhead(
-    draw_list: &imgui::DrawListMut,
-    cursor_pos: [f32; 2],
-    current_time: f32,
-    pixels_per_second: f32,
-    height: f32,
-) {
-    let x = cursor_pos[0] + current_time * pixels_per_second;
-
-    draw_list
-        .add_line(
-            [x, cursor_pos[1]],
-            [x, cursor_pos[1] + height],
-            [1.0, 0.2, 0.2, 0.8],
-        )
-        .thickness(2.0)
-        .build();
+    nice_mantissa * base
 }
 
 fn build_clip_tracks_section(
@@ -1261,11 +959,11 @@ fn handle_mouse_wheel_zoom(
     clip_duration: f32,
 ) {
     let hovered = ui.is_window_hovered_with_flags(imgui::WindowHoveredFlags::CHILD_WINDOWS);
-    if !hovered || !ui.io().key_ctrl {
+    if !hovered {
         return;
     }
 
-    let available_width = ui.content_region_avail()[0] - TRACK_LABEL_WIDTH;
+    let available_width = state.last_visible_width.max(1.0);
     let (min_zoom, max_zoom) = compute_zoom_limits(
         available_width,
         clip_duration,
@@ -1278,6 +976,24 @@ fn handle_mouse_wheel_zoom(
     } else if wheel < 0.0 {
         ui_events.send(UIEvent::TimelineZoomOut { min_zoom });
     }
+}
+
+fn handle_middle_drag_pan(ui: &imgui::Ui, state: &mut TimelineState) {
+    let hovered = ui.is_window_hovered_with_flags(imgui::WindowHoveredFlags::CHILD_WINDOWS);
+    if !hovered {
+        return;
+    }
+
+    if !ui.io().mouse_down[2] {
+        return;
+    }
+
+    let delta_x = ui.io().mouse_delta[0];
+    if delta_x.abs() < 0.01 {
+        return;
+    }
+
+    state.pan_pending_delta_x -= delta_x;
 }
 
 fn build_snap_controls(ui: &imgui::Ui, ui_events: &mut UIEventQueue, state: &TimelineState) {

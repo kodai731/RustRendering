@@ -256,7 +256,8 @@ mod parser_self_tests {
 
     #[test]
     fn extracts_pwsh_script_path() {
-        let line = "  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1";
+        let line =
+            "  pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1";
         assert_eq!(
             extract_script_paths(line),
             vec!["scripts/build_blender_addon.ps1".to_string()]
@@ -275,9 +276,11 @@ mod parser_self_tests {
     #[test]
     fn ignores_string_mention_in_echo() {
         let line = r#"          echo "::error::build_blender_addon.ps1 did not emit ..." "#;
-        assert!(extract_script_paths(line).is_empty(),
+        assert!(
+            extract_script_paths(line).is_empty(),
             "expected no match (script name only mentioned in echo string), got {:?}",
-            extract_script_paths(line));
+            extract_script_paths(line)
+        );
     }
 
     #[test]

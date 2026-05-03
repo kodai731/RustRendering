@@ -250,7 +250,9 @@ fn run_blender_extension_validate(zip_path: &Path) {
         }
     };
 
-    let output = command.output().expect("spawn blender for extension validate");
+    let output = command
+        .output()
+        .expect("spawn blender for extension validate");
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
@@ -430,12 +432,7 @@ fn assert_inspection(insp: &ZipInspection) {
         "lite ZIP must contain a thyllore_ml_core wheel; wheels = {:?}",
         insp.wheel_basenames
     );
-    let banned_wheel_prefixes = [
-        "grpcio-",
-        "grpcio_status-",
-        "protobuf-",
-        "certifi-",
-    ];
+    let banned_wheel_prefixes = ["grpcio-", "grpcio_status-", "protobuf-", "certifi-"];
     for w in &insp.wheel_basenames {
         for banned in &banned_wheel_prefixes {
             assert!(

@@ -82,8 +82,8 @@ fn deterministic_mode_returns_fixture_response() {
         return;
     }
 
-    let expected_response_bytes = std::fs::read(root.join("proto/rigging_response.bin"))
-        .expect("read rigging_response.bin");
+    let expected_response_bytes =
+        std::fs::read(root.join("proto/rigging_response.bin")).expect("read rigging_response.bin");
     let expected_response: proto::RiggingResponse =
         proto::RiggingResponse::decode(&*expected_response_bytes).expect("fixture decodes");
 

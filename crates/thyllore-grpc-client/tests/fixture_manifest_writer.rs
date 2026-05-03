@@ -59,8 +59,7 @@ fn write_manifest_from_fixture_dir() {
 
     let commit = git_short_commit(&workspace_root()).unwrap_or_else(|| "unknown".into());
     let generated_at = current_utc_timestamp();
-    let onnx_revision =
-        std::env::var("ONNX_REVISION").unwrap_or_else(|_| "main".into());
+    let onnx_revision = std::env::var("ONNX_REVISION").unwrap_or_else(|_| "main".into());
 
     let json = render_manifest(
         SCHEMA_VERSION,
@@ -72,9 +71,8 @@ fn write_manifest_from_fixture_dir() {
     );
 
     let manifest_path = root.join("manifest.json");
-    fs::write(&manifest_path, json).unwrap_or_else(|e| {
-        panic!("write {} failed: {e}", manifest_path.display())
-    });
+    fs::write(&manifest_path, json)
+        .unwrap_or_else(|e| panic!("write {} failed: {e}", manifest_path.display()));
 
     eprintln!(
         "manifest_writer: wrote {} ({} fixtures)",
@@ -94,9 +92,7 @@ fn walk_dir(root: &Path, dir: &Path, into: &mut BTreeMap<String, FixtureEntry>) 
         Err(e) => panic!("read_dir {} failed: {e}", dir.display()),
     };
 
-    let mut sorted: Vec<PathBuf> = read
-        .filter_map(|e| e.ok().map(|d| d.path()))
-        .collect();
+    let mut sorted: Vec<PathBuf> = read.filter_map(|e| e.ok().map(|d| d.path())).collect();
     sorted.sort();
 
     for path in sorted {
@@ -116,8 +112,8 @@ fn walk_dir(root: &Path, dir: &Path, into: &mut BTreeMap<String, FixtureEntry>) 
             .expect("strip_prefix")
             .to_string_lossy()
             .replace('\\', "/");
-        let bytes = fs::read(&path)
-            .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
+        let bytes =
+            fs::read(&path).unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()));
         into.insert(
             rel,
             FixtureEntry {

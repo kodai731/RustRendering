@@ -106,9 +106,7 @@ fn build_request(case: Case, model_path: &str) -> CopilotRequest {
 
     let context: Vec<f32> = (0..CONTEXT_LEN).map(|_| rng.next_f32_signed()).collect();
     let topology_features: Vec<f32> = (0..TOPOLOGY_LEN).map(|_| rng.next_f32()).collect();
-    let bone_name_tokens: Vec<i64> = (0..BONE_NAME_TOKENS)
-        .map(|i| (i as i64) % 31 + 1)
-        .collect();
+    let bone_name_tokens: Vec<i64> = (0..BONE_NAME_TOKENS).map(|i| (i as i64) % 31 + 1).collect();
 
     let query_times: Vec<f32> = (0..QUERY_TIMES)
         .map(|i| (i as f32 + 1.0) * 4.0 / (QUERY_TIMES as f32 + 1.0))

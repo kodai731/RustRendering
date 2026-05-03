@@ -103,7 +103,9 @@ fn curve_copilot_typed_and_call_op_paths_match_in_blender() {
     }
 
     let Some(blender) = resolve_blender_executable() else {
-        eprintln!("skip: Blender executable not found (set THYLLORE_BLENDER_PATH or check paths.md)");
+        eprintln!(
+            "skip: Blender executable not found (set THYLLORE_BLENDER_PATH or check paths.md)"
+        );
         return;
     };
 
@@ -116,10 +118,13 @@ fn curve_copilot_typed_and_call_op_paths_match_in_blender() {
         return;
     }
 
-    let script_path = workspace_root()
-        .join("crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py");
+    let script_path =
+        workspace_root().join("crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py");
     if !script_path.exists() {
-        panic!("curve_copilot_blender_runner.py missing at {}", script_path.display());
+        panic!(
+            "curve_copilot_blender_runner.py missing at {}",
+            script_path.display()
+        );
     }
 
     let temp_dir = tempfile::tempdir().expect("create temp dir");
@@ -309,9 +314,11 @@ fn expect_u32_pair(item: &serde_json::Value, field: &str, path: &Path, idx: usiz
     [
         array[0]
             .as_u64()
-            .unwrap_or_else(|| panic!("{}[{idx}].{field}[0] not a number", path.display())) as u32,
+            .unwrap_or_else(|| panic!("{}[{idx}].{field}[0] not a number", path.display()))
+            as u32,
         array[1]
             .as_u64()
-            .unwrap_or_else(|| panic!("{}[{idx}].{field}[1] not a number", path.display())) as u32,
+            .unwrap_or_else(|| panic!("{}[{idx}].{field}[1] not a number", path.display()))
+            as u32,
     ]
 }

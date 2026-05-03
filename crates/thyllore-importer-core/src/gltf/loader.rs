@@ -1225,6 +1225,14 @@ fn build_result(ctx: GltfParseContext) -> GltfLoadResult {
     let skeleton_id = if !ctx.joints.is_empty() {
         let skeleton = convert_joints_to_skeleton(&ctx.joints, &ctx.skeleton_root_transform);
         Some(animation_system.add_skeleton(skeleton))
+    } else if !ctx.node_animations.is_empty() && !ctx.node_infos.is_empty() {
+        log!(
+            "glTF: synthesizing skeleton from {} nodes for {} node animation channels (no skin)",
+            ctx.node_infos.len(),
+            ctx.node_animations.len()
+        );
+        let skeleton = synthesize_skeleton_from_node_hierarchy(&ctx.node_infos);
+        Some(animation_system.add_skeleton(skeleton))
     } else {
         None
     };
@@ -1275,6 +1283,14 @@ fn collect_animation_clips(
     animation_system: &mut AnimationSystem,
     clips: &mut Vec<AnimationClip>,
 ) {
+    if !ctx.node_animations.is_empty() && skeleton_id.is_none() {
+        log_warn!(
+            "glTF has {} node animation channels but no skeleton; \
+             animation will be discarded.",
+            ctx.node_animations.len()
+        );
+    }
+
     if !ctx.joint_animations.is_empty() {
         let clip = convert_joint_animations_to_clip(&ctx.joint_animations);
         log!(
@@ -1487,6 +1503,27 @@ fn convert_joints_to_skeleton(
             bone.inverse_bind_pose = mat4_from_array(joint.inverse_bind_pose);
             bone.node_index = joint.original_node_index;
         }
+    }
+
+    skeleton
+}
+
+fn synthesize_skeleton_from_node_hierarchy(node_infos: &[NodeInfo]) -> Skeleton {
+    let mut skeleton = Skeleton::new("gltf_synthesized_node_skeleton");
+    let mut node_index_to_bone_id: HashMap<usize, u32> = HashMap::new();
+
+    for info in node_infos {
+        let parent_bone_id = info
+            .parent_index
+            .and_then(|p| node_index_to_bone_id.get(&p).copied());
+        let bone_id = skeleton.add_bone(&info.name, parent_bone_id);
+
+        if let Some(bone) = skeleton.get_bone_mut(bone_id) {
+            bone.local_transform = info.local_transform;
+            bone.node_index = Some(info.index);
+        }
+
+        node_index_to_bone_id.insert(info.index, bone_id);
     }
 
     skeleton

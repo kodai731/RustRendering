@@ -36,8 +36,7 @@ fn workspace_root() -> PathBuf {
 }
 
 fn read(path: &Path) -> String {
-    fs::read_to_string(path)
-        .unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()))
+    fs::read_to_string(path).unwrap_or_else(|e| panic!("read {} failed: {e}", path.display()))
 }
 
 fn extract_toml_id(toml_text: &str) -> Option<String> {
@@ -65,9 +64,8 @@ fn collect_manifest_ids() -> Vec<(PathBuf, String)> {
         if !path.exists() {
             continue;
         }
-        let id = extract_toml_id(&read(path)).unwrap_or_else(|| {
-            panic!("id not found in {}", path.display())
-        });
+        let id = extract_toml_id(&read(path))
+            .unwrap_or_else(|| panic!("id not found in {}", path.display()));
         ids.push((path.clone(), id));
     }
     assert!(
@@ -158,8 +156,7 @@ fn every_python_addon_id_resolves_to_a_manifest() {
 #[test]
 fn smoke_runner_handles_every_addon_variant() {
     let manifests = collect_manifest_ids();
-    let smoke_path = workspace_root()
-        .join("blender_addon/tests/curve_copilot_operator_smoke.py");
+    let smoke_path = workspace_root().join("blender_addon/tests/curve_copilot_operator_smoke.py");
     let smoke_source = read(&smoke_path);
 
     let candidates_section = locate_candidates_list(&smoke_source).unwrap_or_else(|| {

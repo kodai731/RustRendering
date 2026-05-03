@@ -980,8 +980,14 @@ fn register_clips_to_library(
     drop(clip_library);
 
     if let Some(editable_id) = first_editable_clip_id {
+        let clip_duration = world
+            .resource::<ClipLibrary>()
+            .get(editable_id)
+            .map(|c| c.duration)
+            .unwrap_or(0.0);
         let mut timeline_state = world.resource_mut::<TimelineState>();
         timeline_state.current_clip_id = Some(editable_id);
+        crate::ecs::systems::timeline_apply_fit_zoom(&mut timeline_state, clip_duration);
         log!("Set timeline current_clip_id to {}", editable_id);
     }
 

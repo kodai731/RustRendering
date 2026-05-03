@@ -29,8 +29,7 @@ pub trait MlOps: Send + Sync {
         request: CurvePredictRequest,
     ) -> Result<CurvePredictResponse, MlError>;
 
-    fn compute_topology(&self, skeleton: &SkeletonSnapshot)
-        -> Result<TopologyResult, MlError>;
+    fn compute_topology(&self, skeleton: &SkeletonSnapshot) -> Result<TopologyResult, MlError>;
 
     fn call_op(&self, op_name: &str, payload: &[u8]) -> Result<Vec<u8>, MlError>;
 

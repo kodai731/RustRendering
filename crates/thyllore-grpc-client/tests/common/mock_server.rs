@@ -198,10 +198,7 @@ impl ServiceState {
             MockServerConfig::DeterministicFromFixtures(root) => {
                 let path = root.join("proto").join(fixture_filename);
                 let bytes = std::fs::read(&path).map_err(|e| {
-                    tonic::Status::internal(format!(
-                        "fixture {} not readable: {e}",
-                        path.display()
-                    ))
+                    tonic::Status::internal(format!("fixture {} not readable: {e}", path.display()))
                 })?;
                 M::decode(bytes.as_slice()).map_err(|e| {
                     tonic::Status::internal(format!(

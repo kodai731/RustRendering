@@ -10,9 +10,7 @@ pub use error::MlError;
 pub use request::{CopilotRequest, CurvePredictRequest, SkeletonSnapshot};
 pub use response::{CopilotResponse, CopilotStepPrediction, CurvePredictResponse, TopologyResult};
 pub use traits::MlOps;
-pub use wire::{
-    CopilotRequestWire, CopilotResponseWire, CopilotStepWire, OP_RUN_CURVE_COPILOT,
-};
+pub use wire::{CopilotRequestWire, CopilotResponseWire, CopilotStepWire, OP_RUN_CURVE_COPILOT};
 
 /// ABI/schema marker bumped whenever this crate's public surface changes
 /// in a way that requires the Blender extension to be reinstalled.
