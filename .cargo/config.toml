@@ -1,5 +1,5 @@
 [env]
-ORT_DYLIB_PATH = { value = "vendor/onnxruntime/onnxruntime-win-x64-1.23.2/lib/onnxruntime.dll", relative = true }
+ORT_DYLIB_PATH = { value = "vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so", relative = true }
 
 [target.aarch64-linux-android]
 #ar = "NDK/arm64/bin/aarch64-linux-android-ar"

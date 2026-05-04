@@ -921,7 +921,11 @@ impl App {
         _: *mut c_void,
     ) -> vk::Bool32 {
         let data = unsafe { *data };
-        let message = unsafe { CStr::from_ptr(data.message) }.to_string_lossy();
+        let message = if data.message.is_null() {
+            std::borrow::Cow::Borrowed("(no message)")
+        } else {
+            unsafe { CStr::from_ptr(data.message) }.to_string_lossy()
+        };
 
         // コンソール（色付き）とログファイルの両方に出力
         use log::{debug, error, trace, warn};
