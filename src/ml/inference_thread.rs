@@ -12,6 +12,7 @@ pub struct InferenceThreadHandle {
     sender: Option<mpsc::Sender<InferenceRequest>>,
     receiver: mpsc::Receiver<InferenceResult>,
     join_handle: Option<thread::JoinHandle<()>>,
+    max_steps: Option<usize>,
 }
 
 impl InferenceThreadHandle {
@@ -20,6 +21,7 @@ impl InferenceThreadHandle {
         let (res_tx, res_rx) = mpsc::channel::<InferenceResult>();
 
         let session = Session::from_onnx_path(model_path)?;
+        let max_steps = session.max_steps();
 
         let join_handle = thread::Builder::new()
             .name(format!("inference-actor-{}", actor_id))
@@ -31,7 +33,12 @@ impl InferenceThreadHandle {
             sender: Some(req_tx),
             receiver: res_rx,
             join_handle: Some(join_handle),
+            max_steps,
         })
+    }
+
+    pub fn max_steps(&self) -> Option<usize> {
+        self.max_steps
     }
 
     pub fn send(&self, request: InferenceRequest) -> Result<()> {

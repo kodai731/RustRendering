@@ -5,8 +5,11 @@ use super::input::{build_curve_copilot_tensors, build_curve_predict_tensor};
 use super::output::{parse_curve_copilot_output, parse_curve_predict_output};
 use super::types::CopilotStepPrediction;
 
+const MAX_STEPS_METADATA_KEY: &str = "max_steps";
+
 pub struct Session {
     ort: OrtSession,
+    max_steps: Option<usize>,
 }
 
 impl Session {
@@ -15,7 +18,12 @@ impl Session {
             .with_intra_threads(1)?
             .with_inter_threads(1)?
             .commit_from_file(path)?;
-        Ok(Self { ort })
+        let max_steps = read_max_steps_metadata(&ort);
+        Ok(Self { ort, max_steps })
+    }
+
+    pub fn max_steps(&self) -> Option<usize> {
+        self.max_steps
     }
 
     pub fn run_curve_predict(&mut self, input: &[f32]) -> Result<Vec<f32>> {
@@ -54,6 +62,12 @@ impl Session {
 
         parse_curve_copilot_output(&outputs, query_times.len())
     }
+}
+
+fn read_max_steps_metadata(ort: &OrtSession) -> Option<usize> {
+    let metadata = ort.metadata().ok()?;
+    let value = metadata.custom(MAX_STEPS_METADATA_KEY)?;
+    value.parse::<usize>().ok()
 }
 
 #[cfg(test)]

@@ -1148,9 +1148,13 @@ impl App {
             resolve_curve_copilot_model_path, InferenceModelKind, CURVE_COPILOT_ACTOR_ID,
         };
 
+        let Some(model_path) = resolve_curve_copilot_model_path() else {
+            return;
+        };
+
         EntityBuilder::new(&mut data.ecs_world).with_inference_actor(InferenceActorSetup {
             actor_id: CURVE_COPILOT_ACTOR_ID,
-            model_path: resolve_curve_copilot_model_path(),
+            model_path,
             model_kind: InferenceModelKind::CurveCopilot,
             enabled: true,
         });
