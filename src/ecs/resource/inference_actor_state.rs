@@ -22,3 +22,9 @@ impl Default for InferenceActorState {
         }
     }
 }
+
+impl InferenceActorState {
+    pub fn actor_max_steps(&self, actor_id: InferenceActorId) -> Option<usize> {
+        self.actors.get(&actor_id)?.thread_handle.max_steps()
+    }
+}

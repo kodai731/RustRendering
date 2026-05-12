@@ -15,7 +15,6 @@ use thyllore_ml_core::copilot::window::sample_window;
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
 const MAX_CONTEXT_KEYFRAMES: usize = 8;
-const MAX_STEPS: usize = 4;
 const MIN_CURVE_STD: f32 = 0.01;
 
 struct FlatKeyframes {
@@ -78,6 +77,14 @@ pub fn curve_suggestion_submit(
         return;
     }
 
+    let Some(max_steps) = inference_state.actor_max_steps(actor_id) else {
+        log_warn!(
+            "curve_suggestion_submit: actor {} has no max_steps metadata; skipping request",
+            actor_id
+        );
+        return;
+    };
+
     let flat = flatten_keyframes(curve);
     let context = flatten_context(
         &flat.times,
@@ -98,7 +105,7 @@ pub fn curve_suggestion_submit(
     let topology_features = topology_cache.get(bone_id).to_vec();
     let bone_name_tokens = name_token_cache.get(bone_id).to_vec();
 
-    let query_times = generate_query_times(&flat.times, current_time, clip_duration, MAX_STEPS);
+    let query_times = generate_query_times(&flat.times, current_time, clip_duration, max_steps);
 
     let context_start_time = curve
         .keyframes
