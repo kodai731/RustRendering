@@ -18,6 +18,10 @@ impl PySession {
         Ok(Self { inner })
     }
 
+    fn max_steps(&self) -> Option<usize> {
+        self.inner.max_steps()
+    }
+
     #[allow(clippy::too_many_arguments)]
     #[pyo3(signature = (
         context,

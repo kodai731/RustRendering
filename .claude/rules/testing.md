@@ -92,44 +92,84 @@ surfaces compile errors directly (unlike the PowerShell version, which used
 
 ### How to Apply
 
-Before pushing CI-affecting changes, pick the verification level that matches
-what you touched:
+**The default rule for any CI-affecting change is:**
 
-| What changed | Required local check | Catches |
-|---|---|---|
-| Rust code in `crates/thyllore-ml-core`, `pybindings/`, blender addon, wheel deps | `scripts/collect_wheels.sh` | Compile / linker / maturin / pyo3 signature errors |
-| ONNX I/O contract: `run_curve_copilot` inputs/outputs, `CurveCopilotRequest`, input shape constants, fixture sizes | `scripts/run_parity_local.sh` (downloads HuggingFace ONNX + runs `curve_copilot_fixture_generator` test) | Runtime ONNX input-name / shape mismatches |
-| Animation / ECS / rendering Rust | `cargo test --lib` (167 tests, ml enabled) and `cargo test --test ecs_tests --no-default-features` (76 tests, ml disabled) | Unit / integration regressions |
+```bash
+scripts/run_parity_local.sh
+```
 
-1. **Compile-only changes** — run `collect_wheels.sh`:
+This is the only command that exercises **the same environment as GitHub Actions**
+end-to-end (maturin wheel → HuggingFace ONNX → Rust ORT inference → Python
+pyo3 binding → Blender headless). Cheaper checks below are **shortcuts**, not
+substitutes — use them only when you can prove the path you didn't run cannot
+break.
+
+#### Coverage matrix — what each local command actually tests
+
+| Local command | Rust compile | Rust inference (ORT) | pyo3 binding | Python runner | Blender headless |
+|---|:--:|:--:|:--:|:--:|:--:|
+| `cargo test --lib` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `cargo test --test ecs_tests --no-default-features` | ✅ | ❌ | ❌ | ❌ | ❌ |
+| `scripts/collect_wheels.sh` | ✅ | ❌ | ❌ (compile only) | ❌ | ❌ |
+| `cargo test --test curve_copilot_fixture_generator -- --ignored` | ✅ | ✅ | ❌ | ❌ | ❌ |
+| `cargo test --test call_op_typed_parity -- --ignored` | ✅ | ✅ (wire path) | ❌ | ❌ | ❌ |
+| **`scripts/run_parity_local.sh`** | ✅ | ✅ | ✅ | ✅ | ✅ |
+
+#### Which check is required for what
+
+| What changed | Minimum required local check |
+|---|---|
+| `crates/thyllore-ml-core/src/pybindings/**` (pyo3 signatures, PySession) | **`scripts/run_parity_local.sh`** — pyo3 mismatches only surface when Python calls into Rust at runtime |
+| `crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py` | **`scripts/run_parity_local.sh`** — Python runner is only exercised by Blender path |
+| ONNX I/O contract: `run_curve_copilot` inputs/outputs, `CurveCopilotRequest`, fixture shape constants | **`scripts/run_parity_local.sh`** — downloads HF ONNX + runs fixture generator + Blender parity |
+| HuggingFace ONNX re-upload | **`scripts/run_parity_local.sh`** + bump `ONNX_REVISION` SHA (see next section) |
+| `crates/thyllore-ml-core/src/*` (Rust API, not pybindings) | `cargo test --test curve_copilot_fixture_generator -- --ignored` then `cargo test --test call_op_typed_parity -- --ignored` |
+| Wheel build deps, `Cargo.toml`, `pyproject.toml` | `scripts/collect_wheels.sh` |
+| Animation / ECS / rendering Rust (no ML) | `cargo test --lib` + `cargo test --test ecs_tests --no-default-features` |
+
+**If unsure, default to `scripts/run_parity_local.sh`.** The script caches
+Blender, ONNX Runtime, and HuggingFace ONNX after the first run, so repeat
+invocations are ~30 seconds. CI failures from skipped local runs cost ~5
+minutes per attempt and burn shared runner time.
+
+#### Step-by-step
+
+1. **First-time setup** (per `One-Time Setup` section below).
+2. **Run the full parity** before pushing any change matching the rows above:
    ```bash
-   scripts/collect_wheels.sh
+   scripts/run_parity_local.sh
    ```
-   First run creates `.venv-collect-wheels/` (gitignored) and bootstraps pip.
-   Set `PYTHON=...` to override the host Python or
-   `THYLLORE_COLLECT_WHEELS_VENV=...` to reuse an existing venv.
-
-2. **ONNX I/O contract changes** — `collect_wheels.sh` is NOT enough; you must
-   also run the parity pipeline so the published HuggingFace ONNX is exercised:
+3. **For Rust-only iterations** where you've already proven the Python /
+   Blender path isn't affected, you may use the cheaper checks during inner
+   loops, but still run `run_parity_local.sh` before push.
+4. **For lib-test iterations** (no ML touched):
    ```bash
-   scripts/run_parity_local.sh --test-subset blender_parity
+   cargo test --lib
+   cargo test --test ecs_tests --no-default-features
    ```
-   This is the only local check that catches "Invalid input name" /
-   shape-mismatch failures, because the test that loads the ONNX
-   (`curve_copilot_fixture_generator`) is `#[ignore]` and skipped by default
-   `cargo test`. PR #105 missed this and failed CI three times before the
-   gap was identified.
-
-3. **Pure Rust code** — run the standard test suites:
-   ```bash
-   cargo test --lib                                          # 167 tests, ml enabled
-   cargo test --test ecs_tests --no-default-features         # 76 tests, ml disabled
-   ```
-
-4. **Add a `cargo test` shim** when a workflow step needs orchestration the
+5. **Add a `cargo test` shim** when a workflow step needs orchestration the
    shell can't express — see
-   `crates/thyllore-grpc-client/tests/blender_addon_linux_validate.rs`
-   (`#[ignore]`, runs Blender + reports clear skip message when missing).
+   `crates/thyllore-grpc-client/tests/blender_addon_linux_validate.rs`.
+
+#### Why "compile passes" is not enough — PR #105 case study
+
+PR #105 hit four distinct CI failures, each requiring a different
+verification level. Each iteration was a wasted push because we relied on
+the cheapest check that compiled:
+
+| Iteration | Symptom | Cheapest catch | What we ran | Result |
+|---|---|---|---|---|
+| 1 | `pybindings/session.rs` stale 6-arg call to `run_curve_copilot` | `collect_wheels.sh` (compile) | nothing | wheel build failed on all 3 OSes |
+| 2 | ONNX rejected `bone_context_keyframes` (HF still old model) | `run_parity_local.sh` | `collect_wheels.sh` only | runtime ORT error |
+| 3 | CI cached old ONNX under `ONNX_REVISION=main` after re-upload | `run_parity_local.sh` with fresh cache | nothing — assumed re-upload sufficed | cache served stale model |
+| 4 | `curve_copilot_blender_runner.py` not updated for new 10-arg pyo3 signature | `run_parity_local.sh` (Blender path) | Rust-only fixture tests | Python `TypeError` at runtime |
+
+Iterations 1, 2, and 4 would have been caught by a single `run_parity_local.sh`
+run. Iteration 3 required the additional discipline of pinning
+`ONNX_REVISION` to a commit SHA (covered in the next section).
+
+**Rule:** before pushing anything that touches ML or pyo3 or Python runner
+code, run `scripts/run_parity_local.sh`. No exceptions.
 
 ### When the ONNX Itself Must Change
 
@@ -170,10 +210,24 @@ the same PR so CI can succeed. Workflow:
        --repo-type model
    ```
 
-3. **Pin the revision** (optional but recommended for reproducibility) by
-   tagging in HuggingFace and bumping `ONNX_REVISION` in
-   `.github/workflows/blender_parity.yml`, `scripts/run_parity_local.sh`,
-   and `scripts/generate_parity_fixtures.{sh,ps1}`.
+3. **Pin the new revision — REQUIRED, not optional.** GitHub Actions caches
+   the downloaded ONNX by `ONNX_REVISION`; if the revision string doesn't
+   change, CI runners reuse the stale model and ignore the re-upload.
+
+   Fetch the new commit SHA:
+   ```bash
+   curl -s "https://huggingface.co/api/models/${ONNX_REPO}" \
+     | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])'
+   ```
+
+   Then bump `ONNX_REVISION` (search-and-replace the old SHA) in:
+   - `.github/workflows/blender_parity.yml` (2 occurrences — `env:` block and
+     "Write fixture manifest" step)
+   - `scripts/run_parity_local.sh` (default value)
+
+   PR #105 missed this and CI cached the OLD model under
+   `curve-copilot-onnx-main` even after a fresh upload. The fix was to pin
+   `ONNX_REVISION` to the commit SHA so the cache key rotates with the model.
 
 4. **Re-run the local parity check** to confirm the published model works
    end-to-end:

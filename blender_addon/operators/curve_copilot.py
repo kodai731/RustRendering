@@ -42,6 +42,8 @@ _BONE_NAME_TOKEN_LENGTH = 32
 _TOPOLOGY_FEATURE_DIM = 6
 _CURVE_WINDOW_SIZE = 64
 _CONFIDENCE_THRESHOLD = 0.3
+_BONE_CONTEXT_N_MAX = 32
+_BONE_CONTEXT_REST_POSITION_DIM = 3
 
 
 class THYLLORE_OT_CurveCopilot(Operator):
@@ -167,11 +169,27 @@ def _run_curve_copilot(
 
     context, current_time, clip_duration = _flatten_context_from_fcurve(fcurve)
     sampled_window = _build_sampled_window(fcurve)
-    query_times = _build_query_times(
-        fcurve, current_time, clip_duration, num_suggestions
-    )
 
     session = tml.PySession.from_onnx_path(model_path)
+    model_max_steps = session.max_steps() or num_suggestions
+    query_times = _build_query_times(
+        fcurve, current_time, clip_duration, model_max_steps
+    )
+
+    bone_context_keyframes = np.zeros(
+        _BONE_CONTEXT_N_MAX * _CONTEXT_KEYFRAME_COUNT * _CONTEXT_FEATURE_DIM,
+        dtype=np.float32,
+    )
+    bone_context_topology = np.zeros(
+        _BONE_CONTEXT_N_MAX * _TOPOLOGY_FEATURE_DIM,
+        dtype=np.float32,
+    )
+    bone_context_rest_positions = np.zeros(
+        _BONE_CONTEXT_N_MAX * _BONE_CONTEXT_REST_POSITION_DIM,
+        dtype=np.float32,
+    )
+    bone_context_mask = np.zeros(_BONE_CONTEXT_N_MAX, dtype=bool)
+
     preds_2d, conf_1d = session.run_curve_copilot(
         context.flatten().astype(np.float32),
         prop_type,
@@ -179,6 +197,10 @@ def _run_curve_copilot(
         bone_tokens.flatten().astype(np.int64),
         query_times.astype(np.float32),
         sampled_window.astype(np.float32),
+        bone_context_keyframes,
+        bone_context_topology,
+        bone_context_rest_positions,
+        bone_context_mask,
     )
 
     return preds_2d, conf_1d
