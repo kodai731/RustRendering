@@ -52,6 +52,8 @@ crates/thyllore-ml-core/tests/python_parity/fixtures/
 
 # Phase 3: Python venv for gRPC stub generation (created by scripts/gen_grpc_stubs.ps1)
 .venv-grpc-tools/
+# Venv for scripts/collect_wheels.sh (local Linux reproduction of CI)
+.venv-collect-wheels/
 
 # Phase 3: gRPC parity binary fixtures are vendored, but caches are not
 blender_addon/tests/__pycache__/

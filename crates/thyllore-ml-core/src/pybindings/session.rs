@@ -2,7 +2,8 @@ use numpy::{IntoPyArray, PyArray1, PyArray2, PyArrayMethods, PyReadonlyArray1};
 use pyo3::prelude::*;
 
 use super::error::{anyhow_to_pyerr, IntoPyResult};
-use crate::copilot::session::Session;
+use crate::copilot::input::BoneContextInput;
+use crate::copilot::session::{CurveCopilotRequest, Session};
 
 #[pyclass(name = "PySession", module = "thyllore_ml_core")]
 pub struct PySession {
@@ -18,7 +19,18 @@ impl PySession {
     }
 
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (context, property_type_id, topology_features, bone_name_tokens, query_times, curve_window))]
+    #[pyo3(signature = (
+        context,
+        property_type_id,
+        topology_features,
+        bone_name_tokens,
+        query_times,
+        curve_window,
+        bone_context_keyframes,
+        bone_context_topology,
+        bone_context_rest_positions,
+        bone_context_mask,
+    ))]
     fn run_curve_copilot<'py>(
         &mut self,
         py: Python<'py>,
@@ -28,17 +40,37 @@ impl PySession {
         bone_name_tokens: PyReadonlyArray1<'py, i64>,
         query_times: PyReadonlyArray1<'py, f32>,
         curve_window: PyReadonlyArray1<'py, f32>,
+        bone_context_keyframes: PyReadonlyArray1<'py, f32>,
+        bone_context_topology: PyReadonlyArray1<'py, f32>,
+        bone_context_rest_positions: PyReadonlyArray1<'py, f32>,
+        bone_context_mask: PyReadonlyArray1<'py, bool>,
     ) -> PyResult<(Bound<'py, PyArray2<f32>>, Bound<'py, PyArray1<f32>>)> {
         let ctx = context.as_slice()?.to_vec();
         let topo = topology_features.as_slice()?.to_vec();
         let tokens = bone_name_tokens.as_slice()?.to_vec();
         let qt = query_times.as_slice()?.to_vec();
         let cw = curve_window.as_slice()?.to_vec();
+        let bc_keyframes = bone_context_keyframes.as_slice()?.to_vec();
+        let bc_topology = bone_context_topology.as_slice()?.to_vec();
+        let bc_rest_positions = bone_context_rest_positions.as_slice()?.to_vec();
+        let bc_mask = bone_context_mask.as_slice()?.to_vec();
 
         let steps = py
             .allow_threads(|| {
-                self.inner
-                    .run_curve_copilot(&ctx, property_type_id, &topo, &tokens, &qt, &cw)
+                self.inner.run_curve_copilot(CurveCopilotRequest {
+                    context: &ctx,
+                    property_type_id,
+                    topology_features: &topo,
+                    bone_name_tokens: &tokens,
+                    query_times: &qt,
+                    curve_window: &cw,
+                    bone_context: BoneContextInput {
+                        keyframes: &bc_keyframes,
+                        topology: &bc_topology,
+                        rest_positions: &bc_rest_positions,
+                        mask: &bc_mask,
+                    },
+                })
             })
             .into_py()?;
 

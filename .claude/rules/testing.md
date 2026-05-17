@@ -59,56 +59,75 @@ crate (e.g., `gltf_export_tests.rs`, `ecs_tests.rs`). These can ONLY run on deve
 machines where `vendor/imgui-sys/build.rs` exists locally. They must NOT be wired into
 GitHub Actions workflows.
 
-## Linux Verification — Prefer WSL2 Before Touching CI
+## CI Reproduction — Run `scripts/collect_wheels.sh` Before Pushing
 
-**IMPORTANT:** When you need to verify Linux behavior from a Windows development
-machine (Blender extension validate, manylinux wheel layout, glibc-dependent
-binaries), **try WSL2 first** before adding new CI runs or asking the user to
-spin up a Linux VM.
+**IMPORTANT:** Before pushing any change that touches `crates/thyllore-ml-core`,
+`pybindings/`, the blender addon, or anything affecting wheel builds, reproduce
+the GitHub Actions "Collect vendored wheels" step locally with:
+
+```bash
+scripts/collect_wheels.sh
+```
+
+Pushing first to "see what CI says" wastes minutes per round-trip and burns
+runner time. The local script runs the same maturin invocation CI does and
+surfaces compile errors directly (unlike the PowerShell version, which used
+`Out-Null` and hid the real cause).
 
 ### Why
 
-- WSL2 Ubuntu has the same glibc + Python toolchain that GitHub Actions
-  `ubuntu-latest` uses; manylinux wheel filename tags, TOML parsing, and
-  Blender CLI behavior reproduce 1:1 between the two environments.
-- Local WSL2 turnaround is ~30 seconds (build + validate). A CI failure
-  round-trip is several minutes per push and consumes runner minutes.
-- Phase 4 PR #97 caught three TOML/manifest defects locally via WSL2 in one
-  iteration after CI had already failed twice without surfacing the root cause.
+- The host machine is Linux (migrated from Windows on 2026-05-04). The same
+  glibc + Python toolchain as GitHub Actions `ubuntu-latest` is available
+  natively; manylinux wheel filename tags, ONNX Runtime layout, and maturin
+  output reproduce 1:1.
+- Local turnaround is ~30 seconds (incremental build). A CI failure round-trip
+  is several minutes per push.
+- The Linux Build / parity / blender_parity workflows all begin with this same
+  `collect_wheels` step. If maturin fails locally, every CI matrix entry will
+  fail too — no need to wait for the runner.
+- PR #105 (Phase 12 ISAB) caught a stale `pybindings/session.rs` signature
+  locally via this script after CI had already failed across all three
+  platforms (Linux / macOS / Windows) with output the PowerShell script had
+  swallowed.
 
 ### How to Apply
 
-Before pushing CI-only fixes for Linux issues:
+Before pushing CI-affecting changes:
 
-1. **Install Blender 4.2 LTS into WSL2 Ubuntu** (one-time):
+1. **Run the local reproduction**:
    ```bash
-   wsl -d Ubuntu -- bash -lc '
-   mkdir -p ~/blender_test && cd ~/blender_test &&
-   wget -q -O blender.tar.xz https://download.blender.org/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz &&
-   tar -xf blender.tar.xz && mv blender-4.2.0-linux-x64 blender && rm blender.tar.xz
-   '
+   scripts/collect_wheels.sh
    ```
-2. **Reproduce the CI environment locally** by collecting Linux wheels via WSL2
-   (`pip download --platform manylinux2014_x86_64 ...`, `maturin build`).
-3. **Run the actual CI step** (`build_blender_addon.ps1`,
-   `blender --command extension validate ...`) before pushing.
-4. **Add a `cargo test` shim** that orchestrates this when feasible — the
-   pattern used by
-   `crates/thyllore-grpc-client/tests/blender_addon_linux_validate.rs`:
-   - `#[ignore]` so default `cargo test` skips it.
-   - Detect `wsl.exe` + WSL Blender at `~/blender_test/blender/blender`
-     (overridable via `THYLLORE_WSL_BLENDER_PATH`) and skip with a clear
-     message when missing.
-   - Run with `cargo test -p thyllore-grpc-client --test
-     blender_addon_linux_validate -- --ignored --nocapture`.
+   On first run it creates `.venv-collect-wheels/` (gitignored) and bootstraps
+   pip. Set `PYTHON=...` to override the host Python or
+   `THYLLORE_COLLECT_WHEELS_VENV=...` to point at an existing venv.
+2. **For the full Blender parity pipeline**, use `scripts/run_parity_local.sh`,
+   which wraps `collect_wheels.sh` + `build_blender_addon.ps1` + Blender install
+   + cargo parity tests.
+3. **For lib + integration tests**:
+   ```bash
+   cargo test --lib                                              # 167 tests, ml enabled
+   cargo test --test ecs_tests --no-default-features             # 76 tests, ml disabled
+   ```
+4. **Add a `cargo test` shim** when a workflow step needs orchestration the
+   shell can't express — see
+   `crates/thyllore-grpc-client/tests/blender_addon_linux_validate.rs`
+   (`#[ignore]`, runs Blender + reports clear skip message when missing).
+
+### One-Time Setup
+
+- `python3-venv` (Ubuntu: `sudo apt install python3.12-venv`) — required for
+  the venv created by `collect_wheels.sh`.
+- ONNX Runtime in `vendor/onnxruntime/onnxruntime-linux-x64-*/lib/` —
+  `scripts/run_parity_local.sh` installs this automatically on first run.
 
 ### When CI is Still the Right Choice
 
-- The bug only reproduces on macOS/arm64 hardware that WSL2 does not provide.
-- The defect needs the exact GitHub Actions runner image (rare for our scope).
-- A long-running matrix is required and developer machine cost is too high.
+- The bug only reproduces on macOS/arm64 hardware not available locally.
+- The defect needs the exact GitHub Actions runner image (rare).
+- A platform-specific Windows or macOS path must be exercised end-to-end.
 
-In all other cases, exhaust local WSL2 verification first.
+In all other cases, exhaust the local reproduction first.
 
 The project includes integration tests in the `tests/` directory:
 
