@@ -14,6 +14,10 @@ pub struct CopilotRequestWire {
     pub bone_name_tokens: Vec<i64>,
     pub query_times_bits: Vec<u32>,
     pub curve_window_bits: Vec<u32>,
+    pub bone_context_keyframes_bits: Vec<u32>,
+    pub bone_context_topology_bits: Vec<u32>,
+    pub bone_context_rest_positions_bits: Vec<u32>,
+    pub bone_context_mask: Vec<bool>,
 }
 
 impl CopilotRequestWire {
@@ -30,6 +34,22 @@ impl CopilotRequestWire {
             bone_name_tokens: request.bone_name_tokens.clone(),
             query_times_bits: request.query_times.iter().map(|v| v.to_bits()).collect(),
             curve_window_bits: request.curve_window.iter().map(|v| v.to_bits()).collect(),
+            bone_context_keyframes_bits: request
+                .bone_context_keyframes
+                .iter()
+                .map(|v| v.to_bits())
+                .collect(),
+            bone_context_topology_bits: request
+                .bone_context_topology
+                .iter()
+                .map(|v| v.to_bits())
+                .collect(),
+            bone_context_rest_positions_bits: request
+                .bone_context_rest_positions
+                .iter()
+                .map(|v| v.to_bits())
+                .collect(),
+            bone_context_mask: request.bone_context_mask.clone(),
         }
     }
 
@@ -54,6 +74,22 @@ impl CopilotRequestWire {
                 .into_iter()
                 .map(f32::from_bits)
                 .collect(),
+            bone_context_keyframes: self
+                .bone_context_keyframes_bits
+                .into_iter()
+                .map(f32::from_bits)
+                .collect(),
+            bone_context_topology: self
+                .bone_context_topology_bits
+                .into_iter()
+                .map(f32::from_bits)
+                .collect(),
+            bone_context_rest_positions: self
+                .bone_context_rest_positions_bits
+                .into_iter()
+                .map(f32::from_bits)
+                .collect(),
+            bone_context_mask: self.bone_context_mask,
         }
     }
 }

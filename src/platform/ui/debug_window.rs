@@ -1,4 +1,6 @@
 use crate::ecs::events::{UIEvent, UIEventQueue};
+#[cfg(feature = "ml")]
+use crate::ecs::resource::CurveSuggestionState;
 use crate::ecs::resource::{DebugViewMode, DebugViewState};
 use crate::ecs::resource::{GridMeshData, MouseInput};
 use crate::ecs::World;
@@ -27,6 +29,12 @@ pub fn build_debug_panel_content(
 
     build_fbx_debug_panel(ui);
     ui.separator();
+
+    #[cfg(feature = "ml")]
+    {
+        build_curve_copilot_debug_panel(ui, ecs_world);
+        ui.separator();
+    }
 
     #[cfg(feature = "text-to-motion")]
     {
@@ -219,6 +227,16 @@ fn build_fbx_debug_panel(ui: &imgui::Ui) {
     if ui.checkbox("Transform", &mut fbx_trans) {
         FBX_DEBUG.set_transform(fbx_trans);
     }
+}
+
+#[cfg(feature = "ml")]
+fn build_curve_copilot_debug_panel(ui: &imgui::Ui, ecs_world: &World) {
+    let Some(mut state) = ecs_world.get_resource_mut::<CurveSuggestionState>() else {
+        return;
+    };
+
+    ui.text("Curve Copilot:");
+    ui.checkbox("Dump Inference (tmp/*.npz)", &mut state.dump_inference);
 }
 
 #[cfg(feature = "text-to-motion")]

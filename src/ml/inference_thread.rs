@@ -3,7 +3,8 @@ use std::thread;
 
 use anyhow::Result;
 
-use thyllore_ml_core::copilot::session::Session;
+use thyllore_ml_core::copilot::input::BoneContextInput;
+use thyllore_ml_core::copilot::session::{CurveCopilotRequest, Session};
 use thyllore_ml_core::{
     InferenceActorId, InferenceRequest, InferenceRequestKind, InferenceResult, InferenceResultKind,
 };
@@ -104,15 +105,25 @@ fn execute_inference(
             bone_name_tokens,
             query_times,
             curve_window,
+            bone_context_keyframes,
+            bone_context_topology,
+            bone_context_rest_positions,
+            bone_context_mask,
         } => {
-            let steps = session.run_curve_copilot(
+            let steps = session.run_curve_copilot(CurveCopilotRequest {
                 context,
-                *property_type_id,
+                property_type_id: *property_type_id,
                 topology_features,
                 bone_name_tokens,
                 query_times,
                 curve_window,
-            )?;
+                bone_context: BoneContextInput {
+                    keyframes: bone_context_keyframes,
+                    topology: bone_context_topology,
+                    rest_positions: bone_context_rest_positions,
+                    mask: bone_context_mask,
+                },
+            })?;
 
             log!(
                 "CurveCopilot raw output: {} steps, query_times={:?}",

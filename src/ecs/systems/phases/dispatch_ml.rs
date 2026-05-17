@@ -2,14 +2,16 @@
 pub fn dispatch_curve_suggestion_events(
     events: &[crate::ecs::events::UIEvent],
     world: &mut crate::ecs::world::World,
+    assets: &crate::asset::AssetStorage,
 ) {
     use crate::ecs::events::UIEvent;
     use crate::ecs::resource::{
-        BoneNameTokenCache, BoneTopologyCache, ClipLibrary, CurveSuggestionState,
-        InferenceActorState, TimelineState,
+        BoneNameTokenCache, BoneRestPositionCache, BoneTopologyCache, ClipLibrary,
+        CurveSuggestionState, InferenceActorState, TimelineState,
     };
     use crate::ecs::systems::{
         curve_suggestion_apply, curve_suggestion_dismiss, curve_suggestion_submit,
+        CurveSuggestionInputs,
     };
     use crate::ml::CURVE_COPILOT_ACTOR_ID;
 
@@ -24,34 +26,44 @@ pub fn dispatch_curve_suggestion_events(
                 let current_time = timeline_state.current_time;
                 drop(timeline_state);
 
-                let clip_library = world.resource::<ClipLibrary>();
-                let clip_info = clip_id
-                    .and_then(|id| clip_library.get(id))
-                    .and_then(|clip| {
-                        clip.tracks
-                            .get(bone_id)
-                            .map(|track| (track.get_curve(*property_type).clone(), clip.duration))
-                    });
-                drop(clip_library);
+                let Some(clip_id) = clip_id else {
+                    continue;
+                };
 
-                if let Some((curve, clip_duration)) = clip_info {
-                    let topology_cache = world.resource::<BoneTopologyCache>();
-                    let name_token_cache = world.resource::<BoneNameTokenCache>();
-                    let mut suggestion_state = world.resource_mut::<CurveSuggestionState>();
-                    let mut inference_state = world.resource_mut::<InferenceActorState>();
-                    curve_suggestion_submit(
-                        &mut suggestion_state,
-                        &mut inference_state,
-                        CURVE_COPILOT_ACTOR_ID,
-                        &curve,
-                        *property_type,
-                        *bone_id,
-                        clip_duration,
-                        current_time,
-                        &topology_cache,
-                        &name_token_cache,
-                    );
-                }
+                let Some(skeleton_asset) = assets.skeletons.values().next() else {
+                    log_warn!("curve_suggestion: no skeleton available, skipping request");
+                    continue;
+                };
+                let skeleton = skeleton_asset.skeleton.clone();
+
+                let clip = {
+                    let clip_library = world.resource::<ClipLibrary>();
+                    clip_library.get(clip_id).cloned()
+                };
+                let Some(clip) = clip else {
+                    continue;
+                };
+
+                let topology_cache = world.resource::<BoneTopologyCache>();
+                let name_token_cache = world.resource::<BoneNameTokenCache>();
+                let rest_position_cache = world.resource::<BoneRestPositionCache>();
+                let mut suggestion_state = world.resource_mut::<CurveSuggestionState>();
+                let mut inference_state = world.resource_mut::<InferenceActorState>();
+                curve_suggestion_submit(
+                    &mut suggestion_state,
+                    &mut inference_state,
+                    CURVE_COPILOT_ACTOR_ID,
+                    CurveSuggestionInputs {
+                        clip: &clip,
+                        skeleton: &skeleton,
+                        topology_cache: &topology_cache,
+                        name_token_cache: &name_token_cache,
+                        rest_position_cache: &rest_position_cache,
+                    },
+                    *property_type,
+                    *bone_id,
+                    current_time,
+                );
             }
 
             UIEvent::CurveSuggestionAccept => {

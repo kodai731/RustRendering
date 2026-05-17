@@ -21,6 +21,10 @@ pub enum InferenceRequestKind {
         bone_name_tokens: Vec<i64>,
         query_times: Vec<f32>,
         curve_window: Vec<f32>,
+        bone_context_keyframes: Vec<f32>,
+        bone_context_topology: Vec<f32>,
+        bone_context_rest_positions: Vec<f32>,
+        bone_context_mask: Vec<bool>,
     },
 }
 

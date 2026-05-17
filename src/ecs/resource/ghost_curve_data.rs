@@ -14,6 +14,19 @@ pub struct GhostCurveSuggestion {
     pub request_id: InferenceRequestId,
 }
 
+pub struct CurveSuggestionPendingDump {
+    pub context_keyframes: Vec<f32>,
+    pub property_type_id: u32,
+    pub topology_features: Vec<f32>,
+    pub bone_name_tokens: Vec<i64>,
+    pub query_times_normalized: Vec<f32>,
+    pub curve_window: Vec<f32>,
+    pub bone_context_keyframes: Vec<f32>,
+    pub bone_context_topology: Vec<f32>,
+    pub bone_context_rest_positions: Vec<f32>,
+    pub bone_context_mask: Vec<bool>,
+}
+
 pub struct CurveSuggestionState {
     pub suggestions: Vec<GhostCurveSuggestion>,
     pub pending_request_id: Option<InferenceRequestId>,
@@ -23,7 +36,11 @@ pub struct CurveSuggestionState {
     pub pending_curve_mean: Option<f32>,
     pub pending_curve_std: Option<f32>,
     pub pending_query_times: Option<Vec<f32>>,
+    pub pending_real_curve_samples: Option<Vec<Option<f32>>>,
+    pub pending_nearest_keyframes: Option<Vec<Option<(f32, f32)>>>,
+    pub pending_dump: Option<CurveSuggestionPendingDump>,
     pub enabled: bool,
+    pub dump_inference: bool,
 }
 
 impl Default for CurveSuggestionState {
@@ -37,7 +54,11 @@ impl Default for CurveSuggestionState {
             pending_curve_mean: None,
             pending_curve_std: None,
             pending_query_times: None,
+            pending_real_curve_samples: None,
+            pending_nearest_keyframes: None,
+            pending_dump: None,
             enabled: true,
+            dump_inference: false,
         }
     }
 }

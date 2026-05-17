@@ -33,4 +33,9 @@ pub use wire::{CopilotRequestWire, CopilotResponseWire, CopilotStepWire, OP_RUN_
 /// - 2: Phase 5.5 — text_to_motion entry point added (PyO3 facade exposes
 ///   `PyMotionSession`). Older addons binding `EXPECTED_ABI_MARKER = 1` will
 ///   refuse to register against this wheel and prompt the user to update.
-pub const ABI_MARKER: u32 = 2;
+/// - 3: Phase 9 — `CopilotRequest` gains the four ISAB cross-bone fields
+///   (`bone_context_keyframes`, `bone_context_topology`,
+///   `bone_context_rest_positions`, `bone_context_mask`). The wire format
+///   carries matching `*_bits` fields. Older addons binding
+///   `EXPECTED_ABI_MARKER = 2` will refuse to register.
+pub const ABI_MARKER: u32 = 3;

@@ -21,7 +21,7 @@ use thyllore_ml_api::{
 
 #[test]
 fn abi_marker_is_locked() {
-    let addon_expected_abi_marker: u32 = 1;
+    let addon_expected_abi_marker: u32 = 3;
     assert_eq!(
         ABI_MARKER, addon_expected_abi_marker,
         "ABI_MARKER changed without updating the matching constant in this test (and \
@@ -65,6 +65,10 @@ fn schemas_round_trip_through_serde_json() {
         bone_name_tokens: vec![0; 32],
         query_times: vec![1.0, 2.0],
         curve_window: vec![0.0; 64],
+        bone_context_keyframes: vec![0.0; 32 * 8 * 6],
+        bone_context_topology: vec![0.0; 32 * 6],
+        bone_context_rest_positions: vec![0.0; 32 * 3],
+        bone_context_mask: vec![false; 32],
     };
     let json = serde_json::to_string(&req).expect("serialize CopilotRequest");
     let _: CopilotRequest = serde_json::from_str(&json).expect("deserialize CopilotRequest");
@@ -109,6 +113,10 @@ fn ml_ops_trait_object_is_callable() {
             bone_name_tokens: vec![],
             query_times: vec![],
             curve_window: vec![],
+            bone_context_keyframes: vec![],
+            bone_context_topology: vec![],
+            bone_context_rest_positions: vec![],
+            bone_context_mask: vec![],
         });
         let _ = boxed.run_curve_predict(CurvePredictRequest {
             model_path: String::new(),

@@ -1,4 +1,5 @@
 pub mod context;
+pub mod dump;
 pub mod input;
 pub mod output;
 pub mod property;

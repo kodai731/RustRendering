@@ -47,6 +47,13 @@ fn build_synthetic_request(model_path: String, seed: u32, frequency: f32) -> Cop
         })
         .collect();
 
+    let bone_context_keyframes: Vec<f32> = (0..32 * 8 * 6).map(|_| next(&mut state)).collect();
+    let bone_context_topology: Vec<f32> = (0..32 * 6)
+        .map(|_| (next(&mut state) + 1.0) * 0.5)
+        .collect();
+    let bone_context_rest_positions: Vec<f32> = (0..32 * 3).map(|_| next(&mut state)).collect();
+    let bone_context_mask: Vec<bool> = (0..32).map(|i| i < 16).collect();
+
     CopilotRequest {
         model_path,
         property_type: 0,
@@ -55,6 +62,10 @@ fn build_synthetic_request(model_path: String, seed: u32, frequency: f32) -> Cop
         bone_name_tokens,
         query_times,
         curve_window,
+        bone_context_keyframes,
+        bone_context_topology,
+        bone_context_rest_positions,
+        bone_context_mask,
     }
 }
 

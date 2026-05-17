@@ -3,8 +3,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use thyllore_ml_core::copilot::context::flatten_context;
+use thyllore_ml_core::copilot::input::{
+    BoneContextInput, BONE_CONTEXT_N_MAX, BONE_CONTEXT_REST_POSITION_DIM, CONTEXT_FEATURE_DIM,
+    CONTEXT_KEYFRAME_COUNT, TOPOLOGY_FEATURE_DIM,
+};
 use thyllore_ml_core::copilot::query::generate_query_times;
-use thyllore_ml_core::copilot::session::Session;
+use thyllore_ml_core::copilot::session::{CurveCopilotRequest, Session};
 use thyllore_ml_core::copilot::window::sample_window;
 use thyllore_ml_core::{compute_bone_name_tokens, compute_bone_topology};
 use thyllore_model_core::Skeleton;
@@ -43,15 +47,22 @@ fn generate_curve_copilot_inference_fixture() {
         "fixture must use the same max_steps as the model"
     );
 
+    let bone_context = empty_bone_context();
     let steps = session
-        .run_curve_copilot(
-            &inputs.context_flat,
-            PROPERTY_TYPE_ID,
-            &inputs.topology_features,
-            &inputs.bone_name_tokens,
-            &inputs.query_times,
-            &inputs.curve_window,
-        )
+        .run_curve_copilot(CurveCopilotRequest {
+            context: &inputs.context_flat,
+            property_type_id: PROPERTY_TYPE_ID,
+            topology_features: &inputs.topology_features,
+            bone_name_tokens: &inputs.bone_name_tokens,
+            query_times: &inputs.query_times,
+            curve_window: &inputs.curve_window,
+            bone_context: BoneContextInput {
+                keyframes: &bone_context.keyframes,
+                topology: &bone_context.topology,
+                rest_positions: &bone_context.rest_positions,
+                mask: &bone_context.mask,
+            },
+        })
         .expect("inference failed");
 
     let onnx_filename = Path::new(&onnx_path)
@@ -262,6 +273,23 @@ fn bits_csv(values: &[f32]) -> String {
         .map(|v| f32_bits(*v).to_string())
         .collect::<Vec<_>>()
         .join(", ")
+}
+
+struct ZeroBoneContext {
+    keyframes: Vec<f32>,
+    topology: Vec<f32>,
+    rest_positions: Vec<f32>,
+    mask: Vec<bool>,
+}
+
+fn empty_bone_context() -> ZeroBoneContext {
+    let n = BONE_CONTEXT_N_MAX as usize;
+    ZeroBoneContext {
+        keyframes: vec![0.0; n * CONTEXT_KEYFRAME_COUNT as usize * CONTEXT_FEATURE_DIM as usize],
+        topology: vec![0.0; n * TOPOLOGY_FEATURE_DIM as usize],
+        rest_positions: vec![0.0; n * BONE_CONTEXT_REST_POSITION_DIM as usize],
+        mask: vec![false; n],
+    }
 }
 
 fn find_curve_copilot_onnx() -> Option<String> {
