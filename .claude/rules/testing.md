@@ -92,27 +92,95 @@ surfaces compile errors directly (unlike the PowerShell version, which used
 
 ### How to Apply
 
-Before pushing CI-affecting changes:
+Before pushing CI-affecting changes, pick the verification level that matches
+what you touched:
 
-1. **Run the local reproduction**:
+| What changed | Required local check | Catches |
+|---|---|---|
+| Rust code in `crates/thyllore-ml-core`, `pybindings/`, blender addon, wheel deps | `scripts/collect_wheels.sh` | Compile / linker / maturin / pyo3 signature errors |
+| ONNX I/O contract: `run_curve_copilot` inputs/outputs, `CurveCopilotRequest`, input shape constants, fixture sizes | `scripts/run_parity_local.sh` (downloads HuggingFace ONNX + runs `curve_copilot_fixture_generator` test) | Runtime ONNX input-name / shape mismatches |
+| Animation / ECS / rendering Rust | `cargo test --lib` (167 tests, ml enabled) and `cargo test --test ecs_tests --no-default-features` (76 tests, ml disabled) | Unit / integration regressions |
+
+1. **Compile-only changes** — run `collect_wheels.sh`:
    ```bash
    scripts/collect_wheels.sh
    ```
-   On first run it creates `.venv-collect-wheels/` (gitignored) and bootstraps
-   pip. Set `PYTHON=...` to override the host Python or
-   `THYLLORE_COLLECT_WHEELS_VENV=...` to point at an existing venv.
-2. **For the full Blender parity pipeline**, use `scripts/run_parity_local.sh`,
-   which wraps `collect_wheels.sh` + `build_blender_addon.ps1` + Blender install
-   + cargo parity tests.
-3. **For lib + integration tests**:
+   First run creates `.venv-collect-wheels/` (gitignored) and bootstraps pip.
+   Set `PYTHON=...` to override the host Python or
+   `THYLLORE_COLLECT_WHEELS_VENV=...` to reuse an existing venv.
+
+2. **ONNX I/O contract changes** — `collect_wheels.sh` is NOT enough; you must
+   also run the parity pipeline so the published HuggingFace ONNX is exercised:
    ```bash
-   cargo test --lib                                              # 167 tests, ml enabled
-   cargo test --test ecs_tests --no-default-features             # 76 tests, ml disabled
+   scripts/run_parity_local.sh --test-subset blender_parity
    ```
+   This is the only local check that catches "Invalid input name" /
+   shape-mismatch failures, because the test that loads the ONNX
+   (`curve_copilot_fixture_generator`) is `#[ignore]` and skipped by default
+   `cargo test`. PR #105 missed this and failed CI three times before the
+   gap was identified.
+
+3. **Pure Rust code** — run the standard test suites:
+   ```bash
+   cargo test --lib                                          # 167 tests, ml enabled
+   cargo test --test ecs_tests --no-default-features         # 76 tests, ml disabled
+   ```
+
 4. **Add a `cargo test` shim** when a workflow step needs orchestration the
    shell can't express — see
    `crates/thyllore-grpc-client/tests/blender_addon_linux_validate.rs`
    (`#[ignore]`, runs Blender + reports clear skip message when missing).
+
+### When the ONNX Itself Must Change
+
+If the Rust code now expects new inputs/outputs (e.g., adding cross-bone
+`bone_context_*` tensors), the model on HuggingFace must be re-uploaded in
+the same PR so CI can succeed. Workflow:
+
+1. **Verify the new ONNX locally** by pointing the fixture at it:
+   ```bash
+   mkdir -p /tmp/cc-test/onnx
+   cp ${SharedDataPath}/exports/curve_copilot_<date>.onnx /tmp/cc-test/onnx/curve_copilot.onnx
+   THYLLORE_PARITY_FIXTURE_OUTPUT=/tmp/cc-test \
+       cargo test -p thyllore-ml-core \
+       --test curve_copilot_fixture_generator -- --ignored --nocapture
+   ```
+   Adjust fixture constants (`QUERY_TIMES`, etc.) if the new model expects
+   different shapes.
+
+2. **Upload the model to HuggingFace** at `kodai731/thyllore-curve-copilot`
+   under the canonical filename `curve_copilot.onnx` (the workflow always
+   resolves that name):
+   ```bash
+   # One-time setup
+   pip install --user huggingface_hub
+   huggingface-cli login   # paste an HF write token (https://huggingface.co/settings/tokens)
+
+   # Upload the new model under the canonical name
+   huggingface-cli upload kodai731/thyllore-curve-copilot \
+       ${SharedDataPath}/exports/curve_copilot_<date>.onnx \
+       curve_copilot.onnx \
+       --repo-type model \
+       --commit-message "phase12 ISAB cross-bone (max_steps=8)"
+
+   # If the model uses external-data sidecars (e.g. *.onnx.data), upload them too
+   huggingface-cli upload kodai731/thyllore-curve-copilot \
+       ${SharedDataPath}/exports/curve_copilot_<date>.onnx.data \
+       curve_copilot.onnx.data \
+       --repo-type model
+   ```
+
+3. **Pin the revision** (optional but recommended for reproducibility) by
+   tagging in HuggingFace and bumping `ONNX_REVISION` in
+   `.github/workflows/blender_parity.yml`, `scripts/run_parity_local.sh`,
+   and `scripts/generate_parity_fixtures.{sh,ps1}`.
+
+4. **Re-run the local parity check** to confirm the published model works
+   end-to-end:
+   ```bash
+   rm -f fixtures/ml_parity/onnx/curve_copilot.onnx   # force re-download
+   scripts/run_parity_local.sh --test-subset blender_parity
+   ```
 
 ### One-Time Setup
 
@@ -120,6 +188,8 @@ Before pushing CI-affecting changes:
   the venv created by `collect_wheels.sh`.
 - ONNX Runtime in `vendor/onnxruntime/onnxruntime-linux-x64-*/lib/` —
   `scripts/run_parity_local.sh` installs this automatically on first run.
+- `huggingface_hub` (`pip install --user huggingface_hub`) + an HF write
+  token — required only when re-uploading the curve_copilot ONNX.
 
 ### When CI is Still the Right Choice
 

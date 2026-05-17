@@ -8,7 +8,7 @@ use thyllore_ml_core::MlCoreImpl;
 const CONTEXT_LEN: usize = 8 * 6;
 const TOPOLOGY_LEN: usize = 6;
 const BONE_NAME_TOKENS: usize = 32;
-const QUERY_TIMES: usize = 4;
+const QUERY_TIMES: usize = 8;
 const CURVE_WINDOW_LEN: usize = 64;
 const BONE_CONTEXT_N: usize = 32;
 const BONE_CONTEXT_KEYFRAMES_LEN: usize = BONE_CONTEXT_N * 8 * 6;
