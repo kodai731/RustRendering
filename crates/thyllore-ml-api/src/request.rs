@@ -30,13 +30,13 @@ impl SkeletonSnapshot {
 ///
 /// Each field is sized to the model's expected input shape:
 ///
-/// - `context`: `8 * 6 = 48` flat values (8 keyframes × 6 features each).
+/// - `context`: `32 * 6 = 192` flat values (32 keyframes × 6 features each).
 /// - `topology_features`: 6 features describing the target bone's place in the
 ///   skeleton hierarchy.
 /// - `bone_name_tokens`: 32 token ids derived from the bone name.
 /// - `query_times`: arbitrary `Q` predictions.
 /// - `curve_window`: densely sampled curve values around the context window.
-/// - `bone_context_keyframes`: `32 * 8 * 6 = 1536` flat values feeding the
+/// - `bone_context_keyframes`: `32 * 32 * 6 = 6144` flat values feeding the
 ///   ISAB cross-bone encoder (one keyframe block per neighbor slot).
 /// - `bone_context_topology`: `32 * 6 = 192` per-neighbor topology features.
 /// - `bone_context_rest_positions`: `32 * 3 = 96` per-neighbor normalized

@@ -26,7 +26,7 @@ on:
 env:
   BLENDER_VERSION: "4.2.0"
   ONNX_REPO: "kodai731/thyllore-curve-copilot"
-  ONNX_REVISION: "904b8b9e4cb7b2bf7c702100253c5868ba5eb2e1"
+  ONNX_REVISION: "3c4e8171e0a99a46e7a74b138c12a61a5d444154"
 
 jobs:
   parity:
@@ -228,7 +228,7 @@ jobs:
         working-directory: ThylloreAnimation
         env:
           THYLLORE_PARITY_FIXTURE_OUTPUT: ${{ github.workspace }}/ThylloreAnimation/fixtures/ml_parity
-          ONNX_REVISION: 904b8b9e4cb7b2bf7c702100253c5868ba5eb2e1
+          ONNX_REVISION: 3c4e8171e0a99a46e7a74b138c12a61a5d444154
         run: |
           cargo test -p thyllore-grpc-client \
             --test fixture_manifest_writer write_manifest_from_fixture_dir \

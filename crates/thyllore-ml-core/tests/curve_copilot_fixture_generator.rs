@@ -5,13 +5,14 @@ use std::path::PathBuf;
 use thyllore_ml_api::{CopilotRequest, CopilotResponse, MlOps};
 use thyllore_ml_core::MlCoreImpl;
 
-const CONTEXT_LEN: usize = 8 * 6;
+const CONTEXT_KEYFRAMES: usize = 32;
+const CONTEXT_LEN: usize = CONTEXT_KEYFRAMES * 6;
 const TOPOLOGY_LEN: usize = 6;
 const BONE_NAME_TOKENS: usize = 32;
 const QUERY_TIMES: usize = 8;
 const CURVE_WINDOW_LEN: usize = 64;
 const BONE_CONTEXT_N: usize = 32;
-const BONE_CONTEXT_KEYFRAMES_LEN: usize = BONE_CONTEXT_N * 8 * 6;
+const BONE_CONTEXT_KEYFRAMES_LEN: usize = BONE_CONTEXT_N * CONTEXT_KEYFRAMES * 6;
 const BONE_CONTEXT_TOPOLOGY_LEN: usize = BONE_CONTEXT_N * 6;
 const BONE_CONTEXT_REST_LEN: usize = BONE_CONTEXT_N * 3;
 const ONNX_RELATIVE_PATH: &str = "onnx/curve_copilot.onnx";

@@ -59,7 +59,7 @@ def test_curve_copilot_inference_matches_raw_onnxruntime():
         pytest.skip(f"ONNX model not found at {onnx_path}")
 
     context_flat = array_from_bits_1d(fixture["context_flat"])
-    context = context_flat.reshape(1, 8, 6)
+    context = context_flat.reshape(1, 32, 6)
 
     property_type = np.array(
         [int(fixture["property_type_id"])], dtype=np.int64

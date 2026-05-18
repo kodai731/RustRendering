@@ -10,6 +10,7 @@ use crate::ecs::resource::{
 use crate::ml::{InferenceActorId, InferenceRequestKind, InferenceResultKind};
 use thyllore_ml_core::copilot::context::flatten_context;
 use thyllore_ml_core::copilot::dump::{dump_curve_copilot_inference, CurveCopilotInferenceDump};
+use thyllore_ml_core::copilot::input::CONTEXT_KEYFRAME_COUNT;
 use thyllore_ml_core::copilot::property::{property_kind_to_id, PropertyKind};
 use thyllore_ml_core::copilot::query::generate_query_times;
 use thyllore_ml_core::copilot::window::sample_window;
@@ -17,8 +18,6 @@ use thyllore_model_core::Skeleton;
 
 use super::curve_suggestion_bone_context::{build_bone_context_arrays, BoneContextRequest};
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
-
-const MAX_CONTEXT_KEYFRAMES: usize = 8;
 const MIN_CURVE_STD: f32 = 0.01;
 const ANCHOR_EPSILON: f32 = 1.0e-6;
 
@@ -139,7 +138,7 @@ pub fn curve_suggestion_submit(
         &flat.in_dv,
         &flat.out_dt,
         &flat.out_dv,
-        MAX_CONTEXT_KEYFRAMES,
+        CONTEXT_KEYFRAME_COUNT,
         clip_duration,
     );
 
@@ -154,7 +153,7 @@ pub fn curve_suggestion_submit(
     let all_times: Vec<f32> = curve.keyframes.iter().map(|kf| kf.time).collect();
     let query_times = generate_query_times(&all_times, anchor_time, clip_duration, max_steps);
 
-    let context_window_kfs = flat.times.len().min(MAX_CONTEXT_KEYFRAMES);
+    let context_window_kfs = flat.times.len().min(CONTEXT_KEYFRAME_COUNT);
     let context_start_index = flat.times.len().saturating_sub(context_window_kfs);
     let context_start_time = flat
         .times

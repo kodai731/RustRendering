@@ -1,10 +1,10 @@
 use crate::animation::editable::{EditableAnimationClip, PropertyType};
 use crate::animation::BoneId;
 use crate::ecs::resource::{BoneRestPositionCache, BoneTopologyCache};
+use thyllore_ml_core::copilot::input::CONTEXT_KEYFRAME_COUNT as BONE_CONTEXT_KEYFRAME_COUNT;
 use thyllore_model_core::Skeleton;
 
 pub const BONE_CONTEXT_N_MAX: usize = 32;
-pub const BONE_CONTEXT_KEYFRAME_COUNT: usize = 8;
 pub const BONE_CONTEXT_FEATURE_DIM: usize = 6;
 pub const BONE_CONTEXT_TOPOLOGY_DIM: usize = 6;
 pub const BONE_CONTEXT_REST_POSITION_DIM: usize = 3;

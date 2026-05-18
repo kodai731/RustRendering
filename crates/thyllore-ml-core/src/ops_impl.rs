@@ -197,7 +197,7 @@ fn validate_copilot_request(request: &CopilotRequest) -> Result<(), MlError> {
         CONTEXT_FEATURE_DIM, CONTEXT_KEYFRAME_COUNT, TOPOLOGY_FEATURE_DIM,
     };
 
-    let expected_context = (CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM) as usize;
+    let expected_context = CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM;
     if request.context.len() != expected_context {
         return Err(MlError::invalid(format!(
             "context: expected {} floats, got {}",
@@ -205,14 +205,14 @@ fn validate_copilot_request(request: &CopilotRequest) -> Result<(), MlError> {
             request.context.len()
         )));
     }
-    if request.topology_features.len() != TOPOLOGY_FEATURE_DIM as usize {
+    if request.topology_features.len() != TOPOLOGY_FEATURE_DIM {
         return Err(MlError::invalid(format!(
             "topology_features: expected {} floats, got {}",
             TOPOLOGY_FEATURE_DIM,
             request.topology_features.len()
         )));
     }
-    if request.bone_name_tokens.len() != BONE_NAME_TOKEN_DIM as usize {
+    if request.bone_name_tokens.len() != BONE_NAME_TOKEN_DIM {
         return Err(MlError::invalid(format!(
             "bone_name_tokens: expected {} ids, got {}",
             BONE_NAME_TOKEN_DIM,
@@ -226,8 +226,8 @@ fn validate_copilot_request(request: &CopilotRequest) -> Result<(), MlError> {
         return Err(MlError::invalid("curve_window must not be empty"));
     }
 
-    let n = BONE_CONTEXT_N_MAX as usize;
-    let expected_bc_keyframes = n * CONTEXT_KEYFRAME_COUNT as usize * CONTEXT_FEATURE_DIM as usize;
+    let n = BONE_CONTEXT_N_MAX;
+    let expected_bc_keyframes = n * CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM;
     if request.bone_context_keyframes.len() != expected_bc_keyframes {
         return Err(MlError::invalid(format!(
             "bone_context_keyframes: expected {} floats, got {}",
@@ -235,7 +235,7 @@ fn validate_copilot_request(request: &CopilotRequest) -> Result<(), MlError> {
             request.bone_context_keyframes.len()
         )));
     }
-    let expected_bc_topology = n * TOPOLOGY_FEATURE_DIM as usize;
+    let expected_bc_topology = n * TOPOLOGY_FEATURE_DIM;
     if request.bone_context_topology.len() != expected_bc_topology {
         return Err(MlError::invalid(format!(
             "bone_context_topology: expected {} floats, got {}",
@@ -243,7 +243,7 @@ fn validate_copilot_request(request: &CopilotRequest) -> Result<(), MlError> {
             request.bone_context_topology.len()
         )));
     }
-    let expected_bc_rest = n * BONE_CONTEXT_REST_POSITION_DIM as usize;
+    let expected_bc_rest = n * BONE_CONTEXT_REST_POSITION_DIM;
     if request.bone_context_rest_positions.len() != expected_bc_rest {
         return Err(MlError::invalid(format!(
             "bone_context_rest_positions: expected {} floats, got {}",
@@ -348,11 +348,11 @@ mod tests {
             BONE_CONTEXT_N_MAX, BONE_CONTEXT_REST_POSITION_DIM, CONTEXT_FEATURE_DIM,
             CONTEXT_KEYFRAME_COUNT, TOPOLOGY_FEATURE_DIM,
         };
-        let n = BONE_CONTEXT_N_MAX as usize;
+        let n = BONE_CONTEXT_N_MAX;
         (
-            vec![0.0; n * CONTEXT_KEYFRAME_COUNT as usize * CONTEXT_FEATURE_DIM as usize],
-            vec![0.0; n * TOPOLOGY_FEATURE_DIM as usize],
-            vec![0.0; n * BONE_CONTEXT_REST_POSITION_DIM as usize],
+            vec![0.0; n * CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM],
+            vec![0.0; n * TOPOLOGY_FEATURE_DIM],
+            vec![0.0; n * BONE_CONTEXT_REST_POSITION_DIM],
             vec![false; n],
         )
     }
@@ -387,7 +387,7 @@ mod tests {
         let bad_request = CopilotRequest {
             model_path: "/tmp/does-not-matter.onnx".into(),
             property_type: 0,
-            context: vec![0.0; 48],
+            context: vec![0.0; 32 * 6],
             topology_features: vec![0.0; 6],
             bone_name_tokens: vec![0; 32],
             query_times: vec![1.0],

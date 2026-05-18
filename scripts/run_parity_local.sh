@@ -26,7 +26,7 @@ ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSI
 
 FIXTURE_ROOT="$REPO_ROOT/fixtures/ml_parity"
 ONNX_REPO="kodai731/thyllore-curve-copilot"
-ONNX_REVISION="${ONNX_REVISION:-904b8b9e4cb7b2bf7c702100253c5868ba5eb2e1}"
+ONNX_REVISION="${ONNX_REVISION:-3c4e8171e0a99a46e7a74b138c12a61a5d444154}"
 ONNX_LOCAL_PATH="$FIXTURE_ROOT/onnx/curve_copilot.onnx"
 ONNX_DOWNLOAD_URL="https://huggingface.co/${ONNX_REPO}/resolve/${ONNX_REVISION}/curve_copilot.onnx"
 

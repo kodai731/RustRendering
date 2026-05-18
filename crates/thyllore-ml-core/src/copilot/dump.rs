@@ -45,11 +45,7 @@ pub fn dump_curve_copilot_inference(
     let mut npz = NpzWriter::new(File::create(&path)?);
 
     let context = Array3::from_shape_vec(
-        (
-            1,
-            CONTEXT_KEYFRAME_COUNT as usize,
-            CONTEXT_FEATURE_DIM as usize,
-        ),
+        (1, CONTEXT_KEYFRAME_COUNT, CONTEXT_FEATURE_DIM),
         dump.context_keyframes.to_vec(),
     )?;
     npz.add_array("context_keyframes", &context)?;
@@ -57,16 +53,12 @@ pub fn dump_curve_copilot_inference(
     let property_type = Array1::from_vec(vec![dump.property_type_id as i64]);
     npz.add_array("property_type", &property_type)?;
 
-    let topology = Array2::from_shape_vec(
-        (1, TOPOLOGY_FEATURE_DIM as usize),
-        dump.topology_features.to_vec(),
-    )?;
+    let topology =
+        Array2::from_shape_vec((1, TOPOLOGY_FEATURE_DIM), dump.topology_features.to_vec())?;
     npz.add_array("topology_features", &topology)?;
 
-    let bone_name = Array2::from_shape_vec(
-        (1, BONE_NAME_TOKEN_DIM as usize),
-        dump.bone_name_tokens.to_vec(),
-    )?;
+    let bone_name =
+        Array2::from_shape_vec((1, BONE_NAME_TOKEN_DIM), dump.bone_name_tokens.to_vec())?;
     npz.add_array("bone_name_tokens", &bone_name)?;
 
     let num_steps = dump.query_times.len();
@@ -80,36 +72,28 @@ pub fn dump_curve_copilot_inference(
     let bone_context_keyframes = Array4::from_shape_vec(
         (
             1,
-            BONE_CONTEXT_N_MAX as usize,
-            CONTEXT_KEYFRAME_COUNT as usize,
-            CONTEXT_FEATURE_DIM as usize,
+            BONE_CONTEXT_N_MAX,
+            CONTEXT_KEYFRAME_COUNT,
+            CONTEXT_FEATURE_DIM,
         ),
         dump.bone_context_keyframes.to_vec(),
     )?;
     npz.add_array("bone_context_keyframes", &bone_context_keyframes)?;
 
     let bone_context_topology = Array3::from_shape_vec(
-        (
-            1,
-            BONE_CONTEXT_N_MAX as usize,
-            TOPOLOGY_FEATURE_DIM as usize,
-        ),
+        (1, BONE_CONTEXT_N_MAX, TOPOLOGY_FEATURE_DIM),
         dump.bone_context_topology.to_vec(),
     )?;
     npz.add_array("bone_topology_features", &bone_context_topology)?;
 
     let bone_rest_positions = Array3::from_shape_vec(
-        (
-            1,
-            BONE_CONTEXT_N_MAX as usize,
-            BONE_CONTEXT_REST_POSITION_DIM as usize,
-        ),
+        (1, BONE_CONTEXT_N_MAX, BONE_CONTEXT_REST_POSITION_DIM),
         dump.bone_context_rest_positions.to_vec(),
     )?;
     npz.add_array("bone_rest_positions", &bone_rest_positions)?;
 
     let mask_as_u8: Vec<u8> = dump.bone_context_mask.iter().map(|b| *b as u8).collect();
-    let bone_context_mask = Array2::from_shape_vec((1, BONE_CONTEXT_N_MAX as usize), mask_as_u8)?;
+    let bone_context_mask = Array2::from_shape_vec((1, BONE_CONTEXT_N_MAX), mask_as_u8)?;
     npz.add_array("bone_context_mask", &bone_context_mask)?;
 
     let onnx_predictions = Array3::from_shape_vec(

@@ -1,12 +1,12 @@
 use anyhow::Result;
 use ort::value::Tensor;
 
-pub const CONTEXT_KEYFRAME_COUNT: i64 = 8;
-pub const CONTEXT_FEATURE_DIM: i64 = 6;
-pub const TOPOLOGY_FEATURE_DIM: i64 = 6;
-pub const BONE_NAME_TOKEN_DIM: i64 = 32;
-pub const BONE_CONTEXT_N_MAX: i64 = 32;
-pub const BONE_CONTEXT_REST_POSITION_DIM: i64 = 3;
+pub const CONTEXT_KEYFRAME_COUNT: usize = 32;
+pub const CONTEXT_FEATURE_DIM: usize = 6;
+pub const TOPOLOGY_FEATURE_DIM: usize = 6;
+pub const BONE_NAME_TOKEN_DIM: usize = 32;
+pub const BONE_CONTEXT_N_MAX: usize = 32;
+pub const BONE_CONTEXT_REST_POSITION_DIM: usize = 3;
 
 pub struct CurveCopilotTensors {
     pub context: Tensor<f32>,
@@ -47,14 +47,22 @@ pub fn build_curve_copilot_tensors(
     let curve_window_len = curve_window.len() as i64;
 
     let context = Tensor::from_array((
-        vec![1i64, CONTEXT_KEYFRAME_COUNT, CONTEXT_FEATURE_DIM],
+        vec![
+            1i64,
+            CONTEXT_KEYFRAME_COUNT as i64,
+            CONTEXT_FEATURE_DIM as i64,
+        ],
         context.to_vec(),
     ))?;
     let property_type = Tensor::from_array((vec![1i64], vec![property_type_id as i64]))?;
-    let topology =
-        Tensor::from_array((vec![1i64, TOPOLOGY_FEATURE_DIM], topology_features.to_vec()))?;
-    let bone_name =
-        Tensor::from_array((vec![1i64, BONE_NAME_TOKEN_DIM], bone_name_tokens.to_vec()))?;
+    let topology = Tensor::from_array((
+        vec![1i64, TOPOLOGY_FEATURE_DIM as i64],
+        topology_features.to_vec(),
+    ))?;
+    let bone_name = Tensor::from_array((
+        vec![1i64, BONE_NAME_TOKEN_DIM as i64],
+        bone_name_tokens.to_vec(),
+    ))?;
     let query_times_tensor = Tensor::from_array((vec![1i64, num_steps], query_times.to_vec()))?;
     let curve_window_tensor =
         Tensor::from_array((vec![1i64, curve_window_len], curve_window.to_vec()))?;
@@ -62,22 +70,28 @@ pub fn build_curve_copilot_tensors(
     let bone_context_keyframes = Tensor::from_array((
         vec![
             1i64,
-            BONE_CONTEXT_N_MAX,
-            CONTEXT_KEYFRAME_COUNT,
-            CONTEXT_FEATURE_DIM,
+            BONE_CONTEXT_N_MAX as i64,
+            CONTEXT_KEYFRAME_COUNT as i64,
+            CONTEXT_FEATURE_DIM as i64,
         ],
         bone_context.keyframes.to_vec(),
     ))?;
     let bone_context_topology = Tensor::from_array((
-        vec![1i64, BONE_CONTEXT_N_MAX, TOPOLOGY_FEATURE_DIM],
+        vec![1i64, BONE_CONTEXT_N_MAX as i64, TOPOLOGY_FEATURE_DIM as i64],
         bone_context.topology.to_vec(),
     ))?;
     let bone_context_rest_positions = Tensor::from_array((
-        vec![1i64, BONE_CONTEXT_N_MAX, BONE_CONTEXT_REST_POSITION_DIM],
+        vec![
+            1i64,
+            BONE_CONTEXT_N_MAX as i64,
+            BONE_CONTEXT_REST_POSITION_DIM as i64,
+        ],
         bone_context.rest_positions.to_vec(),
     ))?;
-    let bone_context_mask =
-        Tensor::from_array((vec![1i64, BONE_CONTEXT_N_MAX], bone_context.mask.to_vec()))?;
+    let bone_context_mask = Tensor::from_array((
+        vec![1i64, BONE_CONTEXT_N_MAX as i64],
+        bone_context.mask.to_vec(),
+    ))?;
 
     Ok(CurveCopilotTensors {
         context,
@@ -98,10 +112,10 @@ mod tests {
     use super::*;
 
     fn zero_bone_context() -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<bool>) {
-        let n = BONE_CONTEXT_N_MAX as usize;
-        let kf_len = n * CONTEXT_KEYFRAME_COUNT as usize * CONTEXT_FEATURE_DIM as usize;
-        let topo_len = n * TOPOLOGY_FEATURE_DIM as usize;
-        let rest_len = n * BONE_CONTEXT_REST_POSITION_DIM as usize;
+        let n = BONE_CONTEXT_N_MAX;
+        let kf_len = n * CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM;
+        let topo_len = n * TOPOLOGY_FEATURE_DIM;
+        let rest_len = n * BONE_CONTEXT_REST_POSITION_DIM;
         (
             vec![0.0; kf_len],
             vec![0.0; topo_len],
@@ -112,9 +126,9 @@ mod tests {
 
     #[test]
     fn build_curve_copilot_tensors_accepts_full_inputs() {
-        let context = vec![0.0_f32; (CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM) as usize];
-        let topology = vec![0.0_f32; TOPOLOGY_FEATURE_DIM as usize];
-        let tokens = vec![0_i64; BONE_NAME_TOKEN_DIM as usize];
+        let context = vec![0.0_f32; CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM];
+        let topology = vec![0.0_f32; TOPOLOGY_FEATURE_DIM];
+        let tokens = vec![0_i64; BONE_NAME_TOKEN_DIM];
         let query_times = vec![0.0_f32; 1];
         let curve_window = vec![0.0_f32; 32];
         let (kf, topo, rest, mask) = zero_bone_context();

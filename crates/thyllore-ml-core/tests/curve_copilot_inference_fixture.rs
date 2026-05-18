@@ -20,7 +20,6 @@ const ONNX_SUFFIX: &str = ".onnx";
 
 const TARGET_BONE_NAME: &str = "hip";
 const PROPERTY_TYPE_ID: u32 = 2;
-const MAX_CONTEXT_KEYFRAMES: usize = 8;
 const CLIP_DURATION: f32 = 3.3;
 const CURRENT_TIME: f32 = 2.5;
 
@@ -103,7 +102,9 @@ struct SyntheticInputs {
 }
 
 fn build_synthetic_inputs() -> SyntheticInputs {
-    let times: Vec<f32> = (0..MAX_CONTEXT_KEYFRAMES).map(|i| i as f32 * 0.3).collect();
+    let times: Vec<f32> = (0..CONTEXT_KEYFRAME_COUNT)
+        .map(|i| i as f32 * 0.3)
+        .collect();
     let values: Vec<f32> = times
         .iter()
         .map(|&t| (t * std::f32::consts::PI).sin() * 3.0)
@@ -117,7 +118,7 @@ fn build_synthetic_inputs() -> SyntheticInputs {
         &zero,
         &zero,
         &zero,
-        MAX_CONTEXT_KEYFRAMES,
+        CONTEXT_KEYFRAME_COUNT,
         CLIP_DURATION,
     );
 
@@ -138,7 +139,7 @@ fn build_synthetic_inputs() -> SyntheticInputs {
     let context_start_time = times
         .iter()
         .rev()
-        .take(MAX_CONTEXT_KEYFRAMES)
+        .take(CONTEXT_KEYFRAME_COUNT)
         .last()
         .copied()
         .unwrap_or(0.0);
@@ -283,11 +284,11 @@ struct ZeroBoneContext {
 }
 
 fn empty_bone_context() -> ZeroBoneContext {
-    let n = BONE_CONTEXT_N_MAX as usize;
+    let n = BONE_CONTEXT_N_MAX;
     ZeroBoneContext {
-        keyframes: vec![0.0; n * CONTEXT_KEYFRAME_COUNT as usize * CONTEXT_FEATURE_DIM as usize],
-        topology: vec![0.0; n * TOPOLOGY_FEATURE_DIM as usize],
-        rest_positions: vec![0.0; n * BONE_CONTEXT_REST_POSITION_DIM as usize],
+        keyframes: vec![0.0; n * CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM],
+        topology: vec![0.0; n * TOPOLOGY_FEATURE_DIM],
+        rest_positions: vec![0.0; n * BONE_CONTEXT_REST_POSITION_DIM],
         mask: vec![false; n],
     }
 }
