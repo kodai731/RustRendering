@@ -36,6 +36,13 @@ impl SkeletonSnapshot {
 /// - `bone_name_tokens`: 32 token ids derived from the bone name.
 /// - `query_times`: arbitrary `Q` predictions.
 /// - `curve_window`: densely sampled curve values around the context window.
+/// - `bone_context_keyframes`: `32 * 8 * 6 = 1536` flat values feeding the
+///   ISAB cross-bone encoder (one keyframe block per neighbor slot).
+/// - `bone_context_topology`: `32 * 6 = 192` per-neighbor topology features.
+/// - `bone_context_rest_positions`: `32 * 3 = 96` per-neighbor normalized
+///   rest positions.
+/// - `bone_context_mask`: 32 booleans marking which neighbor slots carry
+///   valid context (vs zero padding).
 ///
 /// Adding new fields requires either an `ABI_MARKER` bump or `#[serde(default)]`
 /// annotation.
@@ -49,6 +56,10 @@ pub struct CopilotRequest {
     pub bone_name_tokens: Vec<i64>,
     pub query_times: Vec<f32>,
     pub curve_window: Vec<f32>,
+    pub bone_context_keyframes: Vec<f32>,
+    pub bone_context_topology: Vec<f32>,
+    pub bone_context_rest_positions: Vec<f32>,
+    pub bone_context_mask: Vec<bool>,
 }
 
 /// Request for the legacy single-tensor curve predictor used by the existing

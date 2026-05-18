@@ -1,7 +1,7 @@
 use anyhow::Result;
 use ort::session::Session as OrtSession;
 
-use super::input::{build_curve_copilot_tensors, build_curve_predict_tensor};
+use super::input::{build_curve_copilot_tensors, build_curve_predict_tensor, BoneContextInput};
 use super::output::{parse_curve_copilot_output, parse_curve_predict_output};
 use super::types::CopilotStepPrediction;
 
@@ -10,6 +10,16 @@ const MAX_STEPS_METADATA_KEY: &str = "max_steps";
 pub struct Session {
     ort: OrtSession,
     max_steps: Option<usize>,
+}
+
+pub struct CurveCopilotRequest<'a> {
+    pub context: &'a [f32],
+    pub property_type_id: u32,
+    pub topology_features: &'a [f32],
+    pub bone_name_tokens: &'a [i64],
+    pub query_times: &'a [f32],
+    pub curve_window: &'a [f32],
+    pub bone_context: BoneContextInput<'a>,
 }
 
 impl Session {
@@ -32,23 +42,18 @@ impl Session {
         parse_curve_predict_output(&outputs)
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub fn run_curve_copilot(
         &mut self,
-        context: &[f32],
-        property_type_id: u32,
-        topology_features: &[f32],
-        bone_name_tokens: &[i64],
-        query_times: &[f32],
-        curve_window: &[f32],
+        request: CurveCopilotRequest<'_>,
     ) -> Result<Vec<CopilotStepPrediction>> {
         let tensors = build_curve_copilot_tensors(
-            context,
-            property_type_id,
-            topology_features,
-            bone_name_tokens,
-            query_times,
-            curve_window,
+            request.context,
+            request.property_type_id,
+            request.topology_features,
+            request.bone_name_tokens,
+            request.query_times,
+            request.curve_window,
+            request.bone_context,
         )?;
 
         let outputs = self.ort.run(ort::inputs![
@@ -57,10 +62,14 @@ impl Session {
             "topology_features" => tensors.topology,
             "bone_name_tokens" => tensors.bone_name,
             "query_times" => tensors.query_times,
+            "bone_context_keyframes" => tensors.bone_context_keyframes,
+            "bone_topology_features" => tensors.bone_context_topology,
+            "bone_rest_positions" => tensors.bone_context_rest_positions,
+            "bone_context_mask" => tensors.bone_context_mask,
             "curve_window" => tensors.curve_window
         ])?;
 
-        parse_curve_copilot_output(&outputs, query_times.len())
+        parse_curve_copilot_output(&outputs, request.query_times.len())
     }
 }
 

@@ -26,7 +26,7 @@ ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSI
 
 FIXTURE_ROOT="$REPO_ROOT/fixtures/ml_parity"
 ONNX_REPO="kodai731/thyllore-curve-copilot"
-ONNX_REVISION="${ONNX_REVISION:-main}"
+ONNX_REVISION="${ONNX_REVISION:-904b8b9e4cb7b2bf7c702100253c5868ba5eb2e1}"
 ONNX_LOCAL_PATH="$FIXTURE_ROOT/onnx/curve_copilot.onnx"
 ONNX_DOWNLOAD_URL="https://huggingface.co/${ONNX_REPO}/resolve/${ONNX_REVISION}/curve_copilot.onnx"
 
@@ -174,16 +174,13 @@ if [[ "$SKIP_BUILD" -eq 0 ]]; then
     #     echo "(pwsh not available on Linux — skipping keypair, tests use bypass env)"
     # }
 
-    write_step "Collecting vendored wheels (manylinux2014_x86_64)"
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO_ROOT/scripts/collect_wheels.ps1" \
-        -Platforms "manylinux2014_x86_64" || {
-        echo "collect_wheels.ps1 requires PowerShell — install with: sudo apt install powershell" >&2
-        exit 1
-    }
+    write_step "Collecting vendored wheels (manylinux2014_x86_64, full Variant for Tier A)"
+    "$REPO_ROOT/scripts/collect_wheels.sh" \
+        --platforms "manylinux2014_x86_64" --variant full
 
-    write_step "Building Blender extension ZIP (linux_x86_64)"
-    pwsh -NoProfile -ExecutionPolicy Bypass -File "$REPO_ROOT/scripts/build_blender_addon.ps1" \
-        -Platform "linux_x86_64" -SkipBlenderValidate
+    write_step "Building Blender extension ZIP (linux_x86_64, full Variant)"
+    "$REPO_ROOT/scripts/build_blender_addon.sh" \
+        --platform linux_x86_64 --variant full --skip-blender-validate
 fi
 
 write_step "Installing Blender extension into user dir"

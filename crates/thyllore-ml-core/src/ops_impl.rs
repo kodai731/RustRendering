@@ -16,7 +16,8 @@ use thyllore_ml_api::{
 };
 use thyllore_model_core::{BoneId, Skeleton};
 
-use crate::copilot::session::Session;
+use crate::copilot::input::BoneContextInput;
+use crate::copilot::session::{CurveCopilotRequest, Session};
 use crate::topology::{compute_bone_topology, BoneTopologyFeatures};
 
 /// Concrete implementation of [`MlOps`].
@@ -77,18 +78,28 @@ impl MlOps for MlCoreImpl {
             bone_name_tokens,
             query_times,
             curve_window,
+            bone_context_keyframes,
+            bone_context_topology,
+            bone_context_rest_positions,
+            bone_context_mask,
         } = request;
 
         let predictions = self.with_session(&model_path, |session| {
             session
-                .run_curve_copilot(
-                    &context,
-                    property_type,
-                    &topology_features,
-                    &bone_name_tokens,
-                    &query_times,
-                    &curve_window,
-                )
+                .run_curve_copilot(CurveCopilotRequest {
+                    context: &context,
+                    property_type_id: property_type,
+                    topology_features: &topology_features,
+                    bone_name_tokens: &bone_name_tokens,
+                    query_times: &query_times,
+                    curve_window: &curve_window,
+                    bone_context: BoneContextInput {
+                        keyframes: &bone_context_keyframes,
+                        topology: &bone_context_topology,
+                        rest_positions: &bone_context_rest_positions,
+                        mask: &bone_context_mask,
+                    },
+                })
                 .map_err(|e| MlError::inference(format!("run_curve_copilot: {e}")))
         })?;
 
@@ -182,7 +193,8 @@ impl MlCoreImpl {
 
 fn validate_copilot_request(request: &CopilotRequest) -> Result<(), MlError> {
     use crate::copilot::input::{
-        BONE_NAME_TOKEN_DIM, CONTEXT_FEATURE_DIM, CONTEXT_KEYFRAME_COUNT, TOPOLOGY_FEATURE_DIM,
+        BONE_CONTEXT_N_MAX, BONE_CONTEXT_REST_POSITION_DIM, BONE_NAME_TOKEN_DIM,
+        CONTEXT_FEATURE_DIM, CONTEXT_KEYFRAME_COUNT, TOPOLOGY_FEATURE_DIM,
     };
 
     let expected_context = (CONTEXT_KEYFRAME_COUNT * CONTEXT_FEATURE_DIM) as usize;
@@ -212,6 +224,39 @@ fn validate_copilot_request(request: &CopilotRequest) -> Result<(), MlError> {
     }
     if request.curve_window.is_empty() {
         return Err(MlError::invalid("curve_window must not be empty"));
+    }
+
+    let n = BONE_CONTEXT_N_MAX as usize;
+    let expected_bc_keyframes = n * CONTEXT_KEYFRAME_COUNT as usize * CONTEXT_FEATURE_DIM as usize;
+    if request.bone_context_keyframes.len() != expected_bc_keyframes {
+        return Err(MlError::invalid(format!(
+            "bone_context_keyframes: expected {} floats, got {}",
+            expected_bc_keyframes,
+            request.bone_context_keyframes.len()
+        )));
+    }
+    let expected_bc_topology = n * TOPOLOGY_FEATURE_DIM as usize;
+    if request.bone_context_topology.len() != expected_bc_topology {
+        return Err(MlError::invalid(format!(
+            "bone_context_topology: expected {} floats, got {}",
+            expected_bc_topology,
+            request.bone_context_topology.len()
+        )));
+    }
+    let expected_bc_rest = n * BONE_CONTEXT_REST_POSITION_DIM as usize;
+    if request.bone_context_rest_positions.len() != expected_bc_rest {
+        return Err(MlError::invalid(format!(
+            "bone_context_rest_positions: expected {} floats, got {}",
+            expected_bc_rest,
+            request.bone_context_rest_positions.len()
+        )));
+    }
+    if request.bone_context_mask.len() != n {
+        return Err(MlError::invalid(format!(
+            "bone_context_mask: expected {} bools, got {}",
+            n,
+            request.bone_context_mask.len()
+        )));
     }
     Ok(())
 }
@@ -298,9 +343,24 @@ mod tests {
         assert!(matches!(err, MlError::InvalidRequest(_)));
     }
 
+    fn well_shaped_bone_context_fields() -> (Vec<f32>, Vec<f32>, Vec<f32>, Vec<bool>) {
+        use crate::copilot::input::{
+            BONE_CONTEXT_N_MAX, BONE_CONTEXT_REST_POSITION_DIM, CONTEXT_FEATURE_DIM,
+            CONTEXT_KEYFRAME_COUNT, TOPOLOGY_FEATURE_DIM,
+        };
+        let n = BONE_CONTEXT_N_MAX as usize;
+        (
+            vec![0.0; n * CONTEXT_KEYFRAME_COUNT as usize * CONTEXT_FEATURE_DIM as usize],
+            vec![0.0; n * TOPOLOGY_FEATURE_DIM as usize],
+            vec![0.0; n * BONE_CONTEXT_REST_POSITION_DIM as usize],
+            vec![false; n],
+        )
+    }
+
     #[test]
     fn run_curve_copilot_validates_input_shapes() {
         let impl_ = MlCoreImpl::new();
+        let (bc_keyframes, bc_topology, bc_rest, bc_mask) = well_shaped_bone_context_fields();
 
         let bad_request = CopilotRequest {
             model_path: "/tmp/does-not-matter.onnx".into(),
@@ -310,9 +370,40 @@ mod tests {
             bone_name_tokens: vec![0; 32],
             query_times: vec![1.0],
             curve_window: vec![0.0; 64],
+            bone_context_keyframes: bc_keyframes,
+            bone_context_topology: bc_topology,
+            bone_context_rest_positions: bc_rest,
+            bone_context_mask: bc_mask,
         };
         let err = impl_.run_curve_copilot(bad_request).unwrap_err();
         assert!(matches!(err, MlError::InvalidRequest(_)));
+    }
+
+    #[test]
+    fn run_curve_copilot_rejects_malformed_bone_context() {
+        let impl_ = MlCoreImpl::new();
+        let (_, bc_topology, bc_rest, bc_mask) = well_shaped_bone_context_fields();
+
+        let bad_request = CopilotRequest {
+            model_path: "/tmp/does-not-matter.onnx".into(),
+            property_type: 0,
+            context: vec![0.0; 48],
+            topology_features: vec![0.0; 6],
+            bone_name_tokens: vec![0; 32],
+            query_times: vec![1.0],
+            curve_window: vec![0.0; 64],
+            bone_context_keyframes: vec![0.0; 10],
+            bone_context_topology: bc_topology,
+            bone_context_rest_positions: bc_rest,
+            bone_context_mask: bc_mask,
+        };
+        let err = impl_.run_curve_copilot(bad_request).unwrap_err();
+        match err {
+            MlError::InvalidRequest(msg) => {
+                assert!(msg.contains("bone_context_keyframes"), "got: {msg}")
+            }
+            other => panic!("expected InvalidRequest, got {other:?}"),
+        }
     }
 
     #[test]
@@ -327,6 +418,9 @@ mod tests {
     #[test]
     fn call_op_run_curve_copilot_validates_input_shapes() {
         let impl_ = MlCoreImpl::new();
+        let (bc_keyframes, bc_topology, bc_rest, bc_mask) = well_shaped_bone_context_fields();
+        let to_bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
+
         let wire_request = CopilotRequestWire {
             model_path: "/tmp/does-not-matter.onnx".into(),
             property_type: 0,
@@ -335,6 +429,10 @@ mod tests {
             bone_name_tokens: vec![0; 32],
             query_times_bits: vec![1u32.to_le()],
             curve_window_bits: vec![0; 64],
+            bone_context_keyframes_bits: to_bits(&bc_keyframes),
+            bone_context_topology_bits: to_bits(&bc_topology),
+            bone_context_rest_positions_bits: to_bits(&bc_rest),
+            bone_context_mask: bc_mask,
         };
         let payload = serde_json::to_vec(&wire_request).expect("encode wire request");
         let err = impl_.call_op(OP_RUN_CURVE_COPILOT, &payload).unwrap_err();

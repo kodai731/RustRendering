@@ -8,8 +8,12 @@ use thyllore_ml_core::MlCoreImpl;
 const CONTEXT_LEN: usize = 8 * 6;
 const TOPOLOGY_LEN: usize = 6;
 const BONE_NAME_TOKENS: usize = 32;
-const QUERY_TIMES: usize = 4;
+const QUERY_TIMES: usize = 8;
 const CURVE_WINDOW_LEN: usize = 64;
+const BONE_CONTEXT_N: usize = 32;
+const BONE_CONTEXT_KEYFRAMES_LEN: usize = BONE_CONTEXT_N * 8 * 6;
+const BONE_CONTEXT_TOPOLOGY_LEN: usize = BONE_CONTEXT_N * 6;
+const BONE_CONTEXT_REST_LEN: usize = BONE_CONTEXT_N * 3;
 const ONNX_RELATIVE_PATH: &str = "onnx/curve_copilot.onnx";
 
 fn fixture_root_from_env() -> PathBuf {
@@ -120,6 +124,19 @@ fn build_request(case: Case, model_path: &str) -> CopilotRequest {
         })
         .collect();
 
+    let bone_context_keyframes: Vec<f32> = (0..BONE_CONTEXT_KEYFRAMES_LEN)
+        .map(|_| rng.next_f32_signed())
+        .collect();
+    let bone_context_topology: Vec<f32> = (0..BONE_CONTEXT_TOPOLOGY_LEN)
+        .map(|_| rng.next_f32())
+        .collect();
+    let bone_context_rest_positions: Vec<f32> = (0..BONE_CONTEXT_REST_LEN)
+        .map(|_| rng.next_f32_signed())
+        .collect();
+    let bone_context_mask: Vec<bool> = (0..BONE_CONTEXT_N)
+        .map(|i| i < (BONE_CONTEXT_N / 2))
+        .collect();
+
     CopilotRequest {
         model_path: model_path.to_string(),
         property_type: case.property_type_id(),
@@ -128,6 +145,10 @@ fn build_request(case: Case, model_path: &str) -> CopilotRequest {
         bone_name_tokens,
         query_times,
         curve_window,
+        bone_context_keyframes,
+        bone_context_topology,
+        bone_context_rest_positions,
+        bone_context_mask,
     }
 }
 
@@ -158,8 +179,24 @@ fn write_input_json(numpy_dir: &std::path::Path, case: Case, request: &CopilotRe
         f32_array_to_bits_json(&request.query_times)
     ));
     json.push_str(&format!(
-        "  \"curve_window_bits\": {}\n",
+        "  \"curve_window_bits\": {},\n",
         f32_array_to_bits_json(&request.curve_window)
+    ));
+    json.push_str(&format!(
+        "  \"bone_context_keyframes_bits\": {},\n",
+        f32_array_to_bits_json(&request.bone_context_keyframes)
+    ));
+    json.push_str(&format!(
+        "  \"bone_context_topology_bits\": {},\n",
+        f32_array_to_bits_json(&request.bone_context_topology)
+    ));
+    json.push_str(&format!(
+        "  \"bone_context_rest_positions_bits\": {},\n",
+        f32_array_to_bits_json(&request.bone_context_rest_positions)
+    ));
+    json.push_str(&format!(
+        "  \"bone_context_mask\": {}\n",
+        bool_array_to_json(&request.bone_context_mask)
     ));
     json.push_str("}\n");
 
@@ -203,6 +240,11 @@ fn f32_array_to_bits_json(values: &[f32]) -> String {
 }
 
 fn i64_array_to_json(values: &[i64]) -> String {
+    let parts: Vec<String> = values.iter().map(|v| v.to_string()).collect();
+    format!("[{}]", parts.join(", "))
+}
+
+fn bool_array_to_json(values: &[bool]) -> String {
     let parts: Vec<String> = values.iter().map(|v| v.to_string()).collect();
     format!("[{}]", parts.join(", "))
 }

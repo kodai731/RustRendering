@@ -39,13 +39,20 @@ fn build_synthetic_request(model_path: String, seed: u32, frequency: f32) -> Cop
     let context: Vec<f32> = (0..48).map(|_| next(&mut state)).collect();
     let topology_features: Vec<f32> = (0..6).map(|_| (next(&mut state) + 1.0) * 0.5).collect();
     let bone_name_tokens: Vec<i64> = (0..32).map(|i| (i as i64) % 31 + 1).collect();
-    let query_times: Vec<f32> = (0..4).map(|i| (i as f32 + 1.0) * 0.8).collect();
+    let query_times: Vec<f32> = (0..8).map(|i| (i as f32 + 1.0) * 0.4).collect();
     let curve_window: Vec<f32> = (0..64)
         .map(|i| {
             let t = i as f32 / 63.0;
             (t * std::f32::consts::TAU * frequency).sin() * 0.5
         })
         .collect();
+
+    let bone_context_keyframes: Vec<f32> = (0..32 * 8 * 6).map(|_| next(&mut state)).collect();
+    let bone_context_topology: Vec<f32> = (0..32 * 6)
+        .map(|_| (next(&mut state) + 1.0) * 0.5)
+        .collect();
+    let bone_context_rest_positions: Vec<f32> = (0..32 * 3).map(|_| next(&mut state)).collect();
+    let bone_context_mask: Vec<bool> = (0..32).map(|i| i < 16).collect();
 
     CopilotRequest {
         model_path,
@@ -55,6 +62,10 @@ fn build_synthetic_request(model_path: String, seed: u32, frequency: f32) -> Cop
         bone_name_tokens,
         query_times,
         curve_window,
+        bone_context_keyframes,
+        bone_context_topology,
+        bone_context_rest_positions,
+        bone_context_mask,
     }
 }
 

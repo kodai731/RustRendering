@@ -32,7 +32,7 @@ _bootstrap.insert_wheels_to_sys_path()
 
 # Expected ABI marker -- must match crates/thyllore-ml-api/src/lib.rs::ABI_MARKER.
 # Bump in lockstep with that constant when the L2 trait has breaking changes.
-EXPECTED_ABI_MARKER: int = 2
+EXPECTED_ABI_MARKER: int = 3
 
 
 # Skip importing bpy-dependent modules during pure-package consumption (e.g.,

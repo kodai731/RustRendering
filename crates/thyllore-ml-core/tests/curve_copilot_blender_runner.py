@@ -112,9 +112,19 @@ def run_typed_path(tml, input_fixture, model_path):
     topology = u32_bits_to_float32_array(input_fixture["topology_features_bits"])
     query_times = u32_bits_to_float32_array(input_fixture["query_times_bits"])
     curve_window = u32_bits_to_float32_array(input_fixture["curve_window_bits"])
+    bone_context_keyframes = u32_bits_to_float32_array(
+        input_fixture["bone_context_keyframes_bits"]
+    )
+    bone_context_topology = u32_bits_to_float32_array(
+        input_fixture["bone_context_topology_bits"]
+    )
+    bone_context_rest_positions = u32_bits_to_float32_array(
+        input_fixture["bone_context_rest_positions_bits"]
+    )
 
     import numpy as np
     bone_tokens = np.array(input_fixture["bone_name_tokens"], dtype=np.int64)
+    bone_context_mask = np.array(input_fixture["bone_context_mask"], dtype=bool)
 
     session = tml.PySession.from_onnx_path(model_path)
     predictions_2d, confidences_1d = session.run_curve_copilot(
@@ -124,6 +134,10 @@ def run_typed_path(tml, input_fixture, model_path):
         bone_tokens,
         query_times,
         curve_window,
+        bone_context_keyframes,
+        bone_context_topology,
+        bone_context_rest_positions,
+        bone_context_mask,
     )
     return build_typed_predictions_json(predictions_2d, confidences_1d)
 
@@ -137,6 +151,12 @@ def run_call_op_json_path(tml, input_fixture, model_path):
         "bone_name_tokens": input_fixture["bone_name_tokens"],
         "query_times_bits": input_fixture["query_times_bits"],
         "curve_window_bits": input_fixture["curve_window_bits"],
+        "bone_context_keyframes_bits": input_fixture["bone_context_keyframes_bits"],
+        "bone_context_topology_bits": input_fixture["bone_context_topology_bits"],
+        "bone_context_rest_positions_bits": input_fixture[
+            "bone_context_rest_positions_bits"
+        ],
+        "bone_context_mask": input_fixture["bone_context_mask"],
     }
     return tml.call_op_json("run_curve_copilot", payload)
 

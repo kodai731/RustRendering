@@ -68,7 +68,7 @@ pub fn run_event_dispatch_phase(
     dispatch_spring_bone_bake_ecs_events(&events, world, assets);
     dispatch_spring_bone_edit_events(&events, world, assets);
     #[cfg(feature = "ml")]
-    super::dispatch_ml::dispatch_curve_suggestion_events(&events, world);
+    super::dispatch_ml::dispatch_curve_suggestion_events(&events, world, assets);
     #[cfg(feature = "auto-rig")]
     super::dispatch_ml::dispatch_text_to_animation_events(&events, world, assets);
     #[cfg(feature = "auto-rig")]
