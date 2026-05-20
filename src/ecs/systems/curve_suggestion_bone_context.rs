@@ -2,6 +2,7 @@ use crate::animation::editable::{EditableAnimationClip, PropertyType};
 use crate::animation::BoneId;
 use crate::ecs::resource::{BoneRestPositionCache, BoneTopologyCache};
 use thyllore_ml_core::copilot::input::CONTEXT_KEYFRAME_COUNT as BONE_CONTEXT_KEYFRAME_COUNT;
+use thyllore_ml_core::copilot::tangent_synth::{resolve_in_tangent, resolve_out_tangent};
 use thyllore_model_core::Skeleton;
 
 pub const BONE_CONTEXT_N_MAX: usize = 32;
@@ -88,39 +89,51 @@ fn fill_keyframes_for_bone(
         return false;
     };
     let curve = track.get_curve(request.property_type);
-    let context_kfs = collect_context_before_anchor(curve, request.anchor_time);
-    if context_kfs.is_empty() {
+    let (sorted, window_start, window_end) = sort_and_window_context(curve, request.anchor_time);
+    if window_start == window_end {
         return false;
     }
 
-    let (mean, std) = compute_value_mean_std(&context_kfs);
+    let window = &sorted[window_start..window_end];
+    let (mean, std) = compute_value_mean_std(window);
     if std < MIN_CURVE_STD {
         return false;
     }
 
-    write_keyframe_block(arrays, slot, &context_kfs, mean, std, request.clip_duration);
+    write_keyframe_block(
+        arrays,
+        slot,
+        &sorted,
+        window_start,
+        window_end,
+        mean,
+        std,
+        request.clip_duration,
+    );
     true
 }
 
-fn collect_context_before_anchor<'a>(
+fn sort_and_window_context<'a>(
     curve: &'a crate::animation::editable::PropertyCurve,
     anchor_time: f32,
-) -> Vec<&'a crate::animation::editable::EditableKeyframe> {
-    let mut sorted: Vec<&crate::animation::editable::EditableKeyframe> = curve
-        .keyframes
-        .iter()
-        .filter(|kf| kf.time <= anchor_time + ANCHOR_EPSILON)
-        .collect();
+) -> (
+    Vec<&'a crate::animation::editable::EditableKeyframe>,
+    usize,
+    usize,
+) {
+    let mut sorted: Vec<&crate::animation::editable::EditableKeyframe> =
+        curve.keyframes.iter().collect();
     sorted.sort_by(|a, b| {
         a.time
             .partial_cmp(&b.time)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
-    let total = sorted.len();
-    if total > BONE_CONTEXT_KEYFRAME_COUNT {
-        sorted = sorted.split_off(total - BONE_CONTEXT_KEYFRAME_COUNT);
-    }
-    sorted
+    let cutoff = sorted
+        .iter()
+        .position(|kf| kf.time > anchor_time + ANCHOR_EPSILON)
+        .unwrap_or(sorted.len());
+    let window_start = cutoff.saturating_sub(BONE_CONTEXT_KEYFRAME_COUNT);
+    (sorted, window_start, cutoff)
 }
 
 fn compute_value_mean_std(
@@ -139,25 +152,50 @@ fn compute_value_mean_std(
 fn write_keyframe_block(
     arrays: &mut BoneContextArrays,
     slot: usize,
-    context_kfs: &[&crate::animation::editable::EditableKeyframe],
+    sorted: &[&crate::animation::editable::EditableKeyframe],
+    window_start: usize,
+    window_end: usize,
     mean: f32,
     std: f32,
     clip_duration: f32,
 ) {
     let duration = clip_duration.max(0.001);
+    let window_len = window_end - window_start;
     let block_size = BONE_CONTEXT_KEYFRAME_COUNT * BONE_CONTEXT_FEATURE_DIM;
     let block_start = slot * block_size;
-    let padding_kfs = BONE_CONTEXT_KEYFRAME_COUNT - context_kfs.len();
+    let padding_kfs = BONE_CONTEXT_KEYFRAME_COUNT - window_len;
     let padding_offset = padding_kfs * BONE_CONTEXT_FEATURE_DIM;
 
-    for (i, kf) in context_kfs.iter().enumerate() {
+    for i in 0..window_len {
+        let global_index = window_start + i;
+        let kf = sorted[global_index];
+        let prev = sorted
+            .get(global_index.wrapping_sub(1))
+            .map(|p| (p.time, p.value));
+        let next = sorted.get(global_index + 1).map(|n| (n.time, n.value));
+
+        let (in_dt, in_dv) = resolve_in_tangent(
+            kf.in_tangent.time_offset,
+            kf.in_tangent.value_offset,
+            prev,
+            kf.time,
+            kf.value,
+        );
+        let (out_dt, out_dv) = resolve_out_tangent(
+            kf.out_tangent.time_offset,
+            kf.out_tangent.value_offset,
+            kf.time,
+            kf.value,
+            next,
+        );
+
         let dst = block_start + padding_offset + i * BONE_CONTEXT_FEATURE_DIM;
         arrays.keyframes[dst] = kf.time / duration;
         arrays.keyframes[dst + 1] = (kf.value - mean) / std;
-        arrays.keyframes[dst + 2] = kf.in_tangent.time_offset / duration;
-        arrays.keyframes[dst + 3] = kf.in_tangent.value_offset / std;
-        arrays.keyframes[dst + 4] = kf.out_tangent.time_offset / duration;
-        arrays.keyframes[dst + 5] = kf.out_tangent.value_offset / std;
+        arrays.keyframes[dst + 2] = in_dt / duration;
+        arrays.keyframes[dst + 3] = in_dv / std;
+        arrays.keyframes[dst + 4] = out_dt / duration;
+        arrays.keyframes[dst + 5] = out_dv / std;
     }
 }
 

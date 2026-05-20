@@ -13,6 +13,7 @@ use thyllore_ml_core::copilot::dump::{dump_curve_copilot_inference, CurveCopilot
 use thyllore_ml_core::copilot::input::CONTEXT_KEYFRAME_COUNT;
 use thyllore_ml_core::copilot::property::{property_kind_to_id, PropertyKind};
 use thyllore_ml_core::copilot::query::generate_query_times;
+use thyllore_ml_core::copilot::tangent_synth::{resolve_in_tangent, resolve_out_tangent};
 use thyllore_ml_core::copilot::window::sample_window;
 use thyllore_model_core::Skeleton;
 
@@ -31,32 +32,54 @@ struct FlatKeyframes {
 }
 
 fn flatten_keyframes_before_anchor(curve: &PropertyCurve, anchor_time: f32) -> FlatKeyframes {
-    let mut sorted: Vec<&crate::animation::editable::EditableKeyframe> = curve
-        .keyframes
-        .iter()
-        .filter(|kf| kf.time <= anchor_time + ANCHOR_EPSILON)
-        .collect();
+    let mut sorted: Vec<&crate::animation::editable::EditableKeyframe> =
+        curve.keyframes.iter().collect();
     sorted.sort_by(|a, b| {
         a.time
             .partial_cmp(&b.time)
             .unwrap_or(std::cmp::Ordering::Equal)
     });
 
+    let cutoff = sorted
+        .iter()
+        .position(|kf| kf.time > anchor_time + ANCHOR_EPSILON)
+        .unwrap_or(sorted.len());
+
     let mut flat = FlatKeyframes {
-        times: Vec::with_capacity(sorted.len()),
-        values: Vec::with_capacity(sorted.len()),
-        in_dt: Vec::with_capacity(sorted.len()),
-        in_dv: Vec::with_capacity(sorted.len()),
-        out_dt: Vec::with_capacity(sorted.len()),
-        out_dv: Vec::with_capacity(sorted.len()),
+        times: Vec::with_capacity(cutoff),
+        values: Vec::with_capacity(cutoff),
+        in_dt: Vec::with_capacity(cutoff),
+        in_dv: Vec::with_capacity(cutoff),
+        out_dt: Vec::with_capacity(cutoff),
+        out_dv: Vec::with_capacity(cutoff),
     };
-    for kf in sorted {
+
+    for i in 0..cutoff {
+        let kf = sorted[i];
+        let prev = sorted.get(i.wrapping_sub(1)).map(|p| (p.time, p.value));
+        let next = sorted.get(i + 1).map(|n| (n.time, n.value));
+
+        let (in_dt, in_dv) = resolve_in_tangent(
+            kf.in_tangent.time_offset,
+            kf.in_tangent.value_offset,
+            prev,
+            kf.time,
+            kf.value,
+        );
+        let (out_dt, out_dv) = resolve_out_tangent(
+            kf.out_tangent.time_offset,
+            kf.out_tangent.value_offset,
+            kf.time,
+            kf.value,
+            next,
+        );
+
         flat.times.push(kf.time);
         flat.values.push(kf.value);
-        flat.in_dt.push(kf.in_tangent.time_offset);
-        flat.in_dv.push(kf.in_tangent.value_offset);
-        flat.out_dt.push(kf.out_tangent.time_offset);
-        flat.out_dv.push(kf.out_tangent.value_offset);
+        flat.in_dt.push(in_dt);
+        flat.in_dv.push(in_dv);
+        flat.out_dt.push(out_dt);
+        flat.out_dv.push(out_dv);
     }
     flat
 }
@@ -590,6 +613,46 @@ mod tests {
 
         let flat = flatten_keyframes_before_anchor(&curve, 2.0);
         assert_eq!(flat.times, vec![0.5, 1.0, 2.0]);
+    }
+
+    #[test]
+    fn flatten_synthesizes_tangents_for_rising_linear_curve_with_zero_handles() {
+        let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
+        curve_add_keyframe(&mut curve, 0.0, -0.48);
+        curve_add_keyframe(&mut curve, 1.0, 0.39);
+        curve_add_keyframe(&mut curve, 2.0, 1.26);
+
+        let flat = flatten_keyframes_before_anchor(&curve, 2.0);
+
+        assert_eq!(flat.in_dt[0], 0.0);
+        assert_eq!(flat.in_dv[0], 0.0);
+
+        assert!(flat.out_dt[0] > 0.0);
+        assert!(flat.out_dv[0] > 0.0);
+
+        assert!(flat.in_dt[1] < 0.0);
+        assert!(flat.in_dv[1] < 0.0);
+        assert!(flat.out_dt[1] > 0.0);
+        assert!(flat.out_dv[1] > 0.0);
+
+        assert!(flat.in_dt[2] < 0.0);
+        assert!(flat.in_dv[2] < 0.0);
+        assert_eq!(flat.out_dt[2], 0.0);
+        assert_eq!(flat.out_dv[2], 0.0);
+    }
+
+    #[test]
+    fn flatten_uses_curve_kf_after_anchor_for_last_out_tangent() {
+        let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
+        curve_add_keyframe(&mut curve, 0.0, 0.0);
+        curve_add_keyframe(&mut curve, 1.0, 1.0);
+        curve_add_keyframe(&mut curve, 2.0, 3.0);
+
+        let flat = flatten_keyframes_before_anchor(&curve, 1.0);
+
+        assert_eq!(flat.times.len(), 2);
+        assert!(flat.out_dt[1] > 0.0);
+        assert!(flat.out_dv[1] > 0.0);
     }
 
     #[test]

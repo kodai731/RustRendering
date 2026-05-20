@@ -16,7 +16,7 @@ pub mod constraint_set_systems;
 mod constraint_solve_systems;
 mod curve_editor_systems;
 #[cfg(feature = "ml")]
-mod curve_suggestion_bone_context;
+pub mod curve_suggestion_bone_context;
 #[cfg(feature = "ml")]
 mod curve_suggestion_systems;
 pub mod debug_constraint_systems;
