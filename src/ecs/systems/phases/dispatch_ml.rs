@@ -51,12 +51,12 @@ pub fn dispatch_curve_suggestion_events(
             }
 
             UIEvent::CurveSuggestionAccept => {
-                let suggestion = {
+                let suggestions = {
                     let state = world.resource::<CurveSuggestionState>();
-                    state.suggestions.first().cloned()
+                    state.suggestions.clone()
                 };
 
-                if let Some(suggestion) = suggestion {
+                if !suggestions.is_empty() {
                     let timeline_state = world.resource::<TimelineState>();
                     let clip_id = timeline_state.current_clip_id;
                     drop(timeline_state);
@@ -64,9 +64,11 @@ pub fn dispatch_curve_suggestion_events(
                     if let Some(cid) = clip_id {
                         let mut clip_library = world.resource_mut::<ClipLibrary>();
                         if let Some(clip) = clip_library.get_mut(cid) {
-                            if let Some(track) = clip.tracks.get_mut(&suggestion.bone_id) {
-                                let curve = track.get_curve_mut(suggestion.property_type);
-                                curve_suggestion_apply(&suggestion, curve);
+                            for suggestion in &suggestions {
+                                if let Some(track) = clip.tracks.get_mut(&suggestion.bone_id) {
+                                    let curve = track.get_curve_mut(suggestion.property_type);
+                                    curve_suggestion_apply(suggestion, curve);
+                                }
                             }
                         }
                     }

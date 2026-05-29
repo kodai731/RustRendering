@@ -13,8 +13,9 @@ use thyllore_ml_core::copilot::rawfuture::{CONTEXT_LENGTH, MAX_HORIZON};
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
 const ANCHOR_EPSILON: f32 = 1.0e-6;
-const DEPLOY_FPS: f32 = 30.0;
-const SUGGESTION_STRIDE: usize = 8;
+const DEPLOY_FPS: f32 = 60.0;
+const SUGGESTION_STRIDE: usize = 1;
+const SUGGESTION_FRAME_COUNT: usize = 8;
 
 fn resolve_anchor_time(curve: &PropertyCurve, current_time: f32) -> Option<f32> {
     curve
@@ -33,21 +34,15 @@ fn find_nearest_keyframe(curve: &PropertyCurve, time: f32) -> Option<&EditableKe
     })
 }
 
-/// Sample the curve at `time`, holding the nearest keyframe value when the time falls
-/// outside the keyframed range (so the dense reconstruction never produces a gap).
 fn sample_or_hold(curve: &PropertyCurve, time: f32) -> f32 {
     curve_sample(curve, time)
         .or_else(|| find_nearest_keyframe(curve, time).map(|kf| kf.value))
         .unwrap_or(0.0)
 }
 
-/// Dense raw windows fed to the rawfuture model, plus the anchors already known in the
-/// future horizon (A/B auto: any existing keyframe after the anchor becomes a revealed
-/// anchor, so the model interpolates; with none it forecasts).
 struct RawFutureWindows {
     context: Vec<f32>,
     future: Vec<f32>,
-    reveal_mask: Vec<bool>,
 }
 
 fn build_rawfuture_windows(curve: &PropertyCurve, origin_time: f32, dt: f32) -> RawFutureWindows {
@@ -64,35 +59,12 @@ fn build_rawfuture_windows(curve: &PropertyCurve, origin_time: f32, dt: f32) -> 
         .map(|i| sample_or_hold(curve, origin_time + (i as f32 + 1.0) * dt))
         .collect();
 
-    let mut reveal_mask = vec![false; MAX_HORIZON];
-    for kf in &curve.keyframes {
-        if kf.time <= origin_time + ANCHOR_EPSILON {
-            continue;
-        }
-        let frame = ((kf.time - origin_time) / dt - 1.0).round();
-        if frame >= 0.0 && (frame as usize) < MAX_HORIZON {
-            let i = frame as usize;
-            if (origin_time + (i as f32 + 1.0) * dt - kf.time).abs() <= dt * 0.5 {
-                reveal_mask[i] = true;
-            }
-        }
-    }
-
-    RawFutureWindows {
-        context,
-        future,
-        reveal_mask,
-    }
+    RawFutureWindows { context, future }
 }
 
-/// Indices of the future frames sampled into ghost suggestions (every `SUGGESTION_STRIDE`).
 fn suggestion_frame_indices() -> impl Iterator<Item = usize> {
-    (SUGGESTION_STRIDE.saturating_sub(1)..MAX_HORIZON).step_by(SUGGESTION_STRIDE)
-}
-
-/// True when at least one suggestion frame is unrevealed, i.e. there is a gap to fill.
-fn has_strided_gap(reveal_mask: &[bool]) -> bool {
-    suggestion_frame_indices().any(|i| !reveal_mask.get(i).copied().unwrap_or(false))
+    let end = SUGGESTION_FRAME_COUNT.min(MAX_HORIZON);
+    (SUGGESTION_STRIDE.saturating_sub(1)..end).step_by(SUGGESTION_STRIDE)
 }
 
 pub struct CurveSuggestionInputs<'a> {
@@ -124,47 +96,29 @@ pub fn curve_suggestion_submit(
     };
     let curve = track.get_curve(property_type);
 
-    // Forecast origin is the current edit time (playhead), not the last keyframe, so the
-    // prediction always starts from "now" and continues the motion leading up to it,
-    // rather than collapsing onto the animation's final settled pose. A keyframe must
-    // exist at or before now so the context window carries real prior motion.
     if resolve_anchor_time(curve, current_time).is_none() {
         return;
     }
     let origin_time = current_time;
 
     let dt = 1.0 / DEPLOY_FPS;
-    let mut windows = build_rawfuture_windows(curve, origin_time, dt);
-
-    // A/B auto: keep revealed anchors only when there is a gap to fill at a suggestion
-    // frame (sparse curve -> interpolation). A densely keyframed curve leaves no gap, so
-    // fall back to forecast (reveal nothing) and predict the continuation from context.
-    if !has_strided_gap(&windows.reveal_mask) {
-        windows.reveal_mask = vec![false; MAX_HORIZON];
-    }
-    let revealed_count = windows.reveal_mask.iter().filter(|&&m| m).count();
-    let regime = if revealed_count > 0 {
-        "A/interp"
-    } else {
-        "B/forecast"
-    };
+    let origin_value = sample_or_hold(curve, origin_time);
+    let windows = build_rawfuture_windows(curve, origin_time, dt);
+    let reveal_mask = vec![false; MAX_HORIZON];
 
     log!(
-        "CurveCopilot input: bone_id={} property={:?} origin={:.4} fps={:.1} \
-         regime={} revealed_anchors={}",
+        "CurveCopilot input: bone_id={} property={:?} origin={:.4} fps={:.1} forecast",
         bone_id,
         property_type,
         origin_time,
         DEPLOY_FPS,
-        regime,
-        revealed_count,
     );
 
     let dump_snapshot = if suggestion_state.dump_inference {
         Some(CurveSuggestionPendingDump {
             context: windows.context.clone(),
             future: windows.future.clone(),
-            reveal_mask: windows.reveal_mask.clone(),
+            reveal_mask: reveal_mask.clone(),
             fps: DEPLOY_FPS,
             anchor_time: origin_time,
         })
@@ -175,7 +129,7 @@ pub fn curve_suggestion_submit(
     let kind = InferenceRequestKind::CurveCopilotPredict {
         context: windows.context,
         future: windows.future,
-        reveal_mask: windows.reveal_mask.clone(),
+        reveal_mask,
         fps: DEPLOY_FPS,
     };
 
@@ -184,8 +138,8 @@ pub fn curve_suggestion_submit(
         suggestion_state.pending_bone_id = Some(bone_id);
         suggestion_state.pending_property_type = Some(property_type);
         suggestion_state.pending_anchor_time = Some(origin_time);
+        suggestion_state.pending_origin_value = Some(origin_value);
         suggestion_state.pending_dt = Some(dt);
-        suggestion_state.pending_reveal_mask = Some(windows.reveal_mask);
         suggestion_state.pending_dump = dump_snapshot;
     }
 }
@@ -216,14 +170,13 @@ pub fn curve_suggestion_poll_results(
                 .unwrap_or(PropertyType::TranslationX);
             let anchor_time = suggestion_state.pending_anchor_time.unwrap_or(0.0);
             let dt = suggestion_state.pending_dt.unwrap_or(1.0 / DEPLOY_FPS);
-            let reveal_mask = suggestion_state
-                .pending_reveal_mask
-                .clone()
-                .unwrap_or_default();
+            let origin_value = suggestion_state
+                .pending_origin_value
+                .unwrap_or_else(|| mean_curve.first().copied().unwrap_or(0.0));
 
             let suggestions = build_suggestions_from_curve(
                 &mean_curve,
-                &reveal_mask,
+                origin_value,
                 anchor_time,
                 dt,
                 bone_id,
@@ -250,14 +203,12 @@ pub fn curve_suggestion_poll_results(
             suggestion_state.pending_bone_id = None;
             suggestion_state.pending_property_type = None;
             suggestion_state.pending_anchor_time = None;
+            suggestion_state.pending_origin_value = None;
             suggestion_state.pending_dt = None;
-            suggestion_state.pending_reveal_mask = None;
         }
     }
 }
 
-/// Velocity (value/second) of the dense predicted curve at frame `i`, matching the
-/// central / one-sided finite differences used to build the model's tangent feature.
 fn predicted_velocity(mean_curve: &[f32], i: usize, dt: f32) -> f32 {
     let n = mean_curve.len();
     if n < 2 {
@@ -272,13 +223,9 @@ fn predicted_velocity(mean_curve: &[f32], i: usize, dt: f32) -> f32 {
     }
 }
 
-/// Sample the dense predicted curve at a fixed stride into ghost keyframe suggestions.
-/// Frames that already hold a keyframe (revealed anchors) are skipped, so only the
-/// model's filled-in / forecast frames are offered. Bezier handles span a third of the
-/// stride, following the editor's 1/3 tangent convention.
 fn build_suggestions_from_curve(
     mean_curve: &[f32],
-    reveal_mask: &[bool],
+    origin_value: f32,
     anchor_time: f32,
     dt: f32,
     bone_id: BoneId,
@@ -286,10 +233,11 @@ fn build_suggestions_from_curve(
     request_id: crate::ml::InferenceRequestId,
 ) -> Vec<GhostCurveSuggestion> {
     let handle_dt = SUGGESTION_STRIDE as f32 * dt / 3.0;
+    let continuity_offset = mean_curve.first().map_or(0.0, |first| origin_value - first);
     let mut suggestions = Vec::new();
 
     for i in suggestion_frame_indices() {
-        if i >= mean_curve.len() || reveal_mask.get(i).copied().unwrap_or(false) {
+        if i >= mean_curve.len() {
             continue;
         }
         let velocity = predicted_velocity(mean_curve, i, dt);
@@ -298,7 +246,7 @@ fn build_suggestions_from_curve(
             bone_id,
             property_type,
             predicted_time: anchor_time + (i as f32 + 1.0) * dt,
-            predicted_value: mean_curve[i],
+            predicted_value: mean_curve[i] + continuity_offset,
             tangent_in: (-handle_dt, -handle_dv),
             tangent_out: (handle_dt, handle_dv),
             confidence: 1.0,
@@ -400,60 +348,37 @@ mod tests {
     }
 
     #[test]
-    fn build_windows_marks_future_keyframe_as_revealed_anchor() {
+    fn build_windows_have_fixed_lengths() {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
         curve_add_keyframe(&mut curve, 0.0, 0.0);
         let dt = 1.0 / DEPLOY_FPS;
-        let future_kf_time = (8.0 + 1.0) * dt;
-        curve_add_keyframe(&mut curve, future_kf_time, 5.0);
 
         let windows = build_rawfuture_windows(&curve, 0.0, dt);
         assert_eq!(windows.context.len(), CONTEXT_LENGTH);
         assert_eq!(windows.future.len(), MAX_HORIZON);
-        assert!(
-            windows.reveal_mask[8],
-            "future keyframe should reveal frame 8"
-        );
-        assert_eq!(windows.reveal_mask.iter().filter(|&&m| m).count(), 1);
     }
 
     #[test]
-    fn dense_reveal_mask_has_no_strided_gap_triggering_forecast_fallback() {
-        let all_revealed = vec![true; MAX_HORIZON];
-        assert!(!has_strided_gap(&all_revealed));
-
-        let mut sparse = vec![true; MAX_HORIZON];
-        sparse[SUGGESTION_STRIDE - 1] = false;
-        assert!(has_strided_gap(&sparse));
-    }
-
-    #[test]
-    fn build_suggestions_skips_revealed_frames_and_uses_predicted_values() {
-        let mean_curve: Vec<f32> = (0..MAX_HORIZON).map(|i| i as f32).collect();
-        let mut reveal_mask = vec![false; MAX_HORIZON];
-        reveal_mask[SUGGESTION_STRIDE - 1] = true;
+    fn first_suggestion_is_one_frame_after_origin_and_continuous() {
+        let mean_curve: Vec<f32> = (0..MAX_HORIZON).map(|i| 100.0 + i as f32).collect();
+        let origin_time = 0.5;
+        let origin_value = 7.0;
+        let dt = 1.0 / DEPLOY_FPS;
 
         let suggestions = build_suggestions_from_curve(
             &mean_curve,
-            &reveal_mask,
-            0.0,
-            1.0 / DEPLOY_FPS,
+            origin_value,
+            origin_time,
+            dt,
             0,
             PropertyType::TranslationX,
             1,
         );
 
-        assert!(!suggestions.is_empty());
-        assert!(suggestions
-            .iter()
-            .all(|s| (s.predicted_value - (s.predicted_value.round())).abs() < 1e-3));
-        let first_index = SUGGESTION_STRIDE - 1;
-        assert!(
-            suggestions
-                .iter()
-                .all(|s| (s.predicted_value - first_index as f32).abs() > 1e-3),
-            "revealed frame must be skipped"
-        );
+        assert_eq!(suggestions.len(), SUGGESTION_FRAME_COUNT);
+        assert!((suggestions[0].predicted_time - (origin_time + dt)).abs() < 1e-6);
+        assert!((suggestions[0].predicted_value - origin_value).abs() < 1e-6);
+        assert!((suggestions[1].predicted_value - (origin_value + 1.0)).abs() < 1e-6);
     }
 
     #[test]
