@@ -16,15 +16,9 @@ pub enum InferenceRequestKind {
     },
     CurveCopilotPredict {
         context: Vec<f32>,
-        property_type_id: u32,
-        topology_features: Vec<f32>,
-        bone_name_tokens: Vec<i64>,
-        query_times: Vec<f32>,
-        curve_window: Vec<f32>,
-        bone_context_keyframes: Vec<f32>,
-        bone_context_topology: Vec<f32>,
-        bone_context_rest_positions: Vec<f32>,
-        bone_context_mask: Vec<bool>,
+        future: Vec<f32>,
+        reveal_mask: Vec<bool>,
+        fps: f32,
     },
 }
 
@@ -46,7 +40,7 @@ pub struct CopilotStepPrediction {
 #[derive(Clone, Debug)]
 pub enum InferenceResultKind {
     CurvePredict { output: Vec<f32> },
-    CurveCopilotPredict { steps: Vec<CopilotStepPrediction> },
+    CurveCopilotPredict { mean_curve: Vec<f32> },
 }
 
 #[derive(Clone, Debug)]
