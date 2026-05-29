@@ -3,11 +3,17 @@ use std::thread;
 
 use anyhow::Result;
 
-use thyllore_ml_core::copilot::input::BoneContextInput;
-use thyllore_ml_core::copilot::session::{CurveCopilotRequest, Session};
+use thyllore_ml_core::copilot::rawfuture::{RawFutureRequest, RawFutureSession, MAX_HORIZON};
+use thyllore_ml_core::copilot::session::Session;
 use thyllore_ml_core::{
-    InferenceActorId, InferenceRequest, InferenceRequestKind, InferenceResult, InferenceResultKind,
+    InferenceActorId, InferenceModelKind, InferenceRequest, InferenceRequestKind, InferenceResult,
+    InferenceResultKind,
 };
+
+enum SessionBackend {
+    Generic(Session),
+    RawFuture(RawFutureSession),
+}
 
 pub struct InferenceThreadHandle {
     sender: Option<mpsc::Sender<InferenceRequest>>,
@@ -17,17 +23,30 @@ pub struct InferenceThreadHandle {
 }
 
 impl InferenceThreadHandle {
-    pub fn spawn(model_path: &str, actor_id: InferenceActorId) -> Result<Self> {
+    pub fn spawn(
+        model_path: &str,
+        actor_id: InferenceActorId,
+        model_kind: InferenceModelKind,
+    ) -> Result<Self> {
         let (req_tx, req_rx) = mpsc::channel::<InferenceRequest>();
         let (res_tx, res_rx) = mpsc::channel::<InferenceResult>();
 
-        let session = Session::from_onnx_path(model_path)?;
-        let max_steps = session.max_steps();
+        let (backend, max_steps) = match model_kind {
+            InferenceModelKind::CurveCopilot => (
+                SessionBackend::RawFuture(RawFutureSession::from_onnx_path(model_path)?),
+                Some(MAX_HORIZON),
+            ),
+            InferenceModelKind::CurvePredictor => {
+                let session = Session::from_onnx_path(model_path)?;
+                let max_steps = session.max_steps();
+                (SessionBackend::Generic(session), max_steps)
+            }
+        };
 
         let join_handle = thread::Builder::new()
             .name(format!("inference-actor-{}", actor_id))
             .spawn(move || {
-                run_inference_loop(session, req_rx, res_tx);
+                run_inference_loop(backend, req_rx, res_tx);
             })?;
 
         Ok(Self {
@@ -65,12 +84,12 @@ impl Drop for InferenceThreadHandle {
 }
 
 fn run_inference_loop(
-    mut session: Session,
+    mut backend: SessionBackend,
     receiver: mpsc::Receiver<InferenceRequest>,
     sender: mpsc::Sender<InferenceResult>,
 ) {
     while let Ok(request) = receiver.recv() {
-        match execute_inference(&mut session, &request) {
+        match execute_inference(&mut backend, &request) {
             Ok(result_kind) => {
                 let response = InferenceResult {
                     request_id: request.request_id,
@@ -89,49 +108,40 @@ fn run_inference_loop(
 }
 
 fn execute_inference(
-    session: &mut Session,
+    backend: &mut SessionBackend,
     request: &InferenceRequest,
 ) -> Result<InferenceResultKind> {
-    match &request.kind {
-        InferenceRequestKind::CurvePredict { input } => {
+    match (backend, &request.kind) {
+        (SessionBackend::Generic(session), InferenceRequestKind::CurvePredict { input }) => {
             let output = session.run_curve_predict(input)?;
             Ok(InferenceResultKind::CurvePredict { output })
         }
 
-        InferenceRequestKind::CurveCopilotPredict {
-            context,
-            property_type_id,
-            topology_features,
-            bone_name_tokens,
-            query_times,
-            curve_window,
-            bone_context_keyframes,
-            bone_context_topology,
-            bone_context_rest_positions,
-            bone_context_mask,
-        } => {
-            let steps = session.run_curve_copilot(CurveCopilotRequest {
+        (
+            SessionBackend::RawFuture(session),
+            InferenceRequestKind::CurveCopilotPredict {
                 context,
-                property_type_id: *property_type_id,
-                topology_features,
-                bone_name_tokens,
-                query_times,
-                curve_window,
-                bone_context: BoneContextInput {
-                    keyframes: bone_context_keyframes,
-                    topology: bone_context_topology,
-                    rest_positions: bone_context_rest_positions,
-                    mask: bone_context_mask,
-                },
+                future,
+                reveal_mask,
+                fps,
+            },
+        ) => {
+            let mean_curve = session.predict_mean_curve(RawFutureRequest {
+                context,
+                future,
+                reveal_mask,
+                fps: *fps,
             })?;
 
             log!(
-                "CurveCopilot raw output: {} steps, query_times={:?}",
-                steps.len(),
-                query_times
+                "CurveCopilot raw output: {} dense values (fps={:.1})",
+                mean_curve.len(),
+                fps
             );
 
-            Ok(InferenceResultKind::CurveCopilotPredict { steps })
+            Ok(InferenceResultKind::CurveCopilotPredict { mean_curve })
         }
+
+        (_, kind) => anyhow::bail!("inference backend does not support request {:?}", kind),
     }
 }

@@ -4,85 +4,17 @@ use crate::animation::editable::{
 };
 use crate::animation::BoneId;
 use crate::ecs::resource::{
-    BoneNameTokenCache, BoneRestPositionCache, BoneTopologyCache, CurveSuggestionPendingDump,
-    CurveSuggestionState, GhostCurveSuggestion, InferenceActorState,
+    CurveSuggestionPendingDump, CurveSuggestionState, GhostCurveSuggestion, InferenceActorState,
 };
 use crate::ml::{InferenceActorId, InferenceRequestKind, InferenceResultKind};
-use thyllore_ml_core::copilot::context::flatten_context;
-use thyllore_ml_core::copilot::dump::{dump_curve_copilot_inference, CurveCopilotInferenceDump};
-use thyllore_ml_core::copilot::input::CONTEXT_KEYFRAME_COUNT;
-use thyllore_ml_core::copilot::property::{property_kind_to_id, PropertyKind};
-use thyllore_ml_core::copilot::query::generate_query_times;
-use thyllore_ml_core::copilot::tangent_synth::{resolve_in_tangent, resolve_out_tangent};
-use thyllore_ml_core::copilot::window::sample_window;
-use thyllore_model_core::Skeleton;
+use thyllore_ml_core::copilot::dump::{dump_rawfuture_inference, RawFutureInferenceDump};
+use thyllore_ml_core::copilot::rawfuture::{CONTEXT_LENGTH, MAX_HORIZON};
 
-use super::curve_suggestion_bone_context::{build_bone_context_arrays, BoneContextRequest};
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
-const MIN_CURVE_STD: f32 = 0.01;
+
 const ANCHOR_EPSILON: f32 = 1.0e-6;
-
-struct FlatKeyframes {
-    times: Vec<f32>,
-    values: Vec<f32>,
-    in_dt: Vec<f32>,
-    in_dv: Vec<f32>,
-    out_dt: Vec<f32>,
-    out_dv: Vec<f32>,
-}
-
-fn flatten_keyframes_before_anchor(curve: &PropertyCurve, anchor_time: f32) -> FlatKeyframes {
-    let mut sorted: Vec<&crate::animation::editable::EditableKeyframe> =
-        curve.keyframes.iter().collect();
-    sorted.sort_by(|a, b| {
-        a.time
-            .partial_cmp(&b.time)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    let cutoff = sorted
-        .iter()
-        .position(|kf| kf.time > anchor_time + ANCHOR_EPSILON)
-        .unwrap_or(sorted.len());
-
-    let mut flat = FlatKeyframes {
-        times: Vec::with_capacity(cutoff),
-        values: Vec::with_capacity(cutoff),
-        in_dt: Vec::with_capacity(cutoff),
-        in_dv: Vec::with_capacity(cutoff),
-        out_dt: Vec::with_capacity(cutoff),
-        out_dv: Vec::with_capacity(cutoff),
-    };
-
-    for i in 0..cutoff {
-        let kf = sorted[i];
-        let prev = sorted.get(i.wrapping_sub(1)).map(|p| (p.time, p.value));
-        let next = sorted.get(i + 1).map(|n| (n.time, n.value));
-
-        let (in_dt, in_dv) = resolve_in_tangent(
-            kf.in_tangent.time_offset,
-            kf.in_tangent.value_offset,
-            prev,
-            kf.time,
-            kf.value,
-        );
-        let (out_dt, out_dv) = resolve_out_tangent(
-            kf.out_tangent.time_offset,
-            kf.out_tangent.value_offset,
-            kf.time,
-            kf.value,
-            next,
-        );
-
-        flat.times.push(kf.time);
-        flat.values.push(kf.value);
-        flat.in_dt.push(in_dt);
-        flat.in_dv.push(in_dv);
-        flat.out_dt.push(out_dt);
-        flat.out_dv.push(out_dv);
-    }
-    flat
-}
+const DEPLOY_FPS: f32 = 30.0;
+const SUGGESTION_STRIDE: usize = 8;
 
 fn resolve_anchor_time(curve: &PropertyCurve, current_time: f32) -> Option<f32> {
     curve
@@ -93,26 +25,78 @@ fn resolve_anchor_time(curve: &PropertyCurve, current_time: f32) -> Option<f32> 
         .fold(None, |acc, t| Some(acc.map_or(t, |best: f32| best.max(t))))
 }
 
-fn property_type_to_kind(pt: PropertyType) -> PropertyKind {
-    match pt {
-        PropertyType::TranslationX => PropertyKind::TranslationX,
-        PropertyType::TranslationY => PropertyKind::TranslationY,
-        PropertyType::TranslationZ => PropertyKind::TranslationZ,
-        PropertyType::RotationX => PropertyKind::RotationX,
-        PropertyType::RotationY => PropertyKind::RotationY,
-        PropertyType::RotationZ => PropertyKind::RotationZ,
-        PropertyType::ScaleX => PropertyKind::ScaleX,
-        PropertyType::ScaleY => PropertyKind::ScaleY,
-        PropertyType::ScaleZ => PropertyKind::ScaleZ,
+fn find_nearest_keyframe(curve: &PropertyCurve, time: f32) -> Option<&EditableKeyframe> {
+    curve.keyframes.iter().min_by(|a, b| {
+        let da = (a.time - time).abs();
+        let db = (b.time - time).abs();
+        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
+    })
+}
+
+/// Sample the curve at `time`, holding the nearest keyframe value when the time falls
+/// outside the keyframed range (so the dense reconstruction never produces a gap).
+fn sample_or_hold(curve: &PropertyCurve, time: f32) -> f32 {
+    curve_sample(curve, time)
+        .or_else(|| find_nearest_keyframe(curve, time).map(|kf| kf.value))
+        .unwrap_or(0.0)
+}
+
+/// Dense raw windows fed to the rawfuture model, plus the anchors already known in the
+/// future horizon (A/B auto: any existing keyframe after the anchor becomes a revealed
+/// anchor, so the model interpolates; with none it forecasts).
+struct RawFutureWindows {
+    context: Vec<f32>,
+    future: Vec<f32>,
+    reveal_mask: Vec<bool>,
+}
+
+fn build_rawfuture_windows(curve: &PropertyCurve, origin_time: f32, dt: f32) -> RawFutureWindows {
+    let context: Vec<f32> = (0..CONTEXT_LENGTH)
+        .map(|i| {
+            sample_or_hold(
+                curve,
+                origin_time + (i as f32 - (CONTEXT_LENGTH as f32 - 1.0)) * dt,
+            )
+        })
+        .collect();
+
+    let future: Vec<f32> = (0..MAX_HORIZON)
+        .map(|i| sample_or_hold(curve, origin_time + (i as f32 + 1.0) * dt))
+        .collect();
+
+    let mut reveal_mask = vec![false; MAX_HORIZON];
+    for kf in &curve.keyframes {
+        if kf.time <= origin_time + ANCHOR_EPSILON {
+            continue;
+        }
+        let frame = ((kf.time - origin_time) / dt - 1.0).round();
+        if frame >= 0.0 && (frame as usize) < MAX_HORIZON {
+            let i = frame as usize;
+            if (origin_time + (i as f32 + 1.0) * dt - kf.time).abs() <= dt * 0.5 {
+                reveal_mask[i] = true;
+            }
+        }
     }
+
+    RawFutureWindows {
+        context,
+        future,
+        reveal_mask,
+    }
+}
+
+/// Indices of the future frames sampled into ghost suggestions (every `SUGGESTION_STRIDE`).
+fn suggestion_frame_indices() -> impl Iterator<Item = usize> {
+    (SUGGESTION_STRIDE.saturating_sub(1)..MAX_HORIZON).step_by(SUGGESTION_STRIDE)
+}
+
+/// True when at least one suggestion frame is unrevealed, i.e. there is a gap to fill.
+fn has_strided_gap(reveal_mask: &[bool]) -> bool {
+    suggestion_frame_indices().any(|i| !reveal_mask.get(i).copied().unwrap_or(false))
 }
 
 pub struct CurveSuggestionInputs<'a> {
     pub clip: &'a EditableAnimationClip,
-    pub skeleton: &'a Skeleton,
-    pub topology_cache: &'a BoneTopologyCache,
-    pub name_token_cache: &'a BoneNameTokenCache,
-    pub rest_position_cache: &'a BoneRestPositionCache,
 }
 
 pub fn curve_suggestion_submit(
@@ -135,163 +119,75 @@ pub fn curve_suggestion_submit(
         current_time,
     );
 
-    let Some(max_steps) = inference_state.actor_max_steps(actor_id) else {
-        log_warn!(
-            "curve_suggestion_submit: actor {} has no max_steps metadata; skipping request",
-            actor_id
-        );
-        return;
-    };
-
     let Some(track) = inputs.clip.get_track(bone_id) else {
         return;
     };
     let curve = track.get_curve(property_type);
-    let clip_duration = inputs.clip.duration;
 
-    let Some(anchor_time) = resolve_anchor_time(curve, current_time) else {
-        return;
-    };
-
-    let flat = flatten_keyframes_before_anchor(curve, anchor_time);
-    let context = flatten_context(
-        &flat.times,
-        &flat.values,
-        &flat.in_dt,
-        &flat.in_dv,
-        &flat.out_dt,
-        &flat.out_dv,
-        CONTEXT_KEYFRAME_COUNT,
-        clip_duration,
-    );
-
-    if context.curve_std < MIN_CURVE_STD {
+    // Forecast origin is the current edit time (playhead), not the last keyframe, so the
+    // prediction always starts from "now" and continues the motion leading up to it,
+    // rather than collapsing onto the animation's final settled pose. A keyframe must
+    // exist at or before now so the context window carries real prior motion.
+    if resolve_anchor_time(curve, current_time).is_none() {
         return;
     }
+    let origin_time = current_time;
 
-    let property_type_id = property_kind_to_id(property_type_to_kind(property_type));
-    let topology_features = inputs.topology_cache.get(bone_id).to_vec();
-    let bone_name_tokens = inputs.name_token_cache.get(bone_id).to_vec();
+    let dt = 1.0 / DEPLOY_FPS;
+    let mut windows = build_rawfuture_windows(curve, origin_time, dt);
 
-    let all_times: Vec<f32> = curve.keyframes.iter().map(|kf| kf.time).collect();
-    let query_times = generate_query_times(&all_times, anchor_time, clip_duration, max_steps);
+    // A/B auto: keep revealed anchors only when there is a gap to fill at a suggestion
+    // frame (sparse curve -> interpolation). A densely keyframed curve leaves no gap, so
+    // fall back to forecast (reveal nothing) and predict the continuation from context.
+    if !has_strided_gap(&windows.reveal_mask) {
+        windows.reveal_mask = vec![false; MAX_HORIZON];
+    }
+    let revealed_count = windows.reveal_mask.iter().filter(|&&m| m).count();
+    let regime = if revealed_count > 0 {
+        "A/interp"
+    } else {
+        "B/forecast"
+    };
 
-    let context_window_kfs = flat.times.len().min(CONTEXT_KEYFRAME_COUNT);
-    let context_start_index = flat.times.len().saturating_sub(context_window_kfs);
-    let context_start_time = flat
-        .times
-        .get(context_start_index)
-        .copied()
-        .unwrap_or(anchor_time);
-    let curve_window = sample_window(
-        &flat.times,
-        &flat.values,
-        context_start_time,
-        anchor_time,
-        context.curve_mean,
-        context.curve_std,
-    );
-
-    let bone_context = build_bone_context_arrays(BoneContextRequest {
-        clip: inputs.clip,
-        skeleton: inputs.skeleton,
-        topology_cache: inputs.topology_cache,
-        rest_position_cache: inputs.rest_position_cache,
-        property_type,
-        anchor_time,
-        clip_duration,
-    });
-
-    let denorm_query_times: Vec<f32> = query_times
-        .iter()
-        .map(|t| t * clip_duration.max(0.001))
-        .collect();
-
-    let bone_name = inputs
-        .skeleton
-        .bones
-        .get(bone_id as usize)
-        .map(|b| b.name.as_str())
-        .unwrap_or("<unknown>");
-    let token_tail: Vec<i64> = bone_name_tokens
-        .iter()
-        .skip_while(|&&t| t == 0)
-        .copied()
-        .collect();
-    let mask_true_count = bone_context.mask.iter().filter(|&&m| m).count();
     log!(
-        "CurveCopilot input: bone='{}' tokens_nonpad={:?} mask_true={}/{} \
-         clip_dur={:.3} curve_mean={:.4} curve_std={:.4} anchor={:.4} property={:?}",
-        bone_name,
-        token_tail,
-        mask_true_count,
-        bone_context.mask.len(),
-        clip_duration,
-        context.curve_mean,
-        context.curve_std,
-        anchor_time,
+        "CurveCopilot input: bone_id={} property={:?} origin={:.4} fps={:.1} \
+         regime={} revealed_anchors={}",
+        bone_id,
         property_type,
+        origin_time,
+        DEPLOY_FPS,
+        regime,
+        revealed_count,
     );
-
-    let real_curve_samples: Vec<Option<f32>> = denorm_query_times
-        .iter()
-        .map(|t| curve_sample(curve, *t))
-        .collect();
-    let nearest_keyframes: Vec<Option<(f32, f32)>> = denorm_query_times
-        .iter()
-        .map(|t| find_nearest_keyframe(curve, *t).map(|kf| (kf.time, kf.value)))
-        .collect();
 
     let dump_snapshot = if suggestion_state.dump_inference {
         Some(CurveSuggestionPendingDump {
-            context_keyframes: context.flat.clone(),
-            property_type_id,
-            topology_features: topology_features.clone(),
-            bone_name_tokens: bone_name_tokens.clone(),
-            query_times_normalized: query_times.clone(),
-            curve_window: curve_window.to_vec(),
-            bone_context_keyframes: bone_context.keyframes.clone(),
-            bone_context_topology: bone_context.topology.clone(),
-            bone_context_rest_positions: bone_context.rest_positions.clone(),
-            bone_context_mask: bone_context.mask.clone(),
+            context: windows.context.clone(),
+            future: windows.future.clone(),
+            reveal_mask: windows.reveal_mask.clone(),
+            fps: DEPLOY_FPS,
+            anchor_time: origin_time,
         })
     } else {
         None
     };
 
     let kind = InferenceRequestKind::CurveCopilotPredict {
-        context: context.flat,
-        property_type_id,
-        topology_features,
-        bone_name_tokens,
-        query_times,
-        curve_window: curve_window.to_vec(),
-        bone_context_keyframes: bone_context.keyframes,
-        bone_context_topology: bone_context.topology,
-        bone_context_rest_positions: bone_context.rest_positions,
-        bone_context_mask: bone_context.mask,
+        context: windows.context,
+        future: windows.future,
+        reveal_mask: windows.reveal_mask.clone(),
+        fps: DEPLOY_FPS,
     };
 
     if let Some(request_id) = inference_actor_submit(inference_state, actor_id, kind) {
         suggestion_state.pending_request_id = Some(request_id);
         suggestion_state.pending_bone_id = Some(bone_id);
         suggestion_state.pending_property_type = Some(property_type);
-        suggestion_state.pending_clip_duration = Some(clip_duration);
-        suggestion_state.pending_curve_mean = Some(context.curve_mean);
-        suggestion_state.pending_curve_std = Some(context.curve_std);
-        suggestion_state.pending_query_times = Some(denorm_query_times);
-        suggestion_state.pending_real_curve_samples = Some(real_curve_samples);
-        suggestion_state.pending_nearest_keyframes = Some(nearest_keyframes);
+        suggestion_state.pending_anchor_time = Some(origin_time);
+        suggestion_state.pending_dt = Some(dt);
+        suggestion_state.pending_reveal_mask = Some(windows.reveal_mask);
         suggestion_state.pending_dump = dump_snapshot;
     }
-}
-
-fn find_nearest_keyframe(curve: &PropertyCurve, time: f32) -> Option<&EditableKeyframe> {
-    curve.keyframes.iter().min_by(|a, b| {
-        let da = (a.time - time).abs();
-        let db = (b.time - time).abs();
-        da.partial_cmp(&db).unwrap_or(std::cmp::Ordering::Equal)
-    })
 }
 
 pub fn curve_suggestion_poll_results(
@@ -313,216 +209,116 @@ pub fn curve_suggestion_poll_results(
             continue;
         }
 
-        if let InferenceResultKind::CurveCopilotPredict { steps } = result.kind {
+        if let InferenceResultKind::CurveCopilotPredict { mean_curve } = result.kind {
             let bone_id = suggestion_state.pending_bone_id.unwrap_or(0);
             let property_type = suggestion_state
                 .pending_property_type
                 .unwrap_or(PropertyType::TranslationX);
-
-            let clip_duration = suggestion_state.pending_clip_duration.unwrap_or(1.0);
-            let curve_mean = suggestion_state.pending_curve_mean.unwrap_or(0.0);
-            let curve_std = suggestion_state.pending_curve_std.unwrap_or(1.0);
-            let query_times = suggestion_state
-                .pending_query_times
-                .clone()
-                .unwrap_or_default();
-            let real_samples = suggestion_state
-                .pending_real_curve_samples
-                .clone()
-                .unwrap_or_default();
-            let nearest_kfs = suggestion_state
-                .pending_nearest_keyframes
+            let anchor_time = suggestion_state.pending_anchor_time.unwrap_or(0.0);
+            let dt = suggestion_state.pending_dt.unwrap_or(1.0 / DEPLOY_FPS);
+            let reveal_mask = suggestion_state
+                .pending_reveal_mask
                 .clone()
                 .unwrap_or_default();
 
-            let collapse_threshold_time = clip_duration.max(0.001) * 0.01;
-            let collapse_threshold_value = curve_std.max(1e-6) * 0.05;
-            let mut sign_violation_count = 0usize;
-            let mut collapsed_count = 0usize;
-            let mut max_abs_tan_time = 0.0f32;
-
-            for (i, step) in steps.iter().enumerate() {
-                let predicted_time = query_times.get(i).copied().unwrap_or(0.0);
-
-                let denorm_value = step.value * curve_std + curve_mean;
-                let denorm_tan_in = (
-                    step.tangent_in.0 * clip_duration,
-                    step.tangent_in.1 * curve_std,
-                );
-                let denorm_tan_out = (
-                    step.tangent_out.0 * clip_duration,
-                    step.tangent_out.1 * curve_std,
-                );
-
-                suggestion_state.suggestions.push(GhostCurveSuggestion {
-                    bone_id,
-                    property_type,
-                    predicted_time,
-                    predicted_value: denorm_value,
-                    tangent_in: denorm_tan_in,
-                    tangent_out: denorm_tan_out,
-                    confidence: step.confidence,
-                    request_id: result.request_id,
-                });
-
-                let in_sign_violation = denorm_tan_in.0 > 0.0;
-                let out_sign_violation = denorm_tan_out.0 < 0.0;
-                let sign_flag = match (in_sign_violation, out_sign_violation) {
-                    (true, true) => "BOTH",
-                    (true, false) => "IN",
-                    (false, true) => "OUT",
-                    (false, false) => "ok",
-                };
-                if in_sign_violation || out_sign_violation {
-                    sign_violation_count += 1;
-                }
-
-                let is_collapsed = denorm_tan_in.0.abs() < collapse_threshold_time
-                    && denorm_tan_out.0.abs() < collapse_threshold_time
-                    && denorm_tan_in.1.abs() < collapse_threshold_value
-                    && denorm_tan_out.1.abs() < collapse_threshold_value;
-                if is_collapsed {
-                    collapsed_count += 1;
-                }
-
-                max_abs_tan_time = max_abs_tan_time
-                    .max(denorm_tan_in.0.abs())
-                    .max(denorm_tan_out.0.abs());
-
-                let real_value_str = match real_samples.get(i).copied().flatten() {
-                    Some(v) => format!("{:+.4}", v),
-                    None => "n/a".to_string(),
-                };
-                let delta_str = match real_samples.get(i).copied().flatten() {
-                    Some(v) => format!("{:+.4}", denorm_value - v),
-                    None => "n/a".to_string(),
-                };
-                let nearest_kf_str = match nearest_kfs.get(i).copied().flatten() {
-                    Some((kf_t, kf_v)) => format!("t={:.4} val={:+.4}", kf_t, kf_v),
-                    None => "none".to_string(),
-                };
-
-                log!(
-                    "CurveCopilot: step {}/{} conf={:.2} val={:.4} t={:.4} \
-                     in_tan=({:+.5},{:+.5}) out_tan=({:+.5},{:+.5}) sign={}{} \
-                     real_val={} delta={} nearest_kf=[{}]",
-                    i + 1,
-                    steps.len(),
-                    step.confidence,
-                    denorm_value,
-                    predicted_time,
-                    denorm_tan_in.0,
-                    denorm_tan_in.1,
-                    denorm_tan_out.0,
-                    denorm_tan_out.1,
-                    sign_flag,
-                    if is_collapsed { " COLLAPSED" } else { "" },
-                    real_value_str,
-                    delta_str,
-                    nearest_kf_str,
-                );
-            }
-
-            log!(
-                "CurveCopilot summary: steps={} sign_violations={}/{} ({:.0}%) \
-                 collapsed={}/{} ({:.0}%) max_abs_tan_time={:.5} (thr={:.5})",
-                steps.len(),
-                sign_violation_count,
-                steps.len(),
-                100.0 * sign_violation_count as f32 / steps.len().max(1) as f32,
-                collapsed_count,
-                steps.len(),
-                100.0 * collapsed_count as f32 / steps.len().max(1) as f32,
-                max_abs_tan_time,
-                collapse_threshold_time,
+            let suggestions = build_suggestions_from_curve(
+                &mean_curve,
+                &reveal_mask,
+                anchor_time,
+                dt,
+                bone_id,
+                property_type,
+                result.request_id,
             );
 
+            log!(
+                "CurveCopilot output: {} dense values -> {} ghost suggestions \
+                 (anchor={:.4} dt={:.4})",
+                mean_curve.len(),
+                suggestions.len(),
+                anchor_time,
+                dt,
+            );
+
+            suggestion_state.suggestions.extend(suggestions);
+
             if let Some(snapshot) = suggestion_state.pending_dump.take() {
-                write_inference_dump(
-                    &snapshot,
-                    &steps,
-                    clip_duration,
-                    curve_mean,
-                    curve_std,
-                    &query_times,
-                    &real_samples,
-                    &nearest_kfs,
-                );
+                write_inference_dump(&snapshot, &mean_curve);
             }
 
             suggestion_state.pending_request_id = None;
             suggestion_state.pending_bone_id = None;
             suggestion_state.pending_property_type = None;
-            suggestion_state.pending_clip_duration = None;
-            suggestion_state.pending_curve_mean = None;
-            suggestion_state.pending_curve_std = None;
-            suggestion_state.pending_query_times = None;
-            suggestion_state.pending_real_curve_samples = None;
-            suggestion_state.pending_nearest_keyframes = None;
+            suggestion_state.pending_anchor_time = None;
+            suggestion_state.pending_dt = None;
+            suggestion_state.pending_reveal_mask = None;
         }
     }
 }
 
-fn write_inference_dump(
-    snapshot: &CurveSuggestionPendingDump,
-    steps: &[thyllore_ml_core::copilot::CopilotStepPrediction],
-    clip_duration: f32,
-    curve_mean: f32,
-    curve_std: f32,
-    denorm_query_times: &[f32],
-    real_samples: &[Option<f32>],
-    nearest_kfs: &[Option<(f32, f32)>],
-) {
-    let onnx_features_per_step = 5_i64;
-    let mut onnx_predictions = Vec::with_capacity(steps.len() * onnx_features_per_step as usize);
-    let mut onnx_confidences = Vec::with_capacity(steps.len());
-    for step in steps {
-        onnx_predictions.push(step.value);
-        onnx_predictions.push(step.tangent_in.0);
-        onnx_predictions.push(step.tangent_in.1);
-        onnx_predictions.push(step.tangent_out.0);
-        onnx_predictions.push(step.tangent_out.1);
-        onnx_confidences.push(step.confidence);
+/// Velocity (value/second) of the dense predicted curve at frame `i`, matching the
+/// central / one-sided finite differences used to build the model's tangent feature.
+fn predicted_velocity(mean_curve: &[f32], i: usize, dt: f32) -> f32 {
+    let n = mean_curve.len();
+    if n < 2 {
+        return 0.0;
     }
+    if i == 0 {
+        (mean_curve[1] - mean_curve[0]) / dt
+    } else if i == n - 1 {
+        (mean_curve[n - 1] - mean_curve[n - 2]) / dt
+    } else {
+        (mean_curve[i + 1] - mean_curve[i - 1]) / (2.0 * dt)
+    }
+}
 
-    let real_curve_samples: Vec<f32> = real_samples
-        .iter()
-        .map(|opt| opt.unwrap_or(f32::NAN))
-        .collect();
-    let nearest_keyframe_times: Vec<f32> = nearest_kfs
-        .iter()
-        .map(|opt| opt.map(|(t, _)| t).unwrap_or(f32::NAN))
-        .collect();
-    let nearest_keyframe_values: Vec<f32> = nearest_kfs
-        .iter()
-        .map(|opt| opt.map(|(_, v)| v).unwrap_or(f32::NAN))
-        .collect();
+/// Sample the dense predicted curve at a fixed stride into ghost keyframe suggestions.
+/// Frames that already hold a keyframe (revealed anchors) are skipped, so only the
+/// model's filled-in / forecast frames are offered. Bezier handles span a third of the
+/// stride, following the editor's 1/3 tangent convention.
+fn build_suggestions_from_curve(
+    mean_curve: &[f32],
+    reveal_mask: &[bool],
+    anchor_time: f32,
+    dt: f32,
+    bone_id: BoneId,
+    property_type: PropertyType,
+    request_id: crate::ml::InferenceRequestId,
+) -> Vec<GhostCurveSuggestion> {
+    let handle_dt = SUGGESTION_STRIDE as f32 * dt / 3.0;
+    let mut suggestions = Vec::new();
 
-    let dump = CurveCopilotInferenceDump {
-        context_keyframes: &snapshot.context_keyframes,
-        property_type_id: snapshot.property_type_id,
-        topology_features: &snapshot.topology_features,
-        bone_name_tokens: &snapshot.bone_name_tokens,
-        query_times: &snapshot.query_times_normalized,
-        curve_window: &snapshot.curve_window,
-        bone_context_keyframes: &snapshot.bone_context_keyframes,
-        bone_context_topology: &snapshot.bone_context_topology,
-        bone_context_rest_positions: &snapshot.bone_context_rest_positions,
-        bone_context_mask: &snapshot.bone_context_mask,
-        onnx_predictions: &onnx_predictions,
-        onnx_confidences: &onnx_confidences,
-        onnx_prediction_steps: steps.len() as i64,
-        onnx_prediction_features_per_step: onnx_features_per_step,
-        curve_mean,
-        curve_std,
-        clip_duration,
-        denorm_query_times,
-        real_curve_samples: &real_curve_samples,
-        nearest_keyframe_times: &nearest_keyframe_times,
-        nearest_keyframe_values: &nearest_keyframe_values,
+    for i in suggestion_frame_indices() {
+        if i >= mean_curve.len() || reveal_mask.get(i).copied().unwrap_or(false) {
+            continue;
+        }
+        let velocity = predicted_velocity(mean_curve, i, dt);
+        let handle_dv = velocity * handle_dt;
+        suggestions.push(GhostCurveSuggestion {
+            bone_id,
+            property_type,
+            predicted_time: anchor_time + (i as f32 + 1.0) * dt,
+            predicted_value: mean_curve[i],
+            tangent_in: (-handle_dt, -handle_dv),
+            tangent_out: (handle_dt, handle_dv),
+            confidence: 1.0,
+            request_id,
+        });
+    }
+    suggestions
+}
+
+fn write_inference_dump(snapshot: &CurveSuggestionPendingDump, mean_curve: &[f32]) {
+    let dump = RawFutureInferenceDump {
+        context: &snapshot.context,
+        future: &snapshot.future,
+        reveal_mask: &snapshot.reveal_mask,
+        mean_curve,
+        fps: snapshot.fps,
+        anchor_time: snapshot.anchor_time,
     };
 
-    match dump_curve_copilot_inference(&dump, std::path::Path::new("tmp")) {
+    match dump_rawfuture_inference(&dump, std::path::Path::new("tmp")) {
         Ok(path) => log!("CurveCopilot dump: saved {}", path.display()),
         Err(e) => log_warn!("CurveCopilot dump failed: {}", e),
     }
@@ -604,55 +400,60 @@ mod tests {
     }
 
     #[test]
-    fn flatten_keyframes_before_anchor_excludes_future_kfs() {
-        let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
-        curve_add_keyframe(&mut curve, 0.5, 0.0);
-        curve_add_keyframe(&mut curve, 1.0, 1.0);
-        curve_add_keyframe(&mut curve, 2.0, 2.0);
-        curve_add_keyframe(&mut curve, 3.0, 3.0);
-
-        let flat = flatten_keyframes_before_anchor(&curve, 2.0);
-        assert_eq!(flat.times, vec![0.5, 1.0, 2.0]);
-    }
-
-    #[test]
-    fn flatten_synthesizes_tangents_for_rising_linear_curve_with_zero_handles() {
-        let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
-        curve_add_keyframe(&mut curve, 0.0, -0.48);
-        curve_add_keyframe(&mut curve, 1.0, 0.39);
-        curve_add_keyframe(&mut curve, 2.0, 1.26);
-
-        let flat = flatten_keyframes_before_anchor(&curve, 2.0);
-
-        assert_eq!(flat.in_dt[0], 0.0);
-        assert_eq!(flat.in_dv[0], 0.0);
-
-        assert!(flat.out_dt[0] > 0.0);
-        assert!(flat.out_dv[0] > 0.0);
-
-        assert!(flat.in_dt[1] < 0.0);
-        assert!(flat.in_dv[1] < 0.0);
-        assert!(flat.out_dt[1] > 0.0);
-        assert!(flat.out_dv[1] > 0.0);
-
-        assert!(flat.in_dt[2] < 0.0);
-        assert!(flat.in_dv[2] < 0.0);
-        assert_eq!(flat.out_dt[2], 0.0);
-        assert_eq!(flat.out_dv[2], 0.0);
-    }
-
-    #[test]
-    fn flatten_uses_curve_kf_after_anchor_for_last_out_tangent() {
+    fn build_windows_marks_future_keyframe_as_revealed_anchor() {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
         curve_add_keyframe(&mut curve, 0.0, 0.0);
-        curve_add_keyframe(&mut curve, 1.0, 1.0);
-        curve_add_keyframe(&mut curve, 2.0, 3.0);
+        let dt = 1.0 / DEPLOY_FPS;
+        let future_kf_time = (8.0 + 1.0) * dt;
+        curve_add_keyframe(&mut curve, future_kf_time, 5.0);
 
-        let flat = flatten_keyframes_before_anchor(&curve, 1.0);
+        let windows = build_rawfuture_windows(&curve, 0.0, dt);
+        assert_eq!(windows.context.len(), CONTEXT_LENGTH);
+        assert_eq!(windows.future.len(), MAX_HORIZON);
+        assert!(
+            windows.reveal_mask[8],
+            "future keyframe should reveal frame 8"
+        );
+        assert_eq!(windows.reveal_mask.iter().filter(|&&m| m).count(), 1);
+    }
 
-        assert_eq!(flat.times.len(), 2);
-        assert!(flat.out_dt[1] > 0.0);
-        assert!(flat.out_dv[1] > 0.0);
+    #[test]
+    fn dense_reveal_mask_has_no_strided_gap_triggering_forecast_fallback() {
+        let all_revealed = vec![true; MAX_HORIZON];
+        assert!(!has_strided_gap(&all_revealed));
+
+        let mut sparse = vec![true; MAX_HORIZON];
+        sparse[SUGGESTION_STRIDE - 1] = false;
+        assert!(has_strided_gap(&sparse));
+    }
+
+    #[test]
+    fn build_suggestions_skips_revealed_frames_and_uses_predicted_values() {
+        let mean_curve: Vec<f32> = (0..MAX_HORIZON).map(|i| i as f32).collect();
+        let mut reveal_mask = vec![false; MAX_HORIZON];
+        reveal_mask[SUGGESTION_STRIDE - 1] = true;
+
+        let suggestions = build_suggestions_from_curve(
+            &mean_curve,
+            &reveal_mask,
+            0.0,
+            1.0 / DEPLOY_FPS,
+            0,
+            PropertyType::TranslationX,
+            1,
+        );
+
+        assert!(!suggestions.is_empty());
+        assert!(suggestions
+            .iter()
+            .all(|s| (s.predicted_value - (s.predicted_value.round())).abs() < 1e-3));
+        let first_index = SUGGESTION_STRIDE - 1;
+        assert!(
+            suggestions
+                .iter()
+                .all(|s| (s.predicted_value - first_index as f32).abs() > 1e-3),
+            "revealed frame must be skipped"
+        );
     }
 
     #[test]

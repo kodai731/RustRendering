@@ -14,7 +14,11 @@ pub fn inference_actor_initialize(setup: &InferenceActorSetup, state: &mut Infer
         return;
     }
 
-    let handle = match InferenceThreadHandle::spawn(&setup.model_path, setup.actor_id) {
+    let handle = match InferenceThreadHandle::spawn(
+        &setup.model_path,
+        setup.actor_id,
+        setup.model_kind.clone(),
+    ) {
         Ok(h) => h,
         Err(e) => {
             log!(

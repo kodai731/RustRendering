@@ -2,12 +2,11 @@
 pub fn dispatch_curve_suggestion_events(
     events: &[crate::ecs::events::UIEvent],
     world: &mut crate::ecs::world::World,
-    assets: &crate::asset::AssetStorage,
+    _assets: &crate::asset::AssetStorage,
 ) {
     use crate::ecs::events::UIEvent;
     use crate::ecs::resource::{
-        BoneNameTokenCache, BoneRestPositionCache, BoneTopologyCache, ClipLibrary,
-        CurveSuggestionState, InferenceActorState, TimelineState,
+        ClipLibrary, CurveSuggestionState, InferenceActorState, TimelineState,
     };
     use crate::ecs::systems::{
         curve_suggestion_apply, curve_suggestion_dismiss, curve_suggestion_submit,
@@ -30,12 +29,6 @@ pub fn dispatch_curve_suggestion_events(
                     continue;
                 };
 
-                let Some(skeleton_asset) = assets.skeletons.values().next() else {
-                    log_warn!("curve_suggestion: no skeleton available, skipping request");
-                    continue;
-                };
-                let skeleton = skeleton_asset.skeleton.clone();
-
                 let clip = {
                     let clip_library = world.resource::<ClipLibrary>();
                     clip_library.get(clip_id).cloned()
@@ -44,22 +37,13 @@ pub fn dispatch_curve_suggestion_events(
                     continue;
                 };
 
-                let topology_cache = world.resource::<BoneTopologyCache>();
-                let name_token_cache = world.resource::<BoneNameTokenCache>();
-                let rest_position_cache = world.resource::<BoneRestPositionCache>();
                 let mut suggestion_state = world.resource_mut::<CurveSuggestionState>();
                 let mut inference_state = world.resource_mut::<InferenceActorState>();
                 curve_suggestion_submit(
                     &mut suggestion_state,
                     &mut inference_state,
                     CURVE_COPILOT_ACTOR_ID,
-                    CurveSuggestionInputs {
-                        clip: &clip,
-                        skeleton: &skeleton,
-                        topology_cache: &topology_cache,
-                        name_token_cache: &name_token_cache,
-                        rest_position_cache: &rest_position_cache,
-                    },
+                    CurveSuggestionInputs { clip: &clip },
                     *property_type,
                     *bone_id,
                     current_time,
