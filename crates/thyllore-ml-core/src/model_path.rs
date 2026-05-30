@@ -8,18 +8,17 @@ use std::path::Path;
 
 pub const SHARED_DATA_ENV_VAR: &str = "THYLLORE_SHARED_DATA_DIR";
 pub const EXPORTS_SUBDIR: &str = "exports";
-pub const RAWFUTURE_CURVE_COPILOT_SUBDIR: &str = "curve_copilot";
-pub const RAWFUTURE_CURVE_COPILOT_FILENAME: &str = "rawfuture_v1_tangent.onnx";
+pub const RAWFUTURE_CURVE_COPILOT_FILENAME: &str =
+    "curve_copilot_20260531_rawfuture_v1_tangent.onnx";
 pub const HUGGINGFACE_CURVE_COPILOT_REPO: &str = "kodai731/thyllore-curve-copilot";
 
-/// Resolve `$THYLLORE_SHARED_DATA_DIR/exports/curve_copilot/rawfuture_v1_tangent.onnx`.
+/// Resolve `$THYLLORE_SHARED_DATA_DIR/exports/curve_copilot_20260531_rawfuture_v1_tangent.onnx`.
 ///
 /// Returns `None` when the env var is unset or the file does not exist.
 pub fn resolve_rawfuture_curve_copilot_model_path() -> Option<String> {
     let shared_data_dir = std::env::var(SHARED_DATA_ENV_VAR).ok()?;
     let model_path = Path::new(&shared_data_dir)
         .join(EXPORTS_SUBDIR)
-        .join(RAWFUTURE_CURVE_COPILOT_SUBDIR)
         .join(RAWFUTURE_CURVE_COPILOT_FILENAME);
 
     model_path

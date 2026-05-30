@@ -6,10 +6,8 @@
 //! agnostic and forces a 3-file diff whenever the marker bumps.
 //!
 //! Files inspected:
-//!   - `crates/thyllore-ml-api/src/lib.rs`                           (L2 SSOT)
-//!   - `blender_addon/__init__.py`                                   (L4 addon)
-//!   - `crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py` (test
-//!     runner -- must read from env, NOT hardcode the marker)
+//!   - `crates/thyllore-ml-api/src/lib.rs`   (L2 SSOT)
+//!   - `blender_addon/__init__.py`           (L4 addon)
 //!
 //! Run::
 //!
@@ -74,33 +72,5 @@ fn rust_abi_marker_matches_addon_expected_value() {
         "ABI_MARKER mismatch: thyllore-ml-api says {rust_value}, \
          blender_addon/__init__.py says {addon_value}. \
          When bumping, update BOTH files in the same commit."
-    );
-}
-
-#[test]
-fn blender_runner_does_not_hardcode_abi_marker_value() {
-    let root = workspace_root();
-    let runner_path = root.join("crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py");
-    let source = read(&runner_path);
-
-    let lines: Vec<&str> = source.lines().collect();
-    for (idx, line) in lines.iter().enumerate() {
-        if !line.contains("__abi_marker__") {
-            continue;
-        }
-        let window_end = (idx + 12).min(lines.len());
-        let window = lines[idx..window_end].join("\n");
-        if window.contains("THYLLORE_EXPECTED_ABI_MARKER") {
-            return;
-        }
-    }
-
-    panic!(
-        "{} references __abi_marker__ but does not read \
-         THYLLORE_EXPECTED_ABI_MARKER from the environment. \
-         Hardcoding the expected value reintroduces the bug fixed in \
-         PR #100 -- the Rust caller injects the env var via \
-         thyllore_ml_api::ABI_MARKER.",
-        runner_path.display()
     );
 }

@@ -6,10 +6,9 @@ pub fn resolve_curve_copilot_model_path() -> Option<String> {
 
     log_warn!(
         "rawfuture curve_copilot model not found. For development, set {} to your SharedData \
-         directory so that {}/{}/{} exists. HuggingFace download from {} is not yet implemented.",
+         directory so that {}/{} exists. HuggingFace download from {} is not yet implemented.",
         crate::paths::SHARED_DATA_ENV_VAR,
         crate::paths::EXPORTS_SUBDIR,
-        crate::paths::RAWFUTURE_CURVE_COPILOT_SUBDIR,
         crate::paths::RAWFUTURE_CURVE_COPILOT_FILENAME,
         crate::paths::HUGGINGFACE_CURVE_COPILOT_REPO
     );

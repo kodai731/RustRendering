@@ -7,5 +7,5 @@ pub const CURVE_COPILOT_MODEL_SUFFIX: &str = ".onnx";
 #[cfg(feature = "ml")]
 pub use thyllore_ml_core::model_path::{
     EXPORTS_SUBDIR, HUGGINGFACE_CURVE_COPILOT_REPO, RAWFUTURE_CURVE_COPILOT_FILENAME,
-    RAWFUTURE_CURVE_COPILOT_SUBDIR, SHARED_DATA_ENV_VAR,
+    SHARED_DATA_ENV_VAR,
 };

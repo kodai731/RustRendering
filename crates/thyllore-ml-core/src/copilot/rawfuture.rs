@@ -16,7 +16,7 @@ const INPUT_CONTEXT_TANGENT: &str = "context_tangent";
 const INPUT_FUTURE_TANGENT: &str = "future_tangent";
 const OUTPUT_MEAN_CURVE: &str = "mean_curve";
 
-/// Deploy inputs for `rawfuture_v1_tangent.onnx` (RawFutureCombined, use_tangent=True).
+/// Deploy inputs for `curve_copilot_20260531_rawfuture_v1_tangent.onnx` (RawFutureCombined, use_tangent=True).
 ///
 /// `context` is the dense block of `CONTEXT_LENGTH` raw values immediately before the
 /// edited region; `future` is the dense block of `MAX_HORIZON` raw values the model
