@@ -53,16 +53,9 @@ class THYLLORE_OT_CurveCopilot(Operator):
             self.report({"ERROR"}, "Curve Copilot is disabled in Preferences")
             return {"CANCELLED"}
 
-        fcurve = _find_active_fcurve(context.active_object)
-        if fcurve is None or len(fcurve.keyframe_points) < 2:
-            self.report({"ERROR"}, "Select an animated object with an FCurve")
-            return {"CANCELLED"}
-
-        keyframe_times = [float(kp.co.x) for kp in fcurve.keyframe_points]
-        playhead = float(context.scene.frame_current_final)
-        origin_frame = tml.resolve_origin_frame(keyframe_times, playhead)
-        if origin_frame is None:
-            self.report({"ERROR"}, "Move the playhead onto or after a keyframe")
+        fcurves = _selected_fcurves(context.active_object)
+        if not fcurves:
+            self.report({"ERROR"}, "Select one or more FCurves (with >=2 keyframes)")
             return {"CANCELLED"}
 
         try:
@@ -73,34 +66,40 @@ class THYLLORE_OT_CurveCopilot(Operator):
 
         logger = _debuglog.get_logger()
         fps = _scene_fps(context.scene)
+        playhead = float(context.scene.frame_current_final)
         if logger is not None:
             logger.info(
-                "curve_copilot run: object=%r fcurve=%s[%d] keyframes=%d "
-                "origin_frame=%.4f playhead=%.4f fps=%.4f model=%s",
+                "curve_copilot run: object=%r selected_fcurves=%d playhead=%.4f fps=%.4f model=%s",
                 context.active_object.name,
-                fcurve.data_path,
-                fcurve.array_index,
-                len(fcurve.keyframe_points),
-                origin_frame,
+                len(fcurves),
                 playhead,
                 fps,
                 model_path,
             )
 
         try:
-            ghost_points = _forecast_ghost(fcurve, model_path, origin_frame, fps)
+            session = tml.PyRawFutureSession.from_onnx_path(model_path)
+            ghosts = [
+                ghost
+                for index, fcurve in enumerate(fcurves)
+                if (ghost := _forecast_ghost_for_fcurve(
+                    fcurve, session, playhead, fps, index, logger
+                )) is not None
+            ]
         except Exception as e:  # noqa: BLE001
             if logger is not None:
                 logger.exception("curve_copilot inference failed")
             self.report({"ERROR"}, f"Curve Copilot failed: {e}")
             return {"CANCELLED"}
 
-        _ghost_overlay.set_ghost(ghost_points)
-        _log_ghost_points(logger, ghost_points)
+        if not ghosts:
+            self.report({"ERROR"}, "Move the playhead onto or after a keyframe")
+            return {"CANCELLED"}
+
+        _ghost_overlay.set_ghosts(ghosts)
         self.report(
             {"INFO"},
-            f"Forecast preview: {len(ghost_points) - 1} frames "
-            "(ghost only, no keyframes inserted)",
+            f"Forecast preview: {len(ghosts)} curve(s) (ghost only, no keyframes inserted)",
         )
         return {"FINISHED"}
 
@@ -147,14 +146,16 @@ def _action_fcurves(obj: bpy.types.Object):
     return fcurves
 
 
-def _find_active_fcurve(obj: bpy.types.Object):
-    fcurves = _action_fcurves(obj)
-    if not fcurves:
-        return None
-    for fcurve in fcurves:
-        if getattr(fcurve, "select", False):
-            return fcurve
-    return fcurves[0]
+def _selected_fcurves(obj: bpy.types.Object):
+    """FCurves the user selected in the Graph Editor, with enough keyframes.
+
+    Curve Copilot forecasts only the selected curves — one ghost per curve.
+    """
+    return [
+        fcurve
+        for fcurve in _action_fcurves(obj)
+        if getattr(fcurve, "select", False) and len(fcurve.keyframe_points) >= 2
+    ]
 
 
 def _resolve_model_path(prefs) -> str:
@@ -185,27 +186,51 @@ def _scene_fps(scene) -> float:
     return float(scene.render.fps) / float(fps_base)
 
 
-def _forecast_ghost(fcurve, model_path: str, origin_frame: float, fps: float):
-    """Sample the FCurve at the wheel-defined offsets and call the Rust forecast.
+def _forecast_ghost_for_fcurve(fcurve, session, playhead: float, fps: float, index: int, logger):
+    """Forecast one selected FCurve and return its ghost polyline (or None).
 
-    The only Python-side work is sampling ``fcurve.evaluate`` (bpy interface);
-    every numeric step happens in the wheel and is returned as the ghost polyline.
+    The origin is resolved per curve (latest keyframe at/before the playhead).
+    Returns None when this curve has no keyframe at/before the playhead so the
+    caller can skip it. The numeric work happens in the Rust session; Python only
+    samples ``fcurve.evaluate`` and logs.
     """
+    keyframe_times = [float(kp.co.x) for kp in fcurve.keyframe_points]
+    origin_frame = tml.resolve_origin_frame(keyframe_times, playhead)
+    if origin_frame is None:
+        if logger is not None:
+            logger.info(
+                "  skip %s[%d]: no keyframe at/before playhead",
+                fcurve.data_path,
+                fcurve.array_index,
+            )
+        return None
+
     context_offsets, future_offsets = tml.forecast_sample_offsets()
     context = [fcurve.evaluate(origin_frame + offset) for offset in context_offsets]
     future = [fcurve.evaluate(origin_frame + offset) for offset in future_offsets]
     reveal_mask = [False] * len(future_offsets)
     origin_value = float(fcurve.evaluate(origin_frame))
 
-    session = tml.PyRawFutureSession.from_onnx_path(model_path)
-    return session.build_forecast_preview(
+    ghost = session.build_forecast_preview(
         context, future, reveal_mask, fps, float(origin_frame), origin_value
     )
 
+    if logger is not None:
+        color = _ghost_overlay.color_for_index(index)
+        logger.info(
+            "curve[%d] %s[%d] keyframes=%d origin_frame=%.4f color=(%.2f, %.2f, %.2f) "
+            "predicted_frames=%d",
+            index,
+            fcurve.data_path,
+            fcurve.array_index,
+            len(fcurve.keyframe_points),
+            origin_frame,
+            color[0],
+            color[1],
+            color[2],
+            len(ghost) - 1,
+        )
+        for i, (frame, value) in enumerate(ghost):
+            logger.info("    ghost[%d] frame=%.4f value=%.6f", i, frame, value)
 
-def _log_ghost_points(logger, ghost_points) -> None:
-    if logger is None:
-        return
-    for i, (frame, value) in enumerate(ghost_points):
-        logger.info("  ghost[%d] frame=%.4f value=%.6f", i, frame, value)
-    logger.info("forecast: ghost preview built (%d predicted frames)", len(ghost_points) - 1)
+    return ghost
