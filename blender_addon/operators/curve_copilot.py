@@ -30,7 +30,7 @@ except ImportError:
 class THYLLORE_OT_CurveCopilot(Operator):
     bl_idname = "thyllore.curve_copilot"
     bl_label = "Curve Copilot (ONNX)"
-    bl_description = "Preview an AI forecast of the active FCurve as a ghost curve"
+    bl_description = "Toggle an AI ghost-curve forecast of the enabled channels (press again to clear)"
     bl_options = {"REGISTER"}
 
     @classmethod
@@ -46,6 +46,14 @@ class THYLLORE_OT_CurveCopilot(Operator):
             self.report({"ERROR"}, "thyllore_ml_core wheel is not loaded")
             return {"CANCELLED"}
 
+        # Shift+C toggles: draw -> clear -> draw -> clear. When a preview is on
+        # screen, this press erases it so the animator can drop unwanted curves;
+        # the next press redraws from the current channel selection.
+        if _ghost_overlay.has_ghost():
+            _ghost_overlay.clear_ghost()
+            self.report({"INFO"}, "Forecast preview cleared")
+            return {"FINISHED"}
+
         from .. import preferences as prefs_module
 
         prefs = prefs_module.get_preferences()
@@ -53,9 +61,12 @@ class THYLLORE_OT_CurveCopilot(Operator):
             self.report({"ERROR"}, "Curve Copilot is disabled in Preferences")
             return {"CANCELLED"}
 
-        fcurves = _selected_fcurves(context.active_object)
+        fcurves = _forecast_fcurves(context)
         if not fcurves:
-            self.report({"ERROR"}, "Select one or more FCurves (with >=2 keyframes)")
+            self.report(
+                {"ERROR"},
+                "Select one or more curves in the Graph Editor (with >=2 keyframes)",
+            )
             return {"CANCELLED"}
 
         try:
@@ -65,25 +76,31 @@ class THYLLORE_OT_CurveCopilot(Operator):
             return {"CANCELLED"}
 
         logger = _debuglog.get_logger()
-        fps = _scene_fps(context.scene)
+        scene_fps = _scene_fps(context.scene)
+        deploy_fps = tml.deploy_fps()
+        frame_step = scene_fps / deploy_fps
         playhead = float(context.scene.frame_current_final)
         if logger is not None:
             logger.info(
-                "curve_copilot run: object=%r selected_fcurves=%d playhead=%.4f fps=%.4f model=%s",
+                "curve_copilot run: object=%r selected_fcurves=%d playhead=%.4f "
+                "scene_fps=%.4f deploy_fps=%.4f frame_step=%.4f model=%s",
                 context.active_object.name,
                 len(fcurves),
                 playhead,
-                fps,
+                scene_fps,
+                deploy_fps,
+                frame_step,
                 model_path,
             )
 
+        all_fcurves = _action_fcurves(context.active_object)
         try:
             session = tml.PyRawFutureSession.from_onnx_path(model_path)
             ghosts = [
                 ghost
                 for index, fcurve in enumerate(fcurves)
                 if (ghost := _forecast_ghost_for_fcurve(
-                    fcurve, session, playhead, fps, index, logger
+                    fcurve, all_fcurves, session, playhead, deploy_fps, frame_step, index, logger
                 )) is not None
             ]
         except Exception as e:  # noqa: BLE001
@@ -146,15 +163,30 @@ def _action_fcurves(obj: bpy.types.Object):
     return fcurves
 
 
-def _selected_fcurves(obj: bpy.types.Object):
-    """FCurves the user selected in the Graph Editor, with enough keyframes.
+def _forecast_fcurves(context):
+    """The curves Blender reports as selected in the Graph Editor.
 
-    Curve Copilot forecasts only the selected curves — one ghost per curve.
+    `context.selected_editable_fcurves` is Blender's own list of the curves the
+    user has selected (it already respects visibility / lock / editability), so
+    forecasting these matches exactly what is highlighted on screen — one ghost
+    per selected curve.
+
+    Headless fallback: with no Graph Editor area (e.g. the operator smoke run
+    under ``--background``), that context member is empty, so fall back to the
+    active object's selected channels.
     """
+    selected = getattr(context, "selected_editable_fcurves", None) or []
+    fcurves = [fc for fc in selected if len(fc.keyframe_points) >= 2]
+    if fcurves:
+        return fcurves
+
+    obj = context.active_object
+    if obj is None:
+        return []
     return [
-        fcurve
-        for fcurve in _action_fcurves(obj)
-        if getattr(fcurve, "select", False) and len(fcurve.keyframe_points) >= 2
+        fc
+        for fc in _action_fcurves(obj)
+        if getattr(fc, "select", False) and len(fc.keyframe_points) >= 2
     ]
 
 
@@ -186,16 +218,21 @@ def _scene_fps(scene) -> float:
     return float(scene.render.fps) / float(fps_base)
 
 
-def _forecast_ghost_for_fcurve(fcurve, session, playhead: float, fps: float, index: int, logger):
+def _forecast_ghost_for_fcurve(
+    fcurve, all_fcurves, session, playhead: float, deploy_fps: float, frame_step: float,
+    index: int, logger,
+):
     """Forecast one selected FCurve and return its ghost polyline (or None).
 
-    The origin is resolved per curve (latest keyframe at/before the playhead).
-    Returns None when this curve has no keyframe at/before the playhead so the
-    caller can skip it. The numeric work happens in the Rust session; Python only
-    samples ``fcurve.evaluate`` and logs.
+    Samples are read at the model's deploy rate (every ``frame_step =
+    scene_fps / deploy_fps`` Blender frames) so the input matches the engine and
+    the training (60 fps) regardless of scene fps. The model is trained on Euler
+    radians, so a ``rotation_quaternion`` channel is forecast in Euler space and
+    converted back; Euler / location / scale channels are forecast directly.
     """
-    keyframe_times = [float(kp.co.x) for kp in fcurve.keyframe_points]
-    origin_frame = tml.resolve_origin_frame(keyframe_times, playhead)
+    origin_frame = tml.resolve_origin_frame(
+        [float(kp.co.x) for kp in fcurve.keyframe_points], playhead
+    )
     if origin_frame is None:
         if logger is not None:
             logger.info(
@@ -205,24 +242,24 @@ def _forecast_ghost_for_fcurve(fcurve, session, playhead: float, fps: float, ind
             )
         return None
 
-    context_offsets, future_offsets = tml.forecast_sample_offsets()
-    context = [fcurve.evaluate(origin_frame + offset) for offset in context_offsets]
-    future = [fcurve.evaluate(origin_frame + offset) for offset in future_offsets]
-    reveal_mask = [False] * len(future_offsets)
-    origin_value = float(fcurve.evaluate(origin_frame))
-
-    ghost = session.build_forecast_preview(
-        context, future, reveal_mask, fps, float(origin_frame), origin_value
-    )
+    if fcurve.data_path.endswith("rotation_quaternion"):
+        ghost = _forecast_quaternion_ghost(
+            fcurve, all_fcurves, session, origin_frame, deploy_fps, frame_step
+        )
+        representation = "quaternion->euler"
+    else:
+        ghost = _forecast_direct_ghost(fcurve, session, origin_frame, deploy_fps, frame_step)
+        representation = "direct"
 
     if logger is not None:
         color = _ghost_overlay.color_for_index(index)
         logger.info(
-            "curve[%d] %s[%d] keyframes=%d origin_frame=%.4f color=(%.2f, %.2f, %.2f) "
-            "predicted_frames=%d",
+            "curve[%d] %s[%d] repr=%s keyframes=%d origin_frame=%.4f "
+            "color=(%.2f, %.2f, %.2f) predicted_frames=%d",
             index,
             fcurve.data_path,
             fcurve.array_index,
+            representation,
             len(fcurve.keyframe_points),
             origin_frame,
             color[0],
@@ -232,5 +269,89 @@ def _forecast_ghost_for_fcurve(fcurve, session, playhead: float, fps: float, ind
         )
         for i, (frame, value) in enumerate(ghost):
             logger.info("    ghost[%d] frame=%.4f value=%.6f", i, frame, value)
+    return ghost
+
+
+def _forecast_direct_ghost(fcurve, session, origin_frame: float, deploy_fps: float, frame_step: float):
+    context_offsets, future_offsets = tml.forecast_sample_offsets()
+    context = [fcurve.evaluate(origin_frame + offset * frame_step) for offset in context_offsets]
+    future = [fcurve.evaluate(origin_frame + offset * frame_step) for offset in future_offsets]
+    reveal_mask = [False] * len(future_offsets)
+    origin_value = float(fcurve.evaluate(origin_frame))
+    return session.build_forecast_preview(
+        context, future, reveal_mask, deploy_fps, float(origin_frame), origin_value, frame_step
+    )
+
+
+def _quaternion_siblings(all_fcurves, fcurve):
+    """The 4 quaternion component FCurves (W,X,Y,Z) sharing this data_path."""
+    found = {}
+    for candidate in all_fcurves:
+        if candidate.data_path == fcurve.data_path and 0 <= candidate.array_index <= 3:
+            found[candidate.array_index] = candidate
+    return found if len(found) == 4 else None
+
+
+def _forecast_quaternion_ghost(fcurve, all_fcurves, session, origin_frame, deploy_fps, frame_step):
+    """Forecast a quaternion channel in Euler space (the trained representation).
+
+    Samples the bone's full quaternion, converts to a continuous Euler curve
+    (the model's training representation), forecasts each Euler axis with the
+    Rust session, then converts the predicted Euler back to a quaternion and
+    extracts the selected component for the ghost.
+    """
+    from mathutils import Euler, Quaternion
+
+    siblings = _quaternion_siblings(all_fcurves, fcurve)
+    if siblings is None:
+        return _forecast_direct_ghost(fcurve, session, origin_frame, deploy_fps, frame_step)
+
+    selected = fcurve.array_index
+    context_offsets, future_offsets = tml.forecast_sample_offsets()
+    sample_frames = [origin_frame + offset * frame_step for offset in context_offsets]
+    sample_frames += [origin_frame + offset * frame_step for offset in future_offsets]
+
+    eulers = []
+    previous = None
+    for frame in sample_frames:
+        quat = Quaternion(
+            (
+                siblings[0].evaluate(frame),
+                siblings[1].evaluate(frame),
+                siblings[2].evaluate(frame),
+                siblings[3].evaluate(frame),
+            )
+        )
+        euler = quat.to_euler("XYZ") if previous is None else quat.to_euler("XYZ", previous)
+        previous = euler
+        eulers.append((euler.x, euler.y, euler.z))
+
+    n_context = len(context_offsets)
+    context_eulers = eulers[:n_context]
+    future_eulers = eulers[n_context:]
+    reveal_mask = [False] * len(future_offsets)
+
+    axis_ghosts = []
+    for axis in range(3):
+        axis_ghosts.append(
+            session.build_forecast_preview(
+                [e[axis] for e in context_eulers],
+                [e[axis] for e in future_eulers],
+                reveal_mask,
+                deploy_fps,
+                float(origin_frame),
+                context_eulers[-1][axis],
+                frame_step,
+            )
+        )
+
+    points = [(float(origin_frame), float(fcurve.evaluate(origin_frame)))]
+    for j in range(1, len(axis_ghosts[0])):
+        frame = axis_ghosts[0][j][0]
+        euler = Euler(
+            (axis_ghosts[0][j][1], axis_ghosts[1][j][1], axis_ghosts[2][j][1]), "XYZ"
+        )
+        points.append((frame, euler.to_quaternion()[selected]))
+    return points
 
     return ghost

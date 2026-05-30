@@ -13,10 +13,6 @@ use thyllore_ml_core::copilot::rawfuture::MAX_HORIZON;
 
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
-const DEPLOY_FPS: f32 = 60.0;
-const SUGGESTION_STRIDE: usize = 1;
-const SUGGESTION_FRAME_COUNT: usize = 8;
-
 fn resolve_anchor_time(curve: &PropertyCurve, current_time: f32) -> Option<f32> {
     let times: Vec<f32> = curve.keyframes.iter().map(|kf| kf.time).collect();
     forecast::resolve_origin_time(&times, current_time)
@@ -55,11 +51,6 @@ fn build_rawfuture_windows(curve: &PropertyCurve, origin_time: f32, dt: f32) -> 
     RawFutureWindows { context, future }
 }
 
-fn suggestion_frame_indices() -> impl Iterator<Item = usize> {
-    let end = SUGGESTION_FRAME_COUNT.min(MAX_HORIZON);
-    (SUGGESTION_STRIDE.saturating_sub(1)..end).step_by(SUGGESTION_STRIDE)
-}
-
 pub struct CurveSuggestionInputs<'a> {
     pub clip: &'a EditableAnimationClip,
 }
@@ -94,7 +85,7 @@ pub fn curve_suggestion_submit(
     }
     let origin_time = current_time;
 
-    let dt = 1.0 / DEPLOY_FPS;
+    let dt = 1.0 / forecast::DEPLOY_FPS;
     let origin_value = sample_or_hold(curve, origin_time);
     let windows = build_rawfuture_windows(curve, origin_time, dt);
     let reveal_mask = vec![false; MAX_HORIZON];
@@ -104,7 +95,7 @@ pub fn curve_suggestion_submit(
         bone_id,
         property_type,
         origin_time,
-        DEPLOY_FPS,
+        forecast::DEPLOY_FPS,
     );
 
     let dump_snapshot = if suggestion_state.dump_inference {
@@ -112,7 +103,7 @@ pub fn curve_suggestion_submit(
             context: windows.context.clone(),
             future: windows.future.clone(),
             reveal_mask: reveal_mask.clone(),
-            fps: DEPLOY_FPS,
+            fps: forecast::DEPLOY_FPS,
             anchor_time: origin_time,
         })
     } else {
@@ -123,7 +114,7 @@ pub fn curve_suggestion_submit(
         context: windows.context,
         future: windows.future,
         reveal_mask,
-        fps: DEPLOY_FPS,
+        fps: forecast::DEPLOY_FPS,
     };
 
     if let Some(request_id) = inference_actor_submit(inference_state, actor_id, kind) {
@@ -162,7 +153,9 @@ pub fn curve_suggestion_poll_results(
                 .pending_property_type
                 .unwrap_or(PropertyType::TranslationX);
             let anchor_time = suggestion_state.pending_anchor_time.unwrap_or(0.0);
-            let dt = suggestion_state.pending_dt.unwrap_or(1.0 / DEPLOY_FPS);
+            let dt = suggestion_state
+                .pending_dt
+                .unwrap_or(1.0 / forecast::DEPLOY_FPS);
             let origin_value = suggestion_state
                 .pending_origin_value
                 .unwrap_or_else(|| mean_curve.first().copied().unwrap_or(0.0));
@@ -211,12 +204,12 @@ fn build_suggestions_from_curve(
     property_type: PropertyType,
     request_id: crate::ml::InferenceRequestId,
 ) -> Vec<GhostCurveSuggestion> {
-    let handle_dt = SUGGESTION_STRIDE as f32 * dt / 3.0;
+    let handle_dt = forecast::SUGGESTION_STRIDE as f32 * dt / 3.0;
     let continuity_offset = forecast::continuity_offset(mean_curve, origin_value);
     let velocities = forecast::compute_velocities(mean_curve, 1.0 / dt);
     let mut suggestions = Vec::new();
 
-    for i in suggestion_frame_indices() {
+    for i in forecast::suggestion_frame_indices() {
         if i >= mean_curve.len() {
             continue;
         }
@@ -331,7 +324,7 @@ mod tests {
     fn build_windows_have_fixed_lengths() {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
         curve_add_keyframe(&mut curve, 0.0, 0.0);
-        let dt = 1.0 / DEPLOY_FPS;
+        let dt = 1.0 / forecast::DEPLOY_FPS;
 
         let windows = build_rawfuture_windows(&curve, 0.0, dt);
         assert_eq!(windows.context.len(), CONTEXT_LENGTH);
@@ -343,7 +336,7 @@ mod tests {
         let mean_curve: Vec<f32> = (0..MAX_HORIZON).map(|i| 100.0 + i as f32).collect();
         let origin_time = 0.5;
         let origin_value = 7.0;
-        let dt = 1.0 / DEPLOY_FPS;
+        let dt = 1.0 / forecast::DEPLOY_FPS;
 
         let suggestions = build_suggestions_from_curve(
             &mean_curve,
@@ -355,7 +348,7 @@ mod tests {
             1,
         );
 
-        assert_eq!(suggestions.len(), SUGGESTION_FRAME_COUNT);
+        assert_eq!(suggestions.len(), forecast::SUGGESTION_FRAME_COUNT);
         assert!((suggestions[0].predicted_time - (origin_time + dt)).abs() < 1e-6);
         assert!((suggestions[0].predicted_value - origin_value).abs() < 1e-6);
         assert!((suggestions[1].predicted_value - (origin_value + 1.0)).abs() < 1e-6);

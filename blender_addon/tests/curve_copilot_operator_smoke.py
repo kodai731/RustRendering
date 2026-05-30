@@ -97,11 +97,19 @@ def iter_action_fcurves(obj):
 
 
 def select_first_location_x_fcurve(armature_object):
+    """Select only location.x. Headless has no Graph Editor, so the operator's
+    fallback reads the active object's `fcurve.select`; isolate a single curve.
+    """
     target_data_path = f'pose.bones["{ROOT_BONE_NAME}"].location'
+    target = None
     for fcurve in iter_action_fcurves(armature_object):
-        if fcurve.data_path == target_data_path and fcurve.array_index == 0:
-            return fcurve
-    raise RuntimeError("curve_copilot smoke: location.x FCurve not found")
+        is_target = fcurve.data_path == target_data_path and fcurve.array_index == 0
+        fcurve.select = is_target
+        if is_target:
+            target = fcurve
+    if target is None:
+        raise RuntimeError("curve_copilot smoke: location.x FCurve not found")
+    return target
 
 
 def enable_addon():

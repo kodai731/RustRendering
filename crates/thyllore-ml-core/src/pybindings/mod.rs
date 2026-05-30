@@ -6,8 +6,8 @@ mod error;
 mod rawfuture;
 
 pub use rawfuture::{
-    capabilities, forecast_sample_offsets, resolve_curve_copilot_model_path, resolve_origin_frame,
-    PyRawFutureSession,
+    capabilities, deploy_fps, forecast_sample_offsets, resolve_curve_copilot_model_path,
+    resolve_origin_frame, PyRawFutureSession,
 };
 
 #[pymodule]
@@ -18,6 +18,7 @@ fn thyllore_ml_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_class::<PyRawFutureSession>()?;
 
     m.add_function(wrap_pyfunction!(rawfuture::capabilities, m)?)?;
+    m.add_function(wrap_pyfunction!(rawfuture::deploy_fps, m)?)?;
     m.add_function(wrap_pyfunction!(
         rawfuture::resolve_curve_copilot_model_path,
         m

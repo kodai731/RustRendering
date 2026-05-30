@@ -32,7 +32,15 @@ pub fn future_sample_offsets() -> [i64; MAX_HORIZON] {
     offsets
 }
 
-/// Latest keyframe time at or before `playhead` — the forecast origin.
+pub const DEPLOY_FPS: f32 = 60.0;
+pub const SUGGESTION_STRIDE: usize = 1;
+pub const SUGGESTION_FRAME_COUNT: usize = 16;
+
+pub fn suggestion_frame_indices() -> impl Iterator<Item = usize> {
+    let end = SUGGESTION_FRAME_COUNT.min(MAX_HORIZON);
+    (SUGGESTION_STRIDE.saturating_sub(1)..end).step_by(SUGGESTION_STRIDE)
+}
+
 pub fn resolve_origin_time(keyframe_times: &[f32], playhead: f32) -> Option<f32> {
     keyframe_times
         .iter()
@@ -83,14 +91,21 @@ fn assemble_ghost_points(
     mean_curve: &[f32],
     continuity_offset: f32,
     origin: f32,
+    frame_step: f32,
 ) -> Vec<(f32, f32)> {
     let offsets = future_sample_offsets();
-    let mut points = Vec::with_capacity(mean_curve.len() + 1);
+    let mut points = Vec::with_capacity(SUGGESTION_FRAME_COUNT + 1);
 
     let origin_value = mean_curve.first().copied().unwrap_or(0.0) + continuity_offset;
     points.push((origin, origin_value));
-    for (i, &value) in mean_curve.iter().enumerate() {
-        points.push((origin + offsets[i] as f32, value + continuity_offset));
+    for i in suggestion_frame_indices() {
+        if i >= mean_curve.len() {
+            continue;
+        }
+        points.push((
+            origin + offsets[i] as f32 * frame_step,
+            mean_curve[i] + continuity_offset,
+        ));
     }
     points
 }
@@ -102,16 +117,17 @@ pub fn assemble_forecast(
     origin: f32,
     origin_value: f32,
     fps: f32,
+    frame_step: f32,
 ) -> ForecastPreview {
     #[cfg(not(feature = "python"))]
-    let _ = origin;
+    let _ = (origin, frame_step);
 
     let continuity_offset = continuity_offset(&mean_curve, origin_value);
     let velocities = compute_velocities(&mean_curve, fps);
 
     ForecastPreview {
         #[cfg(feature = "python")]
-        ghost_points: assemble_ghost_points(&mean_curve, continuity_offset, origin),
+        ghost_points: assemble_ghost_points(&mean_curve, continuity_offset, origin, frame_step),
         mean_curve,
         continuity_offset,
         velocities,
@@ -127,6 +143,7 @@ pub fn build_forecast_preview(
     fps: f32,
     origin: f32,
     origin_value: f32,
+    frame_step: f32,
 ) -> Result<ForecastPreview> {
     let mean_curve = session.predict_mean_curve(RawFutureRequest {
         context,
@@ -134,7 +151,13 @@ pub fn build_forecast_preview(
         reveal_mask,
         fps,
     })?;
-    Ok(assemble_forecast(mean_curve, origin, origin_value, fps))
+    Ok(assemble_forecast(
+        mean_curve,
+        origin,
+        origin_value,
+        fps,
+        frame_step,
+    ))
 }
 
 #[cfg(test)]

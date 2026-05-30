@@ -12,6 +12,11 @@ pub fn capabilities() -> Vec<&'static str> {
     vec!["curve_forecast"]
 }
 
+#[pyfunction]
+pub fn deploy_fps() -> f32 {
+    forecast::DEPLOY_FPS
+}
+
 /// Resolve the shared rawfuture curve-copilot model path (same source of truth
 /// the engine uses). Returns ``None`` when unset/missing so the addon can fall
 /// back to its bundled copy.
@@ -102,6 +107,7 @@ impl PyRawFutureSession {
     /// Run the forecast and return the ghost preview polyline `[(frame, value)]`
     /// in FCurve space. Inputs are plain lists so the addon needs no numpy; all
     /// numeric work happens in the shared Rust core.
+    #[allow(clippy::too_many_arguments)]
     fn build_forecast_preview(
         &mut self,
         py: Python<'_>,
@@ -111,6 +117,7 @@ impl PyRawFutureSession {
         fps: f32,
         origin: f32,
         origin_value: f32,
+        frame_step: f32,
     ) -> PyResult<Vec<(f32, f32)>> {
         if context.len() != CONTEXT_LENGTH {
             return Err(shape_mismatch("context", CONTEXT_LENGTH, context.len()));
@@ -136,6 +143,7 @@ impl PyRawFutureSession {
                     fps,
                     origin,
                     origin_value,
+                    frame_step,
                 )
             })
             .map_err(anyhow_to_pyerr)?;
