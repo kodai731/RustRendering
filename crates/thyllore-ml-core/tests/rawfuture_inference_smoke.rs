@@ -1,7 +1,7 @@
 use std::env;
 use std::path::Path;
 
-use thyllore_ml_core::copilot::rawfuture::{
+use thyllore_ml_core::copilot::v1::rawfuture::{
     RawFutureRequest, RawFutureSession, CONTEXT_LENGTH, MAX_HORIZON,
 };
 use thyllore_ml_core::model_path::resolve_rawfuture_curve_copilot_model_path;

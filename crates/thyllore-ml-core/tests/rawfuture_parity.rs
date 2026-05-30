@@ -3,7 +3,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde_json::Value;
-use thyllore_ml_core::copilot::rawfuture::{deploy_safe_stats, RawFutureRequest, RawFutureSession};
+use thyllore_ml_core::copilot::v1::rawfuture::{
+    deploy_safe_stats, RawFutureRequest, RawFutureSession,
+};
 
 const SHARED_DATA_ENV_VAR: &str = "THYLLORE_SHARED_DATA_DIR";
 

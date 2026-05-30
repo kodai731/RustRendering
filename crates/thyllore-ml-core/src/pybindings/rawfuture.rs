@@ -2,8 +2,10 @@ use numpy::{IntoPyArray, PyArray1, PyReadonlyArray1};
 use pyo3::prelude::*;
 
 use super::error::{anyhow_to_pyerr, shape_mismatch};
-use crate::copilot::forecast;
-use crate::copilot::rawfuture::{RawFutureRequest, RawFutureSession, CONTEXT_LENGTH, MAX_HORIZON};
+use crate::copilot::v1::forecast;
+use crate::copilot::v1::rawfuture::{
+    RawFutureRequest, RawFutureSession, CONTEXT_LENGTH, MAX_HORIZON,
+};
 
 /// Feature ids the wheel supports, for the addon's `poll` UI gating. The addon
 /// checks `"curve_forecast" in tml.capabilities()`.

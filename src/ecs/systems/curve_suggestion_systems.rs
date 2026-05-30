@@ -7,9 +7,9 @@ use crate::ecs::resource::{
     CurveSuggestionPendingDump, CurveSuggestionState, GhostCurveSuggestion, InferenceActorState,
 };
 use crate::ml::{InferenceActorId, InferenceRequestKind, InferenceResultKind};
-use thyllore_ml_core::copilot::dump::{dump_rawfuture_inference, RawFutureInferenceDump};
-use thyllore_ml_core::copilot::forecast;
-use thyllore_ml_core::copilot::rawfuture::MAX_HORIZON;
+use thyllore_ml_core::copilot::v1::dump::{dump_rawfuture_inference, RawFutureInferenceDump};
+use thyllore_ml_core::copilot::v1::forecast;
+use thyllore_ml_core::copilot::v1::rawfuture::MAX_HORIZON;
 
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
@@ -267,7 +267,7 @@ pub fn curve_suggestion_dismiss(suggestion_state: &mut CurveSuggestionState) {
 mod tests {
     use super::*;
     use crate::animation::editable::{curve_add_keyframe, CurveId};
-    use thyllore_ml_core::copilot::rawfuture::CONTEXT_LENGTH;
+    use thyllore_ml_core::copilot::v1::rawfuture::CONTEXT_LENGTH;
 
     fn create_test_curve(keyframe_count: usize) -> PropertyCurve {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);

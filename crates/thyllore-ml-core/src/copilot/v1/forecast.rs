@@ -8,7 +8,9 @@
 
 use anyhow::Result;
 
-use crate::copilot::rawfuture::{RawFutureRequest, RawFutureSession, CONTEXT_LENGTH, MAX_HORIZON};
+use crate::copilot::v1::rawfuture::{
+    RawFutureRequest, RawFutureSession, CONTEXT_LENGTH, MAX_HORIZON,
+};
 
 const ANCHOR_EPSILON: f32 = 1.0e-6;
 

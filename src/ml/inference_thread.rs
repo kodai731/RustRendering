@@ -3,7 +3,7 @@ use std::thread;
 
 use anyhow::Result;
 
-use thyllore_ml_core::copilot::rawfuture::{RawFutureRequest, RawFutureSession, MAX_HORIZON};
+use thyllore_ml_core::copilot::v1::rawfuture::{RawFutureRequest, RawFutureSession, MAX_HORIZON};
 use thyllore_ml_core::{
     InferenceActorId, InferenceModelKind, InferenceRequest, InferenceRequestKind, InferenceResult,
     InferenceResultKind,

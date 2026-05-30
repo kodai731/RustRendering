@@ -3,8 +3,18 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+RAWFUTURE_MODEL_FILENAME="curve_copilot_20260531_rawfuture_v1_tangent.onnx"
+
+resolve_default_model() {
+    if [[ -n "${THYLLORE_CURVE_MODEL:-}" ]]; then
+        printf '%s' "$THYLLORE_CURVE_MODEL"
+    elif [[ -n "${THYLLORE_SHARED_DATA_DIR:-}" ]]; then
+        printf '%s' "$THYLLORE_SHARED_DATA_DIR/exports/$RAWFUTURE_MODEL_FILENAME"
+    fi
+}
+
 SCENE="$REPO_ROOT/blender/test.blend"
-MODEL="${THYLLORE_CURVE_MODEL:-/home/kodai/Projects/SharedData/exports/curve_copilot/rawfuture_v1_tangent.onnx}"
+MODEL="$(resolve_default_model)"
 PLATFORM="linux_x86_64"
 REBUILD_WHEEL=1
 
@@ -23,7 +33,10 @@ implementation lives in Rust; _debuglog.py only calls it.
 Options:
   --skip-wheel         Reuse the existing wheel (only safe if it was already
                        built with --debug-log)
-  --model PATH         curve_copilot ONNX to bundle (default: \$THYLLORE_CURVE_MODEL)
+  --model PATH         curve_copilot ONNX to bundle. Default resolves from
+                       \$THYLLORE_CURVE_MODEL, else
+                       \$THYLLORE_SHARED_DATA_DIR/exports/$RAWFUTURE_MODEL_FILENAME.
+                       Set these in your shell rc so no absolute path is hardcoded.
   -h, --help           Show this help
 EOF
 }
@@ -36,6 +49,17 @@ while [[ $# -gt 0 ]]; do
         *) SCENE="$1"; shift ;;
     esac
 done
+
+if [[ -z "$MODEL" ]]; then
+    echo "curve_copilot model path is not set. Pass --model PATH, or set THYLLORE_CURVE_MODEL," >&2
+    echo "or set THYLLORE_SHARED_DATA_DIR (e.g. in your shell rc) so that" >&2
+    echo "\$THYLLORE_SHARED_DATA_DIR/exports/$RAWFUTURE_MODEL_FILENAME exists." >&2
+    exit 1
+fi
+if [[ ! -f "$MODEL" ]]; then
+    echo "curve_copilot model not found at $MODEL" >&2
+    exit 1
+fi
 
 export THYLLORE_BLENDER_PATH="${THYLLORE_BLENDER_PATH:-/snap/bin/blender}"
 if [[ ! -x "$THYLLORE_BLENDER_PATH" ]]; then
