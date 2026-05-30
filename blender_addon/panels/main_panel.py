@@ -81,7 +81,8 @@ class THYLLORE_PT_CurveCopilot(Panel):
         if context.active_object is None or context.active_object.type != "ARMATURE":
             layout.label(text="Select an armature with FCurves", icon="ERROR")
             return
-        layout.operator("thyllore.curve_copilot", icon="FCURVE")
+        layout.operator("thyllore.curve_copilot", text="Preview Forecast (Shift+C)", icon="FCURVE")
+        layout.operator("thyllore.curve_copilot_clear", text="Clear Preview", icon="X")
 
 
 # ---------------------------------------------------------------------------

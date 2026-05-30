@@ -351,22 +351,6 @@ unsafe fn cleanup_resources(
         node_assets.nodes.clear();
     }
 
-    #[cfg(feature = "ml")]
-    {
-        if world.contains_resource::<crate::ecs::resource::BoneTopologyCache>() {
-            let mut cache = world.resource_mut::<crate::ecs::resource::BoneTopologyCache>();
-            cache.clear();
-        }
-        if world.contains_resource::<crate::ecs::resource::BoneNameTokenCache>() {
-            let mut cache = world.resource_mut::<crate::ecs::resource::BoneNameTokenCache>();
-            cache.clear();
-        }
-        if world.contains_resource::<crate::ecs::resource::BoneRestPositionCache>() {
-            let mut cache = world.resource_mut::<crate::ecs::resource::BoneRestPositionCache>();
-            cache.clear();
-        }
-    }
-
     if world.contains_resource::<crate::ecs::resource::BonePoseOverride>() {
         let mut overrides = world.resource_mut::<crate::ecs::resource::BonePoseOverride>();
         overrides.overrides.clear();
@@ -397,34 +381,6 @@ fn setup_animation_system(
             skeleton: skeleton.clone(),
         };
         assets.add_skeleton(skeleton_asset);
-    }
-
-    #[cfg(feature = "ml")]
-    {
-        use crate::ecs::resource::{
-            build_rest_position_cache, BoneNameTokenCache, BoneRestPositionCache, BoneTopologyCache,
-        };
-
-        for skeleton in &load_result.skeletons {
-            if world.contains_resource::<BoneTopologyCache>() {
-                let topo_features = crate::ml::compute_bone_topology(skeleton);
-                let mut cache = world.resource_mut::<BoneTopologyCache>();
-                cache.features = topo_features;
-            }
-
-            if world.contains_resource::<BoneNameTokenCache>() {
-                let name_tokens = crate::ml::compute_bone_name_tokens(skeleton);
-                let mut cache = world.resource_mut::<BoneNameTokenCache>();
-                cache.tokens = name_tokens;
-            }
-
-            if world.contains_resource::<BoneRestPositionCache>() {
-                let built = build_rest_position_cache(skeleton);
-                let mut cache = world.resource_mut::<BoneRestPositionCache>();
-                cache.positions = built.positions;
-                cache.skeleton_height = built.skeleton_height;
-            }
-        }
     }
 
     if world.contains_resource::<ModelState>() {

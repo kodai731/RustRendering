@@ -14,6 +14,9 @@ crate-type = ["cdylib", "rlib"]
 [features]
 default = []
 python = ["dep:pyo3", "dep:numpy", "dep:pythonize"]
+# Debug-only: compiles the addon file-logging output methods. Production wheels
+# omit this feature, so the log functions are absent from the build entirely.
+debug-log = []
 
 [dependencies]
 thyllore-ml-api = { path = "../thyllore-ml-api" }

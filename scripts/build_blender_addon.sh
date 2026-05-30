@@ -9,6 +9,8 @@ VERSION="0.0.1"
 OUTPUT_DIR="dist"
 INCLUDE_ONNX_MODEL=0
 ONNX_SOURCE_PATH="ml/model/curve_copilot.onnx"
+ONNXRUNTIME_LIB_PATH=""
+DEBUG_BUILD=0
 SKIP_BLENDER_VALIDATE=0
 
 usage() {
@@ -27,6 +29,10 @@ Options:
   --output-dir PATH              Output directory (default: $OUTPUT_DIR)
   --include-onnx-model           Bundle the curve_copilot ONNX
   --onnx-source-path PATH        Source path of the ONNX (default: $ONNX_SOURCE_PATH)
+  --onnxruntime-lib PATH         ONNX Runtime shared library to bundle in lib/
+                                 (default: vendored runtime for the platform)
+  --debug                        Debug build: log addon runtime to
+                                 <repo>/log/log_blender.log
   --skip-blender-validate        Skip "blender --command extension validate"
   -h, --help                     Show this help
 EOF
@@ -46,6 +52,8 @@ while [[ $# -gt 0 ]]; do
         --output-dir)             OUTPUT_DIR="$2"; shift 2 ;;
         --include-onnx-model)     INCLUDE_ONNX_MODEL=1; shift ;;
         --onnx-source-path)       ONNX_SOURCE_PATH="$2"; shift 2 ;;
+        --onnxruntime-lib)        ONNXRUNTIME_LIB_PATH="$2"; shift 2 ;;
+        --debug)                  DEBUG_BUILD=1; shift ;;
         --skip-blender-validate)  SKIP_BLENDER_VALIDATE=1; shift ;;
         -h|--help)                usage; exit 0 ;;
         *) echo "unknown arg: $1" >&2; usage >&2; exit 2 ;;
@@ -62,6 +70,8 @@ case "$PLATFORM" in
     win_amd64)
         BLENDER_NAME="windows-x64"
         WHEEL_MATCHERS=("win_amd64\\.whl$")
+        ORT_LIB_DEST_NAME="onnxruntime.dll"
+        ORT_LIB_DEFAULT=""
         ;;
     linux_x86_64)
         BLENDER_NAME="linux-x64"
@@ -70,6 +80,8 @@ case "$PLATFORM" in
             "manylinux_2_[0-9]+_x86_64\\.whl$"
             "linux_x86_64\\.whl$"
         )
+        ORT_LIB_DEST_NAME="libonnxruntime.so"
+        ORT_LIB_DEFAULT="$REPO_ROOT/vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so"
         ;;
     macosx_arm64)
         BLENDER_NAME="macos-arm64"
@@ -77,6 +89,8 @@ case "$PLATFORM" in
             "macosx_[0-9]+_[0-9]+_arm64\\.whl$"
             "macosx_[0-9]+_[0-9]+_universal2\\.whl$"
         )
+        ORT_LIB_DEST_NAME="libonnxruntime.dylib"
+        ORT_LIB_DEFAULT=""
         ;;
     *)
         echo "invalid platform: $PLATFORM" >&2
@@ -269,7 +283,11 @@ fi
 echo "[build_blender_addon] ABI marker verified: $API_MARKER"
 
 if [[ "$INCLUDE_ONNX_MODEL" -eq 1 ]]; then
-    ONNX_ABS="$REPO_ROOT/$ONNX_SOURCE_PATH"
+    if [[ "$ONNX_SOURCE_PATH" = /* ]]; then
+        ONNX_ABS="$ONNX_SOURCE_PATH"
+    else
+        ONNX_ABS="$REPO_ROOT/$ONNX_SOURCE_PATH"
+    fi
     if [[ ! -f "$ONNX_ABS" ]]; then
         echo "ONNX model not found at $ONNX_ABS (omit --include-onnx-model to skip)" >&2
         exit 1
@@ -277,6 +295,31 @@ if [[ "$INCLUDE_ONNX_MODEL" -eq 1 ]]; then
     mkdir -p "$STAGE_DIR/models"
     cp -f "$ONNX_ABS" "$STAGE_DIR/models/curve_copilot.onnx"
     echo "[build_blender_addon] Bundled ONNX model from $ONNX_SOURCE_PATH"
+fi
+
+if [[ -z "$ONNXRUNTIME_LIB_PATH" ]]; then
+    ONNXRUNTIME_LIB_PATH="$ORT_LIB_DEFAULT"
+fi
+if [[ -n "$ONNXRUNTIME_LIB_PATH" && -f "$ONNXRUNTIME_LIB_PATH" ]]; then
+    mkdir -p "$STAGE_DIR/lib"
+    cp -L -f "$ONNXRUNTIME_LIB_PATH" "$STAGE_DIR/lib/$ORT_LIB_DEST_NAME"
+    echo "[build_blender_addon] Bundled ONNX Runtime: $ONNXRUNTIME_LIB_PATH -> lib/$ORT_LIB_DEST_NAME"
+else
+    echo "[build_blender_addon] WARNING: ONNX Runtime lib not bundled for $PLATFORM" >&2
+    echo "  (in-process inference will fail unless the user sets ORT_DYLIB_PATH)" >&2
+    echo "  searched: ${ONNXRUNTIME_LIB_PATH:-<none>}" >&2
+fi
+
+DEBUG_CONFIG_PATH="$STAGE_DIR/_debug_config.py"
+if [[ "$DEBUG_BUILD" -eq 1 ]]; then
+    DEBUG_LOG_PATH="$REPO_ROOT/log/log_blender.log"
+    {
+        echo "DEBUG_BUILD = True"
+        echo "LOG_PATH = r\"$DEBUG_LOG_PATH\""
+    } >"$DEBUG_CONFIG_PATH"
+    echo "[build_blender_addon] Debug build: logging to $DEBUG_LOG_PATH"
+else
+    rm -f "$DEBUG_CONFIG_PATH"
 fi
 
 resolve_blender_executable() {

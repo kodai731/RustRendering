@@ -13,6 +13,7 @@ CERTIFI_VERSION="2024.12.14"
 PYTHON_ABI="cp311"
 PYTHON_VERSION="3.11"
 VARIANT="lite"
+DEBUG_LOG=0
 
 PLATFORMS_OVERRIDE=()
 
@@ -45,6 +46,7 @@ while [[ $# -gt 0 ]]; do
         --wheels-dir)        WHEELS_DIR="$2"; shift 2 ;;
         --skip-maturin)      SKIP_MATURIN=1; shift ;;
         --skip-pip-download) SKIP_PIP_DOWNLOAD=1; shift ;;
+        --debug-log)         DEBUG_LOG=1; shift ;;
         --platforms)
             read -r -a PLATFORMS_OVERRIDE <<<"$2"
             shift 2
@@ -120,11 +122,17 @@ if [[ "$SKIP_PIP_DOWNLOAD" -eq 0 ]]; then
 fi
 
 if [[ "$SKIP_MATURIN" -eq 0 ]]; then
-    echo "[collect_wheels] Building thyllore_ml_core wheel via maturin..."
+    MATURIN_FEATURES="python"
+    if [[ "$DEBUG_LOG" -eq 1 ]]; then
+        MATURIN_FEATURES="python,debug-log"
+        echo "[collect_wheels] Building DEBUG wheel (features: $MATURIN_FEATURES)"
+    else
+        echo "[collect_wheels] Building thyllore_ml_core wheel via maturin..."
+    fi
     "$PYTHON_BIN" -m pip install --quiet maturin
     (
         cd "$REPO_ROOT/crates/thyllore-ml-core"
-        maturin build --release --features python --out "$ABS_WHEELS"
+        maturin build --release --features "$MATURIN_FEATURES" --out "$ABS_WHEELS"
     )
 fi
 

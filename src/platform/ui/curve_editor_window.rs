@@ -2063,9 +2063,9 @@ fn handle_suggestion_keyboard(
     suggestion_overlays: &[SuggestionOverlay],
 ) {
     let io = ui.io();
-    let ctrl = io.key_ctrl;
+    let shift = io.key_shift;
 
-    if ctrl && ui.is_key_pressed(imgui::Key::Space) {
+    if shift && ui.is_key_pressed(imgui::Key::C) {
         for property_type in &editor_state.visible_curves {
             ui_events.send(UIEvent::CurveSuggestionRequest {
                 bone_id,

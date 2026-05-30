@@ -20,9 +20,13 @@ from __future__ import annotations
 
 import bpy
 
+from .. import _ghost_overlay
 from . import curve_copilot
 
-_OPERATORS: list[type] = [curve_copilot.THYLLORE_OT_CurveCopilot]
+_OPERATORS: list[type] = [
+    curve_copilot.THYLLORE_OT_CurveCopilot,
+    curve_copilot.THYLLORE_OT_CurveCopilotClear,
+]
 _HAS_TEXT_TO_MOTION = False
 _HAS_TIER_A = False
 
@@ -54,12 +58,47 @@ def has_text_to_motion() -> bool:
     return _HAS_TEXT_TO_MOTION
 
 
+# Shift+C in animation curve editors, matching the desktop engine's curve
+# editor trigger. The 3D Viewport is intentionally excluded: Shift+C there is
+# Blender's "Center Cursor and Frame All".
+_CURVE_COPILOT_KEYMAPS = (
+    ("Graph Editor", "GRAPH_EDITOR"),
+    ("Dope Sheet", "DOPESHEET_EDITOR"),
+)
+_addon_keymaps: list = []
+
+
+def _register_keymaps() -> None:
+    keyconfig = bpy.context.window_manager.keyconfigs.addon
+    if keyconfig is None:
+        return
+    for keymap_name, space_type in _CURVE_COPILOT_KEYMAPS:
+        keymap = keyconfig.keymaps.new(name=keymap_name, space_type=space_type)
+        keymap_item = keymap.keymap_items.new(
+            "thyllore.curve_copilot", type="C", value="PRESS", shift=True
+        )
+        _addon_keymaps.append((keymap, keymap_item))
+
+
+def _unregister_keymaps() -> None:
+    for keymap, keymap_item in _addon_keymaps:
+        try:
+            keymap.keymap_items.remove(keymap_item)
+        except (RuntimeError, ReferenceError):
+            pass
+    _addon_keymaps.clear()
+
+
 def register() -> None:
     for cls in _OPERATORS:
         bpy.utils.register_class(cls)
+    _register_keymaps()
+    _ghost_overlay.register()
 
 
 def unregister() -> None:
+    _ghost_overlay.unregister()
+    _unregister_keymaps()
     for cls in reversed(_OPERATORS):
         try:
             bpy.utils.unregister_class(cls)

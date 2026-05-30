@@ -8,22 +8,18 @@ use crate::ecs::resource::{
 };
 use crate::ml::{InferenceActorId, InferenceRequestKind, InferenceResultKind};
 use thyllore_ml_core::copilot::dump::{dump_rawfuture_inference, RawFutureInferenceDump};
-use thyllore_ml_core::copilot::rawfuture::{CONTEXT_LENGTH, MAX_HORIZON};
+use thyllore_ml_core::copilot::forecast;
+use thyllore_ml_core::copilot::rawfuture::MAX_HORIZON;
 
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
-const ANCHOR_EPSILON: f32 = 1.0e-6;
 const DEPLOY_FPS: f32 = 60.0;
 const SUGGESTION_STRIDE: usize = 1;
 const SUGGESTION_FRAME_COUNT: usize = 8;
 
 fn resolve_anchor_time(curve: &PropertyCurve, current_time: f32) -> Option<f32> {
-    curve
-        .keyframes
-        .iter()
-        .map(|kf| kf.time)
-        .filter(|t| *t <= current_time + ANCHOR_EPSILON)
-        .fold(None, |acc, t| Some(acc.map_or(t, |best: f32| best.max(t))))
+    let times: Vec<f32> = curve.keyframes.iter().map(|kf| kf.time).collect();
+    forecast::resolve_origin_time(&times, current_time)
 }
 
 fn find_nearest_keyframe(curve: &PropertyCurve, time: f32) -> Option<&EditableKeyframe> {
@@ -46,17 +42,14 @@ struct RawFutureWindows {
 }
 
 fn build_rawfuture_windows(curve: &PropertyCurve, origin_time: f32, dt: f32) -> RawFutureWindows {
-    let context: Vec<f32> = (0..CONTEXT_LENGTH)
-        .map(|i| {
-            sample_or_hold(
-                curve,
-                origin_time + (i as f32 - (CONTEXT_LENGTH as f32 - 1.0)) * dt,
-            )
-        })
+    let context: Vec<f32> = forecast::context_sample_offsets()
+        .iter()
+        .map(|&offset| sample_or_hold(curve, origin_time + offset as f32 * dt))
         .collect();
 
-    let future: Vec<f32> = (0..MAX_HORIZON)
-        .map(|i| sample_or_hold(curve, origin_time + (i as f32 + 1.0) * dt))
+    let future: Vec<f32> = forecast::future_sample_offsets()
+        .iter()
+        .map(|&offset| sample_or_hold(curve, origin_time + offset as f32 * dt))
         .collect();
 
     RawFutureWindows { context, future }
@@ -209,20 +202,6 @@ pub fn curve_suggestion_poll_results(
     }
 }
 
-fn predicted_velocity(mean_curve: &[f32], i: usize, dt: f32) -> f32 {
-    let n = mean_curve.len();
-    if n < 2 {
-        return 0.0;
-    }
-    if i == 0 {
-        (mean_curve[1] - mean_curve[0]) / dt
-    } else if i == n - 1 {
-        (mean_curve[n - 1] - mean_curve[n - 2]) / dt
-    } else {
-        (mean_curve[i + 1] - mean_curve[i - 1]) / (2.0 * dt)
-    }
-}
-
 fn build_suggestions_from_curve(
     mean_curve: &[f32],
     origin_value: f32,
@@ -233,15 +212,15 @@ fn build_suggestions_from_curve(
     request_id: crate::ml::InferenceRequestId,
 ) -> Vec<GhostCurveSuggestion> {
     let handle_dt = SUGGESTION_STRIDE as f32 * dt / 3.0;
-    let continuity_offset = mean_curve.first().map_or(0.0, |first| origin_value - first);
+    let continuity_offset = forecast::continuity_offset(mean_curve, origin_value);
+    let velocities = forecast::compute_velocities(mean_curve, 1.0 / dt);
     let mut suggestions = Vec::new();
 
     for i in suggestion_frame_indices() {
         if i >= mean_curve.len() {
             continue;
         }
-        let velocity = predicted_velocity(mean_curve, i, dt);
-        let handle_dv = velocity * handle_dt;
+        let handle_dv = velocities[i] * handle_dt;
         suggestions.push(GhostCurveSuggestion {
             bone_id,
             property_type,
@@ -295,6 +274,7 @@ pub fn curve_suggestion_dismiss(suggestion_state: &mut CurveSuggestionState) {
 mod tests {
     use super::*;
     use crate::animation::editable::{curve_add_keyframe, CurveId};
+    use thyllore_ml_core::copilot::rawfuture::CONTEXT_LENGTH;
 
     fn create_test_curve(keyframe_count: usize) -> PropertyCurve {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);

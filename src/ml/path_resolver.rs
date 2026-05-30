@@ -1,5 +1,5 @@
 pub fn resolve_curve_copilot_model_path() -> Option<String> {
-    if let Some(path) = find_rawfuture_curve_copilot_model_in_shared_data() {
+    if let Some(path) = thyllore_ml_core::model_path::resolve_rawfuture_curve_copilot_model_path() {
         log!("Using rawfuture curve_copilot model: {}", path);
         return Some(path);
     }
@@ -14,16 +14,4 @@ pub fn resolve_curve_copilot_model_path() -> Option<String> {
         crate::paths::HUGGINGFACE_CURVE_COPILOT_REPO
     );
     None
-}
-
-fn find_rawfuture_curve_copilot_model_in_shared_data() -> Option<String> {
-    let shared_data_dir = std::env::var(crate::paths::SHARED_DATA_ENV_VAR).ok()?;
-    let model_path = std::path::Path::new(&shared_data_dir)
-        .join(crate::paths::EXPORTS_SUBDIR)
-        .join(crate::paths::RAWFUTURE_CURVE_COPILOT_SUBDIR)
-        .join(crate::paths::RAWFUTURE_CURVE_COPILOT_FILENAME);
-
-    model_path
-        .exists()
-        .then(|| model_path.to_string_lossy().to_string())
 }

@@ -1,41 +1,17 @@
 #![doc = include_str!("../README.md")]
 
-mod error;
-mod request;
-mod response;
-mod traits;
-mod wire;
-
-pub use error::MlError;
-pub use request::{CopilotRequest, CurvePredictRequest, SkeletonSnapshot};
-pub use response::{CopilotResponse, CopilotStepPrediction, CurvePredictResponse, TopologyResult};
-pub use traits::MlOps;
-pub use wire::{CopilotRequestWire, CopilotResponseWire, CopilotStepWire, OP_RUN_CURVE_COPILOT};
-
-/// ABI/schema marker bumped whenever this crate's public surface changes
+/// ABI/schema marker bumped whenever the L3 PyO3 wheel's public surface changes
 /// in a way that requires the Blender extension to be reinstalled.
 ///
-/// The L3 PyO3 wheel exports this through `__abi_marker__`, and the L4 addon
-/// (`blender_addon/__init__.py`) compares it against `EXPECTED_ABI_MARKER`
-/// at register time. A mismatch causes the addon to register a placeholder
-/// panel instead of the regular operators, so users see a clear "update the
-/// addon" message rather than crashes.
-///
-/// Bump rules:
-/// - Adding a new variant to [`MlError`]: no bump (clients can match `_`).
-/// - Adding a method to [`MlOps`] with a default implementation: no bump.
-/// - Adding a field to a request/response struct: requires bump unless the
-///   struct uses `#[serde(default)]` for the new field.
-/// - Removing or renaming a method, field, or error variant: bump.
+/// The wheel exports this through `__abi_marker__`, and the L4 addon
+/// (`blender_addon/__init__.py`) compares it against `EXPECTED_ABI_MARKER` at
+/// register time. A mismatch makes the addon register a placeholder panel
+/// instead of the operators, so users see a clear "update the addon" message
+/// rather than crashes.
 ///
 /// History:
-/// - 1: Phase 4 initial release (curve_copilot only).
-/// - 2: Phase 5.5 — text_to_motion entry point added (PyO3 facade exposes
-///   `PyMotionSession`). Older addons binding `EXPECTED_ABI_MARKER = 1` will
-///   refuse to register against this wheel and prompt the user to update.
-/// - 3: Phase 9 — `CopilotRequest` gains the four ISAB cross-bone fields
-///   (`bone_context_keyframes`, `bone_context_topology`,
-///   `bone_context_rest_positions`, `bone_context_mask`). The wire format
-///   carries matching `*_bits` fields. Older addons binding
-///   `EXPECTED_ABI_MARKER = 2` will refuse to register.
-pub const ABI_MARKER: u32 = 3;
+/// - 1: rawfuture forecast surface — `PyRawFutureSession` (`from_onnx_path`,
+///   `predict_mean_curve`, `build_forecast_preview`), `forecast_sample_offsets`,
+///   `resolve_origin_frame`, `resolve_curve_copilot_model_path`, `capabilities`.
+///   The pre-rawfuture multi-input copilot / curve-predict surface was removed.
+pub const ABI_MARKER: u32 = 1;
