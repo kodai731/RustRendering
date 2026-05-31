@@ -5,7 +5,7 @@ use anyhow::Result;
 use ndarray::Array1;
 use ndarray_npy::NpzWriter;
 
-pub struct RawFutureInferenceDump<'a> {
+pub struct V1CurveCopilotInferenceDump<'a> {
     pub context: &'a [f32],
     pub future: &'a [f32],
     pub reveal_mask: &'a [bool],
@@ -14,13 +14,13 @@ pub struct RawFutureInferenceDump<'a> {
     pub anchor_time: f32,
 }
 
-pub fn dump_rawfuture_inference(
-    dump: &RawFutureInferenceDump<'_>,
+pub fn dump_v1_curve_copilot_inference(
+    dump: &V1CurveCopilotInferenceDump<'_>,
     output_dir: &Path,
 ) -> Result<PathBuf> {
     create_dir_all(output_dir)?;
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S-%3f").to_string();
-    let path = output_dir.join(format!("{}-rawfuture-inference.npz", timestamp));
+    let path = output_dir.join(format!("{}-v1-curve-copilot-inference.npz", timestamp));
 
     let mut npz = NpzWriter::new(File::create(&path)?);
 

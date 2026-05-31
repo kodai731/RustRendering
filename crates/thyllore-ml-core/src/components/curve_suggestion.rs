@@ -1,6 +1,6 @@
-use crate::animation::editable::PropertyType;
-use crate::animation::BoneId;
-use crate::ml::InferenceRequestId;
+use thyllore_anim_core::editable::PropertyType;
+
+use crate::{BoneId, InferenceRequestId};
 
 #[derive(Clone)]
 pub struct GhostCurveSuggestion {

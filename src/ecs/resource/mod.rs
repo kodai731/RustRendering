@@ -10,10 +10,7 @@ mod auto_exposure;
 #[cfg(feature = "auto-rig")]
 mod auto_rig_state;
 mod bloom;
-#[cfg(feature = "ml")]
 mod bone_pose_override;
-#[cfg(feature = "ml")]
-#[cfg(feature = "ml")]
 mod camera;
 mod clip_browser_state;
 mod clip_library;
@@ -24,8 +21,6 @@ mod depth_of_field;
 mod edit_history;
 mod exposure;
 mod fbx_model_cache;
-#[cfg(feature = "ml")]
-mod ghost_curve_data;
 mod gltf_model_cache;
 mod graphics;
 mod grid_state;
@@ -73,10 +68,7 @@ pub use auto_exposure::*;
 #[cfg(feature = "auto-rig")]
 pub use auto_rig_state::*;
 pub use bloom::*;
-#[cfg(feature = "ml")]
 pub use bone_pose_override::*;
-#[cfg(feature = "ml")]
-#[cfg(feature = "ml")]
 pub use camera::*;
 pub use clip_browser_state::*;
 pub use clip_library::*;
@@ -87,8 +79,6 @@ pub use depth_of_field::*;
 pub use edit_history::*;
 pub use exposure::*;
 pub use fbx_model_cache::*;
-#[cfg(feature = "ml")]
-pub use ghost_curve_data::*;
 pub use gltf_model_cache::*;
 pub use graphics::*;
 pub use grid_state::*;

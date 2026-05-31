@@ -73,26 +73,27 @@ scripts/collect_wheels.sh --debug-log     # debug wheel (addon file logging)
 This runs the same maturin invocation CI does and surfaces compile errors
 directly. Local turnaround is ~30s incremental vs minutes per CI round-trip.
 
-### ML path: rawfuture only
+### ML path: v1 curve-copilot only
 
-The only supported ML inference path is the **rawfuture** curve-copilot model
-(`RawFutureSession` / `forecast`). The pre-rawfuture multi-input copilot and
-curve-predict surface (old `Session`, `MlOps`/`MlCoreImpl`, `PySession`,
-topology/tokenizer, the `*_parity` / `curve_copilot_*` fixture tests, and the
-`python_parity.yml` / `blender_parity.yml` workflows + `run_parity_local.sh` /
-`generate_parity_fixtures.sh`) has been removed. `ABI_MARKER = 1` is the
-rawfuture baseline.
+The only supported ML inference path is the **v1 curve-copilot** model
+(`V1CurveCopilotSession` / `forecast`, under `copilot::v1::`). The pre-v1
+multi-input copilot and curve-predict surface (old `Session`, `MlOps`/`MlCoreImpl`,
+`PySession`, topology/tokenizer, the `*_parity` / `curve_copilot_*` fixture tests,
+and the `python_parity.yml` / `blender_parity.yml` workflows + `run_parity_local.sh`
+/ `generate_parity_fixtures.sh`) has been removed. `ABI_MARKER = 1` is the v1
+baseline.
 
-**A structurally-correct rawfuture dummy model is not yet on HuggingFace**, so
-any CI job that downloads the model and runs end-to-end inference is expected to
-fail/skip until that upload lands. That is acceptable — do not try to "fix" it
-by resurrecting the old parity harness.
+A structurally-correct all-zero dummy model is published on HuggingFace
+(`kodai731/thyllore-curve-copilot`, fixed name `curve_copilot.onnx`). The
+`v1-curve-copilot-smoke` CI job downloads it and asserts only that inference runs
+and returns finite values — not numeric parity with the production model. Run the
+same check locally with `scripts/ci_v1_curve_copilot_inference_smoke.sh`.
 
 ### Local verification for ML / addon changes
 
 | What changed | Local check |
 |---|---|
-| `crates/thyllore-ml-core/src/**` (rawfuture / forecast / pybindings) | `cargo test -p thyllore-ml-core --lib` + `scripts/collect_wheels.sh` |
+| `crates/thyllore-ml-core/src/**` (v1 inference / forecast / pybindings) | `cargo test -p thyllore-ml-core --lib` + `scripts/collect_wheels.sh` |
 | Blender addon (`blender_addon/**`) | `scripts/run_blender_debug.sh` — builds the debug wheel + addon, installs, launches the test scene; the operator smoke runs headless via `blender_addon/tests/curve_copilot_operator_smoke.py` |
 | engine ML systems (`src/ecs/systems/curve_suggestion_systems.rs`, `src/ml/`) | `cargo check --lib` + `cargo test --lib curve_suggestion` |
 | Animation / ECS / rendering (no ML) | `cargo test --lib` + `cargo test --test ecs_tests --no-default-features` |

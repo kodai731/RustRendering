@@ -1,21 +1,11 @@
-//! Shared curve-forecast pipeline — the single source of truth for both the
-//! engine (`curve_suggestion_systems`) and the Blender addon (via PyO3).
-//!
-//! The numeric logic (window sample positions, origin resolution, continuity
-//! offset, velocities, ghost polyline) lives here so the two consumers cannot
-//! drift. The addon's ghost polyline is only relevant when built for Python, so
-//! it is gated behind `#[cfg(feature = "python")]`.
-
 use anyhow::Result;
 
-use crate::copilot::v1::rawfuture::{
-    RawFutureRequest, RawFutureSession, CONTEXT_LENGTH, MAX_HORIZON,
+use crate::copilot::v1::inference::{
+    V1CurveCopilotRequest, V1CurveCopilotSession, CONTEXT_LENGTH, MAX_HORIZON,
 };
 
 const ANCHOR_EPSILON: f32 = 1.0e-6;
 
-/// Frame offsets (relative to the origin) for the dense context window: the
-/// block of `CONTEXT_LENGTH` values ending at the origin (`..= 0`).
 pub fn context_sample_offsets() -> [i64; CONTEXT_LENGTH] {
     let mut offsets = [0i64; CONTEXT_LENGTH];
     for (i, offset) in offsets.iter_mut().enumerate() {
@@ -24,8 +14,6 @@ pub fn context_sample_offsets() -> [i64; CONTEXT_LENGTH] {
     offsets
 }
 
-/// Frame offsets (relative to the origin) for the future window the model
-/// predicts: `1 ..= MAX_HORIZON`.
 pub fn future_sample_offsets() -> [i64; MAX_HORIZON] {
     let mut offsets = [0i64; MAX_HORIZON];
     for (i, offset) in offsets.iter_mut().enumerate() {
@@ -53,8 +41,6 @@ pub fn resolve_origin_time(keyframe_times: &[f32], playhead: f32) -> Option<f32>
         })
 }
 
-/// Per-second finite-difference velocity at each predicted step (central in the
-/// interior, one-sided at the ends).
 pub fn compute_velocities(mean_curve: &[f32], fps: f32) -> Vec<f32> {
     let n = mean_curve.len();
     if n < 2 || fps <= 0.0 {
@@ -71,13 +57,10 @@ pub fn compute_velocities(mean_curve: &[f32], fps: f32) -> Vec<f32> {
     velocities
 }
 
-/// Offset that anchors the predicted curve to the existing value at the origin.
 pub fn continuity_offset(mean_curve: &[f32], origin_value: f32) -> f32 {
     origin_value - mean_curve.first().copied().unwrap_or(0.0)
 }
 
-/// Forecast result shared by both consumers. `ghost_points` (the addon's GPU
-/// polyline) exists only in Python builds; the engine never compiles it.
 pub struct ForecastPreview {
     pub mean_curve: Vec<f32>,
     pub continuity_offset: f32,
@@ -86,8 +69,6 @@ pub struct ForecastPreview {
     pub ghost_points: Vec<(f32, f32)>,
 }
 
-/// Ghost polyline in `(frame, value)` curve space: the origin anchor followed by
-/// the continuity-shifted prediction at one-frame spacing.
 #[cfg(feature = "python")]
 fn assemble_ghost_points(
     mean_curve: &[f32],
@@ -112,8 +93,6 @@ fn assemble_ghost_points(
     points
 }
 
-/// Turn a raw `mean_curve` into the shared preview (continuity + velocities, and
-/// the ghost polyline in Python builds).
 pub fn assemble_forecast(
     mean_curve: Vec<f32>,
     origin: f32,
@@ -136,9 +115,8 @@ pub fn assemble_forecast(
     }
 }
 
-/// Run the model on the sampled windows and assemble the shared preview.
 pub fn build_forecast_preview(
-    session: &mut RawFutureSession,
+    session: &mut V1CurveCopilotSession,
     context: &[f32],
     future: &[f32],
     reveal_mask: &[bool],
@@ -147,7 +125,7 @@ pub fn build_forecast_preview(
     origin_value: f32,
     frame_step: f32,
 ) -> Result<ForecastPreview> {
-    let mean_curve = session.predict_mean_curve(RawFutureRequest {
+    let mean_curve = session.predict_mean_curve(V1CurveCopilotRequest {
         context,
         future,
         reveal_mask,
@@ -197,7 +175,7 @@ mod tests {
     #[test]
     fn velocities_match_central_difference() {
         let mean = [0.0_f32, 1.0, 4.0, 9.0];
-        let v = compute_velocities(&mean, 2.0); // dt = 0.5
+        let v = compute_velocities(&mean, 2.0);
         assert!((v[0] - 2.0).abs() < 1e-6);
         assert!((v[1] - 4.0).abs() < 1e-6);
         assert!((v[3] - 10.0).abs() < 1e-6);

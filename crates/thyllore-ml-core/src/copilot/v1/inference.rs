@@ -16,29 +16,20 @@ const INPUT_CONTEXT_TANGENT: &str = "context_tangent";
 const INPUT_FUTURE_TANGENT: &str = "future_tangent";
 const OUTPUT_MEAN_CURVE: &str = "mean_curve";
 
-/// Deploy inputs for `curve_copilot_20260531_rawfuture_v1_tangent.onnx` (RawFutureCombined, use_tangent=True).
-///
-/// `context` is the dense block of `CONTEXT_LENGTH` raw values immediately before the
-/// edited region; `future` is the dense block of `MAX_HORIZON` raw values the model
-/// predicts. Only the steps where `reveal_mask` is set are treated as known anchors —
-/// the rest are reconstructed (e.g. lerp-through-anchors) so the finite-difference
-/// tangent is defined densely. Values are raw (un-normalized): the deploy-safe z-score
-/// is applied here and the output is denormalized back to this scale.
-pub struct RawFutureRequest<'a> {
+pub struct V1CurveCopilotRequest<'a> {
     pub context: &'a [f32],
     pub future: &'a [f32],
     pub reveal_mask: &'a [bool],
     pub fps: f32,
 }
 
-/// Per-row deploy-safe normalization statistics, retained to denormalize the output.
 #[derive(Clone, Copy, Debug)]
 pub struct DeploySafeStats {
     pub mu: f32,
     pub sd: f32,
 }
 
-struct RawFutureTensors {
+struct V1CurveCopilotTensors {
     context: Tensor<f32>,
     future: Tensor<f32>,
     reveal_mask: Tensor<f32>,
@@ -49,11 +40,11 @@ struct RawFutureTensors {
     stats: DeploySafeStats,
 }
 
-pub struct RawFutureSession {
+pub struct V1CurveCopilotSession {
     ort: OrtSession,
 }
 
-impl RawFutureSession {
+impl V1CurveCopilotSession {
     pub fn from_onnx_path(path: &str) -> Result<Self> {
         let ort = OrtSession::builder()?
             .with_intra_threads(1)?
@@ -62,10 +53,8 @@ impl RawFutureSession {
         Ok(Self { ort })
     }
 
-    /// Run the MDN mixture-mean deploy path and return the denormalized dense curve
-    /// (`MAX_HORIZON` values in the same units as `request.context`/`request.future`).
-    pub fn predict_mean_curve(&mut self, request: RawFutureRequest<'_>) -> Result<Vec<f32>> {
-        let tensors = build_rawfuture_tensors(&request)?;
+    pub fn predict_mean_curve(&mut self, request: V1CurveCopilotRequest<'_>) -> Result<Vec<f32>> {
+        let tensors = build_v1_curve_copilot_tensors(&request)?;
         let stats = tensors.stats;
 
         let outputs = self.ort.run(ort::inputs![
@@ -83,12 +72,6 @@ impl RawFutureSession {
     }
 }
 
-/// Deploy-safe statistics from KNOWN values only (context ⊕ revealed anchors).
-///
-/// Mirrors the training collate: the target scale is unknown at inference, so the row is
-/// standardized by the mean/std of values the model can actually see. `std` is the
-/// population standard deviation (matching numpy default), floored so a near-flat known
-/// region cannot blow up the normalized magnitudes.
 pub fn deploy_safe_stats(context: &[f32], future: &[f32], reveal_mask: &[bool]) -> DeploySafeStats {
     let mut known: Vec<f32> = context.to_vec();
     known.extend(
@@ -116,15 +99,10 @@ fn denormalize(values: &[f32], stats: DeploySafeStats) -> Vec<f32> {
     values.iter().map(|&v| v * stats.sd + stats.mu).collect()
 }
 
-/// Seconds-based positions: context spans `[-(len-1)*dt ..= 0]`, future spans
-/// `[dt ..= len*dt]`, matching the fps-agnostic time stamps the collate emits.
 fn seconds_times(len: usize, offset: i64, dt: f32) -> Vec<f32> {
     (0..len).map(|i| (i as i64 + offset) as f32 * dt).collect()
 }
 
-/// Finite-difference derivative w.r.t. seconds, matching `numpy.gradient` with a uniform
-/// coordinate array and the default `edge_order=1`: second-order central differences in
-/// the interior, first-order one-sided differences at the two boundaries.
 fn finite_difference(values: &[f32], dt: f32) -> Vec<f32> {
     let n = values.len();
     if n < 2 {
@@ -140,7 +118,9 @@ fn finite_difference(values: &[f32], dt: f32) -> Vec<f32> {
     gradient
 }
 
-fn build_rawfuture_tensors(request: &RawFutureRequest<'_>) -> Result<RawFutureTensors> {
+fn build_v1_curve_copilot_tensors(
+    request: &V1CurveCopilotRequest<'_>,
+) -> Result<V1CurveCopilotTensors> {
     ensure!(
         request.context.len() == CONTEXT_LENGTH,
         "context must have {CONTEXT_LENGTH} values, got {}",
@@ -179,7 +159,7 @@ fn build_rawfuture_tensors(request: &RawFutureRequest<'_>) -> Result<RawFutureTe
 
     let row_ctx = vec![1i64, CONTEXT_LENGTH as i64];
     let row_fut = vec![1i64, MAX_HORIZON as i64];
-    Ok(RawFutureTensors {
+    Ok(V1CurveCopilotTensors {
         context: Tensor::from_array((row_ctx.clone(), context_norm))?,
         future: Tensor::from_array((row_fut.clone(), future_norm))?,
         reveal_mask: Tensor::from_array((row_fut.clone(), reveal))?,

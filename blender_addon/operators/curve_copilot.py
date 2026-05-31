@@ -95,7 +95,7 @@ class THYLLORE_OT_CurveCopilot(Operator):
 
         all_fcurves = _action_fcurves(context.active_object)
         try:
-            session = tml.PyRawFutureSession.from_onnx_path(model_path)
+            session = tml.PyV1CurveCopilotSession.from_onnx_path(model_path)
             ghosts = [
                 ghost
                 for index, fcurve in enumerate(fcurves)

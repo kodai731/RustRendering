@@ -3,12 +3,10 @@ use pyo3::prelude::*;
 
 use super::error::{anyhow_to_pyerr, shape_mismatch};
 use crate::copilot::v1::forecast;
-use crate::copilot::v1::rawfuture::{
-    RawFutureRequest, RawFutureSession, CONTEXT_LENGTH, MAX_HORIZON,
+use crate::copilot::v1::inference::{
+    V1CurveCopilotRequest, V1CurveCopilotSession, CONTEXT_LENGTH, MAX_HORIZON,
 };
 
-/// Feature ids the wheel supports, for the addon's `poll` UI gating. The addon
-/// checks `"curve_forecast" in tml.capabilities()`.
 #[pyfunction]
 pub fn capabilities() -> Vec<&'static str> {
     vec!["curve_forecast"]
@@ -19,16 +17,11 @@ pub fn deploy_fps() -> f32 {
     forecast::DEPLOY_FPS
 }
 
-/// Resolve the shared rawfuture curve-copilot model path (same source of truth
-/// the engine uses). Returns ``None`` when unset/missing so the addon can fall
-/// back to its bundled copy.
 #[pyfunction]
 pub fn resolve_curve_copilot_model_path() -> Option<String> {
-    crate::model_path::resolve_rawfuture_curve_copilot_model_path()
+    crate::model_path::resolve_v1_curve_copilot_model_path()
 }
 
-/// Frame offsets (relative to the origin) to sample for the context and future
-/// windows. The addon samples the FCurve at `origin + offset` for each.
 #[pyfunction]
 pub fn forecast_sample_offsets() -> (Vec<i64>, Vec<i64>) {
     (
@@ -37,22 +30,21 @@ pub fn forecast_sample_offsets() -> (Vec<i64>, Vec<i64>) {
     )
 }
 
-/// Latest keyframe time at or before `playhead` — the forecast origin.
 #[pyfunction]
 pub fn resolve_origin_frame(keyframe_times: Vec<f32>, playhead: f32) -> Option<f32> {
     forecast::resolve_origin_time(&keyframe_times, playhead)
 }
 
-#[pyclass(name = "PyRawFutureSession", module = "thyllore_ml_core")]
-pub struct PyRawFutureSession {
-    inner: RawFutureSession,
+#[pyclass(name = "PyV1CurveCopilotSession", module = "thyllore_ml_core")]
+pub struct PyV1CurveCopilotSession {
+    inner: V1CurveCopilotSession,
 }
 
 #[pymethods]
-impl PyRawFutureSession {
+impl PyV1CurveCopilotSession {
     #[staticmethod]
     fn from_onnx_path(path: &str) -> PyResult<Self> {
-        let inner = RawFutureSession::from_onnx_path(path).map_err(anyhow_to_pyerr)?;
+        let inner = V1CurveCopilotSession::from_onnx_path(path).map_err(anyhow_to_pyerr)?;
         Ok(Self { inner })
     }
 
@@ -94,7 +86,7 @@ impl PyRawFutureSession {
 
         let mean_curve = py
             .allow_threads(|| {
-                self.inner.predict_mean_curve(RawFutureRequest {
+                self.inner.predict_mean_curve(V1CurveCopilotRequest {
                     context,
                     future,
                     reveal_mask,
@@ -106,9 +98,6 @@ impl PyRawFutureSession {
         Ok(mean_curve.into_pyarray(py))
     }
 
-    /// Run the forecast and return the ghost preview polyline `[(frame, value)]`
-    /// in FCurve space. Inputs are plain lists so the addon needs no numpy; all
-    /// numeric work happens in the shared Rust core.
     #[allow(clippy::too_many_arguments)]
     fn build_forecast_preview(
         &mut self,

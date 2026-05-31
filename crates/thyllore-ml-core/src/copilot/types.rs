@@ -4,11 +4,13 @@ pub type InferenceRequestId = u64;
 pub const CURVE_COPILOT_ACTOR_ID: InferenceActorId = 2;
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum InferenceModelKind {
     CurveCopilot,
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum InferenceRequestKind {
     CurveCopilotPredict {
         context: Vec<f32>,
@@ -26,6 +28,7 @@ pub struct InferenceRequest {
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum InferenceResultKind {
     CurveCopilotPredict { mean_curve: Vec<f32> },
 }

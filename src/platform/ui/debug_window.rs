@@ -1,9 +1,9 @@
 use crate::ecs::events::{UIEvent, UIEventQueue};
-#[cfg(feature = "ml")]
-use crate::ecs::resource::CurveSuggestionState;
 use crate::ecs::resource::{DebugViewMode, DebugViewState};
 use crate::ecs::resource::{GridMeshData, MouseInput};
 use crate::ecs::World;
+#[cfg(feature = "ml")]
+use crate::ml::CurveSuggestionState;
 
 pub struct DebugWindowState {
     pub debug_view_mode: DebugViewMode,

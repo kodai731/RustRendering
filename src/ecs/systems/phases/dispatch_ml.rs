@@ -5,14 +5,12 @@ pub fn dispatch_curve_suggestion_events(
     _assets: &crate::asset::AssetStorage,
 ) {
     use crate::ecs::events::UIEvent;
-    use crate::ecs::resource::{
-        ClipLibrary, CurveSuggestionState, InferenceActorState, TimelineState,
-    };
+    use crate::ecs::resource::{ClipLibrary, InferenceActorState, TimelineState};
     use crate::ecs::systems::{
         curve_suggestion_apply, curve_suggestion_dismiss, curve_suggestion_submit,
         CurveSuggestionInputs,
     };
-    use crate::ml::CURVE_COPILOT_ACTOR_ID;
+    use crate::ml::{CurveSuggestionState, CURVE_COPILOT_ACTOR_ID};
 
     for event in events {
         match event {

@@ -9,7 +9,7 @@ on:
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
       - 'scripts/collect_wheels.ps1'
-      - 'scripts/ci_rawfuture_inference_smoke.sh'
+      - 'scripts/ci_v1_curve_copilot_inference_smoke.sh'
       - '.github/workflows/blender_addon_build.yml'
   pull_request:
     paths:
@@ -18,7 +18,7 @@ on:
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
       - 'scripts/collect_wheels.ps1'
-      - 'scripts/ci_rawfuture_inference_smoke.sh'
+      - 'scripts/ci_v1_curve_copilot_inference_smoke.sh'
       - '.github/workflows/blender_addon_build.yml'
 
 jobs:
@@ -87,8 +87,8 @@ jobs:
           retention-days: 7
           if-no-files-found: error
 
-  rawfuture-smoke:
-    name: Rawfuture inference smoke (HF dummy model)
+  v1-curve-copilot-smoke:
+    name: V1 curve-copilot inference smoke (HF dummy model)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -100,7 +100,7 @@ jobs:
         uses: Swatinem/rust-cache@v2
 
       - name: Download dummy model + run inference smoke
-        run: bash scripts/ci_rawfuture_inference_smoke.sh
+        run: bash scripts/ci_v1_curve_copilot_inference_smoke.sh
 
   validate:
     name: Validate ZIP via Blender 4.2 LTS

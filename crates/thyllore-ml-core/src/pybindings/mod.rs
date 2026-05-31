@@ -3,11 +3,11 @@ use pyo3::prelude::*;
 #[cfg(feature = "debug-log")]
 mod debuglog;
 mod error;
-mod rawfuture;
+mod v1_curve_copilot;
 
-pub use rawfuture::{
+pub use v1_curve_copilot::{
     capabilities, deploy_fps, forecast_sample_offsets, resolve_curve_copilot_model_path,
-    resolve_origin_frame, PyRawFutureSession,
+    resolve_origin_frame, PyV1CurveCopilotSession,
 };
 
 #[pymodule]
@@ -15,16 +15,19 @@ fn thyllore_ml_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__abi_marker__", thyllore_ml_api::ABI_MARKER)?;
 
-    m.add_class::<PyRawFutureSession>()?;
+    m.add_class::<PyV1CurveCopilotSession>()?;
 
-    m.add_function(wrap_pyfunction!(rawfuture::capabilities, m)?)?;
-    m.add_function(wrap_pyfunction!(rawfuture::deploy_fps, m)?)?;
+    m.add_function(wrap_pyfunction!(v1_curve_copilot::capabilities, m)?)?;
+    m.add_function(wrap_pyfunction!(v1_curve_copilot::deploy_fps, m)?)?;
     m.add_function(wrap_pyfunction!(
-        rawfuture::resolve_curve_copilot_model_path,
+        v1_curve_copilot::resolve_curve_copilot_model_path,
         m
     )?)?;
-    m.add_function(wrap_pyfunction!(rawfuture::forecast_sample_offsets, m)?)?;
-    m.add_function(wrap_pyfunction!(rawfuture::resolve_origin_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        v1_curve_copilot::forecast_sample_offsets,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(v1_curve_copilot::resolve_origin_frame, m)?)?;
 
     #[cfg(feature = "debug-log")]
     {
