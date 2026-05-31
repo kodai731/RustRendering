@@ -1,9 +1,9 @@
 use crate::ecs::events::{UIEvent, UIEventQueue};
-#[cfg(feature = "ml")]
-use crate::ecs::resource::CurveSuggestionState;
 use crate::ecs::resource::{DebugViewMode, DebugViewState};
 use crate::ecs::resource::{GridMeshData, MouseInput};
 use crate::ecs::World;
+#[cfg(feature = "ml")]
+use crate::ml::CurveSuggestionState;
 
 pub struct DebugWindowState {
     pub debug_view_mode: DebugViewMode,
@@ -28,6 +28,9 @@ pub fn build_debug_panel_content(
     ui.separator();
 
     build_fbx_debug_panel(ui);
+    ui.separator();
+
+    build_curve_resample_panel(ui, ui_events, ecs_world);
     ui.separator();
 
     #[cfg(feature = "ml")]
@@ -226,6 +229,34 @@ fn build_fbx_debug_panel(ui: &imgui::Ui) {
     }
     if ui.checkbox("Transform", &mut fbx_trans) {
         FBX_DEBUG.set_transform(fbx_trans);
+    }
+}
+
+fn build_curve_resample_panel(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: &World) {
+    ui.text("Curve Resample (60fps):");
+
+    let clip_ids = crate::ecs::systems::query_selected_model_clip_ids(ecs_world);
+    if clip_ids.is_empty() {
+        ui.text_disabled("Select a model in the scene to resample its animations");
+        return;
+    }
+
+    {
+        let clip_library = ecs_world.resource::<crate::ecs::resource::ClipLibrary>();
+        for source_id in &clip_ids {
+            if let Some(clip) = clip_library.get(*source_id) {
+                ui.bullet_text(format!(
+                    "{} ({} keyframes, {:.2}s)",
+                    clip.name,
+                    clip.total_keyframe_count(),
+                    clip.duration
+                ));
+            }
+        }
+    }
+
+    if ui.button("Resample to 60fps") {
+        ui_events.send(UIEvent::ResampleSelectedModelAnimations { fps: 60.0 });
     }
 }
 

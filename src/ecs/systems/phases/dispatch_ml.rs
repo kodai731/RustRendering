@@ -2,18 +2,15 @@
 pub fn dispatch_curve_suggestion_events(
     events: &[crate::ecs::events::UIEvent],
     world: &mut crate::ecs::world::World,
-    assets: &crate::asset::AssetStorage,
+    _assets: &crate::asset::AssetStorage,
 ) {
     use crate::ecs::events::UIEvent;
-    use crate::ecs::resource::{
-        BoneNameTokenCache, BoneRestPositionCache, BoneTopologyCache, ClipLibrary,
-        CurveSuggestionState, InferenceActorState, TimelineState,
-    };
+    use crate::ecs::resource::{ClipLibrary, InferenceActorState, TimelineState};
     use crate::ecs::systems::{
         curve_suggestion_apply, curve_suggestion_dismiss, curve_suggestion_submit,
         CurveSuggestionInputs,
     };
-    use crate::ml::CURVE_COPILOT_ACTOR_ID;
+    use crate::ml::{CurveSuggestionState, CURVE_COPILOT_ACTOR_ID};
 
     for event in events {
         match event {
@@ -30,12 +27,6 @@ pub fn dispatch_curve_suggestion_events(
                     continue;
                 };
 
-                let Some(skeleton_asset) = assets.skeletons.values().next() else {
-                    log_warn!("curve_suggestion: no skeleton available, skipping request");
-                    continue;
-                };
-                let skeleton = skeleton_asset.skeleton.clone();
-
                 let clip = {
                     let clip_library = world.resource::<ClipLibrary>();
                     clip_library.get(clip_id).cloned()
@@ -44,22 +35,13 @@ pub fn dispatch_curve_suggestion_events(
                     continue;
                 };
 
-                let topology_cache = world.resource::<BoneTopologyCache>();
-                let name_token_cache = world.resource::<BoneNameTokenCache>();
-                let rest_position_cache = world.resource::<BoneRestPositionCache>();
                 let mut suggestion_state = world.resource_mut::<CurveSuggestionState>();
                 let mut inference_state = world.resource_mut::<InferenceActorState>();
                 curve_suggestion_submit(
                     &mut suggestion_state,
                     &mut inference_state,
                     CURVE_COPILOT_ACTOR_ID,
-                    CurveSuggestionInputs {
-                        clip: &clip,
-                        skeleton: &skeleton,
-                        topology_cache: &topology_cache,
-                        name_token_cache: &name_token_cache,
-                        rest_position_cache: &rest_position_cache,
-                    },
+                    CurveSuggestionInputs { clip: &clip },
                     *property_type,
                     *bone_id,
                     current_time,
@@ -67,12 +49,12 @@ pub fn dispatch_curve_suggestion_events(
             }
 
             UIEvent::CurveSuggestionAccept => {
-                let suggestion = {
+                let suggestions = {
                     let state = world.resource::<CurveSuggestionState>();
-                    state.suggestions.first().cloned()
+                    state.suggestions.clone()
                 };
 
-                if let Some(suggestion) = suggestion {
+                if !suggestions.is_empty() {
                     let timeline_state = world.resource::<TimelineState>();
                     let clip_id = timeline_state.current_clip_id;
                     drop(timeline_state);
@@ -80,9 +62,11 @@ pub fn dispatch_curve_suggestion_events(
                     if let Some(cid) = clip_id {
                         let mut clip_library = world.resource_mut::<ClipLibrary>();
                         if let Some(clip) = clip_library.get_mut(cid) {
-                            if let Some(track) = clip.tracks.get_mut(&suggestion.bone_id) {
-                                let curve = track.get_curve_mut(suggestion.property_type);
-                                curve_suggestion_apply(&suggestion, curve);
+                            for suggestion in &suggestions {
+                                if let Some(track) = clip.tracks.get_mut(&suggestion.bone_id) {
+                                    let curve = track.get_curve_mut(suggestion.property_type);
+                                    curve_suggestion_apply(suggestion, curve);
+                                }
                             }
                         }
                     }

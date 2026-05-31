@@ -323,13 +323,7 @@ impl App {
             data.ecs_world
                 .insert_resource(crate::ecs::resource::InferenceActorState::default());
             data.ecs_world
-                .insert_resource(crate::ecs::resource::CurveSuggestionState::default());
-            data.ecs_world
-                .insert_resource(crate::ecs::resource::BoneTopologyCache::default());
-            data.ecs_world
-                .insert_resource(crate::ecs::resource::BoneNameTokenCache::default());
-            data.ecs_world
-                .insert_resource(crate::ecs::resource::BoneRestPositionCache::default());
+                .insert_resource(crate::ml::CurveSuggestionState::default());
         }
 
         #[cfg(feature = "text-to-motion")]

@@ -54,6 +54,29 @@ pub fn curve_sort_keyframes(curve: &mut PropertyCurve) {
     });
 }
 
+pub fn curve_resample_at_fps(curve: &mut PropertyCurve, duration: f32, fps: f32) -> usize {
+    if curve.keyframes.is_empty() || fps <= 0.0 || duration <= 0.0 {
+        return curve.keyframes.len();
+    }
+
+    let frame_interval = 1.0 / fps;
+    let last_frame = (duration * fps).round().max(1.0) as usize;
+    let samples: Vec<(f32, f32)> = (0..=last_frame)
+        .map(|frame| {
+            let time = (frame as f32 * frame_interval).min(duration);
+            (time, curve_sample(curve, time).unwrap_or(0.0))
+        })
+        .collect();
+
+    curve.keyframes.clear();
+    for (time, value) in samples {
+        let id = curve.allocate_keyframe_id();
+        curve.keyframes.push(EditableKeyframe::new(id, time, value));
+    }
+    curve_sort_keyframes(curve);
+    curve.keyframes.len()
+}
+
 pub fn curve_sample(curve: &PropertyCurve, time: f32) -> Option<f32> {
     if curve.keyframes.is_empty() {
         return None;

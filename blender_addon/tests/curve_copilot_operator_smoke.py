@@ -24,11 +24,11 @@ import json
 import sys
 from pathlib import Path
 
-CONTEXT_KEYFRAME_COUNT = 8
+CONTEXT_KEYFRAME_COUNT = 32
 ARMATURE_OBJECT_NAME = "CurveCopilotSmokeArmature"
 ARMATURE_DATA_NAME = "CurveCopilotSmokeArmatureData"
 ROOT_BONE_NAME = "curve_copilot_smoke_root"
-INITIAL_FRAME_COUNT = 12
+INITIAL_FRAME_COUNT = 36
 
 
 def parse_args():
@@ -77,13 +77,39 @@ def insert_initial_keyframes(armature_object):
         pose_bone.keyframe_insert(data_path="location", frame=frame)
 
 
+def iter_action_fcurves(obj):
+    """Enumerate FCurves across Blender's legacy and slotted action APIs."""
+    anim = obj.animation_data
+    action = anim.action
+    legacy = getattr(action, "fcurves", None)
+    if legacy is not None:
+        return list(legacy)
+    slot = getattr(anim, "action_slot", None)
+    fcurves = []
+    for layer in action.layers:
+        for strip in layer.strips:
+            channelbag = strip.channelbag(slot) if slot is not None else None
+            if channelbag is None and strip.channelbags:
+                channelbag = strip.channelbags[0]
+            if channelbag is not None:
+                fcurves.extend(channelbag.fcurves)
+    return fcurves
+
+
 def select_first_location_x_fcurve(armature_object):
-    action = armature_object.animation_data.action
+    """Select only location.x. Headless has no Graph Editor, so the operator's
+    fallback reads the active object's `fcurve.select`; isolate a single curve.
+    """
     target_data_path = f'pose.bones["{ROOT_BONE_NAME}"].location'
-    for fcurve in action.fcurves:
-        if fcurve.data_path == target_data_path and fcurve.array_index == 0:
-            return fcurve
-    raise RuntimeError("curve_copilot smoke: location.x FCurve not found")
+    target = None
+    for fcurve in iter_action_fcurves(armature_object):
+        is_target = fcurve.data_path == target_data_path and fcurve.array_index == 0
+        fcurve.select = is_target
+        if is_target:
+            target = fcurve
+    if target is None:
+        raise RuntimeError("curve_copilot smoke: location.x FCurve not found")
+    return target
 
 
 def enable_addon():
@@ -127,9 +153,17 @@ def run_curve_copilot_operator(armature_object, fcurve):
     import bpy
 
     pre_count = len(fcurve.keyframe_points)
-    operator_status = bpy.ops.thyllore.curve_copilot("EXEC_DEFAULT", num_suggestions=4)
+    operator_status = bpy.ops.thyllore.curve_copilot("EXEC_DEFAULT")
     post_count = len(fcurve.keyframe_points)
     return operator_status, pre_count, post_count
+
+
+def ghost_is_shown(addon_pkg):
+    """Curve Copilot is preview-only: the forecast must populate the ghost overlay."""
+    import importlib
+
+    overlay = importlib.import_module(f"{addon_pkg}._ghost_overlay")
+    return overlay.has_ghost()
 
 
 def write_result(path, payload):
@@ -178,13 +212,15 @@ def main():
         )
         raise
 
+    ghost_shown = ghost_is_shown(addon_pkg)
     payload = {
-        "ok": "FINISHED" in operator_status,
+        "ok": ("FINISHED" in operator_status) and ghost_shown and (post_count == pre_count),
         "operator_status": sorted(operator_status),
         "stage": "operator_result",
         "pre_keyframe_count": pre_count,
         "post_keyframe_count": post_count,
         "inserted_count": post_count - pre_count,
+        "ghost_shown": ghost_shown,
     }
     write_result(args.result, payload)
 

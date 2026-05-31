@@ -3,10 +3,12 @@ use std::thread;
 
 use anyhow::Result;
 
-use thyllore_ml_core::copilot::input::BoneContextInput;
-use thyllore_ml_core::copilot::session::{CurveCopilotRequest, Session};
+use thyllore_ml_core::copilot::v1::inference::{
+    V1CurveCopilotRequest, V1CurveCopilotSession, MAX_HORIZON,
+};
 use thyllore_ml_core::{
-    InferenceActorId, InferenceRequest, InferenceRequestKind, InferenceResult, InferenceResultKind,
+    InferenceActorId, InferenceModelKind, InferenceRequest, InferenceRequestKind, InferenceResult,
+    InferenceResultKind,
 };
 
 pub struct InferenceThreadHandle {
@@ -17,12 +19,19 @@ pub struct InferenceThreadHandle {
 }
 
 impl InferenceThreadHandle {
-    pub fn spawn(model_path: &str, actor_id: InferenceActorId) -> Result<Self> {
+    pub fn spawn(
+        model_path: &str,
+        actor_id: InferenceActorId,
+        model_kind: InferenceModelKind,
+    ) -> Result<Self> {
         let (req_tx, req_rx) = mpsc::channel::<InferenceRequest>();
         let (res_tx, res_rx) = mpsc::channel::<InferenceResult>();
 
-        let session = Session::from_onnx_path(model_path)?;
-        let max_steps = session.max_steps();
+        let InferenceModelKind::CurveCopilot = model_kind else {
+            return Err(anyhow::anyhow!("unsupported inference model kind"));
+        };
+        let session = V1CurveCopilotSession::from_onnx_path(model_path)?;
+        let max_steps = Some(MAX_HORIZON);
 
         let join_handle = thread::Builder::new()
             .name(format!("inference-actor-{}", actor_id))
@@ -65,7 +74,7 @@ impl Drop for InferenceThreadHandle {
 }
 
 fn run_inference_loop(
-    mut session: Session,
+    mut session: V1CurveCopilotSession,
     receiver: mpsc::Receiver<InferenceRequest>,
     sender: mpsc::Sender<InferenceResult>,
 ) {
@@ -89,49 +98,31 @@ fn run_inference_loop(
 }
 
 fn execute_inference(
-    session: &mut Session,
+    session: &mut V1CurveCopilotSession,
     request: &InferenceRequest,
 ) -> Result<InferenceResultKind> {
-    match &request.kind {
-        InferenceRequestKind::CurvePredict { input } => {
-            let output = session.run_curve_predict(input)?;
-            Ok(InferenceResultKind::CurvePredict { output })
-        }
+    let InferenceRequestKind::CurveCopilotPredict {
+        context,
+        future,
+        reveal_mask,
+        fps,
+    } = &request.kind
+    else {
+        return Err(anyhow::anyhow!("unsupported inference request kind"));
+    };
 
-        InferenceRequestKind::CurveCopilotPredict {
-            context,
-            property_type_id,
-            topology_features,
-            bone_name_tokens,
-            query_times,
-            curve_window,
-            bone_context_keyframes,
-            bone_context_topology,
-            bone_context_rest_positions,
-            bone_context_mask,
-        } => {
-            let steps = session.run_curve_copilot(CurveCopilotRequest {
-                context,
-                property_type_id: *property_type_id,
-                topology_features,
-                bone_name_tokens,
-                query_times,
-                curve_window,
-                bone_context: BoneContextInput {
-                    keyframes: bone_context_keyframes,
-                    topology: bone_context_topology,
-                    rest_positions: bone_context_rest_positions,
-                    mask: bone_context_mask,
-                },
-            })?;
+    let mean_curve = session.predict_mean_curve(V1CurveCopilotRequest {
+        context,
+        future,
+        reveal_mask,
+        fps: *fps,
+    })?;
 
-            log!(
-                "CurveCopilot raw output: {} steps, query_times={:?}",
-                steps.len(),
-                query_times
-            );
+    log!(
+        "CurveCopilot raw output: {} dense values (fps={:.1})",
+        mean_curve.len(),
+        fps
+    );
 
-            Ok(InferenceResultKind::CurveCopilotPredict { steps })
-        }
-    }
+    Ok(InferenceResultKind::CurveCopilotPredict { mean_curve })
 }

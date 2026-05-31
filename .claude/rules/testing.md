@@ -63,192 +63,47 @@ GitHub Actions workflows.
 
 **IMPORTANT:** Before pushing any change that touches `crates/thyllore-ml-core`,
 `pybindings/`, the blender addon, or anything affecting wheel builds, reproduce
-the GitHub Actions "Collect vendored wheels" step locally with:
+the GitHub Actions wheel build locally:
 
 ```bash
-scripts/collect_wheels.sh
+scripts/collect_wheels.sh                 # production wheel (no debug-log)
+scripts/collect_wheels.sh --debug-log     # debug wheel (addon file logging)
 ```
 
-Pushing first to "see what CI says" wastes minutes per round-trip and burns
-runner time. The local script runs the same maturin invocation CI does and
-surfaces compile errors directly (unlike the PowerShell version, which used
-`Out-Null` and hid the real cause).
+This runs the same maturin invocation CI does and surfaces compile errors
+directly. Local turnaround is ~30s incremental vs minutes per CI round-trip.
 
-### Why
+### ML path: v1 curve-copilot only
 
-- The host machine is Linux (migrated from Windows on 2026-05-04). The same
-  glibc + Python toolchain as GitHub Actions `ubuntu-latest` is available
-  natively; manylinux wheel filename tags, ONNX Runtime layout, and maturin
-  output reproduce 1:1.
-- Local turnaround is ~30 seconds (incremental build). A CI failure round-trip
-  is several minutes per push.
-- The Linux Build / parity / blender_parity workflows all begin with this same
-  `collect_wheels` step. If maturin fails locally, every CI matrix entry will
-  fail too — no need to wait for the runner.
-- PR #105 (Phase 12 ISAB) caught a stale `pybindings/session.rs` signature
-  locally via this script after CI had already failed across all three
-  platforms (Linux / macOS / Windows) with output the PowerShell script had
-  swallowed.
+The only supported ML inference path is the **v1 curve-copilot** model
+(`V1CurveCopilotSession` / `forecast`, under `copilot::v1::`). The pre-v1
+multi-input copilot and curve-predict surface (old `Session`, `MlOps`/`MlCoreImpl`,
+`PySession`, topology/tokenizer, the `*_parity` / `curve_copilot_*` fixture tests,
+and the `python_parity.yml` / `blender_parity.yml` workflows + `run_parity_local.sh`
+/ `generate_parity_fixtures.sh`) has been removed. `ABI_MARKER = 1` is the v1
+baseline.
 
-### How to Apply
+A structurally-correct all-zero dummy model is published on HuggingFace
+(`kodai731/thyllore-curve-copilot`, fixed name `curve_copilot.onnx`). The
+`v1-curve-copilot-smoke` CI job downloads it and asserts only that inference runs
+and returns finite values — not numeric parity with the production model. Run the
+same check locally with `scripts/ci_v1_curve_copilot_inference_smoke.sh`.
 
-**The default rule for any CI-affecting change is:**
+### Local verification for ML / addon changes
 
-```bash
-scripts/run_parity_local.sh
-```
-
-This is the only command that exercises **the same environment as GitHub Actions**
-end-to-end (maturin wheel → HuggingFace ONNX → Rust ORT inference → Python
-pyo3 binding → Blender headless). Cheaper checks below are **shortcuts**, not
-substitutes — use them only when you can prove the path you didn't run cannot
-break.
-
-#### Coverage matrix — what each local command actually tests
-
-| Local command | Rust compile | Rust inference (ORT) | pyo3 binding | Python runner | Blender headless |
-|---|:--:|:--:|:--:|:--:|:--:|
-| `cargo test --lib` | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `cargo test --test ecs_tests --no-default-features` | ✅ | ❌ | ❌ | ❌ | ❌ |
-| `scripts/collect_wheels.sh` | ✅ | ❌ | ❌ (compile only) | ❌ | ❌ |
-| `cargo test --test curve_copilot_fixture_generator -- --ignored` | ✅ | ✅ | ❌ | ❌ | ❌ |
-| `cargo test --test call_op_typed_parity -- --ignored` | ✅ | ✅ (wire path) | ❌ | ❌ | ❌ |
-| **`scripts/run_parity_local.sh`** | ✅ | ✅ | ✅ | ✅ | ✅ |
-
-#### Which check is required for what
-
-| What changed | Minimum required local check |
+| What changed | Local check |
 |---|---|
-| `crates/thyllore-ml-core/src/pybindings/**` (pyo3 signatures, PySession) | **`scripts/run_parity_local.sh`** — pyo3 mismatches only surface when Python calls into Rust at runtime |
-| `crates/thyllore-ml-core/tests/curve_copilot_blender_runner.py` | **`scripts/run_parity_local.sh`** — Python runner is only exercised by Blender path |
-| ONNX I/O contract: `run_curve_copilot` inputs/outputs, `CurveCopilotRequest`, fixture shape constants | **`scripts/run_parity_local.sh`** — downloads HF ONNX + runs fixture generator + Blender parity |
-| HuggingFace ONNX re-upload | **`scripts/run_parity_local.sh`** + bump `ONNX_REVISION` SHA (see next section) |
-| `crates/thyllore-ml-core/src/*` (Rust API, not pybindings) | `cargo test --test curve_copilot_fixture_generator -- --ignored` then `cargo test --test call_op_typed_parity -- --ignored` |
-| Wheel build deps, `Cargo.toml`, `pyproject.toml` | `scripts/collect_wheels.sh` |
-| Animation / ECS / rendering Rust (no ML) | `cargo test --lib` + `cargo test --test ecs_tests --no-default-features` |
+| `crates/thyllore-ml-core/src/**` (v1 inference / forecast / pybindings) | `cargo test -p thyllore-ml-core --lib` + `scripts/collect_wheels.sh` |
+| Blender addon (`blender_addon/**`) | `scripts/run_blender_debug.sh` — builds the debug wheel + addon, installs, launches the test scene; the operator smoke runs headless via `blender_addon/tests/curve_copilot_operator_smoke.py` |
+| engine ML systems (`src/ecs/systems/curve_suggestion_systems.rs`, `src/ml/`) | `cargo check --lib` + `cargo test --lib curve_suggestion` |
+| Animation / ECS / rendering (no ML) | `cargo test --lib` + `cargo test --test ecs_tests --no-default-features` |
 
-**If unsure, default to `scripts/run_parity_local.sh`.** The script caches
-Blender, ONNX Runtime, and HuggingFace ONNX after the first run, so repeat
-invocations are ~30 seconds. CI failures from skipped local runs cost ~5
-minutes per attempt and burn shared runner time.
-
-#### Step-by-step
-
-1. **First-time setup** (per `One-Time Setup` section below).
-2. **Run the full parity** before pushing any change matching the rows above:
-   ```bash
-   scripts/run_parity_local.sh
-   ```
-3. **For Rust-only iterations** where you've already proven the Python /
-   Blender path isn't affected, you may use the cheaper checks during inner
-   loops, but still run `run_parity_local.sh` before push.
-4. **For lib-test iterations** (no ML touched):
-   ```bash
-   cargo test --lib
-   cargo test --test ecs_tests --no-default-features
-   ```
-5. **Add a `cargo test` shim** when a workflow step needs orchestration the
-   shell can't express — see
-   `crates/thyllore-grpc-client/tests/blender_addon_linux_validate.rs`.
-
-#### Why "compile passes" is not enough — PR #105 case study
-
-PR #105 hit four distinct CI failures, each requiring a different
-verification level. Each iteration was a wasted push because we relied on
-the cheapest check that compiled:
-
-| Iteration | Symptom | Cheapest catch | What we ran | Result |
-|---|---|---|---|---|
-| 1 | `pybindings/session.rs` stale 6-arg call to `run_curve_copilot` | `collect_wheels.sh` (compile) | nothing | wheel build failed on all 3 OSes |
-| 2 | ONNX rejected `bone_context_keyframes` (HF still old model) | `run_parity_local.sh` | `collect_wheels.sh` only | runtime ORT error |
-| 3 | CI cached old ONNX under `ONNX_REVISION=main` after re-upload | `run_parity_local.sh` with fresh cache | nothing — assumed re-upload sufficed | cache served stale model |
-| 4 | `curve_copilot_blender_runner.py` not updated for new 10-arg pyo3 signature | `run_parity_local.sh` (Blender path) | Rust-only fixture tests | Python `TypeError` at runtime |
-
-Iterations 1, 2, and 4 would have been caught by a single `run_parity_local.sh`
-run. Iteration 3 required the additional discipline of pinning
-`ONNX_REVISION` to a commit SHA (covered in the next section).
-
-**Rule:** before pushing anything that touches ML or pyo3 or Python runner
-code, run `scripts/run_parity_local.sh`. No exceptions.
-
-### When the ONNX Itself Must Change
-
-If the Rust code now expects new inputs/outputs (e.g., adding cross-bone
-`bone_context_*` tensors), the model on HuggingFace must be re-uploaded in
-the same PR so CI can succeed. Workflow:
-
-1. **Verify the new ONNX locally** by pointing the fixture at it:
-   ```bash
-   mkdir -p /tmp/cc-test/onnx
-   cp ${SharedDataPath}/exports/curve_copilot_<date>.onnx /tmp/cc-test/onnx/curve_copilot.onnx
-   THYLLORE_PARITY_FIXTURE_OUTPUT=/tmp/cc-test \
-       cargo test -p thyllore-ml-core \
-       --test curve_copilot_fixture_generator -- --ignored --nocapture
-   ```
-   Adjust fixture constants (`QUERY_TIMES`, etc.) if the new model expects
-   different shapes.
-
-2. **Upload the model to HuggingFace** at `kodai731/thyllore-curve-copilot`
-   under the canonical filename `curve_copilot.onnx` (the workflow always
-   resolves that name):
-   ```bash
-   # One-time setup
-   pip install --user huggingface_hub
-   huggingface-cli login   # paste an HF write token (https://huggingface.co/settings/tokens)
-
-   # Upload the new model under the canonical name
-   huggingface-cli upload kodai731/thyllore-curve-copilot \
-       ${SharedDataPath}/exports/curve_copilot_<date>.onnx \
-       curve_copilot.onnx \
-       --repo-type model \
-       --commit-message "phase12 ISAB cross-bone (max_steps=8)"
-
-   # If the model uses external-data sidecars (e.g. *.onnx.data), upload them too
-   huggingface-cli upload kodai731/thyllore-curve-copilot \
-       ${SharedDataPath}/exports/curve_copilot_<date>.onnx.data \
-       curve_copilot.onnx.data \
-       --repo-type model
-   ```
-
-3. **Pin the new revision — REQUIRED, not optional.** GitHub Actions caches
-   the downloaded ONNX by `ONNX_REVISION`; if the revision string doesn't
-   change, CI runners reuse the stale model and ignore the re-upload.
-
-   Fetch the new commit SHA:
-   ```bash
-   curl -s "https://huggingface.co/api/models/${ONNX_REPO}" \
-     | python3 -c 'import json,sys; print(json.load(sys.stdin)["sha"])'
-   ```
-
-   Then bump `ONNX_REVISION` (search-and-replace the old SHA) in:
-   - `.github/workflows/blender_parity.yml` (2 occurrences — `env:` block and
-     "Write fixture manifest" step)
-   - `scripts/run_parity_local.sh` (default value)
-
-   PR #105 missed this and CI cached the OLD model under
-   `curve-copilot-onnx-main` even after a fresh upload. The fix was to pin
-   `ONNX_REVISION` to the commit SHA so the cache key rotates with the model.
-
-4. **Re-run the local parity check** to confirm the published model works
-   end-to-end:
-   ```bash
-   rm -f fixtures/ml_parity/onnx/curve_copilot.onnx   # force re-download
-   scripts/run_parity_local.sh --test-subset blender_parity
-   ```
-
-### One-Time Setup
-
-- `python3-venv` (Ubuntu: `sudo apt install python3.12-venv`) — required for
-  the venv created by `collect_wheels.sh`.
-- ONNX Runtime in `vendor/onnxruntime/onnxruntime-linux-x64-*/lib/` —
-  `scripts/run_parity_local.sh` installs this automatically on first run.
-- `huggingface_hub` (`pip install --user huggingface_hub`) + an HF write
-  token — required only when re-uploading the curve_copilot ONNX.
+ONNX Runtime must be present at `vendor/onnxruntime/onnxruntime-linux-x64-*/lib/`
+and `ORT_DYLIB_PATH` set (see `.cargo/config.toml`) for any test that loads a model.
 
 ### When CI is Still the Right Choice
 
 - The bug only reproduces on macOS/arm64 hardware not available locally.
-- The defect needs the exact GitHub Actions runner image (rare).
 - A platform-specific Windows or macOS path must be exercised end-to-end.
 
 In all other cases, exhaust the local reproduction first.

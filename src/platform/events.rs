@@ -507,7 +507,7 @@ fn build_curve_editor(ui: &imgui::Ui, app: &mut App) {
         if let Some(state) = app
             .data
             .ecs_world
-            .get_resource::<crate::ecs::resource::CurveSuggestionState>()
+            .get_resource::<crate::ml::CurveSuggestionState>()
         {
             state
                 .suggestions

@@ -382,6 +382,10 @@ pub enum UIEvent {
 
     ExportModelGltf,
 
+    ResampleSelectedModelAnimations {
+        fps: f32,
+    },
+
     TimelineZoomIn {
         max_zoom: f32,
     },

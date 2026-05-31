@@ -22,6 +22,8 @@ Layer responsibility (see Phase4_AddonRegistration.md):
 from __future__ import annotations
 
 import importlib
+import os
+import platform
 import shutil
 import sys
 import zipfile
@@ -30,6 +32,31 @@ from typing import List
 
 _WHEELS_INSERTED: bool = False
 _EXTRACTED_SENTINEL = ".thyllore_extracted"
+
+
+def _ort_dylib_name() -> str:
+    system = platform.system()
+    if system == "Windows":
+        return "onnxruntime.dll"
+    if system == "Darwin":
+        return "libonnxruntime.dylib"
+    return "libonnxruntime.so"
+
+
+def configure_ort_dylib() -> None:
+    """Point ort (built with ``load-dynamic``) at the bundled ONNX Runtime.
+
+    The L3 wheel does not embed ``libonnxruntime``; without this the first
+    session creation panics with a dlopen failure. An existing
+    ``ORT_DYLIB_PATH`` is respected so power users can override the runtime.
+    """
+    if os.environ.get("ORT_DYLIB_PATH"):
+        return
+
+    candidate = Path(__file__).resolve().parent / "lib" / _ort_dylib_name()
+    if candidate.is_file():
+        os.environ["ORT_DYLIB_PATH"] = str(candidate)
+        print(f"[Thyllore] ORT_DYLIB_PATH set to bundled runtime: {candidate}")
 
 
 def _wheels_dir() -> Path:
@@ -80,6 +107,8 @@ def insert_wheels_to_sys_path() -> None:
     global _WHEELS_INSERTED
     if _WHEELS_INSERTED:
         return
+
+    configure_ort_dylib()
 
     wheels_dir = _wheels_dir()
     if not wheels_dir.is_dir():

@@ -4,27 +4,19 @@ pub type InferenceRequestId = u64;
 pub const CURVE_COPILOT_ACTOR_ID: InferenceActorId = 2;
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum InferenceModelKind {
-    CurvePredictor,
     CurveCopilot,
 }
 
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum InferenceRequestKind {
-    CurvePredict {
-        input: Vec<f32>,
-    },
     CurveCopilotPredict {
         context: Vec<f32>,
-        property_type_id: u32,
-        topology_features: Vec<f32>,
-        bone_name_tokens: Vec<i64>,
-        query_times: Vec<f32>,
-        curve_window: Vec<f32>,
-        bone_context_keyframes: Vec<f32>,
-        bone_context_topology: Vec<f32>,
-        bone_context_rest_positions: Vec<f32>,
-        bone_context_mask: Vec<bool>,
+        future: Vec<f32>,
+        reveal_mask: Vec<bool>,
+        fps: f32,
     },
 }
 
@@ -36,17 +28,9 @@ pub struct InferenceRequest {
 }
 
 #[derive(Clone, Debug)]
-pub struct CopilotStepPrediction {
-    pub value: f32,
-    pub tangent_in: (f32, f32),
-    pub tangent_out: (f32, f32),
-    pub confidence: f32,
-}
-
-#[derive(Clone, Debug)]
+#[non_exhaustive]
 pub enum InferenceResultKind {
-    CurvePredict { output: Vec<f32> },
-    CurveCopilotPredict { steps: Vec<CopilotStepPrediction> },
+    CurveCopilotPredict { mean_curve: Vec<f32> },
 }
 
 #[derive(Clone, Debug)]
