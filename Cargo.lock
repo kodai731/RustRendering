@@ -3651,6 +3651,7 @@ dependencies = [
  "pythonize",
  "serde_json",
  "tempfile",
+ "thyllore-anim-core",
  "thyllore-ml-api",
  "thyllore-model-core",
 ]
