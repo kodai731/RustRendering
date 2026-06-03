@@ -14,8 +14,10 @@ result back to glTF / FBX. An ML-powered curve copilot suggests keyframe values 
 - **ML Curve Copilot** — ONNX-based model that suggests animation curves as you edit
 - **Vulkan Rendering** — Deferred pipeline with ray tracing, bloom, tone mapping, and depth of field
 - **ECS Architecture** — Data-driven design inspired by Bevy Engine
+- **Blender Addon** - Share core logic and can build for blender addon
 
 See [docs/features.md](docs/features.md) for a full list of features.
+See [docs/blender_addon.md](docs/blender_addon.md) for the features on Blender.
 
 ## Prerequisites
 
