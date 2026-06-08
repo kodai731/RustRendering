@@ -95,15 +95,37 @@ jobs:
               -Platforms ${{ matrix.wheel_platform }} `
               -Variant ${{ inputs.variant || 'lite' }}
 
+      - name: Download curve_copilot ONNX (private HF)
+        id: model
+        shell: pwsh
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if (-not $env:HF_TOKEN) {
+              Write-Host "::warning::HF_TOKEN not set - building addon WITHOUT bundled ONNX model"
+              "include=0" >> $env:GITHUB_OUTPUT
+              exit 0
+          }
+          $dest = Join-Path $env:RUNNER_TEMP "curve_copilot.onnx"
+          $url = "https://huggingface.co/kodai731/thyllore-curve-copilot/resolve/main/curve_copilot.onnx"
+          Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $env:HF_TOKEN" } -OutFile $dest
+          "include=1" >> $env:GITHUB_OUTPUT
+          "path=$dest" >> $env:GITHUB_OUTPUT
+
       - name: Build addon ZIP (incl. ABI marker verify)
         id: build
         shell: pwsh
         run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1 `
-              -Platform ${{ matrix.platform }} `
-              -Variant ${{ inputs.variant || 'lite' }} `
-              -Version ${{ inputs.version || '0.0.1' }} `
-              -SkipBlenderValidate
+          $buildArgs = @(
+              '-Platform', '${{ matrix.platform }}',
+              '-Variant', '${{ inputs.variant || 'lite' }}',
+              '-Version', '${{ inputs.version || '0.0.1' }}',
+              '-SkipBlenderValidate'
+          )
+          if ('${{ steps.model.outputs.include }}' -eq '1') {
+              $buildArgs += @('-IncludeOnnxModel', '-OnnxSourcePath', '${{ steps.model.outputs.path }}')
+          }
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1 @buildArgs
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -125,7 +147,9 @@ jobs:
       - name: Cache cargo
         uses: Swatinem/rust-cache@v2
 
-      - name: Download dummy model + run inference smoke
+      - name: Download model + run inference smoke
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: bash scripts/ci_v1_curve_copilot_inference_smoke.sh
 
   validate:
