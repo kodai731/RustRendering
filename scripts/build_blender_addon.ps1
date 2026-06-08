@@ -25,6 +25,10 @@ param(
 $ErrorActionPreference = "Stop"
 $RepoRoot = Resolve-Path "$PSScriptRoot/.."
 
+if (-not $PSBoundParameters.ContainsKey('OnnxSourcePath') -and $env:THYLLORE_CURVE_COPILOT_ONNX) {
+    $OnnxSourcePath = $env:THYLLORE_CURVE_COPILOT_ONNX
+}
+
 $PlatformConfig = @{
     "win_amd64" = @{
         BlenderName  = "windows-x64"
@@ -248,7 +252,11 @@ Write-Host "[build_blender_addon] ABI marker verified: $ApiMarker" -ForegroundCo
 # ---------------------------------------------------------------------------
 
 if ($IncludeOnnxModel) {
-    $OnnxAbs = Join-Path $RepoRoot $OnnxSourcePath
+    $OnnxAbs = if ([System.IO.Path]::IsPathRooted($OnnxSourcePath)) {
+        $OnnxSourcePath
+    } else {
+        Join-Path $RepoRoot $OnnxSourcePath
+    }
     if (-not (Test-Path $OnnxAbs)) {
         throw "ONNX model not found at $OnnxAbs (use -IncludeOnnxModel:`$false to skip, or set -OnnxSourcePath)"
     }

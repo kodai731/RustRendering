@@ -44,22 +44,37 @@ on:
       - '.github/workflows/blender_addon_build.yml'
 
 jobs:
+  setup:
+    name: Resolve build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.resolve.outputs.matrix }}
+    steps:
+      - name: Resolve platform matrix from input
+        id: resolve
+        shell: bash
+        env:
+          SELECTED: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'all' }}
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          entries = [
+              {"platform": "win_amd64", "os": "windows-latest", "wheel_platform": "win_amd64"},
+              {"platform": "linux_x86_64", "os": "ubuntu-latest", "wheel_platform": "manylinux2014_x86_64"},
+              {"platform": "macosx_arm64", "os": "macos-latest", "wheel_platform": "macosx_11_0_arm64"},
+          ]
+          selected = os.environ["SELECTED"]
+          if selected != "all":
+              entries = [e for e in entries if e["platform"] == selected]
+          print("matrix=" + json.dumps({"include": entries}))
+          PY
+
   build:
     name: Build (${{ matrix.platform }})
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == matrix.platform }}
+    needs: setup
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: win_amd64
-            os: windows-latest
-            wheel_platform: win_amd64
-          - platform: linux_x86_64
-            os: ubuntu-latest
-            wheel_platform: manylinux2014_x86_64
-          - platform: macosx_arm64
-            os: macos-latest
-            wheel_platform: macosx_11_0_arm64
+      matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -136,7 +151,7 @@ jobs:
           if-no-files-found: error
 
   v1-curve-copilot-smoke:
-    name: V1 curve-copilot inference smoke (HF dummy model)
+    name: V1 curve-copilot inference smoke (private HF model)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
