@@ -35,15 +35,22 @@ ensure_onnxruntime() {
     rm -f "$archive"
 }
 
-download_dummy_model() {
-    write_step "Downloading dummy v1 curve_copilot model from HuggingFace (${HF_REPO}@${HF_REVISION})"
+download_model() {
+    if [[ -z "${HF_TOKEN:-}" ]]; then
+        echo "HF_TOKEN is required: ${HF_REPO} is a private HuggingFace repo." >&2
+        echo "Set the HF_TOKEN environment variable (read-scoped access token)." >&2
+        exit 1
+    fi
+    write_step "Downloading v1 curve_copilot model from private HuggingFace (${HF_REPO}@${HF_REVISION})"
     mkdir -p "$MODEL_DIR"
-    curl -L --fail --retry 3 --retry-delay 2 -o "$MODEL_PATH" "$HF_MODEL_URL"
+    curl -L --fail --retry 3 --retry-delay 2 \
+        -H "Authorization: Bearer ${HF_TOKEN}" \
+        -o "$MODEL_PATH" "$HF_MODEL_URL"
 }
 
 ensure_onnxruntime
-download_dummy_model
+download_model
 
-write_step "Running v1 curve_copilot inference smoke test against the dummy model"
+write_step "Running v1 curve_copilot inference smoke test against the model"
 export THYLLORE_CURVE_MODEL="$MODEL_PATH"
 cargo test -p thyllore-ml-core --test v1_curve_copilot_inference_smoke -- --ignored --nocapture
