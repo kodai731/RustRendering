@@ -1,6 +1,28 @@
 name: Blender Addon Build
 
 on:
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: "Target platform to build"
+        type: choice
+        options:
+          - all
+          - win_amd64
+          - linux_x86_64
+          - macosx_arm64
+        default: all
+      variant:
+        description: "Build variant (lite excludes Tier A)"
+        type: choice
+        options:
+          - lite
+          - full
+        default: lite
+      version:
+        description: "Extension version"
+        type: string
+        default: "0.0.1"
   push:
     branches: [main, develop]
     paths:
@@ -24,6 +46,7 @@ on:
 jobs:
   build:
     name: Build (${{ matrix.platform }})
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == matrix.platform }}
     strategy:
       fail-fast: false
       matrix:
@@ -69,7 +92,8 @@ jobs:
         shell: pwsh
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1 `
-              -Platforms ${{ matrix.wheel_platform }}
+              -Platforms ${{ matrix.wheel_platform }} `
+              -Variant ${{ inputs.variant || 'lite' }}
 
       - name: Build addon ZIP (incl. ABI marker verify)
         id: build
@@ -77,6 +101,8 @@ jobs:
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1 `
               -Platform ${{ matrix.platform }} `
+              -Variant ${{ inputs.variant || 'lite' }} `
+              -Version ${{ inputs.version || '0.0.1' }} `
               -SkipBlenderValidate
 
       - name: Upload artifact
@@ -105,6 +131,7 @@ jobs:
   validate:
     name: Validate ZIP via Blender 4.2 LTS
     needs: build
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux_x86_64' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
