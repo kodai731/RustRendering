@@ -85,7 +85,7 @@ impl PyV1CurveCopilotSession {
         }
 
         let mean_curve = py
-            .allow_threads(|| {
+            .detach(|| {
                 self.inner.predict_mean_curve(V1CurveCopilotRequest {
                     context,
                     future,
@@ -125,7 +125,7 @@ impl PyV1CurveCopilotSession {
         }
 
         let preview = py
-            .allow_threads(|| {
+            .detach(|| {
                 forecast::build_forecast_preview(
                     &mut self.inner,
                     &context,
