@@ -5,10 +5,7 @@ mod debuglog;
 mod error;
 mod v1_curve_copilot;
 
-pub use v1_curve_copilot::{
-    capabilities, deploy_fps, forecast_sample_offsets, resolve_curve_copilot_model_path,
-    resolve_origin_frame, PyV1CurveCopilotSession,
-};
+pub use v1_curve_copilot::PyV1CurveCopilotSession;
 
 #[pymodule]
 fn thyllore_ml_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
