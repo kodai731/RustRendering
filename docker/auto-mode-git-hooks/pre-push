@@ -1,0 +1,4 @@
+#!/bin/bash
+echo "[auto-mode] git push is disabled inside the auto-mode container." >&2
+echo "[auto-mode] pushes are reserved for the human host." >&2
+exit 1

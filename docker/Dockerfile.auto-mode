@@ -1,0 +1,127 @@
+FROM ubuntu:24.04
+
+# THYLLORE_ROOT is the identical host path the repo is mounted at (so the absolute
+# paths in .claude/local/paths.md resolve unchanged). Supplied at build time by
+# scripts/run_auto_mode.sh; the default here is a neutral placeholder only.
+ARG THYLLORE_ROOT=/workspace/ThylloreAnimation
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV LANG=C.UTF-8
+ENV HOME=/home/dev
+
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends \
+        ca-certificates \
+        curl \
+        wget \
+        xz-utils \
+        git \
+        less \
+        jq \
+        procps \
+        sudo \
+        build-essential \
+        pkg-config \
+        clang \
+        cmake \
+        libssl-dev \
+        python3 \
+        python3-venv \
+        iptables \
+        ipset \
+        iproute2 \
+        dnsutils \
+        libvulkan1 \
+        mesa-vulkan-drivers \
+        vulkan-tools \
+        libwayland-client0 \
+        libx11-6 \
+        libxi6 \
+        libxxf86vm1 \
+        libxfixes3 \
+        libxrender1 \
+        libxext6 \
+        libxrandr2 \
+        libxinerama1 \
+        libxcursor1 \
+        libxkbcommon0 \
+        libsm6 \
+        libgl1 \
+        libglu1-mesa \
+        libegl1 \
+        libgomp1 \
+        libtbb12 \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN install -m 0755 -d /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc \
+    && chmod a+r /etc/apt/keyrings/docker.asc \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu noble stable" \
+        > /etc/apt/sources.list.d/docker.list \
+    && apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
+
+# Blender LTS for the addon / FBX-glTF roundtrip tests. The addon requires >= 4.2.0
+# (blender_manifest.toml), which is newer than the apt package, so install the official
+# tarball and expose it at /usr/bin/blender — the path .claude/local/paths.md points at.
+ARG BLENDER_SERIES=4.2
+ARG BLENDER_VERSION=4.2.21
+RUN curl -fsSL "https://download.blender.org/release/Blender${BLENDER_SERIES}/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
+        -o /tmp/blender.tar.xz \
+    && mkdir -p /opt/blender \
+    && tar -xJf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 \
+    && ln -s /opt/blender/blender /usr/bin/blender \
+    && rm /tmp/blender.tar.xz \
+    && blender --version
+ENV THYLLORE_BLENDER_PATH=/usr/bin/blender
+
+# ubuntu:24.04 ships a default 'ubuntu' user at uid/gid 1000; remove it so 'dev' can claim 1000.
+RUN userdel -r ubuntu 2>/dev/null || true \
+    && groupadd --gid 1000 dev \
+    && useradd --uid 1000 --gid 1000 --create-home --shell /bin/bash dev \
+    && chown -R dev:dev /home/dev \
+    && echo 'dev ALL=(root) NOPASSWD: /usr/local/bin/init-firewall.sh' > /etc/sudoers.d/dev-firewall \
+    && chmod 0440 /etc/sudoers.d/dev-firewall
+
+COPY docker/init-firewall.sh /usr/local/bin/init-firewall.sh
+COPY docker/auto-mode-entrypoint.sh /usr/local/bin/auto-mode-entrypoint
+RUN chmod +x /usr/local/bin/init-firewall.sh /usr/local/bin/auto-mode-entrypoint
+
+COPY docker/allowed_domains.txt /etc/auto-mode/allowed_domains.txt
+COPY docker/auto-mode-claude-settings.json /etc/auto-mode/claude-settings.json
+COPY docker/auto-mode-gitconfig /home/dev/.gitconfig.container
+COPY docker/auto-mode-git-hooks/ /home/dev/git-hooks/
+RUN chmod +x /home/dev/git-hooks/* \
+    && chown -R dev:dev /home/dev/.gitconfig.container /home/dev/git-hooks
+
+ENV GIT_CONFIG_GLOBAL=/home/dev/.gitconfig.container
+ENV AUTO_MODE_CLAUDE_SETTINGS_TEMPLATE=/etc/auto-mode/claude-settings.json
+ENV ALLOWED_DOMAINS_FILE=/etc/auto-mode/allowed_domains.txt
+
+USER dev
+ENV RUSTUP_HOME=/home/dev/.rustup
+ENV CARGO_HOME=/home/dev/.cargo
+ENV CARGO_TARGET_DIR=/home/dev/target-cache
+ENV PATH=/home/dev/.local/bin:/home/dev/.cargo/bin:${PATH}
+
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --default-toolchain stable --profile minimal --component rustfmt --component clippy \
+    && rustc --version \
+    && cargo --version
+
+# Claude Code is NOT installed in the image. The host's standalone binary
+# (~/.local/share/claude/versions/<ver>) is bind-mounted read-only at
+# /home/dev/.local/bin/claude by scripts/run_auto_mode.sh, so the container always
+# runs the exact same version as the host. Host and image share Ubuntu 24.04 glibc.
+
+RUN mkdir -p \
+        /home/dev/.cache \
+        /home/dev/.cargo/registry \
+        /home/dev/target-cache \
+        /home/dev/.claude
+
+WORKDIR ${THYLLORE_ROOT}
+
+ENTRYPOINT ["/usr/local/bin/auto-mode-entrypoint"]
+CMD ["claude", "--dangerously-skip-permissions"]
