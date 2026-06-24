@@ -38,6 +38,9 @@ fn imports_usd_asset_when_path_is_provided() {
         .map(|ch| ch.translation.len() + ch.rotation.len() + ch.scale.len())
         .sum();
 
+    let morph = &result.morph_animation;
+    let morphed_meshes = morph.targets.iter().filter(|t| !t.is_empty()).count();
+
     eprintln!(
         "USD import: meshes={} vertices={} indices={} skeletons={} bones={} clips={} keyframes={} skinned={} armature={}",
         result.meshes.len(),
@@ -50,6 +53,12 @@ fn imports_usd_asset_when_path_is_provided() {
         result.has_skinned_meshes,
         result.has_armature,
     );
+    eprintln!(
+        "USD import morph: empty={} morphed_meshes={} weight_keyframes={}",
+        morph.is_empty(),
+        morphed_meshes,
+        morph.animations.len(),
+    );
 
     assert!(!result.meshes.is_empty(), "expected at least one mesh");
     assert!(total_vertices > 0, "expected non-empty geometry");
@@ -58,4 +67,17 @@ fn imports_usd_asset_when_path_is_provided() {
         0,
         "triangulated index buffer must be a multiple of 3"
     );
+
+    if !morph.is_empty() {
+        assert_eq!(
+            morph.targets.len(),
+            result.meshes.len(),
+            "morph targets must be aligned per mesh"
+        );
+        assert_eq!(
+            morph.base_vertices.len(),
+            result.meshes.len(),
+            "morph base vertices must be aligned per mesh"
+        );
+    }
 }

@@ -13,8 +13,8 @@ use openusd::sdf;
 use openusd::usd::{PrimPredicate, Stage};
 
 use thyllore_anim_core::{
-    AnimationClip, AnimationSystem, Keyframe, MorphAnimationSystem, Skeleton, SkinData,
-    TransformChannel,
+    AnimationClip, AnimationSystem, Keyframe, MorphAnimation, MorphAnimationSystem, MorphTarget,
+    Skeleton, SkinData, TransformChannel,
 };
 use thyllore_math_core::{Vec2, Vec3, Vec4};
 use thyllore_model_core::mesh::{Vertex, VertexData};
@@ -67,15 +67,22 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
     let clips = build_clips(&stage, &skeleton_id_by_path, time_range)?;
     let nodes = build_nodes(&animation_system);
 
+    let mesh_paths = filter_meshes(&stage, &prim_paths)?;
     let mut meshes = Vec::new();
     let mut has_skinned_meshes = false;
-    for mesh_path in filter_meshes(&stage, &prim_paths)? {
-        let mesh_data = build_mesh(&stage, &mesh_path, &skeleton_id_by_path)?;
+    for mesh_path in &mesh_paths {
+        let mesh_data = build_mesh(&stage, mesh_path, &skeleton_id_by_path)?;
         has_skinned_meshes |= mesh_data.skin_data.is_some();
         meshes.push(mesh_data);
     }
 
-    log_blend_shape_notice(&stage, &prim_paths)?;
+    let morph_animation = build_morph_animation(
+        &stage,
+        &mesh_paths,
+        &meshes,
+        &skeleton_id_by_path,
+        time_range,
+    )?;
     log_bounds(&meshes);
 
     Ok(UsdLoadResult {
@@ -83,7 +90,7 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
         nodes,
         animation_system,
         clips,
-        morph_animation: MorphAnimationSystem::default(),
+        morph_animation,
         has_skinned_meshes,
         has_armature,
     })
@@ -518,20 +525,197 @@ fn leaf_name(path: &sdf::Path) -> String {
         .to_string()
 }
 
-fn log_blend_shape_notice(stage: &Stage, prim_paths: &[sdf::Path]) -> Result<()> {
-    let mut blend_shape_count = 0;
-    for path in prim_paths {
-        if BlendShape::get(stage, path.clone())?.is_some() {
-            blend_shape_count += 1;
+struct MorphWeightTrack {
+    order: Vec<String>,
+    animations: Vec<MorphAnimation>,
+}
+
+fn build_morph_animation(
+    stage: &Stage,
+    mesh_paths: &[sdf::Path],
+    meshes: &[UsdMeshData],
+    skeleton_id_by_path: &HashMap<String, u32>,
+    time_range: (f64, f64, f64),
+) -> Result<MorphAnimationSystem> {
+    let track = build_morph_weight_track(stage, skeleton_id_by_path, time_range)?;
+    if track.order.is_empty() || track.animations.is_empty() {
+        return Ok(MorphAnimationSystem::default());
+    }
+
+    let mut targets = Vec::with_capacity(meshes.len());
+    let mut base_vertices = Vec::with_capacity(meshes.len());
+    let mut morphed_mesh_count = 0;
+    for (mesh, mesh_path) in meshes.iter().zip(mesh_paths) {
+        let mesh_targets =
+            build_mesh_blend_shapes(stage, mesh_path, &track.order, mesh.base_positions.len())?;
+        if !mesh_targets.is_empty() {
+            morphed_mesh_count += 1;
+        }
+        targets.push(mesh_targets);
+        base_vertices.push(mesh.base_positions.clone());
+    }
+
+    if morphed_mesh_count == 0 {
+        return Ok(MorphAnimationSystem::default());
+    }
+
+    log!(
+        "USD import: morph imported for {} mesh(es), {} blend shape(s), {} weight keyframe(s)",
+        morphed_mesh_count,
+        track.order.len(),
+        track.animations.len()
+    );
+
+    Ok(MorphAnimationSystem {
+        animations: track.animations,
+        targets,
+        base_vertices,
+        scale_factor: 1.0,
+    })
+}
+
+fn build_morph_weight_track(
+    stage: &Stage,
+    skeleton_id_by_path: &HashMap<String, u32>,
+    time_range: (f64, f64, f64),
+) -> Result<MorphWeightTrack> {
+    let mut selected: Option<SkelAnimQuery> = None;
+    let mut ignored_sources = 0;
+    for skel_path in skeleton_id_by_path.keys() {
+        let skel_path = sdf::path(skel_path)?;
+        let Some(anim_path) = find_animation_source(stage, &skel_path)? else {
+            continue;
+        };
+        let Some(query) = SkelAnimQuery::new(stage, anim_path)? else {
+            continue;
+        };
+        if query.blend_shape_order().is_empty() {
+            continue;
+        }
+        if selected.is_none() {
+            selected = Some(query);
+        } else {
+            ignored_sources += 1;
         }
     }
-    if blend_shape_count > 0 {
+
+    let Some(query) = selected else {
+        return Ok(MorphWeightTrack {
+            order: Vec::new(),
+            animations: Vec::new(),
+        });
+    };
+    if ignored_sources > 0 {
         log!(
-            "USD import: detected {} BlendShape prim(s); morph import is not yet implemented",
-            blend_shape_count
+            "USD import: {} blend shape animation source(s) ignored (engine supports one global morph track)",
+            ignored_sources
         );
     }
-    Ok(())
+
+    let order = query.blend_shape_order().to_vec();
+    let animations = sample_blend_shape_weights(stage, &query, time_range)?;
+    Ok(MorphWeightTrack { order, animations })
+}
+
+fn sample_blend_shape_weights(
+    stage: &Stage,
+    query: &SkelAnimQuery,
+    (start, end, time_codes_per_second): (f64, f64, f64),
+) -> Result<Vec<MorphAnimation>> {
+    let frame_count = if query.blend_shape_weights_might_be_time_varying() {
+        ((end - start).round() as i64).clamp(0, MAX_SAMPLED_FRAMES)
+    } else {
+        0
+    };
+
+    let mut animations = Vec::with_capacity(frame_count as usize + 1);
+    for step in 0..=frame_count {
+        let time_code = start + step as f64;
+        let time_seconds = ((time_code - start) / time_codes_per_second) as f32;
+        let weights = query.compute_blend_shape_weights(stage, time_code)?;
+        animations.push(MorphAnimation {
+            key_frame: time_seconds,
+            weights,
+        });
+    }
+    Ok(animations)
+}
+
+fn build_mesh_blend_shapes(
+    stage: &Stage,
+    mesh_path: &sdf::Path,
+    order: &[String],
+    vertex_count: usize,
+) -> Result<Vec<MorphTarget>> {
+    let Some(binding) = SkelBindingAPI::get(stage, mesh_path.clone())? else {
+        return Ok(Vec::new());
+    };
+    let names = binding.blend_shapes()?;
+    let target_paths = binding.blend_shape_targets()?;
+    if names.is_empty() || target_paths.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let slot_for_name: HashMap<&str, usize> = order
+        .iter()
+        .enumerate()
+        .map(|(slot, name)| (name.as_str(), slot))
+        .collect();
+
+    let mut targets = vec![MorphTarget::default(); order.len()];
+    let mut matched = 0;
+    for (name, target_path) in names.iter().zip(&target_paths) {
+        let Some(&slot) = slot_for_name.get(name.as_str()) else {
+            continue;
+        };
+        let Some(blend_shape) = BlendShape::get(stage, target_path.clone())? else {
+            continue;
+        };
+        targets[slot] = build_morph_target(&blend_shape, vertex_count)?;
+        matched += 1;
+    }
+
+    if matched == 0 {
+        return Ok(Vec::new());
+    }
+    Ok(targets)
+}
+
+fn build_morph_target(blend_shape: &BlendShape, vertex_count: usize) -> Result<MorphTarget> {
+    let offsets = blend_shape.offsets()?;
+    let normal_offsets = blend_shape.normal_offsets()?;
+    let point_indices = blend_shape.point_indices()?;
+
+    let positions = expand_offsets(&offsets, &point_indices, vertex_count);
+    let normals = if normal_offsets.is_empty() {
+        Vec::new()
+    } else {
+        expand_offsets(&normal_offsets, &point_indices, vertex_count)
+    };
+
+    Ok(MorphTarget {
+        positions,
+        normals,
+        tangents: Vec::new(),
+    })
+}
+
+fn expand_offsets(offsets: &[Vec3f], point_indices: &[i32], vertex_count: usize) -> Vec<[f32; 3]> {
+    let mut dense = vec![[0.0f32; 3]; vertex_count];
+
+    if point_indices.is_empty() {
+        for (i, offset) in offsets.iter().enumerate().take(vertex_count) {
+            dense[i] = [offset.x, offset.y, offset.z];
+        }
+    } else {
+        for (slot, &vertex_index) in point_indices.iter().enumerate() {
+            let i = vertex_index.max(0) as usize;
+            if i < vertex_count && slot < offsets.len() {
+                dense[i] = [offsets[slot].x, offsets[slot].y, offsets[slot].z];
+            }
+        }
+    }
+    dense
 }
 
 fn log_bounds(meshes: &[UsdMeshData]) {

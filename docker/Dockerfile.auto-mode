@@ -34,6 +34,7 @@ RUN apt-get update -qq \
         libvulkan1 \
         mesa-vulkan-drivers \
         vulkan-tools \
+        glslc \
         libwayland-client0 \
         libx11-6 \
         libxi6 \
