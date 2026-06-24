@@ -108,18 +108,28 @@ pub unsafe fn load_model_from_file_system_with_result(
 }
 
 unsafe fn load_model_data(path: &str) -> Result<(ModelLoadResult, Option<FbxModel>)> {
-    let path_lower = path.to_lowercase();
+    let extension = Path::new(path)
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_lowercase())
+        .unwrap_or_default();
 
-    if path_lower.ends_with(".fbx") {
-        let (result, fbx_model) = crate::loader::fbx::load_fbx_to_graphics_resources(path)?;
-        Ok((ModelLoadResult::from_fbx(result), Some(fbx_model)))
-    } else if path_lower.ends_with(".gltf") || path_lower.ends_with(".glb") {
-        let result = crate::loader::gltf::load_gltf_file(path)?;
-        Ok((ModelLoadResult::from_gltf(result), None))
-    } else {
-        Err(anyhow!(
-            "Unsupported file format. Only FBX and glTF/GLB are supported."
-        ))
+    match extension.as_str() {
+        "fbx" => {
+            let (result, fbx_model) = crate::loader::fbx::load_fbx_to_graphics_resources(path)?;
+            Ok((ModelLoadResult::from_fbx(result), Some(fbx_model)))
+        }
+        "gltf" | "glb" => {
+            let result = crate::loader::gltf::load_gltf_file(path)?;
+            Ok((ModelLoadResult::from_gltf(result), None))
+        }
+        "usdc" | "usda" | "usd" | "usdz" => {
+            let result = crate::loader::usd::load_usd_file(path)?;
+            Ok((ModelLoadResult::from_usd(result), None))
+        }
+        _ => Err(anyhow!(
+            "Unsupported file format. Only FBX, glTF/GLB, and USD are supported."
+        )),
     }
 }
 

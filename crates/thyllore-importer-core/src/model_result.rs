@@ -8,6 +8,7 @@ use thyllore_model_core::mesh::{Vertex, VertexData};
 
 use crate::fbx::{self, LoadedConstraint};
 use crate::gltf;
+use crate::usd;
 
 #[derive(Clone, Debug)]
 pub struct TextureData {
@@ -117,6 +118,48 @@ impl ModelLoadResult {
             node_animation_scale,
             constraints: Vec::new(),
             spring_bone_setup: result.spring_bone_setup,
+        }
+    }
+
+    pub fn from_usd(result: usd::UsdLoadResult) -> Self {
+        let meshes = result
+            .meshes
+            .into_iter()
+            .map(|m| LoadedMesh {
+                vertex_data: m.vertex_data,
+                skin_data: m.skin_data,
+                skeleton_id: m.skeleton_id,
+                node_index: m.node_index,
+                local_vertices: m.local_vertices,
+                texture: None,
+                base_color_factor: [1.0, 1.0, 1.0, 1.0],
+            })
+            .collect();
+
+        let nodes = result
+            .nodes
+            .into_iter()
+            .map(|n| LoadedNode {
+                index: n.index,
+                name: n.name,
+                parent_index: n.parent_index,
+                local_transform: n.local_transform,
+            })
+            .collect();
+
+        let skeletons = result.animation_system.skeletons.clone();
+
+        Self {
+            meshes,
+            nodes,
+            skeletons,
+            animation_system: result.animation_system,
+            clips: result.clips,
+            morph_animation: result.morph_animation,
+            has_skinned_meshes: result.has_skinned_meshes,
+            node_animation_scale: 1.0,
+            constraints: Vec::new(),
+            spring_bone_setup: None,
         }
     }
 

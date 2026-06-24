@@ -18,6 +18,7 @@ serde_json = "1"
 png = "0.17"
 ufbx = "0.10"
 gltf = { version = "1.4", features = ["extras", "names", "extensions"] }
+openusd = { version = "=0.5.0", features = ["geom", "skel"] }
 
 [features]
 auto-rig = []
