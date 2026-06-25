@@ -5,12 +5,12 @@ use anyhow::{anyhow, Result};
 use cgmath::{Matrix4, Quaternion, SquareMatrix, Vector3, Vector4};
 
 use openusd::gf::{Matrix4d, Vec2f, Vec3f};
-use openusd::schemas::geom::{Mesh, PointBased};
+use openusd::schemas::geom::{Interpolation, Mesh, PointBased};
 use openusd::schemas::skel::{
     BlendShape, InfluenceInterpolation, SkelAnimQuery, SkelBindingAPI, Skeleton as UsdSkeleton,
 };
 use openusd::sdf;
-use openusd::usd::{PrimPredicate, Stage};
+use openusd::usd::{Attribute, PrimPredicate, Stage};
 
 use thyllore_anim_core::{
     AnimationClip, AnimationSystem, Keyframe, MorphAnimation, MorphAnimationSystem, MorphTarget,
@@ -36,6 +36,8 @@ pub struct UsdMeshData {
     pub node_index: Option<usize>,
     pub local_vertices: Vec<Vertex>,
     pub base_positions: Vec<[f32; 3]>,
+    pub point_for_vertex: Vec<u32>,
+    pub point_count: usize,
 }
 
 pub struct UsdLoadResult {
@@ -46,6 +48,8 @@ pub struct UsdLoadResult {
     pub morph_animation: MorphAnimationSystem,
     pub has_skinned_meshes: bool,
     pub has_armature: bool,
+    pub start_time_code: f32,
+    pub time_codes_per_second: f32,
 }
 
 pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
@@ -85,6 +89,8 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
     )?;
     log_bounds(&meshes);
 
+    let (start_time_code, _, time_codes_per_second) = time_range;
+
     Ok(UsdLoadResult {
         meshes,
         nodes,
@@ -93,6 +99,8 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
         morph_animation,
         has_skinned_meshes,
         has_armature,
+        start_time_code: start_time_code as f32,
+        time_codes_per_second: time_codes_per_second as f32,
     })
 }
 
@@ -267,65 +275,256 @@ fn build_mesh(
     let points = read_vec3f_array(mesh.points_attr().get::<sdf::Value>()?);
     let normals = read_vec3f_array(mesh.normals_attr().get::<sdf::Value>()?);
     let uvs = read_uvs(&mesh)?;
+    let uv_indices = read_int_array(mesh.attribute("primvars:st:indices").get::<sdf::Value>()?);
     let counts = read_int_array(mesh.face_vertex_counts_attr().get::<sdf::Value>()?);
     let face_indices = read_int_array(mesh.face_vertex_indices_attr().get::<sdf::Value>()?);
 
-    let vertices = build_vertices(&points, &normals, &uvs);
-    let indices = triangulate(&counts, &face_indices);
-    let local_vertices = vertices.clone();
-    let base_positions: Vec<[f32; 3]> = points.iter().map(|p| [p.x, p.y, p.z]).collect();
+    let corner_count = face_indices.len();
+    let normal_mapping = resolve_mapping(
+        read_interpolation(&mesh.normals_attr()),
+        normals.len(),
+        points.len(),
+        counts.len(),
+        corner_count,
+    );
+    let uv_element_count = if uv_indices.is_empty() {
+        uvs.len()
+    } else {
+        uv_indices.len()
+    };
+    let uv_mapping = resolve_mapping(
+        read_interpolation(&mesh.attribute("primvars:st")),
+        uv_element_count,
+        points.len(),
+        counts.len(),
+        corner_count,
+    );
 
-    let skin_data = build_skin_data(stage, mesh_path, skeleton_id_by_path, &points, &normals)?;
+    let expanded = expand_mesh(MeshSource {
+        points: &points,
+        normals: &normals,
+        normal_mapping,
+        uvs: &uvs,
+        uv_indices: &uv_indices,
+        uv_mapping,
+        counts: &counts,
+        face_indices: &face_indices,
+    });
+
+    let base_positions = expanded
+        .point_for_vertex
+        .iter()
+        .map(|&point| {
+            let p = points[point as usize];
+            [p.x, p.y, p.z]
+        })
+        .collect();
+    let local_vertices = expanded.vertices.clone();
+
+    let skin_data = build_skin_data(
+        stage,
+        mesh_path,
+        skeleton_id_by_path,
+        &points,
+        &expanded.point_for_vertex,
+        &expanded.vertices,
+    )?;
     let skeleton_id = skin_data.as_ref().map(|s| s.skeleton_id);
 
     Ok(UsdMeshData {
-        vertex_data: VertexData { vertices, indices },
+        vertex_data: VertexData {
+            vertices: expanded.vertices,
+            indices: expanded.indices,
+        },
         skin_data,
         skeleton_id,
         node_index: None,
         local_vertices,
         base_positions,
+        point_for_vertex: expanded.point_for_vertex,
+        point_count: points.len(),
     })
 }
 
-fn build_vertices(points: &[Vec3f], normals: &[Vec3f], uvs: &[Vec2f]) -> Vec<Vertex> {
-    points
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let normal = normals.get(i).copied().unwrap_or(Vec3f {
-                x: 0.0,
-                y: 1.0,
-                z: 0.0,
-            });
-            let uv = uvs.get(i).copied().unwrap_or(Vec2f { x: 0.0, y: 0.0 });
-            Vertex {
-                pos: Vec3::new(p.x, p.y, p.z),
-                color: Vec4::new(1.0, 1.0, 1.0, 1.0),
-                tex_coord: Vec2::new(uv.x, uv.y),
-                normal: Vec3::new(normal.x, normal.y, normal.z),
-            }
-        })
-        .collect()
+#[derive(Clone, Copy, PartialEq)]
+enum PrimvarMapping {
+    Constant,
+    Uniform,
+    PerPoint,
+    PerCorner,
 }
 
-fn triangulate(counts: &[i32], face_indices: &[i32]) -> Vec<u32> {
-    let mut indices = Vec::new();
-    let mut offset = 0usize;
+impl PrimvarMapping {
+    fn element_index(self, face: usize, corner: usize, point: usize) -> usize {
+        match self {
+            PrimvarMapping::Constant => 0,
+            PrimvarMapping::Uniform => face,
+            PrimvarMapping::PerPoint => point,
+            PrimvarMapping::PerCorner => corner,
+        }
+    }
+}
 
-    for &count in counts {
+fn read_interpolation(attr: &Attribute) -> Option<Interpolation> {
+    attr.get_metadata::<String>("interpolation")
+        .ok()
+        .flatten()
+        .and_then(|token| Interpolation::from_token(&token))
+}
+
+fn resolve_mapping(
+    authored: Option<Interpolation>,
+    element_count: usize,
+    point_count: usize,
+    face_count: usize,
+    corner_count: usize,
+) -> PrimvarMapping {
+    if let Some(interpolation) = authored {
+        return match interpolation {
+            Interpolation::Constant => PrimvarMapping::Constant,
+            Interpolation::Uniform => PrimvarMapping::Uniform,
+            Interpolation::Varying | Interpolation::Vertex => PrimvarMapping::PerPoint,
+            Interpolation::FaceVarying => PrimvarMapping::PerCorner,
+        };
+    }
+
+    if element_count == point_count {
+        PrimvarMapping::PerPoint
+    } else if element_count == corner_count {
+        PrimvarMapping::PerCorner
+    } else if element_count == face_count {
+        PrimvarMapping::Uniform
+    } else if element_count <= 1 {
+        PrimvarMapping::Constant
+    } else {
+        PrimvarMapping::PerPoint
+    }
+}
+
+struct MeshSource<'a> {
+    points: &'a [Vec3f],
+    normals: &'a [Vec3f],
+    normal_mapping: PrimvarMapping,
+    uvs: &'a [Vec2f],
+    uv_indices: &'a [i32],
+    uv_mapping: PrimvarMapping,
+    counts: &'a [i32],
+    face_indices: &'a [i32],
+}
+
+struct ExpandedMesh {
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
+    point_for_vertex: Vec<u32>,
+}
+
+#[derive(PartialEq, Eq, Hash)]
+struct VertexKey {
+    point: u32,
+    normal: [u32; 3],
+    uv: [u32; 2],
+}
+
+impl VertexKey {
+    fn new(point: u32, normal: Vec3f, uv: Vec2f) -> Self {
+        Self {
+            point,
+            normal: [normal.x.to_bits(), normal.y.to_bits(), normal.z.to_bits()],
+            uv: [uv.x.to_bits(), uv.y.to_bits()],
+        }
+    }
+}
+
+const NO_INDICES: &[i32] = &[];
+
+fn expand_mesh(source: MeshSource) -> ExpandedMesh {
+    let default_normal = Vec3f {
+        x: 0.0,
+        y: 1.0,
+        z: 0.0,
+    };
+    let default_uv = Vec2f { x: 0.0, y: 0.0 };
+
+    let mut vertices = Vec::new();
+    let mut indices = Vec::new();
+    let mut point_for_vertex = Vec::new();
+    let mut vertex_for_key: HashMap<VertexKey, u32> = HashMap::new();
+
+    let mut offset = 0usize;
+    for (face, &count) in source.counts.iter().enumerate() {
         let polygon_size = count.max(0) as usize;
-        if polygon_size >= 3 && offset + polygon_size <= face_indices.len() {
-            let first = face_indices[offset] as u32;
-            for k in 1..polygon_size - 1 {
-                indices.push(first);
-                indices.push(face_indices[offset + k] as u32);
-                indices.push(face_indices[offset + k + 1] as u32);
-            }
+        if polygon_size < 3 || offset + polygon_size > source.face_indices.len() {
+            offset += polygon_size;
+            continue;
+        }
+
+        let mut corner_vertices = Vec::with_capacity(polygon_size);
+        for k in 0..polygon_size {
+            let corner = offset + k;
+            let point = source.face_indices[corner].max(0) as usize;
+
+            let normal = sample_attribute(
+                source.normals,
+                NO_INDICES,
+                source.normal_mapping.element_index(face, corner, point),
+                default_normal,
+            );
+            let uv = sample_attribute(
+                source.uvs,
+                source.uv_indices,
+                source.uv_mapping.element_index(face, corner, point),
+                default_uv,
+            );
+
+            let key = VertexKey::new(point as u32, normal, uv);
+            let vertex_id = *vertex_for_key.entry(key).or_insert_with(|| {
+                let id = vertices.len() as u32;
+                let position = source.points.get(point).copied().unwrap_or(Vec3f {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                });
+                vertices.push(make_vertex(position, normal, uv));
+                point_for_vertex.push(point as u32);
+                id
+            });
+            corner_vertices.push(vertex_id);
+        }
+
+        for k in 1..polygon_size - 1 {
+            indices.push(corner_vertices[0]);
+            indices.push(corner_vertices[k]);
+            indices.push(corner_vertices[k + 1]);
         }
         offset += polygon_size;
     }
-    indices
+
+    ExpandedMesh {
+        vertices,
+        indices,
+        point_for_vertex,
+    }
+}
+
+fn sample_attribute<T: Copy>(values: &[T], indices: &[i32], element: usize, fallback: T) -> T {
+    let resolved = if indices.is_empty() {
+        element
+    } else {
+        indices
+            .get(element)
+            .map(|&i| i.max(0) as usize)
+            .unwrap_or(0)
+    };
+    values.get(resolved).copied().unwrap_or(fallback)
+}
+
+fn make_vertex(position: Vec3f, normal: Vec3f, uv: Vec2f) -> Vertex {
+    Vertex {
+        pos: Vec3::new(position.x, position.y, position.z),
+        color: Vec4::new(1.0, 1.0, 1.0, 1.0),
+        tex_coord: Vec2::new(uv.x, uv.y),
+        normal: Vec3::new(normal.x, normal.y, normal.z),
+    }
 }
 
 fn build_skin_data(
@@ -333,7 +532,8 @@ fn build_skin_data(
     mesh_path: &sdf::Path,
     skeleton_id_by_path: &HashMap<String, u32>,
     points: &[Vec3f],
-    normals: &[Vec3f],
+    point_for_vertex: &[u32],
+    vertices: &[Vertex],
 ) -> Result<Option<SkinData>> {
     let Some(binding) = SkelBindingAPI::get(stage, mesh_path.clone())? else {
         return Ok(None);
@@ -357,7 +557,7 @@ fn build_skin_data(
     let influences = binding.elements_per_element()?.max(1) as usize;
     let is_constant = matches!(binding.interpolation()?, InfluenceInterpolation::Constant);
 
-    let (bone_indices, bone_weights) = assemble_influences(
+    let (point_indices, point_weights) = assemble_influences(
         &joint_indices,
         &joint_weights,
         &remap,
@@ -366,15 +566,26 @@ fn build_skin_data(
         points.len(),
     );
 
-    let base_positions = points.iter().map(|p| Vector3::new(p.x, p.y, p.z)).collect();
-    let base_normals = if normals.len() == points.len() {
-        normals
-            .iter()
-            .map(|n| Vector3::new(n.x, n.y, n.z))
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let bone_indices = point_for_vertex
+        .iter()
+        .map(|&point| point_indices[point as usize])
+        .collect();
+    let bone_weights = point_for_vertex
+        .iter()
+        .map(|&point| point_weights[point as usize])
+        .collect();
+
+    let base_positions = point_for_vertex
+        .iter()
+        .map(|&point| {
+            let p = points[point as usize];
+            Vector3::new(p.x, p.y, p.z)
+        })
+        .collect();
+    let base_normals = vertices
+        .iter()
+        .map(|v| Vector3::new(v.normal[0], v.normal[1], v.normal[2]))
+        .collect();
 
     Ok(Some(SkinData {
         skeleton_id,
@@ -546,8 +757,13 @@ fn build_morph_animation(
     let mut base_vertices = Vec::with_capacity(meshes.len());
     let mut morphed_mesh_count = 0;
     for (mesh, mesh_path) in meshes.iter().zip(mesh_paths) {
-        let mesh_targets =
-            build_mesh_blend_shapes(stage, mesh_path, &track.order, mesh.base_positions.len())?;
+        let mesh_targets = build_mesh_blend_shapes(
+            stage,
+            mesh_path,
+            &track.order,
+            &mesh.point_for_vertex,
+            mesh.point_count,
+        )?;
         if !mesh_targets.is_empty() {
             morphed_mesh_count += 1;
         }
@@ -645,7 +861,8 @@ fn build_mesh_blend_shapes(
     stage: &Stage,
     mesh_path: &sdf::Path,
     order: &[String],
-    vertex_count: usize,
+    point_for_vertex: &[u32],
+    point_count: usize,
 ) -> Result<Vec<MorphTarget>> {
     let Some(binding) = SkelBindingAPI::get(stage, mesh_path.clone())? else {
         return Ok(Vec::new());
@@ -671,7 +888,7 @@ fn build_mesh_blend_shapes(
         let Some(blend_shape) = BlendShape::get(stage, target_path.clone())? else {
             continue;
         };
-        targets[slot] = build_morph_target(&blend_shape, vertex_count)?;
+        targets[slot] = build_morph_target(&blend_shape, point_for_vertex, point_count)?;
         matched += 1;
     }
 
@@ -681,16 +898,25 @@ fn build_mesh_blend_shapes(
     Ok(targets)
 }
 
-fn build_morph_target(blend_shape: &BlendShape, vertex_count: usize) -> Result<MorphTarget> {
+fn build_morph_target(
+    blend_shape: &BlendShape,
+    point_for_vertex: &[u32],
+    point_count: usize,
+) -> Result<MorphTarget> {
     let offsets = blend_shape.offsets()?;
     let normal_offsets = blend_shape.normal_offsets()?;
     let point_indices = blend_shape.point_indices()?;
 
-    let positions = expand_offsets(&offsets, &point_indices, vertex_count);
+    let positions = expand_offsets(&offsets, &point_indices, point_for_vertex, point_count);
     let normals = if normal_offsets.is_empty() {
         Vec::new()
     } else {
-        expand_offsets(&normal_offsets, &point_indices, vertex_count)
+        expand_offsets(
+            &normal_offsets,
+            &point_indices,
+            point_for_vertex,
+            point_count,
+        )
     };
 
     Ok(MorphTarget {
@@ -700,22 +926,31 @@ fn build_morph_target(blend_shape: &BlendShape, vertex_count: usize) -> Result<M
     })
 }
 
-fn expand_offsets(offsets: &[Vec3f], point_indices: &[i32], vertex_count: usize) -> Vec<[f32; 3]> {
-    let mut dense = vec![[0.0f32; 3]; vertex_count];
+fn expand_offsets(
+    offsets: &[Vec3f],
+    point_indices: &[i32],
+    point_for_vertex: &[u32],
+    point_count: usize,
+) -> Vec<[f32; 3]> {
+    let mut per_point = vec![[0.0f32; 3]; point_count];
 
     if point_indices.is_empty() {
-        for (i, offset) in offsets.iter().enumerate().take(vertex_count) {
-            dense[i] = [offset.x, offset.y, offset.z];
+        for (i, offset) in offsets.iter().enumerate().take(point_count) {
+            per_point[i] = [offset.x, offset.y, offset.z];
         }
     } else {
-        for (slot, &vertex_index) in point_indices.iter().enumerate() {
-            let i = vertex_index.max(0) as usize;
-            if i < vertex_count && slot < offsets.len() {
-                dense[i] = [offsets[slot].x, offsets[slot].y, offsets[slot].z];
+        for (slot, &point_index) in point_indices.iter().enumerate() {
+            let i = point_index.max(0) as usize;
+            if i < point_count && slot < offsets.len() {
+                per_point[i] = [offsets[slot].x, offsets[slot].y, offsets[slot].z];
             }
         }
     }
-    dense
+
+    point_for_vertex
+        .iter()
+        .map(|&point| per_point[point as usize])
+        .collect()
 }
 
 fn log_bounds(meshes: &[UsdMeshData]) {
