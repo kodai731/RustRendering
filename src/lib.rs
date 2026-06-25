@@ -17,6 +17,7 @@ pub mod ecs;
 pub mod exporter;
 #[cfg(feature = "text-to-motion")]
 pub mod grpc;
+pub mod headless;
 pub mod loader;
 pub mod math;
 #[cfg(feature = "ml")]

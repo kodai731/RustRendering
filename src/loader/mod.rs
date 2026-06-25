@@ -2,6 +2,8 @@
 mod bounds_validation_tests;
 #[cfg(test)]
 mod scale_matrix_tests;
+#[cfg(test)]
+mod usd_compare_tests;
 
 pub use thyllore_importer_core::fbx;
 pub use thyllore_importer_core::gltf;
