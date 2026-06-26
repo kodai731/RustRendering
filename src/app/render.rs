@@ -786,6 +786,50 @@ impl App {
         Ok(path)
     }
 
+    pub unsafe fn save_offscreen_screenshot(&self) -> Result<String> {
+        let device = &self.rrdevice.device;
+        let offscreen = self
+            .data
+            .viewport
+            .offscreen
+            .as_ref()
+            .ok_or_else(|| anyhow!("offscreen framebuffer not available"))?;
+
+        let image = offscreen.resolve_color_image;
+        let width = offscreen.width;
+        let height = offscreen.height;
+        let image_size = (width * height * 4) as vk::DeviceSize;
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
+
+        let (buffer, buffer_memory) = self.allocate_transfer_buffer(device, image_size)?;
+        let command_buffer = allocate_one_time_command_buffer(device, command_pool)?;
+
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        device.begin_command_buffer(command_buffer, &begin_info)?;
+
+        record_sampled_image_to_buffer_copy(device, command_buffer, image, buffer, width, height);
+
+        device.end_command_buffer(command_buffer)?;
+
+        let command_buffers_slice = [command_buffer];
+        let submit_info = vk::SubmitInfo::builder().command_buffers(&command_buffers_slice);
+        device.queue_submit(
+            self.rrdevice.graphics_queue,
+            &[submit_info.build()],
+            vk::Fence::null(),
+        )?;
+        device.queue_wait_idle(self.rrdevice.graphics_queue)?;
+
+        let path = Self::encode_and_save_png(device, buffer_memory, image_size, width, height)?;
+
+        device.free_command_buffers(command_pool, &[command_buffer]);
+        device.free_memory(buffer_memory, None);
+        device.destroy_buffer(buffer, None);
+
+        Ok(path)
+    }
+
     unsafe fn copy_swapchain_image_to_buffer(
         &self,
         swapchain_image: vk::Image,
@@ -1445,6 +1489,88 @@ unsafe fn allocate_one_time_command_buffer(
         .command_buffer_count(1);
     let command_buffers = device.allocate_command_buffers(&cmd_alloc_info)?;
     Ok(command_buffers[0])
+}
+
+unsafe fn record_sampled_image_to_buffer_copy(
+    device: &crate::vulkanr::core::device::Device,
+    command_buffer: vk::CommandBuffer,
+    image: vk::Image,
+    buffer: vk::Buffer,
+    width: u32,
+    height: u32,
+) {
+    let subresource_range = vk::ImageSubresourceRange {
+        aspect_mask: vk::ImageAspectFlags::COLOR,
+        base_mip_level: 0,
+        level_count: 1,
+        base_array_layer: 0,
+        layer_count: 1,
+    };
+
+    let barrier_to_transfer = vk::ImageMemoryBarrier::builder()
+        .old_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .image(image)
+        .subresource_range(subresource_range)
+        .src_access_mask(vk::AccessFlags::SHADER_READ)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
+
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &[barrier_to_transfer.build()],
+    );
+
+    let region = vk::BufferImageCopy::builder()
+        .buffer_offset(0)
+        .buffer_row_length(0)
+        .buffer_image_height(0)
+        .image_subresource(vk::ImageSubresourceLayers {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            mip_level: 0,
+            base_array_layer: 0,
+            layer_count: 1,
+        })
+        .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
+        .image_extent(vk::Extent3D {
+            width,
+            height,
+            depth: 1,
+        });
+
+    device.cmd_copy_image_to_buffer(
+        command_buffer,
+        image,
+        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
+        buffer,
+        &[region.build()],
+    );
+
+    let barrier_to_sampled = vk::ImageMemoryBarrier::builder()
+        .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
+        .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .image(image)
+        .subresource_range(subresource_range)
+        .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+        .dst_access_mask(vk::AccessFlags::SHADER_READ);
+
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &[barrier_to_sampled.build()],
+    );
 }
 
 unsafe fn record_image_to_buffer_copy(

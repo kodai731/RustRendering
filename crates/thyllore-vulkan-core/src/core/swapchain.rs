@@ -26,9 +26,22 @@ impl RRSwapchain {
         surface: &vk::SurfaceKHR,
         rrdevice: &RRDevice,
     ) -> Result<Self> {
-        let mut rrswapchain = create_swapchain(window, instance, surface, rrdevice)?;
+        let mut rrswapchain = create_swapchain(Some(window), None, instance, surface, rrdevice)?;
         create_swapchain_image_view(rrdevice, &mut rrswapchain)?;
         log!("Created swapchain");
+        Ok(rrswapchain)
+    }
+
+    pub unsafe fn new_with_extent(
+        requested_extent: vk::Extent2D,
+        instance: &Instance,
+        surface: &vk::SurfaceKHR,
+        rrdevice: &RRDevice,
+    ) -> Result<Self> {
+        let mut rrswapchain =
+            create_swapchain(None, Some(requested_extent), instance, surface, rrdevice)?;
+        create_swapchain_image_view(rrdevice, &mut rrswapchain)?;
+        log!("Created headless swapchain");
         Ok(rrswapchain)
     }
 
@@ -76,32 +89,43 @@ impl SwapchainSupport {
     }
 
     pub fn get_swapchain_extent(
-        window: &Window,
+        window: Option<&Window>,
+        requested_extent: Option<vk::Extent2D>,
         capabilities: vk::SurfaceCapabilitiesKHR,
     ) -> vk::Extent2D {
         if capabilities.current_extent.width != u32::MAX {
-            capabilities.current_extent
-        } else {
-            let size = window.inner_size();
-            let clamp = |min: u32, max: u32, v: u32| min.max(max.min(v));
-            vk::Extent2D::builder()
-                .width(clamp(
-                    capabilities.min_image_extent.width,
-                    capabilities.max_image_extent.width,
-                    size.width,
-                ))
-                .height(clamp(
-                    capabilities.min_image_extent.height,
-                    capabilities.max_image_extent.height,
-                    size.height,
-                ))
-                .build()
+            return capabilities.current_extent;
         }
+
+        let desired = requested_extent.unwrap_or_else(|| {
+            let size = window
+                .map(|w| w.inner_size())
+                .unwrap_or(winit::dpi::PhysicalSize::new(1280, 720));
+            vk::Extent2D {
+                width: size.width,
+                height: size.height,
+            }
+        });
+
+        let clamp = |min: u32, max: u32, v: u32| min.max(max.min(v));
+        vk::Extent2D::builder()
+            .width(clamp(
+                capabilities.min_image_extent.width,
+                capabilities.max_image_extent.width,
+                desired.width,
+            ))
+            .height(clamp(
+                capabilities.min_image_extent.height,
+                capabilities.max_image_extent.height,
+                desired.height,
+            ))
+            .build()
     }
 }
 
 pub unsafe fn create_swapchain(
-    window: &Window,
+    window: Option<&Window>,
+    requested_extent: Option<vk::Extent2D>,
     instance: &Instance,
     surface: &vk::SurfaceKHR,
     rrdevice: &RRDevice,
@@ -110,7 +134,8 @@ pub unsafe fn create_swapchain(
     let support = SwapchainSupport::get(instance, surface, &rrdevice.physical_device)?;
     let surface_format = SwapchainSupport::get_swapchain_surface_format(&support.formats);
     let present_mode = SwapchainSupport::get_swapchain_present_mode(&support.present_modes);
-    let extent = SwapchainSupport::get_swapchain_extent(window, support.capabilities);
+    let extent =
+        SwapchainSupport::get_swapchain_extent(window, requested_extent, support.capabilities);
 
     let mut image_count = support.capabilities.min_image_count + 1;
     if support.capabilities.max_image_count != 0

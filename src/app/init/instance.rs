@@ -32,6 +32,7 @@ use crate::vulkanr::VulkanBackend;
 use crate::ecs::resource::Camera;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
+use vulkanalia::vk::ExtHeadlessSurfaceExtension;
 use vulkanalia::Device as VkDevice;
 
 use anyhow::{anyhow, Context, Result};
@@ -127,26 +128,49 @@ struct GizmoPipelineIds {
     bone_wire_occluded: usize,
 }
 
+#[derive(Clone, Copy)]
+pub enum DisplayTarget<'a> {
+    Windowed(&'a Window),
+    Headless { width: u32, height: u32 },
+}
+
 impl App {
     pub unsafe fn create(window: &Window) -> Result<Self> {
+        Self::create_with_target(DisplayTarget::Windowed(window))
+    }
+
+    pub unsafe fn create_headless(width: u32, height: u32) -> Result<Self> {
+        Self::create_with_target(DisplayTarget::Headless { width, height })
+    }
+
+    unsafe fn create_with_target(target: DisplayTarget) -> Result<Self> {
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
         let mut data = AppData::default();
 
         Self::initialize_core_ecs_resources(&mut data);
 
-        let (instance, messenger) = Self::create_instance_with_messenger(window, &entry)?;
-        let surface = vk_window::create_surface(&instance, &window, &window)?;
+        let validation = match target {
+            DisplayTarget::Windowed(_) => VALIDATION_MODE,
+            DisplayTarget::Headless { .. } => {
+                crate::vulkanr::core::device::ValidationMode::Disabled
+            }
+        };
+
+        let (instance, messenger) =
+            Self::create_instance_with_messenger(target, validation, &entry)?;
+        let surface = Self::create_surface_for_target(&instance, target)?;
         let rrdevice = RRDevice::new(
             &entry,
             &instance,
             &surface,
-            VALIDATION_MODE,
+            validation,
             VALIDATION_LAYER,
             DEVICE_EXTENSIONS,
             PORTABILITY_MACOS_VERSION,
         )?;
-        let rrswapchain = RRSwapchain::new(window, &instance, &surface, &rrdevice)?;
+        let rrswapchain =
+            Self::create_swapchain_for_target(target, &instance, &surface, &rrdevice)?;
         let rrcommand_pool = Rc::new(RRCommandPool::new(&instance, &surface, &rrdevice));
         let rrrender = RRRender::new(&instance, &rrdevice, &rrswapchain, rrcommand_pool.as_ref());
 
@@ -298,6 +322,38 @@ impl App {
             start: Instant::now(),
             last_update_time: 0.0,
         })
+    }
+
+    unsafe fn create_surface_for_target(
+        instance: &Instance,
+        target: DisplayTarget,
+    ) -> Result<vk::SurfaceKHR> {
+        match target {
+            DisplayTarget::Windowed(window) => {
+                Ok(vk_window::create_surface(instance, &window, &window)?)
+            }
+            DisplayTarget::Headless { .. } => {
+                let info = vk::HeadlessSurfaceCreateInfoEXT::builder();
+                Ok(instance.create_headless_surface_ext(&info, None)?)
+            }
+        }
+    }
+
+    unsafe fn create_swapchain_for_target(
+        target: DisplayTarget,
+        instance: &Instance,
+        surface: &vk::SurfaceKHR,
+        rrdevice: &RRDevice,
+    ) -> Result<RRSwapchain> {
+        match target {
+            DisplayTarget::Windowed(window) => {
+                RRSwapchain::new(window, instance, surface, rrdevice)
+            }
+            DisplayTarget::Headless { width, height } => {
+                let extent = vk::Extent2D { width, height };
+                RRSwapchain::new_with_extent(extent, instance, surface, rrdevice)
+            }
+        }
     }
 
     fn initialize_core_ecs_resources(data: &mut AppData) {
@@ -975,9 +1031,15 @@ impl App {
     }
 
     unsafe fn create_instance_with_messenger(
-        window: &Window,
+        target: DisplayTarget,
+        validation: crate::vulkanr::core::device::ValidationMode,
         entry: &Entry,
     ) -> Result<(Instance, vk::DebugUtilsMessengerEXT)> {
+        let validation_enabled = matches!(
+            validation,
+            crate::vulkanr::core::device::ValidationMode::Enabled
+        );
+
         let application_info = vk::ApplicationInfo::builder()
             .application_name(b"Vulkan Tutorial\0")
             .application_version(vk::make_version(1, 0, 0))
@@ -985,12 +1047,18 @@ impl App {
             .engine_version(vk::make_version(1, 0, 0))
             .api_version(vk::make_version(1, 2, 0));
 
-        let mut extensions = vk_window::get_required_instance_extensions(window)
-            .iter()
-            .map(|e| e.as_ptr())
-            .collect::<Vec<_>>();
+        let mut extensions = match target {
+            DisplayTarget::Windowed(window) => vk_window::get_required_instance_extensions(window)
+                .iter()
+                .map(|e| e.as_ptr())
+                .collect::<Vec<_>>(),
+            DisplayTarget::Headless { .. } => vec![
+                vk::KHR_SURFACE_EXTENSION.name.as_ptr(),
+                vk::EXT_HEADLESS_SURFACE_EXTENSION.name.as_ptr(),
+            ],
+        };
 
-        if VALIDATION_ENABLED {
+        if validation_enabled {
             extensions.push(vk::EXT_DEBUG_UTILS_EXTENSION.name.as_ptr());
         }
 
@@ -1013,11 +1081,11 @@ impl App {
             .map(|l| l.layer_name)
             .collect::<HashSet<_>>();
 
-        if VALIDATION_ENABLED && !available_layers.contains(&VALIDATION_LAYER) {
+        if validation_enabled && !available_layers.contains(&VALIDATION_LAYER) {
             return Err(anyhow!("Validation layer requested but not supported"));
         }
 
-        let layers = if VALIDATION_ENABLED {
+        let layers = if validation_enabled {
             vec![VALIDATION_LAYER.as_ptr()]
         } else {
             Vec::new()
@@ -1034,13 +1102,13 @@ impl App {
             .message_type(vk::DebugUtilsMessageTypeFlagsEXT::all())
             .user_callback(Some(Self::debug_callback));
 
-        if VALIDATION_ENABLED {
+        if validation_enabled {
             info = info.push_next(&mut debug_info);
         }
 
         let instance = entry.create_instance(&info, None)?;
 
-        let messenger = if VALIDATION_ENABLED {
+        let messenger = if validation_enabled {
             instance.create_debug_utils_messenger_ext(&debug_info, None)?
         } else {
             vk::DebugUtilsMessengerEXT::null()
