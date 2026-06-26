@@ -6,7 +6,7 @@ use crate::ecs::resource::gizmo::{
     BoneDisplayStyle, BoneGizmoData, ConstraintGizmoData, GridGizmoData, LightGizmoData,
     SpringBoneGizmoData, TransformGizmoData,
 };
-use crate::ecs::resource::{CurveMeshData, GridMeshData};
+use crate::ecs::resource::{CurveMeshData, GridMeshData, PointCloudData};
 use crate::ecs::RenderData;
 
 pub fn curve_mesh_render_data(curves: &CurveMeshData) -> RenderData {
@@ -16,6 +16,15 @@ pub fn curve_mesh_render_data(curves: &CurveMeshData) -> RenderData {
         curves.mesh.indices.len() as u32,
     );
     RenderData::new(mesh_ref, curves.render_info)
+}
+
+pub fn point_cloud_render_data(points: &PointCloudData) -> RenderData {
+    let mesh_ref = GpuMeshRef::new(
+        points.mesh.vertex_buffer_handle,
+        points.mesh.index_buffer_handle,
+        points.mesh.indices.len() as u32,
+    );
+    RenderData::new(mesh_ref, points.render_info)
 }
 
 pub fn grid_mesh_render_data(grid: &GridMeshData) -> RenderData {

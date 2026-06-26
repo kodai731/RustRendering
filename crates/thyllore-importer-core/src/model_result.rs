@@ -69,6 +69,7 @@ pub struct ModelLoadResult {
     pub constraints: Vec<LoadedConstraint>,
     pub spring_bone_setup: Option<SpringBoneSetup>,
     pub curves: Vec<usd::UsdCurveData>,
+    pub points: Vec<usd::UsdPointData>,
 }
 
 impl ModelLoadResult {
@@ -120,6 +121,7 @@ impl ModelLoadResult {
             constraints: Vec::new(),
             spring_bone_setup: result.spring_bone_setup,
             curves: Vec::new(),
+            points: Vec::new(),
         }
     }
 
@@ -163,6 +165,7 @@ impl ModelLoadResult {
             constraints: Vec::new(),
             spring_bone_setup: None,
             curves: result.curves,
+            points: result.points,
         }
     }
 
@@ -206,6 +209,7 @@ impl ModelLoadResult {
             constraints: result.constraints,
             spring_bone_setup: None,
             curves: Vec::new(),
+            points: Vec::new(),
         }
     }
 }

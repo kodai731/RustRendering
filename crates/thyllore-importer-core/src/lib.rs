@@ -16,7 +16,7 @@ pub use model_result::{LoadedMesh, LoadedNode, ModelLoadResult, TextureData, Tex
 pub use texture::load_png_image;
 pub use usd::{
     load_usd_file, save_usd_file, UsdCurveData, UsdExportBlendShape, UsdExportMesh, UsdExportScene,
-    UsdLoadResult, UsdMeshData, UsdNodeInfo,
+    UsdLoadResult, UsdMeshData, UsdNodeInfo, UsdPointData,
 };
 
 #[cfg(feature = "auto-rig")]

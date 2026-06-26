@@ -8,13 +8,12 @@ use crate::ecs::resource::gizmo::TransformGizmoData;
 use crate::ecs::resource::gizmo::{
     BoneDisplayStyle, BoneGizmoData, ConstraintGizmoData, SpringBoneGizmoData,
 };
-use crate::ecs::resource::CurveMeshData;
 use crate::ecs::resource::ProjectionData;
-use crate::ecs::resource::{Camera, Exposure, TransformGizmoState};
+use crate::ecs::resource::{Camera, CurveMeshData, Exposure, PointCloudData, TransformGizmoState};
 use crate::ecs::systems::render_data_systems::{
     bone_gizmo_render_data, constraint_gizmo_render_data, curve_mesh_render_data,
     gizmo_mesh_render_data, gizmo_selectable_render_data, grid_mesh_render_data,
-    spring_bone_gizmo_render_data, transform_gizmo_render_data,
+    point_cloud_render_data, spring_bone_gizmo_render_data, transform_gizmo_render_data,
 };
 use crate::ecs::{
     build_bone_line_mesh, build_box_bone_meshes_with_selection, build_constraint_gizmo_mesh,
@@ -59,6 +58,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     update_grid_gizmo_buffers(ctx)?;
     update_transform_gizmo_mesh(ctx)?;
     update_curve_mesh(ctx)?;
+    update_point_cloud(ctx)?;
     update_bone_gizmo_mesh(ctx)?;
     update_constraint_gizmo_mesh(ctx)?;
     update_spring_bone_gizmo_mesh(ctx)?;
@@ -176,6 +176,13 @@ fn collect_gizmo_render_data(
         let curves = ctx.world.resource::<CurveMeshData>();
         if curves.visible && !curves.mesh.indices.is_empty() {
             render_data_vec.push(curve_mesh_render_data(&curves));
+        }
+    }
+
+    if ctx.world.contains_resource::<PointCloudData>() {
+        let points = ctx.world.resource::<PointCloudData>();
+        if points.visible && !points.mesh.indices.is_empty() {
+            render_data_vec.push(point_cloud_render_data(&points));
         }
     }
 
@@ -325,6 +332,30 @@ unsafe fn update_curve_mesh(ctx: &mut FrameContext) -> Result<()> {
     curves.mesh.vertex_buffer_handle = mesh_clone.vertex_buffer_handle;
     curves.mesh.index_buffer_handle = mesh_clone.index_buffer_handle;
     curves.dirty = false;
+
+    Ok(())
+}
+
+unsafe fn update_point_cloud(ctx: &mut FrameContext) -> Result<()> {
+    if !ctx.world.contains_resource::<PointCloudData>() {
+        return Ok(());
+    }
+
+    let dirty = ctx.world.resource::<PointCloudData>().dirty;
+    if !dirty {
+        return Ok(());
+    }
+
+    let mut mesh_clone = ctx.world.resource::<PointCloudData>().mesh.clone();
+    if !mesh_clone.indices.is_empty() {
+        let mut backend = ctx.create_backend();
+        backend.update_or_create_line_buffers(&mut mesh_clone)?;
+    }
+
+    let mut points = ctx.world.resource_mut::<PointCloudData>();
+    points.mesh.vertex_buffer_handle = mesh_clone.vertex_buffer_handle;
+    points.mesh.index_buffer_handle = mesh_clone.index_buffer_handle;
+    points.dirty = false;
 
     Ok(())
 }

@@ -20,6 +20,7 @@ use thyllore_math_core::{Vec2, Vec3, Vec4};
 use thyllore_model_core::mesh::{Vertex, VertexData};
 
 use super::curves::{collect_curves, UsdCurveData};
+use super::points::{collect_points, mesh_has_faces, UsdPointData};
 
 const MAX_SAMPLED_FRAMES: i64 = 100_000;
 
@@ -45,6 +46,7 @@ pub struct UsdMeshData {
 pub struct UsdLoadResult {
     pub meshes: Vec<UsdMeshData>,
     pub curves: Vec<UsdCurveData>,
+    pub points: Vec<UsdPointData>,
     pub nodes: Vec<UsdNodeInfo>,
     pub animation_system: AnimationSystem,
     pub clips: Vec<AnimationClip>,
@@ -95,11 +97,15 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
     let curves = collect_curves(&stage)?;
     log_curves(&curves);
 
+    let points = collect_points(&stage)?;
+    log_points(&points);
+
     let (start_time_code, _, time_codes_per_second) = time_range;
 
     Ok(UsdLoadResult {
         meshes,
         curves,
+        points,
         nodes,
         animation_system,
         clips,
@@ -130,8 +136,10 @@ fn filter_skeletons(stage: &Stage, prim_paths: &[sdf::Path]) -> Result<Vec<sdf::
 fn filter_meshes(stage: &Stage, prim_paths: &[sdf::Path]) -> Result<Vec<sdf::Path>> {
     let mut result = Vec::new();
     for path in prim_paths {
-        if Mesh::get(stage, path.clone())?.is_some() {
-            result.push(path.clone());
+        if let Some(mesh) = Mesh::get(stage, path.clone())? {
+            if mesh_has_faces(&mesh) {
+                result.push(path.clone());
+            }
         }
     }
     Ok(result)
@@ -958,6 +966,18 @@ fn expand_offsets(
         .iter()
         .map(|&point| per_point[point as usize])
         .collect()
+}
+
+fn log_points(points: &[UsdPointData]) {
+    if points.is_empty() {
+        return;
+    }
+    let total: usize = points.iter().map(|p| p.point_count()).sum();
+    log!(
+        "USD import: {} point cloud(s), {} point(s)",
+        points.len(),
+        total
+    );
 }
 
 fn log_curves(curves: &[UsdCurveData]) {

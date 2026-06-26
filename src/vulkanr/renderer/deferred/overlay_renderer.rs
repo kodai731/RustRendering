@@ -8,7 +8,7 @@ use crate::ecs::resource::gizmo::{
     BoneDisplayStyle, BoneGizmoData, ConstraintGizmoData, GridGizmoData, LightGizmoData,
     TransformGizmoData,
 };
-use crate::ecs::resource::{CurveMeshData, GridMeshData};
+use crate::ecs::resource::{CurveMeshData, GridMeshData, PointCloudData};
 use thyllore_render_core::DynamicMesh;
 use thyllore_vulkan_core::renderer::{
     push_fragment_alpha_constant, record_line_mesh_draw, LineMeshDrawOptions,
@@ -33,6 +33,7 @@ impl<'a> OverlayRenderer<'a> {
 
         self.draw_grid(&ctx, command_buffer)?;
         self.draw_curves(&ctx, command_buffer)?;
+        self.draw_point_cloud(&ctx, command_buffer)?;
         self.draw_gizmo(&ctx, command_buffer)?;
         self.draw_transform_gizmo(&ctx, command_buffer)?;
         self.draw_light_lines(&ctx, command_buffer)?;
@@ -88,6 +89,35 @@ impl<'a> OverlayRenderer<'a> {
             ctx,
             &curves.mesh,
             &curves.render_info,
+            &options,
+            command_buffer,
+        )?;
+
+        Ok(())
+    }
+
+    unsafe fn draw_point_cloud(
+        &self,
+        ctx: &FrameRenderContext<'_>,
+        command_buffer: vk::CommandBuffer,
+    ) -> Result<()> {
+        let Some(points) = self.app.get_resource::<PointCloudData>() else {
+            return Ok(());
+        };
+        if !points.visible || points.mesh.indices.is_empty() {
+            return Ok(());
+        }
+
+        let options = LineMeshDrawOptions {
+            line_width: None,
+            index_count_override: None,
+            bind_object_set: true,
+            frame_set_override: None,
+        };
+        record_line_mesh_draw(
+            ctx,
+            &points.mesh,
+            &points.render_info,
             &options,
             command_buffer,
         )?;

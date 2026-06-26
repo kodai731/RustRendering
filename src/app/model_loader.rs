@@ -229,6 +229,7 @@ unsafe fn apply_model_to_resources(
     );
     initialize_constraint_gizmo_visibility(world);
     setup_curves(world, &load_result.curves);
+    setup_point_cloud(world, &load_result.points);
 
     Ok(parent_entity)
 }
@@ -242,6 +243,17 @@ fn setup_curves(world: &mut World, curves: &[thyllore_importer_core::UsdCurveDat
     crate::ecs::systems::build_curve_line_mesh(curves, &mut curve_mesh.mesh);
     curve_mesh.visible = !curve_mesh.mesh.indices.is_empty();
     curve_mesh.dirty = true;
+}
+
+fn setup_point_cloud(world: &mut World, points: &[thyllore_importer_core::UsdPointData]) {
+    if !world.contains_resource::<crate::ecs::resource::PointCloudData>() {
+        return;
+    }
+
+    let mut point_cloud = world.resource_mut::<crate::ecs::resource::PointCloudData>();
+    crate::ecs::systems::build_point_cloud_mesh(points, &mut point_cloud.mesh);
+    point_cloud.visible = !point_cloud.mesh.indices.is_empty();
+    point_cloud.dirty = true;
 }
 
 fn insert_model_caches(world: &mut World, model_name: &str, fbx_model: Option<FbxModel>) {
@@ -346,6 +358,14 @@ unsafe fn cleanup_resources(
         curves.mesh.indices.clear();
         curves.visible = false;
         curves.dirty = true;
+    }
+
+    if world.contains_resource::<crate::ecs::resource::PointCloudData>() {
+        let mut points = world.resource_mut::<crate::ecs::resource::PointCloudData>();
+        points.mesh.vertices.clear();
+        points.mesh.indices.clear();
+        points.visible = false;
+        points.dirty = true;
     }
 
     if world.contains_resource::<ClipLibrary>() {

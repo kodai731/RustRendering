@@ -117,6 +117,7 @@ struct VulkanResources {
 
 struct GizmoPipelineIds {
     grid: usize,
+    point: usize,
     gizmo: usize,
     bone_solid: usize,
     bone_wire: usize,
@@ -199,12 +200,18 @@ impl App {
 
         let grid_object_index = data.graphics_resources.objects.allocate_slot();
         let curve_object_index = data.graphics_resources.objects.allocate_slot();
+        let point_object_index = data.graphics_resources.objects.allocate_slot();
         data.graphics_resources.objects.seal_reserved_slots();
 
         let mut curve_mesh_data = crate::ecs::resource::CurveMeshData::default();
         curve_mesh_data.render_info =
             crate::ecs::component::RenderInfo::new(Some(pipeline_ids.grid), curve_object_index);
         data.ecs_world.insert_resource(curve_mesh_data);
+
+        let mut point_cloud_data = crate::ecs::resource::PointCloudData::default();
+        point_cloud_data.render_info =
+            crate::ecs::component::RenderInfo::new(Some(pipeline_ids.point), point_object_index);
+        data.ecs_world.insert_resource(point_cloud_data);
 
         let rrrender = Self::initialize_ray_tracing(
             &instance,
@@ -395,6 +402,24 @@ impl App {
         let grid = pipeline_storage.register(grid);
         pipeline_allocate_id(pipeline_manager);
 
+        let point = PipelineBuilder::new(
+            "assets/shaders/pointVert.spv",
+            "assets/shaders/pointFrag.spv",
+        )
+        .vertex_input(VertexInputConfig::Gizmo)
+        .topology(vk::PrimitiveTopology::POINT_LIST)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .depth_test(DepthTestConfig {
+            test_enable: true,
+            write_enable: false,
+            compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+        })
+        .descriptor_layouts(render_layouts.to_vec())
+        .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
+        .context("Failed to create point pipeline")?;
+        let point = pipeline_storage.register(point);
+        pipeline_allocate_id(pipeline_manager);
+
         let gizmo = PipelineBuilder::new(
             "assets/shaders/gizmoVert.spv",
             "assets/shaders/gizmoFrag.spv",
@@ -523,6 +548,7 @@ impl App {
 
         Ok(GizmoPipelineIds {
             grid,
+            point,
             gizmo,
             bone_solid,
             bone_wire,
