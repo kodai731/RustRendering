@@ -91,6 +91,19 @@ fn build_model_section(
         }
     }
 
+    ui.same_line();
+
+    if ui.button("Open USD") {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("USD Files", &["usdc", "usda", "usd", "usdz"])
+            .pick_file()
+        {
+            let path_str = path.to_string_lossy().to_string();
+            log!("Selected USD file: {}", path_str);
+            ui_events.send(UIEvent::LoadModel { path: path_str });
+        }
+    }
+
     if ui.button("Add GLB") {
         if let Some(paths) = rfd::FileDialog::new()
             .add_filter("GLB Files", &["glb"])
