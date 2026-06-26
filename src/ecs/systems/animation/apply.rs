@@ -55,6 +55,31 @@ pub fn apply_skinning_to_single_mesh(
         &mut skinned_normals,
     );
 
+    if std::env::var("THYLLORE_SKIN_DEBUG").is_ok() {
+        let mut min = [f32::MAX; 3];
+        let mut max = [f32::MIN; 3];
+        for p in &skinned_positions {
+            min[0] = min[0].min(p.x);
+            max[0] = max[0].max(p.x);
+            min[1] = min[1].min(p.y);
+            max[1] = max[1].max(p.y);
+            min[2] = min[2].min(p.z);
+            max[2] = max[2].max(p.z);
+        }
+        log!(
+            "SKIN mesh={} verts={} bones={} aabb_min=[{:.3},{:.3},{:.3}] aabb_max=[{:.3},{:.3},{:.3}]",
+            mesh_idx,
+            vertex_count,
+            skeleton.bones.len(),
+            min[0],
+            min[1],
+            min[2],
+            max[0],
+            max[1],
+            max[2]
+        );
+    }
+
     let mesh = &mut graphics.meshes[mesh_idx];
     for (i, pos) in skinned_positions.iter().enumerate() {
         if i < mesh.vertex_data.vertices.len() {

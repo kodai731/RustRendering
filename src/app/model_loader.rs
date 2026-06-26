@@ -207,6 +207,7 @@ unsafe fn apply_model_to_resources(
         node_animation_scale,
         &load_result.clips.clone(),
         scene_will_provide_clips,
+        load_result.root_rotation,
     );
 
     let path_lower = model_name.to_lowercase();
@@ -873,6 +874,7 @@ fn create_ecs_entities(
     node_animation_scale: f32,
     loaded_clips: &[crate::animation::AnimationClip],
     scene_will_provide_clips: bool,
+    root_rotation: Option<cgmath::Quaternion<f32>>,
 ) -> crate::ecs::world::Entity {
     let name = std::path::Path::new(model_name)
         .file_stem()
@@ -900,10 +902,14 @@ fn create_ecs_entities(
         ClipSchedule::new()
     };
 
+    let parent_transform = Transform {
+        rotation: root_rotation.unwrap_or_else(|| cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0)),
+        ..Transform::default()
+    };
     let mut parent_builder = world
         .entity()
         .with_name(&name)
-        .with_transform(Transform::default())
+        .with_transform(parent_transform)
         .with_visible(true)
         .with_editor_display(EntityIcon::Model, true);
 

@@ -1,10 +1,12 @@
 use cgmath::Vector3;
 use serde::Deserialize;
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use crate::ecs::systems::{
-    apply_skinning, compute_pose_global_transforms, create_pose_from_rest, sample_clip_to_pose,
+    apply_skinning, compute_bone_local_offsets, compute_display_transforms_with_skeleton,
+    compute_pose_global_transforms, create_pose_from_rest, sample_clip_to_pose,
 };
 use crate::loader::ModelLoadResult;
 
@@ -381,5 +383,160 @@ fn test_usd_render_color_matches_blender() {
         iou >= 0.8,
         "silhouette IoU {:.4} below 0.8 — Thyllore render diverges from Blender",
         iou
+    );
+}
+
+#[derive(Deserialize)]
+struct BlenderBones {
+    fps: f32,
+    frame_start: i32,
+    bone_names: Vec<String>,
+    frames: Vec<BlenderBoneFrame>,
+}
+
+#[derive(Deserialize)]
+struct BlenderBoneFrame {
+    frame: i32,
+    heads: Vec<[f32; 3]>,
+}
+
+fn run_blender_bones(blender_path: &str, model_path: &str) -> BlenderBones {
+    let script = Path::new("scripts/blender_usd_bones.py");
+    let model_abs = Path::new(model_path)
+        .canonicalize()
+        .unwrap_or_else(|_| PathBuf::from(model_path));
+    let output_file = std::env::temp_dir().join(format!(
+        "blender_usd_bones_{:?}.json",
+        std::thread::current().id()
+    ));
+
+    let output = Command::new(blender_path)
+        .args([
+            "--background",
+            "--python",
+            &script.to_string_lossy(),
+            "--",
+            &model_abs.to_string_lossy(),
+            &output_file.to_string_lossy(),
+        ])
+        .output()
+        .expect("Failed to run Blender");
+
+    if !output.status.success() {
+        panic!(
+            "Blender bone script failed:\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+
+    let json = std::fs::read_to_string(&output_file).expect("Failed to read Blender bones JSON");
+    std::fs::remove_file(&output_file).ok();
+    serde_json::from_str(&json).expect("Failed to parse Blender bones JSON")
+}
+
+/// Engine bone world positions via the exact bone-gizmo display path, keyed by
+/// bone name so they can be compared 1:1 with Blender's pose bones.
+fn compute_thyllore_bone_positions(
+    load_result: &ModelLoadResult,
+    time: f32,
+) -> Vec<(String, [f32; 3])> {
+    let skeleton = load_result.skeletons.first().expect("No skeleton");
+
+    let mut pose = create_pose_from_rest(skeleton);
+    if let Some(clip) = load_result.clips.first() {
+        sample_clip_to_pose(clip, time, skeleton, &mut pose, false);
+    }
+    let globals = compute_pose_global_transforms(skeleton, &pose);
+    let offsets = compute_bone_local_offsets(skeleton, &globals);
+    let display = compute_display_transforms_with_skeleton(&globals, &offsets, 1.0, Some(skeleton));
+
+    skeleton
+        .bones
+        .iter()
+        .map(|b| (b.name.clone(), display[b.id as usize]))
+        .collect()
+}
+
+#[test]
+fn test_usd_bone_positions_match_blender() {
+    let Some(blender_path) = read_blender_path() else {
+        eprintln!("Skipping: BlenderPath not configured in .claude/local/paths.md");
+        return;
+    };
+    if !Path::new(USD_ASSET).exists() {
+        eprintln!("Skipping: {} not found", USD_ASSET);
+        return;
+    }
+
+    let usd_result = crate::loader::usd::load_usd_file(USD_ASSET).expect("Failed to load USD");
+    let load_result = ModelLoadResult::from_usd(usd_result);
+    let blender = run_blender_bones(&blender_path, USD_ASSET);
+
+    let mut log = String::new();
+    log.push_str("# USD bone position comparison (engine display path vs Blender)\n");
+    log.push_str(&format!(
+        "armature_bones={} blender_bones={} fps={}\n",
+        load_result.skeletons.first().map_or(0, |s| s.bones.len()),
+        blender.bone_names.len(),
+        blender.fps,
+    ));
+
+    let mut worst_overall = 0.0f32;
+    for frame_data in &blender.frames {
+        let time = (frame_data.frame - blender.frame_start) as f32 / blender.fps;
+        let engine = compute_thyllore_bone_positions(&load_result, time);
+        let engine_by_name: std::collections::HashMap<&str, [f32; 3]> =
+            engine.iter().map(|(n, p)| (n.as_str(), *p)).collect();
+
+        let mut worst = (0.0f32, String::new(), [0.0; 3], [0.0; 3]);
+        let mut matched = 0;
+        for (bi, name) in blender.bone_names.iter().enumerate() {
+            let Some(&e) = engine_by_name.get(name.as_str()) else {
+                continue;
+            };
+            let b = frame_data.heads[bi];
+            matched += 1;
+            let d = ((e[0] - b[0]).powi(2) + (e[1] - b[1]).powi(2) + (e[2] - b[2]).powi(2)).sqrt();
+            if d > worst.0 {
+                worst = (d, name.clone(), e, b);
+            }
+        }
+        worst_overall = worst_overall.max(worst.0);
+
+        log.push_str(&format!(
+            "frame {} time={:.4} matched={} worst_dist={:.5} bone={:?}\n  engine=[{:.4},{:.4},{:.4}] blender=[{:.4},{:.4},{:.4}]\n",
+            frame_data.frame, time, matched, worst.0, worst.1,
+            worst.2[0], worst.2[1], worst.2[2], worst.3[0], worst.3[1], worst.3[2],
+        ));
+        // sample of first 8 bones for inspection
+        for (bi, name) in blender.bone_names.iter().enumerate().take(8) {
+            if let Some(&e) = engine_by_name.get(name.as_str()) {
+                let b = frame_data.heads[bi];
+                log.push_str(&format!(
+                    "    {:<24} engine=[{:.4},{:.4},{:.4}] blender=[{:.4},{:.4},{:.4}]\n",
+                    name, e[0], e[1], e[2], b[0], b[1], b[2]
+                ));
+            }
+        }
+    }
+
+    let log_path = Path::new("log/log_bone_compare.txt");
+    if let Some(parent) = log_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    if let Ok(mut f) = std::fs::File::create(log_path) {
+        let _ = f.write_all(log.as_bytes());
+    }
+    eprintln!("{}", log);
+    eprintln!(
+        "[USD bones] worst divergence across frames = {:.5}",
+        worst_overall
+    );
+
+    assert!(
+        worst_overall <= 0.01,
+        "bone positions diverge from Blender by {:.5} (> 0.01) — see log/log_bone_compare.txt",
+        worst_overall
     );
 }

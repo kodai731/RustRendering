@@ -55,6 +55,13 @@ pub struct UsdLoadResult {
     pub has_armature: bool,
     pub start_time_code: f32,
     pub time_codes_per_second: f32,
+    pub up_axis: UsdUpAxis,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UsdUpAxis {
+    Y,
+    Z,
 }
 
 pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
@@ -114,7 +121,17 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
         has_armature,
         start_time_code: start_time_code as f32,
         time_codes_per_second: time_codes_per_second as f32,
+        up_axis: read_up_axis(&stage),
     })
+}
+
+fn read_up_axis(stage: &Stage) -> UsdUpAxis {
+    let axis = match stage.stage_metadata("upAxis").ok().flatten() {
+        Some(sdf::Value::Token(axis)) if axis.eq_ignore_ascii_case("Z") => UsdUpAxis::Z,
+        _ => UsdUpAxis::Y,
+    };
+    log!("USD upAxis detected: {:?}", axis);
+    axis
 }
 
 fn collect_prim_paths(stage: &Stage) -> Result<Vec<sdf::Path>> {

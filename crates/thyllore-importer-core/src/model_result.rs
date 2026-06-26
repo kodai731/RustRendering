@@ -1,4 +1,4 @@
-use cgmath::Matrix4;
+use cgmath::{Deg, Matrix4, Quaternion, Rotation3};
 
 use thyllore_anim_core::spring_bone::SpringBoneSetup;
 use thyllore_anim_core::{
@@ -70,6 +70,7 @@ pub struct ModelLoadResult {
     pub spring_bone_setup: Option<SpringBoneSetup>,
     pub curves: Vec<usd::UsdCurveData>,
     pub points: Vec<usd::UsdPointData>,
+    pub root_rotation: Option<Quaternion<f32>>,
 }
 
 impl ModelLoadResult {
@@ -122,6 +123,7 @@ impl ModelLoadResult {
             spring_bone_setup: result.spring_bone_setup,
             curves: Vec::new(),
             points: Vec::new(),
+            root_rotation: None,
         }
     }
 
@@ -153,6 +155,11 @@ impl ModelLoadResult {
 
         let skeletons = result.animation_system.skeletons.clone();
 
+        let root_rotation = match result.up_axis {
+            usd::UsdUpAxis::Z => Some(Quaternion::from_angle_x(Deg(-90.0))),
+            usd::UsdUpAxis::Y => None,
+        };
+
         Self {
             meshes,
             nodes,
@@ -166,6 +173,7 @@ impl ModelLoadResult {
             spring_bone_setup: None,
             curves: result.curves,
             points: result.points,
+            root_rotation,
         }
     }
 
@@ -210,6 +218,7 @@ impl ModelLoadResult {
             spring_bone_setup: None,
             curves: Vec::new(),
             points: Vec::new(),
+            root_rotation: None,
         }
     }
 }

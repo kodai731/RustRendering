@@ -330,19 +330,15 @@ pub(crate) fn compute_display_transforms_with_skeleton(
 ) -> Vec<[f32; 3]> {
     (0..global_transforms.len())
         .map(|idx| {
-            let world_pos = if let Some(skel) = skeleton {
-                let bone = &skel.bones[idx];
-                if bone.inverse_bind_pose != Matrix4::identity() {
-                    let skin_matrix = global_transforms[idx] * bone.inverse_bind_pose;
-                    skin_matrix * Vector4::new(0.0, 0.0, 0.0, 1.0)
-                } else {
-                    let offset = bone_local_offsets.get(idx).copied().unwrap_or([0.0; 3]);
-                    global_transforms[idx] * Vector4::new(offset[0], offset[1], offset[2], 1.0)
-                }
-            } else {
-                let offset = bone_local_offsets.get(idx).copied().unwrap_or([0.0; 3]);
-                global_transforms[idx] * Vector4::new(offset[0], offset[1], offset[2], 1.0)
-            };
+            // `global_transforms` are joint world transforms (parent * local).
+            // The joint display position is that transform applied to the bone's
+            // local display offset. `inverse_bind_pose` is for skinning only and
+            // must NOT enter here: `global * inverse_bind` collapses to identity
+            // at rest, placing every bone at the origin.
+            let _ = skeleton;
+            let offset = bone_local_offsets.get(idx).copied().unwrap_or([0.0; 3]);
+            let world_pos =
+                global_transforms[idx] * Vector4::new(offset[0], offset[1], offset[2], 1.0);
             [
                 world_pos.x * mesh_scale,
                 world_pos.y * mesh_scale,
@@ -992,6 +988,31 @@ mod tests {
     use crate::loader::{LoadedNode, ModelLoadResult};
     use crate::vulkanr::data::{Vertex, VertexData};
     use crate::vulkanr::resource::graphics_resource::MeshBuffer;
+
+    #[test]
+    fn display_position_equals_joint_world_position_with_bind_pose() {
+        // A bone whose world rest position is (1, 2, 3). Skeletal models (USD,
+        // glTF, FBX) load inverse_bind_pose = bind_world^-1, so the gizmo must
+        // still report the joint's world position — not collapse to the origin.
+        let mut skeleton = Skeleton::new("rig");
+        let bone_id = skeleton.add_bone("joint", None);
+        let bind_world = Matrix4::from_translation(Vector3::new(1.0, 2.0, 3.0));
+        if let Some(bone) = skeleton.get_bone_mut(bone_id) {
+            bone.local_transform = bind_world;
+            bone.inverse_bind_pose = bind_world.invert().unwrap();
+        }
+
+        let globals = vec![bind_world]; // rest pose global == bind
+        let offsets = vec![[0.0f32; 3]];
+        let display =
+            compute_display_transforms_with_skeleton(&globals, &offsets, 1.0, Some(&skeleton));
+
+        assert_eq!(
+            display[0],
+            [1.0, 2.0, 3.0],
+            "bone display must be the joint world position, not the origin"
+        );
+    }
 
     fn make_mesh_buffer_single_triangle(
         bone_indices: [[u32; 4]; 3],

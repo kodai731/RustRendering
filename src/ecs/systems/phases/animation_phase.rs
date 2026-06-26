@@ -44,13 +44,17 @@ pub fn run_animation_phase_ecs(ctx: &mut FrameContext) -> AnimationUpdates {
             let entity_transform = find_skin_entity_transform(ctx.world);
             let final_transforms = apply_entity_transform(transforms, &entity_transform);
 
+            let (min, max) = bone_position_bounds(&final_transforms);
             log!(
-                "BoneGizmo: type={:?}, bones={}, head_pos=[{:.3},{:.3},{:.3}]",
+                "BoneGizmo: type={:?}, bones={}, head_pos=[{:.3},{:.3},{:.3}], bbox_min=[{:.3},{:.3},{:.3}], bbox_max=[{:.3},{:.3},{:.3}], extent={:.3}",
                 anim_type,
                 final_transforms.len(),
                 final_transforms.first().map_or(0.0, |t| t[3][0]),
                 final_transforms.first().map_or(0.0, |t| t[3][1]),
                 final_transforms.first().map_or(0.0, |t| t[3][2]),
+                min[0], min[1], min[2],
+                max[0], max[1], max[2],
+                (max[0] - min[0]).max(max[1] - min[1]).max(max[2] - min[2]),
             );
 
             let mut bone_gizmo = ctx.world.resource_mut::<BoneGizmoData>();
@@ -108,6 +112,24 @@ fn apply_entity_transform(
         .iter()
         .map(|bt| entity_transform * bt)
         .collect()
+}
+
+/// Axis-aligned bounds of bone world positions. A near-zero extent signals the
+/// bones collapsed to the origin (a transform bug), comparable against the
+/// Blender ground truth in `log/log_bone_compare.txt`.
+fn bone_position_bounds(transforms: &[cgmath::Matrix4<f32>]) -> ([f32; 3], [f32; 3]) {
+    let mut min = [f32::MAX; 3];
+    let mut max = [f32::MIN; 3];
+    for t in transforms {
+        for axis in 0..3 {
+            min[axis] = min[axis].min(t[3][axis]);
+            max[axis] = max[axis].max(t[3][axis]);
+        }
+    }
+    if transforms.is_empty() {
+        return ([0.0; 3], [0.0; 3]);
+    }
+    (min, max)
 }
 
 #[cfg(test)]

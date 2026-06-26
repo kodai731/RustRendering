@@ -64,10 +64,11 @@ if [ -r "$host_json" ] && [ ! -f "$persist_json" ]; then
 fi
 
 # Mount the host's global Claude instructions read-only so the container Claude obeys the
-# same personal CLAUDE.md / rules the user relies on everywhere.
+# same personal CLAUDE.md / rules / skills the user relies on everywhere.
 CLAUDE_GLOBAL_MOUNTS=()
 [ -r "$HOME/.claude/CLAUDE.md" ] && CLAUDE_GLOBAL_MOUNTS+=(-v "$HOME/.claude/CLAUDE.md:/home/dev/.claude/CLAUDE.md:ro")
 [ -d "$HOME/.claude/rules" ] && CLAUDE_GLOBAL_MOUNTS+=(-v "$HOME/.claude/rules:/home/dev/.claude/rules:ro")
+[ -d "$HOME/.claude/skills" ] && CLAUDE_GLOBAL_MOUNTS+=(-v "$HOME/.claude/skills:/home/dev/.claude/skills:ro")
 
 NEED_BUILD=0
 if [ "${1:-}" = "--rebuild" ]; then

@@ -49,7 +49,7 @@ fn collect_gbuffer_mesh_indices(app: &App) -> Vec<usize> {
     let ecs_assets = &app.data.ecs_assets;
 
     if ecs_world.has_mesh_entities() {
-        ecs_world
+        let indices: Vec<usize> = ecs_world
             .query_renderable()
             .iter()
             .filter_map(|&entity| {
@@ -60,7 +60,19 @@ fn collect_gbuffer_mesh_indices(app: &App) -> Vec<usize> {
                 }
                 Some(mesh_asset.graphics_mesh_index)
             })
-            .collect()
+            .collect();
+        if std::env::var("THYLLORE_GBUF_DEBUG").is_ok() {
+            let total = app.data.graphics_resources.meshes.len();
+            let renderable = ecs_world.query_renderable().len();
+            log!(
+                "GBUF draw_list={} of total_meshes={} (renderable_entities={}) indices={:?}",
+                indices.len(),
+                total,
+                renderable,
+                indices
+            );
+        }
+        indices
     } else {
         (0..app.data.graphics_resources.meshes.len()).collect()
     }

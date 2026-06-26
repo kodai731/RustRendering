@@ -34,7 +34,9 @@ impl App {
 
             self.record_object_id_copy(command_buffer);
 
-            if self.data.raytracing.has_valid_tlas() {
+            if self.data.raytracing.has_valid_tlas()
+                && std::env::var("THYLLORE_NO_SHADOW").is_err()
+            {
                 deferred::record_ray_query_pass(self, command_buffer)?;
             } else {
                 self.prepare_empty_shadow_mask(command_buffer);

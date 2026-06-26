@@ -2,7 +2,7 @@ use std::path::Path;
 
 use anyhow::{anyhow, Result};
 
-use thyllore_animation::headless::{render_usd_to_png, CameraConfig};
+use thyllore_animation::headless::{render_usd_to_png, render_usd_to_png_gpu, CameraConfig};
 
 fn parse_vec3(text: &str) -> Result<[f32; 3]> {
     let parts: Vec<f32> = text
@@ -18,6 +18,8 @@ fn parse_vec3(text: &str) -> Result<[f32; 3]> {
 struct Args {
     usd_path: String,
     out_path: String,
+    use_gpu: bool,
+    resolution: u32,
     camera: CameraConfig,
 }
 
@@ -29,6 +31,7 @@ fn parse_args() -> Result<Args> {
     let mut fov_deg = 40.0;
     let mut resolution = 256;
     let mut frame = 1;
+    let mut use_gpu = false;
 
     let mut args = std::env::args().skip(1);
     while let Some(flag) = args.next() {
@@ -44,6 +47,7 @@ fn parse_args() -> Result<Args> {
             "--fov" => fov_deg = value()?.parse()?,
             "--resolution" => resolution = value()?.parse()?,
             "--frame" => frame = value()?.parse()?,
+            "--gpu" => use_gpu = true,
             "--exit" => {}
             other => return Err(anyhow!("unknown argument: {}", other)),
         }
@@ -52,6 +56,8 @@ fn parse_args() -> Result<Args> {
     Ok(Args {
         usd_path: usd_path.ok_or_else(|| anyhow!("--render-usd <file> is required"))?,
         out_path: out_path.ok_or_else(|| anyhow!("--out <png> is required"))?,
+        use_gpu,
+        resolution,
         camera: CameraConfig {
             position,
             target,
@@ -64,7 +70,20 @@ fn parse_args() -> Result<Args> {
 
 fn main() -> Result<()> {
     let args = parse_args()?;
-    render_usd_to_png(&args.usd_path, &args.camera, Path::new(&args.out_path))?;
+
+    if args.use_gpu {
+        unsafe {
+            render_usd_to_png_gpu(
+                &args.usd_path,
+                args.resolution,
+                args.resolution,
+                Path::new(&args.out_path),
+            )?;
+        }
+    } else {
+        render_usd_to_png(&args.usd_path, &args.camera, Path::new(&args.out_path))?;
+    }
+
     println!("Render written to: {}", args.out_path);
     Ok(())
 }
