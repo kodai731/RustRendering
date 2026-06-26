@@ -228,8 +228,20 @@ unsafe fn apply_model_to_resources(
         load_result.has_skinned_meshes,
     );
     initialize_constraint_gizmo_visibility(world);
+    setup_curves(world, &load_result.curves);
 
     Ok(parent_entity)
+}
+
+fn setup_curves(world: &mut World, curves: &[thyllore_importer_core::UsdCurveData]) {
+    if !world.contains_resource::<crate::ecs::resource::CurveMeshData>() {
+        return;
+    }
+
+    let mut curve_mesh = world.resource_mut::<crate::ecs::resource::CurveMeshData>();
+    crate::ecs::systems::build_curve_line_mesh(curves, &mut curve_mesh.mesh);
+    curve_mesh.visible = !curve_mesh.mesh.indices.is_empty();
+    curve_mesh.dirty = true;
 }
 
 fn insert_model_caches(world: &mut World, model_name: &str, fbx_model: Option<FbxModel>) {
@@ -327,6 +339,14 @@ unsafe fn cleanup_resources(
     graphics.mesh_material_ids.clear();
     graphics.materials.clear_materials(&device.device);
     graphics.objects.reset_to_reserved();
+
+    if world.contains_resource::<crate::ecs::resource::CurveMeshData>() {
+        let mut curves = world.resource_mut::<crate::ecs::resource::CurveMeshData>();
+        curves.mesh.vertices.clear();
+        curves.mesh.indices.clear();
+        curves.visible = false;
+        curves.dirty = true;
+    }
 
     if world.contains_resource::<ClipLibrary>() {
         let mut clip_library = world.resource_mut::<ClipLibrary>();

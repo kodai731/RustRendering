@@ -8,7 +8,7 @@ use crate::ecs::resource::gizmo::{
     BoneDisplayStyle, BoneGizmoData, ConstraintGizmoData, GridGizmoData, LightGizmoData,
     TransformGizmoData,
 };
-use crate::ecs::resource::GridMeshData;
+use crate::ecs::resource::{CurveMeshData, GridMeshData};
 use thyllore_render_core::DynamicMesh;
 use thyllore_vulkan_core::renderer::{
     push_fragment_alpha_constant, record_line_mesh_draw, LineMeshDrawOptions,
@@ -32,6 +32,7 @@ impl<'a> OverlayRenderer<'a> {
         let ctx = crate::ecs::systems::phases::build_frame_render_context(self.app, image_index);
 
         self.draw_grid(&ctx, command_buffer)?;
+        self.draw_curves(&ctx, command_buffer)?;
         self.draw_gizmo(&ctx, command_buffer)?;
         self.draw_transform_gizmo(&ctx, command_buffer)?;
         self.draw_light_lines(&ctx, command_buffer)?;
@@ -61,6 +62,35 @@ impl<'a> OverlayRenderer<'a> {
             frame_set_override: None,
         };
         record_line_mesh_draw(ctx, &grid.mesh, &grid.render_info, &options, command_buffer)?;
+
+        Ok(())
+    }
+
+    unsafe fn draw_curves(
+        &self,
+        ctx: &FrameRenderContext<'_>,
+        command_buffer: vk::CommandBuffer,
+    ) -> Result<()> {
+        let Some(curves) = self.app.get_resource::<CurveMeshData>() else {
+            return Ok(());
+        };
+        if !curves.visible || curves.mesh.indices.is_empty() {
+            return Ok(());
+        }
+
+        let options = LineMeshDrawOptions {
+            line_width: Some(1.0),
+            index_count_override: None,
+            bind_object_set: true,
+            frame_set_override: None,
+        };
+        record_line_mesh_draw(
+            ctx,
+            &curves.mesh,
+            &curves.render_info,
+            &options,
+            command_buffer,
+        )?;
 
         Ok(())
     }

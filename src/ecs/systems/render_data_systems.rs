@@ -6,8 +6,17 @@ use crate::ecs::resource::gizmo::{
     BoneDisplayStyle, BoneGizmoData, ConstraintGizmoData, GridGizmoData, LightGizmoData,
     SpringBoneGizmoData, TransformGizmoData,
 };
-use crate::ecs::resource::GridMeshData;
+use crate::ecs::resource::{CurveMeshData, GridMeshData};
 use crate::ecs::RenderData;
+
+pub fn curve_mesh_render_data(curves: &CurveMeshData) -> RenderData {
+    let mesh_ref = GpuMeshRef::new(
+        curves.mesh.vertex_buffer_handle,
+        curves.mesh.index_buffer_handle,
+        curves.mesh.indices.len() as u32,
+    );
+    RenderData::new(mesh_ref, curves.render_info)
+}
 
 pub fn grid_mesh_render_data(grid: &GridMeshData) -> RenderData {
     let index_count = if grid.show_y_axis_grid {

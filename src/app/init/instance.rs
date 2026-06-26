@@ -198,7 +198,13 @@ impl App {
         data.ecs_world.insert_resource(pipeline_manager);
 
         let grid_object_index = data.graphics_resources.objects.allocate_slot();
+        let curve_object_index = data.graphics_resources.objects.allocate_slot();
         data.graphics_resources.objects.seal_reserved_slots();
+
+        let mut curve_mesh_data = crate::ecs::resource::CurveMeshData::default();
+        curve_mesh_data.render_info =
+            crate::ecs::component::RenderInfo::new(Some(pipeline_ids.grid), curve_object_index);
+        data.ecs_world.insert_resource(curve_mesh_data);
 
         let rrrender = Self::initialize_ray_tracing(
             &instance,

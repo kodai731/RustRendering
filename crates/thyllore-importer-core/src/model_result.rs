@@ -68,6 +68,7 @@ pub struct ModelLoadResult {
     pub node_animation_scale: f32,
     pub constraints: Vec<LoadedConstraint>,
     pub spring_bone_setup: Option<SpringBoneSetup>,
+    pub curves: Vec<usd::UsdCurveData>,
 }
 
 impl ModelLoadResult {
@@ -118,6 +119,7 @@ impl ModelLoadResult {
             node_animation_scale,
             constraints: Vec::new(),
             spring_bone_setup: result.spring_bone_setup,
+            curves: Vec::new(),
         }
     }
 
@@ -160,6 +162,7 @@ impl ModelLoadResult {
             node_animation_scale: 1.0,
             constraints: Vec::new(),
             spring_bone_setup: None,
+            curves: result.curves,
         }
     }
 
@@ -202,6 +205,7 @@ impl ModelLoadResult {
             node_animation_scale: 1.0,
             constraints: result.constraints,
             spring_bone_setup: None,
+            curves: Vec::new(),
         }
     }
 }

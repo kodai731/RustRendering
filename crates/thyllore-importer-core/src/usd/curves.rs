@@ -5,7 +5,7 @@ use openusd::sdf;
 use openusd::usd::{PrimPredicate, Stage};
 
 #[derive(Clone, Debug)]
-pub struct UsdStrandData {
+pub struct UsdCurveData {
     pub name: String,
     pub points: Vec<[f32; 3]>,
     pub curve_vertex_counts: Vec<u32>,
@@ -13,7 +13,7 @@ pub struct UsdStrandData {
     pub is_linear: bool,
 }
 
-impl UsdStrandData {
+impl UsdCurveData {
     pub fn curve_count(&self) -> usize {
         self.curve_vertex_counts.len()
     }
@@ -23,27 +23,31 @@ impl UsdStrandData {
     }
 }
 
-pub(crate) fn collect_strands(stage: &Stage) -> Result<Vec<UsdStrandData>> {
+pub(crate) fn collect_curves(stage: &Stage) -> Result<Vec<UsdCurveData>> {
     let mut prim_paths = Vec::new();
     stage.traverse(PrimPredicate::DEFAULT_PROXIES, |p| {
         prim_paths.push(p.clone())
     })?;
 
-    let mut strands = Vec::new();
+    let mut result = Vec::new();
     for path in &prim_paths {
-        let Some(curves) = BasisCurves::get(stage, path.clone())? else {
+        let Some(basis_curves) = BasisCurves::get(stage, path.clone())? else {
             continue;
         };
-        if let Some(strand) = build_strand(&curves, path)? {
-            strands.push(strand);
+        if let Some(curve) = build_curve(&basis_curves, path)? {
+            result.push(curve);
         }
     }
-    Ok(strands)
+    Ok(result)
 }
 
-fn build_strand(curves: &BasisCurves, path: &sdf::Path) -> Result<Option<UsdStrandData>> {
-    let points = read_vec3f(curves.points_attr().get::<sdf::Value>()?);
-    let counts = read_int(curves.curve_vertex_counts_attr().get::<sdf::Value>()?);
+fn build_curve(basis_curves: &BasisCurves, path: &sdf::Path) -> Result<Option<UsdCurveData>> {
+    let points = read_vec3f(basis_curves.points_attr().get::<sdf::Value>()?);
+    let counts = read_int(
+        basis_curves
+            .curve_vertex_counts_attr()
+            .get::<sdf::Value>()?,
+    );
     if points.is_empty() || counts.is_empty() {
         return Ok(None);
     }
@@ -58,13 +62,13 @@ fn build_strand(curves: &BasisCurves, path: &sdf::Path) -> Result<Option<UsdStra
         ));
     }
 
-    let widths = curves
+    let widths = basis_curves
         .widths_attr()
         .get::<Vec<f32>>()
         .ok()
         .flatten()
         .unwrap_or_default();
-    let is_linear = curves
+    let is_linear = basis_curves
         .type_attr()
         .get::<String>()
         .ok()
@@ -72,7 +76,7 @@ fn build_strand(curves: &BasisCurves, path: &sdf::Path) -> Result<Option<UsdStra
         .map(|token| token == "linear")
         .unwrap_or(true);
 
-    Ok(Some(UsdStrandData {
+    Ok(Some(UsdCurveData {
         name: leaf_name(path),
         points,
         curve_vertex_counts: counts.into_iter().map(|c| c.max(0) as u32).collect(),
@@ -97,6 +101,6 @@ fn leaf_name(path: &sdf::Path) -> String {
         .rsplit('/')
         .next()
         .filter(|name| !name.is_empty())
-        .unwrap_or("usd_strand")
+        .unwrap_or("usd_curve")
         .to_string()
 }

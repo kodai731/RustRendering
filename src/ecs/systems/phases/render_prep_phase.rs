@@ -8,12 +8,13 @@ use crate::ecs::resource::gizmo::TransformGizmoData;
 use crate::ecs::resource::gizmo::{
     BoneDisplayStyle, BoneGizmoData, ConstraintGizmoData, SpringBoneGizmoData,
 };
+use crate::ecs::resource::CurveMeshData;
 use crate::ecs::resource::ProjectionData;
 use crate::ecs::resource::{Camera, Exposure, TransformGizmoState};
 use crate::ecs::systems::render_data_systems::{
-    bone_gizmo_render_data, constraint_gizmo_render_data, gizmo_mesh_render_data,
-    gizmo_selectable_render_data, grid_mesh_render_data, spring_bone_gizmo_render_data,
-    transform_gizmo_render_data,
+    bone_gizmo_render_data, constraint_gizmo_render_data, curve_mesh_render_data,
+    gizmo_mesh_render_data, gizmo_selectable_render_data, grid_mesh_render_data,
+    spring_bone_gizmo_render_data, transform_gizmo_render_data,
 };
 use crate::ecs::{
     build_bone_line_mesh, build_box_bone_meshes_with_selection, build_constraint_gizmo_mesh,
@@ -57,6 +58,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
 
     update_grid_gizmo_buffers(ctx)?;
     update_transform_gizmo_mesh(ctx)?;
+    update_curve_mesh(ctx)?;
     update_bone_gizmo_mesh(ctx)?;
     update_constraint_gizmo_mesh(ctx)?;
     update_spring_bone_gizmo_mesh(ctx)?;
@@ -167,6 +169,13 @@ fn collect_gizmo_render_data(
         let bone_gizmo = ctx.world.resource::<BoneGizmoData>();
         if bone_gizmo.visible {
             render_data_vec.extend(bone_gizmo_render_data(&bone_gizmo));
+        }
+    }
+
+    if ctx.world.contains_resource::<CurveMeshData>() {
+        let curves = ctx.world.resource::<CurveMeshData>();
+        if curves.visible && !curves.mesh.indices.is_empty() {
+            render_data_vec.push(curve_mesh_render_data(&curves));
         }
     }
 
@@ -292,6 +301,30 @@ unsafe fn update_transform_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
         tg.line_mesh = line_mesh_clone;
         tg.solid_mesh = solid_mesh_clone;
     }
+
+    Ok(())
+}
+
+unsafe fn update_curve_mesh(ctx: &mut FrameContext) -> Result<()> {
+    if !ctx.world.contains_resource::<CurveMeshData>() {
+        return Ok(());
+    }
+
+    let dirty = ctx.world.resource::<CurveMeshData>().dirty;
+    if !dirty {
+        return Ok(());
+    }
+
+    let mut mesh_clone = ctx.world.resource::<CurveMeshData>().mesh.clone();
+    if !mesh_clone.indices.is_empty() {
+        let mut backend = ctx.create_backend();
+        backend.update_or_create_line_buffers(&mut mesh_clone)?;
+    }
+
+    let mut curves = ctx.world.resource_mut::<CurveMeshData>();
+    curves.mesh.vertex_buffer_handle = mesh_clone.vertex_buffer_handle;
+    curves.mesh.index_buffer_handle = mesh_clone.index_buffer_handle;
+    curves.dirty = false;
 
     Ok(())
 }

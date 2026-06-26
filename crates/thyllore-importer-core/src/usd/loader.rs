@@ -19,7 +19,7 @@ use thyllore_anim_core::{
 use thyllore_math_core::{Vec2, Vec3, Vec4};
 use thyllore_model_core::mesh::{Vertex, VertexData};
 
-use super::strands::{collect_strands, UsdStrandData};
+use super::curves::{collect_curves, UsdCurveData};
 
 const MAX_SAMPLED_FRAMES: i64 = 100_000;
 
@@ -44,7 +44,7 @@ pub struct UsdMeshData {
 
 pub struct UsdLoadResult {
     pub meshes: Vec<UsdMeshData>,
-    pub strands: Vec<UsdStrandData>,
+    pub curves: Vec<UsdCurveData>,
     pub nodes: Vec<UsdNodeInfo>,
     pub animation_system: AnimationSystem,
     pub clips: Vec<AnimationClip>,
@@ -92,14 +92,14 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
     )?;
     log_bounds(&meshes);
 
-    let strands = collect_strands(&stage)?;
-    log_strands(&strands);
+    let curves = collect_curves(&stage)?;
+    log_curves(&curves);
 
     let (start_time_code, _, time_codes_per_second) = time_range;
 
     Ok(UsdLoadResult {
         meshes,
-        strands,
+        curves,
         nodes,
         animation_system,
         clips,
@@ -960,15 +960,15 @@ fn expand_offsets(
         .collect()
 }
 
-fn log_strands(strands: &[UsdStrandData]) {
-    if strands.is_empty() {
+fn log_curves(curves: &[UsdCurveData]) {
+    if curves.is_empty() {
         return;
     }
-    let total_curves: usize = strands.iter().map(|s| s.curve_count()).sum();
-    let total_points: usize = strands.iter().map(|s| s.point_count()).sum();
+    let total_curves: usize = curves.iter().map(|s| s.curve_count()).sum();
+    let total_points: usize = curves.iter().map(|s| s.point_count()).sum();
     log!(
-        "USD import: {} strand set(s), {} curve(s), {} control point(s)",
-        strands.len(),
+        "USD import: {} curve set(s), {} curve(s), {} control point(s)",
+        curves.len(),
         total_curves,
         total_points
     );

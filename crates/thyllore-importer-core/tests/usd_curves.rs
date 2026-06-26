@@ -1,4 +1,4 @@
-//! Verifies UsdGeomBasisCurves import into the internal strand representation.
+//! Verifies UsdGeomBasisCurves import into the internal curve representation.
 //!
 //! Uses a small inline `.usda` so the test is deterministic and machine
 //! independent (no external asset required).
@@ -7,14 +7,14 @@ use std::io::Write;
 
 use thyllore_importer_core::usd::load_usd_file;
 
-const HAIR_USDA: &str = r#"#usda 1.0
+const CURVE_USDA: &str = r#"#usda 1.0
 (
-    defaultPrim = "hair"
+    defaultPrim = "curves"
     upAxis = "Y"
     metersPerUnit = 1
 )
 
-def BasisCurves "hair"
+def BasisCurves "curves"
 {
     int[] curveVertexCounts = [3, 2]
     point3f[] points = [(0, 0, 0), (0, 1, 0), (0, 2, 0), (1, 0, 0), (1, 1, 0)]
@@ -33,25 +33,25 @@ fn write_temp_usda(name: &str, contents: &str) -> std::path::PathBuf {
 }
 
 #[test]
-fn imports_basis_curves_as_strands() {
-    let path = write_temp_usda("thyllore_hair_strands.usda", HAIR_USDA);
+fn imports_basis_curves_as_curves() {
+    let path = write_temp_usda("thyllore_curves.usda", CURVE_USDA);
     let result = load_usd_file(path.to_str().unwrap()).expect("USD import should succeed");
 
-    assert_eq!(result.strands.len(), 1, "expected one BasisCurves prim");
-    let strand = &result.strands[0];
+    assert_eq!(result.curves.len(), 1, "expected one BasisCurves prim");
+    let curve = &result.curves[0];
 
-    assert_eq!(strand.curve_count(), 2, "two curves partition the points");
-    assert_eq!(strand.curve_vertex_counts, vec![3, 2]);
-    assert_eq!(strand.point_count(), 5, "sum of curveVertexCounts");
+    assert_eq!(curve.curve_count(), 2, "two curves partition the points");
+    assert_eq!(curve.curve_vertex_counts, vec![3, 2]);
+    assert_eq!(curve.point_count(), 5, "sum of curveVertexCounts");
     assert_eq!(
-        strand.curve_vertex_counts.iter().sum::<u32>() as usize,
-        strand.point_count(),
+        curve.curve_vertex_counts.iter().sum::<u32>() as usize,
+        curve.point_count(),
         "counts must partition the point buffer exactly"
     );
-    assert!(strand.is_linear, "type was authored as linear");
-    assert_eq!(strand.widths.len(), 5, "per-vertex widths");
-    assert_eq!(strand.points[0], [0.0, 0.0, 0.0]);
-    assert_eq!(strand.points[4], [1.0, 1.0, 0.0]);
+    assert!(curve.is_linear, "type was authored as linear");
+    assert_eq!(curve.widths.len(), 5, "per-vertex widths");
+    assert_eq!(curve.points[0], [0.0, 0.0, 0.0]);
+    assert_eq!(curve.points[4], [1.0, 1.0, 0.0]);
 
     let _ = std::fs::remove_file(&path);
 }

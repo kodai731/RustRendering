@@ -15,6 +15,7 @@ mod constraint_gizmo_systems;
 pub mod constraint_set_systems;
 mod constraint_solve_systems;
 mod curve_editor_systems;
+mod curve_mesh_systems;
 #[cfg(feature = "ml")]
 mod curve_suggestion_systems;
 pub mod debug_constraint_systems;
@@ -69,6 +70,7 @@ pub use constraint_gizmo_systems::*;
 pub use constraint_set_systems::*;
 pub use constraint_solve_systems::*;
 pub use curve_editor_systems::*;
+pub use curve_mesh_systems::*;
 #[cfg(feature = "ml")]
 pub use curve_suggestion_systems::*;
 pub use ecs_world_systems::*;
