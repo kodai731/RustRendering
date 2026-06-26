@@ -89,29 +89,9 @@ Do NOT resolve relative paths manually — always use the absolute paths from `.
 
 ## Document
 
-**IMPORTANT:** All documents (research, design, issue history, explore history) MUST be saved under
-`${DocumentPath}/Rust_Rendering/`. Never place documents directly under `${DocumentPath}/`.
-MUST resolve `${DocumentPath}` by reading `.claude/local/paths.md` before writing any file.
-Do NOT use relative paths like `../SharedData/` — agents may have different working directories, causing files to be
-saved in wrong locations.
-
-- You MUST name files with date prefix, like
-```
-20260315_new_file.md
-```
-
-## Issue History
-
-**IMPORTANT:** If you encounter a complex issue and resolve it, you must document the issue and its solution in detail at
-`${IssueHistoryPath}`.
-
-File names must use CamelCase (e.g., ImageLayoutTransition.md).
-
-Each issue must be documented in a separate file, but to avoid huge number of files, try to add issue in a existing file
-and recap it.
-At the top of each file, include a brief summary of the issue and its resolution to read shortly.
-
-**IMPORTANT:** MUST write in English.
+**IMPORTANT:** All documents (design, exploration, issue history) MUST follow
+`.claude/rules/document-placement.md` for placement and naming. Read it before writing any `.md` document.
+(It is also auto-surfaced by the Write/Edit hook in `.claude/settings.json`.)
 
 ## Last Conversation
 
