@@ -14,7 +14,10 @@ pub use fbx::{
 pub use gltf::{load_gltf_file, GltfLoadResult, GltfMeshData, ImageData, NodeInfo};
 pub use model_result::{LoadedMesh, LoadedNode, ModelLoadResult, TextureData, TextureSource};
 pub use texture::load_png_image;
-pub use usd::{load_usd_file, UsdLoadResult, UsdMeshData, UsdNodeInfo};
+pub use usd::{
+    load_usd_file, save_usd_file, UsdExportBlendShape, UsdExportMesh, UsdExportScene,
+    UsdLoadResult, UsdMeshData, UsdNodeInfo, UsdStrandData,
+};
 
 #[cfg(feature = "auto-rig")]
 pub use gltf::load_gltf_from_slice;
