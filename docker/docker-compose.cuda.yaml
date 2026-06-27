@@ -1,0 +1,33 @@
+# Thyllore Blackwell render profile. Aligns with AnimationModelTraining's
+# dual-gpu-routing SSoT: GPU work runs in a CUDA container, never on the host
+# AMD GPU. Driver/CUDA/Vulkan come from the host via the nvidia runtime.
+#
+#   docker compose -f docker/docker-compose.cuda.yaml --profile cuda build
+#   docker compose -f docker/docker-compose.cuda.yaml --profile cuda run --rm render-cuda \
+#       cargo run --release --bin thyllore-render-usd -- --render-usd <usd> --out <png> --gpu ...
+
+services:
+  render-cuda:
+    profiles: ["cuda"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.render-cuda
+      args:
+        CUDA_VULKAN_BASE_IMAGE: ${CUDA_VULKAN_BASE_IMAGE:-genesis-cuda:latest}
+    image: thyllore-render-cuda:latest
+    env_file:
+      - gpu-runtime.env
+    working_dir: /work
+    volumes:
+      - ..:/work
+      - thyllore-docker-target:/work/.docker-target
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+
+volumes:
+  thyllore-docker-target:

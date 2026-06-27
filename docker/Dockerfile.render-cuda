@@ -1,0 +1,57 @@
+# Thyllore GPU render container (NVIDIA Blackwell via CDI).
+#
+# FROM the shared CUDA + Vulkan SSoT base (genesis-cuda) so the driver stack
+# matches AnimationModelTraining exactly. The repo is mounted at run time, not
+# copied — see scripts/render_usd_blackwell.sh and docker/docker-compose.cuda.yaml.
+#
+# At run time, `--device nvidia.com/gpu=all` exposes only the Blackwell, so the
+# Vulkan engine enumerates a single physical device and uses it automatically.
+
+ARG CUDA_VULKAN_BASE_IMAGE=genesis-cuda:latest
+FROM ${CUDA_VULKAN_BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ENV NVIDIA_VISIBLE_DEVICES=all
+ENV NVIDIA_DRIVER_CAPABILITIES=compute,utility,graphics
+ENV CARGO_HOME=/home/dev/.cargo
+ENV RUSTUP_HOME=/home/dev/.rustup
+ENV PATH=/home/dev/.cargo/bin:/opt/blender:${PATH}
+
+RUN apt-get update -qq \
+    && apt-get install -y -qq --no-install-recommends \
+        build-essential \
+        cmake \
+        pkg-config \
+        libssl-dev \
+        libudev-dev \
+        libx11-dev \
+        libxcb1-dev \
+        libxkbcommon-dev \
+        libwayland-dev \
+        libfontconfig1-dev \
+        libfreetype-dev \
+        xz-utils \
+    && rm -rf /var/lib/apt/lists/*
+
+ARG RUST_TOOLCHAIN=stable
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+        | sh -s -- -y --no-modify-path --default-toolchain ${RUST_TOOLCHAIN} \
+    && rustup component add rustfmt clippy
+
+ARG BLENDER_VERSION=4.2.21
+ARG BLENDER_SERIES=4.2
+RUN wget -qO /tmp/blender.tar.xz \
+        "https://download.blender.org/release/Blender${BLENDER_SERIES}/blender-${BLENDER_VERSION}-linux-x64.tar.xz" \
+    && mkdir -p /opt/blender \
+    && tar -xf /tmp/blender.tar.xz -C /opt/blender --strip-components=1 \
+    && rm /tmp/blender.tar.xz
+
+RUN chown -R dev:dev /home/dev/.cargo /home/dev/.rustup 2>/dev/null || true
+
+USER dev
+WORKDIR /work
+
+ENV CARGO_TARGET_DIR=/work/.docker-target
+ENV ORT_DYLIB_PATH=/work/vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so
+
+CMD ["bash"]
