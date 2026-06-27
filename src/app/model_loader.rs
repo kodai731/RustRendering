@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
-use cgmath::{SquareMatrix, Vector4};
+use cgmath::{SquareMatrix, Vector3, Vector4};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::animation::editable::SourceClipId;
@@ -20,7 +20,7 @@ use crate::ecs::resource::{
 use crate::ecs::world::{Animator, Transform, World};
 use crate::loader::fbx::FbxModel;
 use crate::loader::load_png_image;
-use crate::loader::{ModelLoadResult, TextureSource};
+use crate::loader::{ModelLoadResult, RootTransform, TextureSource};
 use crate::render::MaterialUBO;
 use crate::vulkanr::buffer::{RRIndexBuffer, RRVertexBuffer};
 use crate::vulkanr::command::RRCommandPool;
@@ -207,7 +207,7 @@ unsafe fn apply_model_to_resources(
         node_animation_scale,
         &load_result.clips.clone(),
         scene_will_provide_clips,
-        load_result.root_rotation,
+        load_result.root_transform,
     );
 
     let path_lower = model_name.to_lowercase();
@@ -908,7 +908,7 @@ fn create_ecs_entities(
     node_animation_scale: f32,
     loaded_clips: &[crate::animation::AnimationClip],
     scene_will_provide_clips: bool,
-    root_rotation: Option<cgmath::Quaternion<f32>>,
+    root_transform: Option<RootTransform>,
 ) -> crate::ecs::world::Entity {
     let name = std::path::Path::new(model_name)
         .file_stem()
@@ -936,9 +936,13 @@ fn create_ecs_entities(
         ClipSchedule::new()
     };
 
-    let parent_transform = Transform {
-        rotation: root_rotation.unwrap_or_else(|| cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0)),
-        ..Transform::default()
+    let parent_transform = match root_transform {
+        Some(root) => Transform {
+            rotation: root.rotation,
+            scale: Vector3::new(root.scale, root.scale, root.scale),
+            ..Transform::default()
+        },
+        None => Transform::default(),
     };
     let mut parent_builder = world
         .entity()

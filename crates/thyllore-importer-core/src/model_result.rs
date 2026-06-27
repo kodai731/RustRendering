@@ -48,6 +48,15 @@ pub enum TextureSource {
     File(String),
 }
 
+/// Root-level transform that brings imported model data into the engine's
+/// Y-up, meters world. Derived from source-file metadata (e.g. USD `upAxis` /
+/// `metersPerUnit`), never hardcoded per asset.
+#[derive(Clone, Copy, Debug)]
+pub struct RootTransform {
+    pub rotation: Quaternion<f32>,
+    pub scale: f32,
+}
+
 #[derive(Clone, Debug)]
 pub struct LoadedNode {
     pub index: usize,
@@ -70,7 +79,21 @@ pub struct ModelLoadResult {
     pub spring_bone_setup: Option<SpringBoneSetup>,
     pub curves: Vec<usd::UsdCurveData>,
     pub points: Vec<usd::UsdPointData>,
-    pub root_rotation: Option<Quaternion<f32>>,
+    pub root_transform: Option<RootTransform>,
+}
+
+/// Build the root transform from USD stage metadata. USD permits only Y-up or
+/// Z-up, so the orientation is a deterministic rotation; `metersPerUnit`
+/// normalizes the stage to the engine's meter scale.
+fn usd_root_transform(up_axis: usd::UsdUpAxis, meters_per_unit: f32) -> RootTransform {
+    let rotation = match up_axis {
+        usd::UsdUpAxis::Z => Quaternion::from_angle_x(Deg(-90.0)),
+        usd::UsdUpAxis::Y => Quaternion::new(1.0, 0.0, 0.0, 0.0),
+    };
+    RootTransform {
+        rotation,
+        scale: meters_per_unit,
+    }
 }
 
 impl ModelLoadResult {
@@ -123,7 +146,7 @@ impl ModelLoadResult {
             spring_bone_setup: result.spring_bone_setup,
             curves: Vec::new(),
             points: Vec::new(),
-            root_rotation: None,
+            root_transform: None,
         }
     }
 
@@ -155,10 +178,7 @@ impl ModelLoadResult {
 
         let skeletons = result.animation_system.skeletons.clone();
 
-        let root_rotation = match result.up_axis {
-            usd::UsdUpAxis::Z => Some(Quaternion::from_angle_x(Deg(-90.0))),
-            usd::UsdUpAxis::Y => None,
-        };
+        let root_transform = Some(usd_root_transform(result.up_axis, result.meters_per_unit));
 
         Self {
             meshes,
@@ -173,7 +193,7 @@ impl ModelLoadResult {
             spring_bone_setup: None,
             curves: result.curves,
             points: result.points,
-            root_rotation,
+            root_transform,
         }
     }
 
@@ -218,7 +238,7 @@ impl ModelLoadResult {
             spring_bone_setup: None,
             curves: Vec::new(),
             points: Vec::new(),
-            root_rotation: None,
+            root_transform: None,
         }
     }
 }

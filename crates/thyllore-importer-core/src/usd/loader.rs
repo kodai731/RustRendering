@@ -59,6 +59,7 @@ pub struct UsdLoadResult {
     pub start_time_code: f32,
     pub time_codes_per_second: f32,
     pub up_axis: UsdUpAxis,
+    pub meters_per_unit: f32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,6 +126,7 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
         start_time_code: start_time_code as f32,
         time_codes_per_second: time_codes_per_second as f32,
         up_axis: read_up_axis(&stage),
+        meters_per_unit: read_meters_per_unit(&stage),
     })
 }
 
@@ -135,6 +137,21 @@ fn read_up_axis(stage: &Stage) -> UsdUpAxis {
     };
     log!("USD upAxis detected: {:?}", axis);
     axis
+}
+
+fn read_meters_per_unit(stage: &Stage) -> f32 {
+    let value = match stage.stage_metadata("metersPerUnit").ok().flatten() {
+        Some(sdf::Value::Double(v)) => v as f32,
+        Some(sdf::Value::Float(v)) => v,
+        _ => 1.0,
+    };
+    let value = if value.is_finite() && value > 0.0 {
+        value
+    } else {
+        1.0
+    };
+    log!("USD metersPerUnit detected: {}", value);
+    value
 }
 
 fn collect_prim_paths(stage: &Stage) -> Result<Vec<sdf::Path>> {
