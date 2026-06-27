@@ -17,7 +17,10 @@ use thyllore_anim_core::{
     Skeleton, SkinData, TransformChannel,
 };
 use thyllore_math_core::{Vec2, Vec3, Vec4};
-use thyllore_model_core::mesh::{Vertex, VertexData};
+use thyllore_model_core::mesh::{
+    catmull_clark, compute_smooth_normals, triangulate_subdivided, PolygonMesh, SparseWeights,
+    Vertex, VertexData,
+};
 
 use super::curves::{collect_curves, UsdCurveData};
 use super::points::{collect_points, mesh_has_faces, UsdPointData};
@@ -332,6 +335,20 @@ fn build_mesh(
         corner_count,
     );
 
+    let point_skin = read_point_skin(stage, mesh_path, skeleton_id_by_path, points.len())?;
+
+    if is_subdivision_surface(&mesh, &normals, &counts) {
+        return Ok(build_subdivided_mesh(
+            &points,
+            &counts,
+            &face_indices,
+            &uvs,
+            uv_mapping,
+            point_skin,
+            subdivision_level(),
+        ));
+    }
+
     let expanded = expand_mesh(MeshSource {
         points: &points,
         normals: &normals,
@@ -354,13 +371,11 @@ fn build_mesh(
     let local_vertices = expanded.vertices.clone();
 
     let skin_data = build_skin_data(
-        stage,
-        mesh_path,
-        skeleton_id_by_path,
-        &points,
+        &point_skin,
         &expanded.point_for_vertex,
+        &points,
         &expanded.vertices,
-    )?;
+    );
     let skeleton_id = skin_data.as_ref().map(|s| s.skeleton_id);
 
     Ok(UsdMeshData {
@@ -376,6 +391,145 @@ fn build_mesh(
         point_for_vertex: expanded.point_for_vertex,
         point_count: points.len(),
     })
+}
+
+fn subdivision_level() -> u32 {
+    std::env::var("THYLLORE_SUBDIV_LEVEL")
+        .ok()
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(1)
+}
+
+fn read_subdivision_scheme(mesh: &Mesh) -> Option<String> {
+    match mesh
+        .attribute("subdivisionScheme")
+        .get::<sdf::Value>()
+        .ok()
+        .flatten()
+    {
+        Some(sdf::Value::Token(scheme)) => Some(scheme.to_string()),
+        _ => None,
+    }
+}
+
+fn is_subdivision_surface(mesh: &Mesh, normals: &[Vec3f], counts: &[i32]) -> bool {
+    if counts.is_empty() {
+        return false;
+    }
+    match read_subdivision_scheme(mesh).as_deref() {
+        Some("catmullClark") => true,
+        Some(_) => false,
+        None => normals.is_empty(),
+    }
+}
+
+fn build_subdivided_mesh(
+    points: &[Vec3f],
+    counts: &[i32],
+    face_indices: &[i32],
+    uvs: &[Vec2f],
+    uv_mapping: PrimvarMapping,
+    point_skin: Option<PointSkin>,
+    levels: u32,
+) -> UsdMeshData {
+    let cage = PolygonMesh {
+        points: points.iter().map(|p| [p.x, p.y, p.z]).collect(),
+        face_counts: counts.iter().map(|&c| c.max(0) as u32).collect(),
+        face_indices: face_indices.iter().map(|&i| i.max(0) as u32).collect(),
+    };
+
+    let point_weights = build_point_sparse_weights(&point_skin, points.len());
+    let point_uvs = build_point_uvs(uvs, uv_mapping, points.len());
+
+    let subdivided = catmull_clark(&cage, &point_weights, &point_uvs, levels);
+    let indices = triangulate_subdivided(&subdivided);
+    let normals = compute_smooth_normals(&subdivided.points, &indices);
+
+    let vertices: Vec<Vertex> = (0..subdivided.points.len())
+        .map(|i| {
+            let p = subdivided.points[i];
+            let uv = subdivided.uvs[i];
+            let n = normals[i];
+            Vertex::new_with_normal(
+                Vec3::new(p[0], p[1], p[2]),
+                Vec4::new(1.0, 1.0, 1.0, 1.0),
+                Vec2::new(uv[0], uv[1]),
+                Vec3::new(n[0], n[1], n[2]),
+            )
+        })
+        .collect();
+
+    let base_positions: Vec<[f32; 3]> = subdivided.points.clone();
+    let point_count = base_positions.len();
+    let point_for_vertex: Vec<u32> = (0..point_count as u32).collect();
+
+    let skin_data = point_skin.as_ref().map(|skin| {
+        let mut bone_indices = Vec::with_capacity(point_count);
+        let mut bone_weights = Vec::with_capacity(point_count);
+        for weight in subdivided.weights {
+            let (indices, weights) = weight.into_top4_normalized();
+            bone_indices.push(Vector4::new(indices[0], indices[1], indices[2], indices[3]));
+            bone_weights.push(Vector4::new(weights[0], weights[1], weights[2], weights[3]));
+        }
+        SkinData {
+            skeleton_id: skin.skeleton_id,
+            bone_indices,
+            bone_weights,
+            base_positions: base_positions
+                .iter()
+                .map(|p| Vector3::new(p[0], p[1], p[2]))
+                .collect(),
+            base_normals: normals
+                .iter()
+                .map(|n| Vector3::new(n[0], n[1], n[2]))
+                .collect(),
+        }
+    });
+    let skeleton_id = skin_data.as_ref().map(|s| s.skeleton_id);
+
+    UsdMeshData {
+        vertex_data: VertexData {
+            vertices: vertices.clone(),
+            indices,
+        },
+        skin_data,
+        skeleton_id,
+        node_index: None,
+        local_vertices: vertices,
+        base_positions,
+        point_for_vertex,
+        point_count,
+    }
+}
+
+fn build_point_sparse_weights(
+    point_skin: &Option<PointSkin>,
+    point_count: usize,
+) -> Vec<SparseWeights> {
+    match point_skin {
+        Some(skin) => (0..point_count)
+            .map(|point| {
+                let indices = skin.point_indices[point];
+                let weights = skin.point_weights[point];
+                let mut entries = Vec::new();
+                for slot in 0..4 {
+                    if weights[slot] > 0.0 {
+                        entries.push((indices[slot], weights[slot]));
+                    }
+                }
+                SparseWeights(entries)
+            })
+            .collect(),
+        None => vec![SparseWeights::default(); point_count],
+    }
+}
+
+fn build_point_uvs(uvs: &[Vec2f], uv_mapping: PrimvarMapping, point_count: usize) -> Vec<[f32; 2]> {
+    if uv_mapping == PrimvarMapping::PerPoint && uvs.len() >= point_count {
+        (0..point_count).map(|p| [uvs[p].x, uvs[p].y]).collect()
+    } else {
+        vec![[0.0, 0.0]; point_count]
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -559,14 +713,18 @@ fn make_vertex(position: Vec3f, normal: Vec3f, uv: Vec2f) -> Vertex {
     }
 }
 
-fn build_skin_data(
+struct PointSkin {
+    skeleton_id: u32,
+    point_indices: Vec<Vector4<u32>>,
+    point_weights: Vec<Vector4<f32>>,
+}
+
+fn read_point_skin(
     stage: &Stage,
     mesh_path: &sdf::Path,
     skeleton_id_by_path: &HashMap<String, u32>,
-    points: &[Vec3f],
-    point_for_vertex: &[u32],
-    vertices: &[Vertex],
-) -> Result<Option<SkinData>> {
+    point_count: usize,
+) -> Result<Option<PointSkin>> {
     let Some(binding) = SkelBindingAPI::get(stage, mesh_path.clone())? else {
         return Ok(None);
     };
@@ -595,16 +753,31 @@ fn build_skin_data(
         &remap,
         influences,
         is_constant,
-        points.len(),
+        point_count,
     );
+
+    Ok(Some(PointSkin {
+        skeleton_id,
+        point_indices,
+        point_weights,
+    }))
+}
+
+fn build_skin_data(
+    point_skin: &Option<PointSkin>,
+    point_for_vertex: &[u32],
+    points: &[Vec3f],
+    vertices: &[Vertex],
+) -> Option<SkinData> {
+    let skin = point_skin.as_ref()?;
 
     let bone_indices = point_for_vertex
         .iter()
-        .map(|&point| point_indices[point as usize])
+        .map(|&point| skin.point_indices[point as usize])
         .collect();
     let bone_weights = point_for_vertex
         .iter()
-        .map(|&point| point_weights[point as usize])
+        .map(|&point| skin.point_weights[point as usize])
         .collect();
 
     let base_positions = point_for_vertex
@@ -619,13 +792,13 @@ fn build_skin_data(
         .map(|v| Vector3::new(v.normal[0], v.normal[1], v.normal[2]))
         .collect();
 
-    Ok(Some(SkinData {
-        skeleton_id,
+    Some(SkinData {
+        skeleton_id: skin.skeleton_id,
         bone_indices,
         bone_weights,
         base_positions,
         base_normals,
-    }))
+    })
 }
 
 fn build_joint_remap(stage: &Stage, binding: &SkelBindingAPI, skel_path: &str) -> Result<Vec<u32>> {

@@ -33,10 +33,17 @@ pub unsafe fn render_usd_to_png_gpu(
     if std::env::var("THYLLORE_HIDE_BONES").is_ok() {
         use crate::ecs::resource::gizmo::BoneGizmoData;
         if app.data.ecs_world.contains_resource::<BoneGizmoData>() {
+            app.data.ecs_world.resource_mut::<BoneGizmoData>().visible = false;
+        }
+    }
+
+    if let Ok(mode) = std::env::var("THYLLORE_DEBUG_VIEW") {
+        use crate::ecs::resource::{DebugViewMode, DebugViewState};
+        if let Ok(value) = mode.parse::<i32>() {
             app.data
                 .ecs_world
-                .resource_mut::<BoneGizmoData>()
-                .visible = false;
+                .resource_mut::<DebugViewState>()
+                .debug_view_mode = DebugViewMode::from_int(value);
         }
     }
 
