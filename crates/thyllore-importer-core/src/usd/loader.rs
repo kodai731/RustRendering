@@ -1,11 +1,13 @@
 use std::cmp::Ordering;
 use std::collections::HashMap;
+use std::path::Path;
 
 use anyhow::{anyhow, Result};
 use cgmath::{Matrix4, Quaternion, SquareMatrix, Vector3, Vector4};
 
 use openusd::gf::{Matrix4d, Vec2f, Vec3f};
 use openusd::schemas::geom::{Interpolation, Mesh, PointBased};
+use openusd::schemas::shade::{read_preview_surface, Channel, MaterialBindingAPI};
 use openusd::schemas::skel::{
     BlendShape, InfluenceInterpolation, SkelAnimQuery, SkelBindingAPI, Skeleton as UsdSkeleton,
 };
@@ -44,6 +46,8 @@ pub struct UsdMeshData {
     pub base_positions: Vec<[f32; 3]>,
     pub point_for_vertex: Vec<u32>,
     pub point_count: usize,
+    pub texture_path: Option<String>,
+    pub base_color: [f32; 4],
 }
 
 pub struct UsdLoadResult {
@@ -87,11 +91,13 @@ pub fn load_usd_file(path: &str) -> Result<UsdLoadResult> {
     let clips = build_clips(&stage, &skeleton_id_by_path, time_range)?;
     let nodes = build_nodes(&animation_system);
 
+    let base_dir = Path::new(path).parent().map(Path::to_path_buf);
+
     let mesh_paths = filter_meshes(&stage, &prim_paths)?;
     let mut meshes = Vec::new();
     let mut has_skinned_meshes = false;
     for mesh_path in &mesh_paths {
-        let mesh_data = build_mesh(&stage, mesh_path, &skeleton_id_by_path)?;
+        let mesh_data = build_mesh(&stage, mesh_path, &skeleton_id_by_path, base_dir.as_deref())?;
         has_skinned_meshes |= mesh_data.skin_data.is_some();
         meshes.push(mesh_data);
     }
@@ -320,6 +326,7 @@ fn build_mesh(
     stage: &Stage,
     mesh_path: &sdf::Path,
     skeleton_id_by_path: &HashMap<String, u32>,
+    base_dir: Option<&Path>,
 ) -> Result<UsdMeshData> {
     let mesh = Mesh::get(stage, mesh_path.clone())?
         .ok_or_else(|| anyhow!("Mesh missing at {}", mesh_path.as_str()))?;
@@ -354,16 +361,22 @@ fn build_mesh(
 
     let point_skin = read_point_skin(stage, mesh_path, skeleton_id_by_path, points.len())?;
 
+    let (texture_path, base_color) = read_mesh_material(stage, mesh_path, base_dir);
+
     if is_subdivision_surface(&mesh, &normals, &counts) {
-        return Ok(build_subdivided_mesh(
+        let mut mesh_data = build_subdivided_mesh(
             &points,
             &counts,
             &face_indices,
             &uvs,
+            &uv_indices,
             uv_mapping,
             point_skin,
             subdivision_level(),
-        ));
+        );
+        mesh_data.texture_path = texture_path;
+        mesh_data.base_color = base_color;
+        return Ok(mesh_data);
     }
 
     let expanded = expand_mesh(MeshSource {
@@ -407,7 +420,43 @@ fn build_mesh(
         base_positions,
         point_for_vertex: expanded.point_for_vertex,
         point_count: points.len(),
+        texture_path,
+        base_color,
     })
+}
+
+fn read_mesh_material(
+    stage: &Stage,
+    mesh_path: &sdf::Path,
+    base_dir: Option<&Path>,
+) -> (Option<String>, [f32; 4]) {
+    let white = (None, [1.0, 1.0, 1.0, 1.0]);
+
+    let Some(binding) = MaterialBindingAPI::get(stage, mesh_path.clone())
+        .ok()
+        .flatten()
+    else {
+        return white;
+    };
+    let Some(material) = binding.compute_bound_material("").ok().flatten() else {
+        return white;
+    };
+    let Some(surface) = read_preview_surface(stage, &material).ok().flatten() else {
+        return white;
+    };
+
+    match surface.diffuse_color {
+        Channel::Texture(asset) => (Some(resolve_texture_path(base_dir, &asset)), white.1),
+        Channel::Value(color) => (None, [color.x, color.y, color.z, 1.0]),
+        Channel::Unset => white,
+    }
+}
+
+fn resolve_texture_path(base_dir: Option<&Path>, asset: &str) -> String {
+    match base_dir {
+        Some(dir) => dir.join(asset).to_string_lossy().into_owned(),
+        None => asset.to_string(),
+    }
 }
 
 fn subdivision_level() -> u32 {
@@ -445,6 +494,7 @@ fn build_subdivided_mesh(
     counts: &[i32],
     face_indices: &[i32],
     uvs: &[Vec2f],
+    uv_indices: &[i32],
     uv_mapping: PrimvarMapping,
     point_skin: Option<PointSkin>,
     levels: u32,
@@ -456,7 +506,14 @@ fn build_subdivided_mesh(
     };
 
     let point_weights = build_point_sparse_weights(&point_skin, points.len());
-    let point_uvs = build_point_uvs(uvs, uv_mapping, points.len());
+    let point_uvs = build_point_uvs(
+        uvs,
+        uv_indices,
+        uv_mapping,
+        counts,
+        face_indices,
+        points.len(),
+    );
 
     let subdivided = catmull_clark(&cage, &point_weights, &point_uvs, levels);
     let indices = triangulate_subdivided(&subdivided);
@@ -516,6 +573,8 @@ fn build_subdivided_mesh(
         base_positions,
         point_for_vertex,
         point_count,
+        texture_path: None,
+        base_color: [1.0, 1.0, 1.0, 1.0],
     }
 }
 
@@ -541,12 +600,39 @@ fn build_point_sparse_weights(
     }
 }
 
-fn build_point_uvs(uvs: &[Vec2f], uv_mapping: PrimvarMapping, point_count: usize) -> Vec<[f32; 2]> {
+fn build_point_uvs(
+    uvs: &[Vec2f],
+    uv_indices: &[i32],
+    uv_mapping: PrimvarMapping,
+    counts: &[i32],
+    face_indices: &[i32],
+    point_count: usize,
+) -> Vec<[f32; 2]> {
     if uv_mapping == PrimvarMapping::PerPoint && uvs.len() >= point_count {
-        (0..point_count).map(|p| [uvs[p].x, uvs[p].y]).collect()
-    } else {
-        vec![[0.0, 0.0]; point_count]
+        return (0..point_count).map(|p| [uvs[p].x, uvs[p].y]).collect();
     }
+
+    let default_uv = Vec2f { x: 0.0, y: 0.0 };
+    let mut point_uvs = vec![[0.0f32, 0.0f32]; point_count];
+    let mut offset = 0usize;
+    for (face, &count) in counts.iter().enumerate() {
+        let polygon_size = count.max(0) as usize;
+        for k in 0..polygon_size {
+            let corner = offset + k;
+            let Some(&raw_point) = face_indices.get(corner) else {
+                continue;
+            };
+            let point = raw_point.max(0) as usize;
+            if point >= point_count {
+                continue;
+            }
+            let element = uv_mapping.element_index(face, corner, point);
+            let uv = sample_attribute(uvs, uv_indices, element, default_uv);
+            point_uvs[point] = [uv.x, uv.y];
+        }
+        offset += polygon_size;
+    }
+    point_uvs
 }
 
 #[derive(Clone, Copy, PartialEq)]

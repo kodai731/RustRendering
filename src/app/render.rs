@@ -774,10 +774,19 @@ impl App {
         let image_size = (width * height * 4) as vk::DeviceSize;
         let command_pool = self.resource::<CommandState>().pool.command_pool;
 
+        let source_format = swapchain.swapchain_format;
+
         let (buffer, buffer_memory, command_buffer) =
             self.copy_swapchain_image_to_buffer(swapchain_image, extent, image_size, command_pool)?;
 
-        let path = Self::encode_and_save_png(device, buffer_memory, image_size, width, height)?;
+        let path = Self::encode_and_save_png(
+            device,
+            buffer_memory,
+            image_size,
+            width,
+            height,
+            source_format,
+        )?;
 
         device.free_command_buffers(command_pool, &[command_buffer]);
         device.free_memory(buffer_memory, None);
@@ -798,6 +807,7 @@ impl App {
         let image = offscreen.resolve_color_image;
         let width = offscreen.width;
         let height = offscreen.height;
+        let source_format = offscreen.format;
         let image_size = (width * height * 4) as vk::DeviceSize;
         let command_pool = self.resource::<CommandState>().pool.command_pool;
 
@@ -821,7 +831,14 @@ impl App {
         )?;
         device.queue_wait_idle(self.rrdevice.graphics_queue)?;
 
-        let path = Self::encode_and_save_png(device, buffer_memory, image_size, width, height)?;
+        let path = Self::encode_and_save_png(
+            device,
+            buffer_memory,
+            image_size,
+            width,
+            height,
+            source_format,
+        )?;
 
         device.free_command_buffers(command_pool, &[command_buffer]);
         device.free_memory(buffer_memory, None);
@@ -901,6 +918,7 @@ impl App {
         image_size: vk::DeviceSize,
         width: u32,
         height: u32,
+        source_format: vk::Format,
     ) -> Result<String> {
         use std::fs::File;
         use std::io::BufWriter;
@@ -909,11 +927,21 @@ impl App {
         let data = device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
         let slice = std::slice::from_raw_parts(data as *const u8, image_size as usize);
 
+        let swap_red_blue = matches!(
+            source_format,
+            vk::Format::B8G8R8A8_SRGB | vk::Format::B8G8R8A8_UNORM
+        );
+
         let mut rgba_data = vec![0u8; (width * height * 4) as usize];
         for i in (0..rgba_data.len()).step_by(4) {
-            rgba_data[i] = slice[i + 2];
+            let (r, b) = if swap_red_blue {
+                (slice[i + 2], slice[i])
+            } else {
+                (slice[i], slice[i + 2])
+            };
+            rgba_data[i] = r;
             rgba_data[i + 1] = slice[i + 1];
-            rgba_data[i + 2] = slice[i];
+            rgba_data[i + 2] = b;
             rgba_data[i + 3] = slice[i + 3];
         }
 

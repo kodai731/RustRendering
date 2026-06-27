@@ -160,8 +160,8 @@ impl ModelLoadResult {
                 skeleton_id: m.skeleton_id,
                 node_index: m.node_index,
                 local_vertices: m.local_vertices,
-                texture: None,
-                base_color_factor: [1.0, 1.0, 1.0, 1.0],
+                texture: m.texture_path.map(TextureSource::File),
+                base_color_factor: m.base_color,
             })
             .collect();
 
