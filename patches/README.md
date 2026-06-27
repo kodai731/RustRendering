@@ -23,14 +23,26 @@ maintained.
 - `vendor/openusd/` — generated, **git-ignored**
 - root `Cargo.toml` — `[patch.crates-io] openusd = { path = "vendor/openusd" }`
 
-### Setup / required steps
-1. `cargo fetch` (ensure the openusd source is in the cargo registry)
-2. `./scripts/vendor_openusd_patch.sh` (regenerates `vendor/openusd`)
-3. `cargo build`
+### Setup — automatic via the build scripts (nothing to remember)
+The vendor+patch step runs idempotently at the start of every build, so a fresh
+checkout (where `vendor/openusd` is absent) and a post-`cargo update` build both
+self-heal:
 
-Run step 2 again after a fresh checkout (the vendored copy is git-ignored) and
-after `cargo update` bumps openusd. If upstream changed the patched line the
-`patch` step fails loudly — update this diff then.
+- **Linux**: `./build.sh <cargo-args>` (e.g. `./build.sh build`, `./build.sh test --lib`)
+- **Windows**: `.\build-with-tests.ps1`
+
+Both call `scripts/vendor_openusd_patch.sh` (Linux) / `Ensure-PatchedOpenUsd`
+(PowerShell), which:
+- fast-skips if `vendor/openusd` already matches the locked version and is patched,
+- otherwise copies the locked openusd source from the cargo registry and applies
+  the one-line fix.
+
+Only required manually: run `cargo fetch` once if the openusd source is not yet in
+the registry. If you bypass the wrappers and run bare `cargo build`, run
+`./scripts/vendor_openusd_patch.sh` first.
+
+If upstream changes the patched line, the script aborts loudly — update the fix
+(`old`/`new` strings in the script + this `.patch`) then.
 
 ### When openusd fixes this upstream
 Drop `[patch.crates-io]`, this `patches/` dir, and the script; bump the crate

@@ -5,6 +5,51 @@ param(
     [switch]$Release
 )
 
+# Idempotently vendor a patched copy of the openusd crate (workaround for its
+# USDC compressed integer-valued float-array decode bug; see patches/README.md).
+# The workspace [patch.crates-io] points at vendor/openusd, which is git-ignored
+# and regenerated here so `cargo build` never fails on a fresh checkout.
+function Ensure-PatchedOpenUsd {
+    $old = 'let ints: Vec<i32> = self.read_compressed(count)?;'
+    $new = 'let ints: Vec<i32> = self.read_encoded_ints(count)?;'
+    $dest = "vendor/openusd"
+    $target = "$dest/src/usdc/reader.rs"
+
+    $m = [regex]::Match((Get-Content Cargo.lock -Raw),
+        '(?ms)^\[\[package\]\]\r?\nname = "openusd"\r?\nversion = "([^"]+)"')
+    if (-not $m.Success) { Write-Host "openusd not in Cargo.lock; run 'cargo fetch'" -ForegroundColor Red; exit 1 }
+    $ver = $m.Groups[1].Value
+
+    if ((Test-Path "$dest/Cargo.toml") -and
+        (Select-String -Path "$dest/Cargo.toml" -Pattern "^version = `"$ver`"" -Quiet) -and
+        (Test-Path $target) -and (Select-String -Path $target -SimpleMatch $new -Quiet)) {
+        Write-Host "[vendor_openusd] openusd $ver already patched; skip" -ForegroundColor Gray
+        return
+    }
+
+    $cargoHome = if ($env:CARGO_HOME) { $env:CARGO_HOME } else { Join-Path $env:USERPROFILE ".cargo" }
+    $src = Get-ChildItem -Path "$cargoHome/registry/src" -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object { Get-ChildItem -Path $_.FullName -Directory -Filter "openusd-$ver" -ErrorAction SilentlyContinue } |
+        Select-Object -First 1
+    if (-not $src) { Write-Host "[vendor_openusd] openusd-$ver not in registry; run 'cargo fetch'" -ForegroundColor Red; exit 1 }
+
+    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+    New-Item -ItemType Directory -Path "vendor" -Force | Out-Null
+    Copy-Item -Recurse -Force $src.FullName $dest
+    Get-ChildItem $dest -Recurse -File | ForEach-Object { $_.IsReadOnly = $false }
+
+    $content = Get-Content $target -Raw
+    if ($content -notmatch [regex]::Escape($new)) {
+        if ($content -notmatch [regex]::Escape($old)) {
+            Write-Host "[vendor_openusd] target line not found; upstream changed - update the fix" -ForegroundColor Red; exit 1
+        }
+        Set-Content -Path $target -Value $content.Replace($old, $new) -NoNewline
+    }
+    Write-Host "[vendor_openusd] patched openusd $ver -> $dest" -ForegroundColor Gray
+}
+
+Ensure-PatchedOpenUsd
+
 Write-Host "=== Building project ===" -ForegroundColor Cyan
 
 # ビルドオプションを設定
