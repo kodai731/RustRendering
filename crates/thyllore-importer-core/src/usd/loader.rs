@@ -333,7 +333,8 @@ fn build_mesh(
 
     let points = read_vec3f_array(mesh.points_attr().get::<sdf::Value>()?);
     let normals = read_vec3f_array(mesh.normals_attr().get::<sdf::Value>()?);
-    let uvs = read_uvs(&mesh)?;
+    let mut uvs = read_uvs(&mesh)?;
+    flip_uv_v(&mut uvs);
     let uv_indices = read_int_array(mesh.attribute("primvars:st:indices").get::<sdf::Value>()?);
     let counts = read_int_array(mesh.face_vertex_counts_attr().get::<sdf::Value>()?);
     let face_indices = read_int_array(mesh.face_vertex_indices_attr().get::<sdf::Value>()?);
@@ -449,6 +450,15 @@ fn read_mesh_material(
         Channel::Texture(asset) => (Some(resolve_texture_path(base_dir, &asset)), white.1),
         Channel::Value(color) => (None, [color.x, color.y, color.z, 1.0]),
         Channel::Unset => white,
+    }
+}
+
+/// USD/Blender author UVs with v=0 at the bottom (V-up), but the engine samples
+/// textures with the origin at the top-left and applies no flip (matching glTF's
+/// V-down convention). Flip v once at import so USD textures map correctly.
+fn flip_uv_v(uvs: &mut [Vec2f]) {
+    for uv in uvs.iter_mut() {
+        uv.y = 1.0 - uv.y;
     }
 }
 

@@ -64,3 +64,5 @@ auto-rig = ["text-to-motion", "thyllore-grpc-client/auto-rig", "thyllore-importe
 [dependencies.gltf]
 version = "1.4"
 features = ["extras", "names", "extensions"]
+[patch.crates-io]
+openusd = { path = "vendor/openusd" }

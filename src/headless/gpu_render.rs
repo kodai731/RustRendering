@@ -55,7 +55,9 @@ pub unsafe fn render_usd_to_png_gpu(
         render_one_frame(&mut app, draw_data)?;
     }
 
-    frame_camera_on_bones(&mut app);
+    if std::env::var("THYLLORE_NO_AUTOFRAME").is_err() {
+        frame_camera_on_bones(&mut app);
+    }
 
     for _ in 0..WARMUP_FRAMES {
         imgui.new_frame();

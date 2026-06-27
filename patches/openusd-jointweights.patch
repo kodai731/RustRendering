@@ -1,0 +1,11 @@
+--- a/src/usdc/reader.rs
++++ b/src/usdc/reader.rs
+@@ -654,7 +654,7 @@
+             match code {
+                 // Compressed integers
+                 b'i' => {
+-                    let ints: Vec<i32> = self.read_compressed(count)?;
++                    let ints: Vec<i32> = self.read_encoded_ints(count)?;
+                     ints.into_iter().map(|i| cast(i).unwrap()).collect()
+                 }
+                 // Lookup table and indexes

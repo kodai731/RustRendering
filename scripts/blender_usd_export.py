@@ -13,6 +13,11 @@ albedo with no lighting) into a per-material texture, rebuilds the material as a
 simple Image-Texture -> Principled BSDF, then exports. Baking captures the exact
 combined albedo (tint x detail map, mixed shaders, packed textures) uniformly.
 
+Pipeline per object: separate by material (one material per exported mesh) ->
+drop unused slots -> bake. Bake uses the active_render UV map (the one exported as
+`primvars:st`) and neutralizes metallic/transmission so metal/glass keep their
+base colour. Geometry is exported tessellated so the importer reads exact UVs.
+
 Usage:
     blender --background <input.blend> --python scripts/blender_usd_export.py -- <output.usdc> [bake_size]
 
@@ -92,8 +97,42 @@ def make_bakeable(obj):
     bpy.context.view_layer.objects.active = obj
 
 
+def sync_active_uv_to_render(obj):
+    """Bake uses the active UV map, but USD exports the active_render UV map as
+    `primvars:st`. When a mesh has several UV maps (body/jacket carry a separate
+    'Baking' layout), these differ, so the baked texels land in a different UV
+    layout than the renderer samples. Force the bake to use the exported map."""
+    uv_layers = obj.data.uv_layers
+    for layer in uv_layers:
+        if layer.active_render:
+            uv_layers.active = layer
+            return
+
+
+def prepare_materials_for_bake(obj):
+    """Make each slot's material single-user, then neutralize metallic/transmission.
+
+    Single-user copies stop `rebuild_material` on a material shared across separated
+    pieces (gums, pins_underside, buckle) from corrupting the others. Zeroing
+    Metallic/Transmission makes the Cycles DIFFUSE colour pass return the base colour
+    for metal/glass surfaces, which otherwise bake to black."""
+    for slot in obj.material_slots:
+        if slot.material is None or slot.material.node_tree is None:
+            continue
+        slot.material = slot.material.copy()
+        for node in slot.material.node_tree.nodes:
+            if node.type != "BSDF_PRINCIPLED":
+                continue
+            for input_name in ("Metallic", "Transmission", "Transmission Weight"):
+                socket = node.inputs.get(input_name)
+                if socket is not None and not socket.is_linked:
+                    socket.default_value = 0.0
+
+
 def bake_object(obj, bake_size, done):
     make_bakeable(obj)
+    sync_active_uv_to_render(obj)
+    prepare_materials_for_bake(obj)
 
     targets = attach_bake_targets(obj, bake_size)
     if not targets:
@@ -156,6 +195,7 @@ def main():
         overwrite_textures=True,
         relative_paths=True,
         root_prim_path="/root",
+        export_subdivision='TESSELLATE',
     )
     print(f"[usd_export] exported {output_path}")
 
