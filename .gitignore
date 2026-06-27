@@ -40,6 +40,9 @@ vendor/
 .claude/settings.local.json
 .claude/local/
 
+# machine-local config (GPU selection etc.) -- never committed
+.config/
+
 # python
 .venv/
 __pycache__/

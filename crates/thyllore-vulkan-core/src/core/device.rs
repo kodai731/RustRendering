@@ -83,10 +83,11 @@ impl RRDevice {
         validation: ValidationMode,
         validation_layer: vk::ExtensionName,
         device_extensions: &[vk::ExtensionName],
+        selector: &GpuSelector,
         portability_macro_version: Version,
     ) -> Result<RRDevice> {
         let (physical_device, sample_count) =
-            pick_physical_device(instance, surface, device_extensions)?;
+            pick_physical_device(instance, surface, device_extensions, selector)?;
 
         let graphics_index = GraphicsQueueIndex::find(instance, &physical_device)?;
         let present_index = PresentQueueIndex::find(instance, surface, &physical_device)?;
@@ -124,10 +125,11 @@ impl RRDevice {
         device_extensions: &[vk::ExtensionName],
         validation: ValidationMode,
         validation_layer: vk::ExtensionName,
+        selector: &GpuSelector,
         portability_macro_version: Version,
     ) -> Result<RRDevice> {
         let (physical_device, sample_count) =
-            pick_physical_device_headless(instance, device_extensions)?;
+            pick_physical_device_headless(instance, device_extensions, selector)?;
 
         let graphics_index = GraphicsQueueIndex::find(instance, &physical_device)?;
 
@@ -344,16 +346,110 @@ unsafe fn create_logical_device_with_present(
     Ok((device, graphics_queue, present_queue))
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GpuSelector {
+    Auto,
+    Index(usize),
+    NameContains(String),
+    Vendor(u32),
+}
+
+impl GpuSelector {
+    pub fn is_auto(&self) -> bool {
+        matches!(self, GpuSelector::Auto)
+    }
+
+    fn matches(&self, index: usize, properties: &vk::PhysicalDeviceProperties) -> bool {
+        match self {
+            GpuSelector::Auto => true,
+            GpuSelector::Index(target) => index == *target,
+            GpuSelector::NameContains(needle) => properties
+                .device_name
+                .to_string()
+                .to_lowercase()
+                .contains(&needle.to_lowercase()),
+            GpuSelector::Vendor(vendor_id) => properties.vendor_id == *vendor_id,
+        }
+    }
+}
+
+impl std::str::FromStr for GpuSelector {
+    type Err = anyhow::Error;
+
+    fn from_str(text: &str) -> anyhow::Result<Self> {
+        let trimmed = text.trim();
+        if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("auto") {
+            return Ok(GpuSelector::Auto);
+        }
+        if let Some(vendor) = trimmed.strip_prefix("vendor:") {
+            let hex = vendor.trim().trim_start_matches("0x");
+            let vendor_id = u32::from_str_radix(hex, 16).map_err(|_| {
+                anyhow!(
+                    "invalid vendor id '{}': expected hex like vendor:10de",
+                    vendor
+                )
+            })?;
+            return Ok(GpuSelector::Vendor(vendor_id));
+        }
+        if let Some(index) = trimmed.strip_prefix("index:") {
+            let parsed = index
+                .trim()
+                .parse::<usize>()
+                .map_err(|_| anyhow!("invalid index '{}'", index))?;
+            return Ok(GpuSelector::Index(parsed));
+        }
+        if let Ok(parsed) = trimmed.parse::<usize>() {
+            return Ok(GpuSelector::Index(parsed));
+        }
+        Ok(GpuSelector::NameContains(trimmed.to_string()))
+    }
+}
+
+unsafe fn log_available_devices(instance: &Instance, physical_devices: &[vk::PhysicalDevice]) {
+    for (index, physical_device) in physical_devices.iter().enumerate() {
+        let properties = instance.get_physical_device_properties(*physical_device);
+        log!(
+            "GPU[{}] {} (vendor={:#06x} type={:?})",
+            index,
+            properties.device_name,
+            properties.vendor_id,
+            properties.device_type
+        );
+    }
+}
+
+fn selection_error(selector: &GpuSelector, matched_any: bool) -> anyhow::Error {
+    if selector.is_auto() {
+        anyhow!("Failed to find suitable physical device")
+    } else if matched_any {
+        anyhow!(
+            "GPU selector {:?} matched a device, but it failed capability/presentation checks",
+            selector
+        )
+    } else {
+        anyhow!("GPU selector {:?} matched no available device", selector)
+    }
+}
+
 unsafe fn pick_physical_device(
     instance: &Instance,
     surface: &vk::SurfaceKHR,
     device_extensions: &[vk::ExtensionName],
+    selector: &GpuSelector,
 ) -> Result<(vk::PhysicalDevice, vk::SampleCountFlags)> {
-    for physical_device in instance.enumerate_physical_devices()? {
-        let properties = instance.get_physical_device_properties(physical_device);
+    let physical_devices = instance.enumerate_physical_devices()?;
+    log_available_devices(instance, &physical_devices);
+
+    let mut matched_any = false;
+    for (index, physical_device) in physical_devices.iter().enumerate() {
+        let properties = instance.get_physical_device_properties(*physical_device);
+        if !selector.matches(index, &properties) {
+            continue;
+        }
+        matched_any = true;
 
         if let Err(error) =
-            check_physical_device_capabilities(instance, &physical_device, device_extensions)
+            check_physical_device_capabilities(instance, physical_device, device_extensions)
         {
             log!(
                 "Skipping Physical Device (`{}`): {}",
@@ -363,8 +459,7 @@ unsafe fn pick_physical_device(
             continue;
         }
 
-        if let Err(error) = check_physical_device_presentation(instance, surface, &physical_device)
-        {
+        if let Err(error) = check_physical_device_presentation(instance, surface, physical_device) {
             log!(
                 "Skipping Physical Device (`{}`): {}",
                 properties.device_name,
@@ -373,23 +468,36 @@ unsafe fn pick_physical_device(
             continue;
         }
 
-        log!("Selected Physical Device (`{}`).", properties.device_name);
-        let sample_count = get_max_msaa_samples(instance, physical_device);
-        return Ok((physical_device, sample_count));
+        log!(
+            "Selected Physical Device (`{}`) [selector {:?}].",
+            properties.device_name,
+            selector
+        );
+        let sample_count = get_max_msaa_samples(instance, *physical_device);
+        return Ok((*physical_device, sample_count));
     }
 
-    Err(anyhow!("Failed to find suitable physical device"))
+    Err(selection_error(selector, matched_any))
 }
 
 unsafe fn pick_physical_device_headless(
     instance: &Instance,
     device_extensions: &[vk::ExtensionName],
+    selector: &GpuSelector,
 ) -> Result<(vk::PhysicalDevice, vk::SampleCountFlags)> {
-    for physical_device in instance.enumerate_physical_devices()? {
-        let properties = instance.get_physical_device_properties(physical_device);
+    let physical_devices = instance.enumerate_physical_devices()?;
+    log_available_devices(instance, &physical_devices);
+
+    let mut matched_any = false;
+    for (index, physical_device) in physical_devices.iter().enumerate() {
+        let properties = instance.get_physical_device_properties(*physical_device);
+        if !selector.matches(index, &properties) {
+            continue;
+        }
+        matched_any = true;
 
         if let Err(error) =
-            check_physical_device_capabilities(instance, &physical_device, device_extensions)
+            check_physical_device_capabilities(instance, physical_device, device_extensions)
         {
             log!(
                 "Skipping Physical Device (`{}`): {}",
@@ -400,16 +508,15 @@ unsafe fn pick_physical_device_headless(
         }
 
         log!(
-            "Selected Physical Device headless (`{}`).",
-            properties.device_name
+            "Selected Physical Device headless (`{}`) [selector {:?}].",
+            properties.device_name,
+            selector
         );
-        let sample_count = get_max_msaa_samples(instance, physical_device);
-        return Ok((physical_device, sample_count));
+        let sample_count = get_max_msaa_samples(instance, *physical_device);
+        return Ok((*physical_device, sample_count));
     }
 
-    Err(anyhow!(
-        "Failed to find suitable physical device (headless)"
-    ))
+    Err(selection_error(selector, matched_any))
 }
 
 unsafe fn check_physical_device_capabilities(

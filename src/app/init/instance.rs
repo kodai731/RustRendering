@@ -160,6 +160,7 @@ impl App {
         let (instance, messenger) =
             Self::create_instance_with_messenger(target, validation, &entry)?;
         let surface = Self::create_surface_for_target(&instance, target)?;
+        let gpu_selector = crate::app::init::gpu_config::load_gpu_selector();
         let rrdevice = RRDevice::new(
             &entry,
             &instance,
@@ -167,6 +168,7 @@ impl App {
             validation,
             VALIDATION_LAYER,
             DEVICE_EXTENSIONS,
+            &gpu_selector,
             PORTABILITY_MACOS_VERSION,
         )?;
         let rrswapchain =

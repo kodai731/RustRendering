@@ -17,6 +17,8 @@ ENV CARGO_HOME=/home/dev/.cargo
 ENV RUSTUP_HOME=/home/dev/.rustup
 ENV PATH=/home/dev/.cargo/bin:/opt/blender:${PATH}
 
+USER root
+
 RUN apt-get update -qq \
     && apt-get install -y -qq --no-install-recommends \
         build-essential \
