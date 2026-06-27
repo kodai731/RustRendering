@@ -15,6 +15,7 @@ use crate::ecs::systems::render_data_systems::{
     gizmo_mesh_render_data, gizmo_selectable_render_data, grid_mesh_render_data,
     point_cloud_render_data, spring_bone_gizmo_render_data, transform_gizmo_render_data,
 };
+use crate::ecs::world::{CurveMeshRef, PointCloudRef};
 use crate::ecs::{
     build_bone_line_mesh, build_box_bone_meshes_with_selection, build_constraint_gizmo_mesh,
     build_octahedral_bone_meshes_with_selection, build_sphere_bone_meshes_with_selection,
@@ -155,6 +156,18 @@ unsafe fn update_frame_and_scene_uniforms(
     Ok(())
 }
 
+fn imported_geometry_model_matrix<T: crate::ecs::storage::Component>(
+    world: &crate::ecs::world::World,
+) -> Matrix4<f32> {
+    use crate::ecs::world::GlobalTransform;
+    world
+        .iter_components::<T>()
+        .next()
+        .and_then(|(entity, _)| world.get_component::<GlobalTransform>(entity))
+        .map(|gt| gt.0)
+        .unwrap_or_else(Matrix4::identity)
+}
+
 fn collect_gizmo_render_data(
     ctx: &FrameContext,
     camera_position: Vector3<f32>,
@@ -173,16 +186,18 @@ fn collect_gizmo_render_data(
     }
 
     if ctx.world.contains_resource::<CurveMeshData>() {
+        let model_matrix = imported_geometry_model_matrix::<CurveMeshRef>(ctx.world);
         let curves = ctx.world.resource::<CurveMeshData>();
         if curves.visible && !curves.mesh.indices.is_empty() {
-            render_data_vec.push(curve_mesh_render_data(&curves));
+            render_data_vec.push(curve_mesh_render_data(&curves, model_matrix));
         }
     }
 
     if ctx.world.contains_resource::<PointCloudData>() {
+        let model_matrix = imported_geometry_model_matrix::<PointCloudRef>(ctx.world);
         let points = ctx.world.resource::<PointCloudData>();
         if points.visible && !points.mesh.indices.is_empty() {
-            render_data_vec.push(point_cloud_render_data(&points));
+            render_data_vec.push(point_cloud_render_data(&points, model_matrix));
         }
     }
 

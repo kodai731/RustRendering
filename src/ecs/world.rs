@@ -191,6 +191,12 @@ pub struct MeshRef {
     pub object_index: usize,
 }
 
+#[derive(Clone, Debug, Default)]
+pub struct CurveMeshRef;
+
+#[derive(Clone, Debug, Default)]
+pub struct PointCloudRef;
+
 #[derive(Clone, Debug)]
 pub struct MaterialRef(pub AssetId);
 
@@ -580,6 +586,16 @@ impl<'a> EntityBuilder<'a> {
                 object_index,
             },
         );
+        self
+    }
+
+    pub fn with_curve_mesh(self) -> Self {
+        self.world.insert_component(self.entity, CurveMeshRef);
+        self
+    }
+
+    pub fn with_point_cloud(self) -> Self {
+        self.world.insert_component(self.entity, PointCloudRef);
         self
     }
 

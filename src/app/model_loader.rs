@@ -229,32 +229,66 @@ unsafe fn apply_model_to_resources(
         load_result.has_skinned_meshes,
     );
     initialize_constraint_gizmo_visibility(world);
-    setup_curves(world, &load_result.curves);
-    setup_point_cloud(world, &load_result.points);
+    setup_curves(world, parent_entity, &load_result.curves);
+    setup_point_cloud(world, parent_entity, &load_result.points);
 
     Ok(parent_entity)
 }
 
-fn setup_curves(world: &mut World, curves: &[thyllore_importer_core::UsdCurveData]) {
+fn setup_curves(
+    world: &mut World,
+    parent_entity: crate::ecs::Entity,
+    curves: &[thyllore_importer_core::UsdCurveData],
+) {
     if !world.contains_resource::<crate::ecs::resource::CurveMeshData>() {
         return;
     }
 
-    let mut curve_mesh = world.resource_mut::<crate::ecs::resource::CurveMeshData>();
-    crate::ecs::systems::build_curve_line_mesh(curves, &mut curve_mesh.mesh);
-    curve_mesh.visible = !curve_mesh.mesh.indices.is_empty();
-    curve_mesh.dirty = true;
+    let has_geometry = {
+        let mut curve_mesh = world.resource_mut::<crate::ecs::resource::CurveMeshData>();
+        crate::ecs::systems::build_curve_line_mesh(curves, &mut curve_mesh.mesh);
+        curve_mesh.visible = !curve_mesh.mesh.indices.is_empty();
+        curve_mesh.dirty = true;
+        curve_mesh.visible
+    };
+
+    if has_geometry {
+        world
+            .entity()
+            .with_name("curve_mesh")
+            .with_transform(Transform::default())
+            .with_curve_mesh()
+            .with_parent(parent_entity)
+            .build();
+    }
 }
 
-fn setup_point_cloud(world: &mut World, points: &[thyllore_importer_core::UsdPointData]) {
+fn setup_point_cloud(
+    world: &mut World,
+    parent_entity: crate::ecs::Entity,
+    points: &[thyllore_importer_core::UsdPointData],
+) {
     if !world.contains_resource::<crate::ecs::resource::PointCloudData>() {
         return;
     }
 
-    let mut point_cloud = world.resource_mut::<crate::ecs::resource::PointCloudData>();
-    crate::ecs::systems::build_point_cloud_mesh(points, &mut point_cloud.mesh);
-    point_cloud.visible = !point_cloud.mesh.indices.is_empty();
-    point_cloud.dirty = true;
+    let has_geometry = {
+        let mut point_cloud = world.resource_mut::<crate::ecs::resource::PointCloudData>();
+        crate::ecs::systems::build_point_cloud_mesh(points, &mut point_cloud.mesh);
+        point_cloud.visible = !point_cloud.mesh.indices.is_empty();
+        point_cloud.dirty = true;
+        point_cloud.visible
+    };
+
+    if has_geometry {
+        world
+            .entity()
+            .with_name("point_cloud")
+            .with_transform(Transform::default())
+            .with_point_cloud()
+            .with_parent(parent_entity)
+            .build();
+    }
 }
 
 fn insert_model_caches(world: &mut World, model_name: &str, fbx_model: Option<FbxModel>) {

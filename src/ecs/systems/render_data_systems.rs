@@ -9,22 +9,22 @@ use crate::ecs::resource::gizmo::{
 use crate::ecs::resource::{CurveMeshData, GridMeshData, PointCloudData};
 use crate::ecs::RenderData;
 
-pub fn curve_mesh_render_data(curves: &CurveMeshData) -> RenderData {
+pub fn curve_mesh_render_data(curves: &CurveMeshData, model_matrix: Matrix4<f32>) -> RenderData {
     let mesh_ref = GpuMeshRef::new(
         curves.mesh.vertex_buffer_handle,
         curves.mesh.index_buffer_handle,
         curves.mesh.indices.len() as u32,
     );
-    RenderData::new(mesh_ref, curves.render_info)
+    RenderData::new(mesh_ref, curves.render_info).with_model_matrix(model_matrix)
 }
 
-pub fn point_cloud_render_data(points: &PointCloudData) -> RenderData {
+pub fn point_cloud_render_data(points: &PointCloudData, model_matrix: Matrix4<f32>) -> RenderData {
     let mesh_ref = GpuMeshRef::new(
         points.mesh.vertex_buffer_handle,
         points.mesh.index_buffer_handle,
         points.mesh.indices.len() as u32,
     );
-    RenderData::new(mesh_ref, points.render_info)
+    RenderData::new(mesh_ref, points.render_info).with_model_matrix(model_matrix)
 }
 
 pub fn grid_mesh_render_data(grid: &GridMeshData) -> RenderData {

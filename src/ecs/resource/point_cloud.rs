@@ -7,7 +7,9 @@ use thyllore_render_core::{LineMesh, RenderInfo};
 /// POINT_LIST pipeline. Reuses `LineMesh` (`DynamicMesh<ColorVertex>`) for
 /// storage — point and line geometry share the vertex format and differ only in
 /// primitive topology. The object slot is reserved at init so it survives model
-/// reloads; the model matrix is identity because points share the mesh space.
+/// reloads. The render model matrix comes from a `PointCloudRef` child entity of
+/// the model root, so the points follow the same `GlobalTransform` propagation
+/// (including USD up-axis rotation) as the meshes.
 #[derive(Default)]
 pub struct PointCloudData {
     pub mesh: LineMesh,
