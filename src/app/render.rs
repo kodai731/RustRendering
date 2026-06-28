@@ -28,6 +28,10 @@ impl App {
         self.update_auto_exposure();
         self.read_object_id_readback();
 
+        if self.rrdevice.present_queue.is_null() {
+            return self.begin_frame_headless();
+        }
+
         let swapchain = self.resource::<SwapchainState>().swapchain.swapchain;
         let image_available = self.resource::<FrameSync>().current_image_available();
         let result = self.rrdevice.device.acquire_next_image_khr(
@@ -42,6 +46,27 @@ impl App {
             Err(vk::ErrorCode::OUT_OF_DATE_KHR) => return Err(anyhow!("SWAPCHAIN_OUT_OF_DATE")),
             Err(e) => return Err(anyhow!(e)),
         };
+
+        let image_in_flight = self.resource::<SwapchainState>().images_in_flight[image_index];
+        if !image_in_flight.is_null() {
+            self.rrdevice
+                .device
+                .wait_for_fences(&[image_in_flight], true, u64::MAX)?;
+        }
+
+        let current_fence = self.resource::<FrameSync>().current_fence();
+        self.resource_mut::<SwapchainState>().images_in_flight[image_index] = current_fence;
+
+        Ok(image_index)
+    }
+
+    unsafe fn begin_frame_headless(&mut self) -> Result<usize> {
+        let images_len = self
+            .resource::<SwapchainState>()
+            .swapchain
+            .swapchain_images
+            .len();
+        let image_index = self.resource::<FrameSync>().current_frame % images_len;
 
         let image_in_flight = self.resource::<SwapchainState>().images_in_flight[image_index];
         if !image_in_flight.is_null() {
@@ -714,6 +739,10 @@ impl App {
 
         self.record_command_buffer(image_index, draw_data)?;
 
+        if self.rrdevice.present_queue.is_null() {
+            return self.submit_frame_headless(image_index);
+        }
+
         let image_available = self.resource::<FrameSync>().current_image_available();
         let render_finished = self.resource::<FrameSync>().current_render_finished();
         let current_fence = self.resource::<FrameSync>().current_fence();
@@ -764,6 +793,28 @@ impl App {
 
         Ok(())
     }
+
+    unsafe fn submit_frame_headless(&mut self, image_index: usize) -> Result<()> {
+        let current_fence = self.resource::<FrameSync>().current_fence();
+        let command_buffers =
+            &[self.resource::<CommandState>().buffers.command_buffers[image_index]];
+        let submit_info = vk::SubmitInfo::builder().command_buffers(command_buffers);
+
+        self.rrdevice.device.reset_fences(&[current_fence])?;
+        self.rrdevice.device.queue_submit(
+            self.rrdevice.graphics_queue,
+            &[submit_info],
+            current_fence,
+        )?;
+
+        self.resource_mut::<FrameSync>()
+            .advance(MAX_FRAMES_IN_FLIGHT);
+        let current_frame = self.resource::<FrameSync>().current_frame;
+        self.frame = current_frame;
+
+        Ok(())
+    }
+
     pub unsafe fn save_screenshot(&self, image_index: usize) -> Result<String> {
         let device = &self.rrdevice.device;
         let swapchain = &self.resource::<SwapchainState>().swapchain;

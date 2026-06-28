@@ -50,6 +50,11 @@ RUN wget -qO /tmp/blender.tar.xz \
 
 RUN chown -R dev:dev /home/dev/.cargo /home/dev/.rustup 2>/dev/null || true
 
+# Pre-create the cargo target dir owned by dev so a fresh named volume mounted
+# here at run time inherits dev ownership (Docker seeds an empty volume from the
+# image path). Without this the volume is root-owned and the non-root build fails.
+RUN mkdir -p /work/.docker-target && chown -R dev:dev /work
+
 USER dev
 WORKDIR /work
 

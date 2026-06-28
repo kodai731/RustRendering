@@ -1,5 +1,12 @@
-import bpy
+import bpy, sys
 from mathutils import Vector
+
+argv = sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
+if argv:
+    bpy.ops.object.select_all(action='SELECT')
+    bpy.ops.object.delete(use_global=False)
+    bpy.ops.wm.usd_import(filepath=argv[0])
+
 arms=[o for o in bpy.data.objects if o.type=='ARMATURE']
 arm=max(arms, key=lambda a: len(a.data.bones))
 bpy.context.scene.frame_set(1)

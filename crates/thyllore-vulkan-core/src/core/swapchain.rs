@@ -17,6 +17,7 @@ pub struct RRSwapchain {
     pub swapchain_format: vk::Format,
     pub swapchain_extent: vk::Extent2D,
     pub swapchain_image_views: Vec<vk::ImageView>,
+    pub swapchain_image_memory: Vec<vk::DeviceMemory>,
 }
 
 impl RRSwapchain {
@@ -45,11 +46,57 @@ impl RRSwapchain {
         Ok(rrswapchain)
     }
 
+    pub unsafe fn new_offscreen(
+        extent: vk::Extent2D,
+        image_count: u32,
+        instance: &Instance,
+        rrdevice: &RRDevice,
+    ) -> Result<Self> {
+        let format = vk::Format::B8G8R8A8_UNORM;
+        let mut rrswapchain = RRSwapchain::default();
+        rrswapchain.swapchain_format = format;
+        rrswapchain.swapchain_extent = extent;
+
+        for _ in 0..image_count {
+            let (image, memory) = create_image(
+                instance,
+                rrdevice,
+                extent.width,
+                extent.height,
+                1,
+                vk::SampleCountFlags::_1,
+                format,
+                vk::ImageTiling::OPTIMAL,
+                vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::TRANSFER_SRC,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            )?;
+            rrswapchain.swapchain_images.push(image);
+            rrswapchain.swapchain_image_memory.push(memory);
+        }
+
+        create_swapchain_image_view(rrdevice, &mut rrswapchain)?;
+        log!(
+            "Created offscreen (surfaceless) swapchain: {} images",
+            image_count
+        );
+        Ok(rrswapchain)
+    }
+
     pub unsafe fn destroy(&self, device: &super::device::Device) {
         for &view in &self.swapchain_image_views {
             device.destroy_image_view(view, None);
         }
-        device.destroy_swapchain_khr(self.swapchain, None);
+
+        if self.swapchain.is_null() {
+            for &image in &self.swapchain_images {
+                device.destroy_image(image, None);
+            }
+            for &memory in &self.swapchain_image_memory {
+                device.free_memory(memory, None);
+            }
+        } else {
+            device.destroy_swapchain_khr(self.swapchain, None);
+        }
     }
 }
 

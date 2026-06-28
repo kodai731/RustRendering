@@ -161,19 +161,33 @@ impl App {
             Self::create_instance_with_messenger(target, validation, &entry)?;
         let surface = Self::create_surface_for_target(&instance, target)?;
         let gpu_selector = crate::app::init::gpu_config::load_gpu_selector();
-        let rrdevice = RRDevice::new(
-            &entry,
-            &instance,
-            &surface,
-            validation,
-            VALIDATION_LAYER,
-            DEVICE_EXTENSIONS,
-            &gpu_selector,
-            PORTABILITY_MACOS_VERSION,
-        )?;
+        let rrdevice = match target {
+            DisplayTarget::Windowed(_) => RRDevice::new(
+                &entry,
+                &instance,
+                &surface,
+                validation,
+                VALIDATION_LAYER,
+                DEVICE_EXTENSIONS,
+                &gpu_selector,
+                PORTABILITY_MACOS_VERSION,
+            )?,
+            DisplayTarget::Headless { .. } => RRDevice::new_headless(
+                &entry,
+                &instance,
+                HEADLESS_DEVICE_EXTENSIONS,
+                validation,
+                VALIDATION_LAYER,
+                &gpu_selector,
+                PORTABILITY_MACOS_VERSION,
+            )?,
+        };
         let rrswapchain =
             Self::create_swapchain_for_target(target, &instance, &surface, &rrdevice)?;
-        let rrcommand_pool = Rc::new(RRCommandPool::new(&instance, &surface, &rrdevice));
+        let rrcommand_pool = Rc::new(match target {
+            DisplayTarget::Windowed(_) => RRCommandPool::new(&instance, &surface, &rrdevice),
+            DisplayTarget::Headless { .. } => RRCommandPool::new_headless(&instance, &rrdevice),
+        });
         let rrrender = RRRender::new(&instance, &rrdevice, &rrswapchain, rrcommand_pool.as_ref());
 
         Self::initialize_graphics_and_ecs(
@@ -334,10 +348,7 @@ impl App {
             DisplayTarget::Windowed(window) => {
                 Ok(vk_window::create_surface(instance, &window, &window)?)
             }
-            DisplayTarget::Headless { .. } => {
-                let info = vk::HeadlessSurfaceCreateInfoEXT::builder();
-                Ok(instance.create_headless_surface_ext(&info, None)?)
-            }
+            DisplayTarget::Headless { .. } => Ok(vk::SurfaceKHR::null()),
         }
     }
 
@@ -353,7 +364,7 @@ impl App {
             }
             DisplayTarget::Headless { width, height } => {
                 let extent = vk::Extent2D { width, height };
-                RRSwapchain::new_with_extent(extent, instance, surface, rrdevice)
+                RRSwapchain::new_offscreen(extent, MAX_FRAMES_IN_FLIGHT as u32, instance, rrdevice)
             }
         }
     }
@@ -1054,10 +1065,7 @@ impl App {
                 .iter()
                 .map(|e| e.as_ptr())
                 .collect::<Vec<_>>(),
-            DisplayTarget::Headless { .. } => vec![
-                vk::KHR_SURFACE_EXTENSION.name.as_ptr(),
-                vk::EXT_HEADLESS_SURFACE_EXTENSION.name.as_ptr(),
-            ],
+            DisplayTarget::Headless { .. } => vec![],
         };
 
         if validation_enabled {

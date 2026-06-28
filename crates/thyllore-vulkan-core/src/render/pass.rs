@@ -79,6 +79,12 @@ unsafe fn create_render_pass(
     rrswapchain: &RRSwapchain,
     rrrender: &mut RRRender,
 ) -> Result<()> {
+    let final_color_layout = if rrdevice.present_queue.is_null() {
+        vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL
+    } else {
+        vk::ImageLayout::PRESENT_SRC_KHR
+    };
+
     let color_attachment = vk::AttachmentDescription::builder()
         .format(rrswapchain.swapchain_format)
         .samples(rrdevice.msaa_samples)
@@ -87,7 +93,7 @@ unsafe fn create_render_pass(
         .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+        .final_layout(final_color_layout);
 
     let color_resolve_attachment = vk::AttachmentDescription::builder()
         .format(rrswapchain.swapchain_format)
@@ -97,7 +103,7 @@ unsafe fn create_render_pass(
         .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
         .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
         .initial_layout(vk::ImageLayout::UNDEFINED)
-        .final_layout(vk::ImageLayout::PRESENT_SRC_KHR);
+        .final_layout(final_color_layout);
 
     let color_attachment_ref = vk::AttachmentReference::builder()
         .attachment(0)
