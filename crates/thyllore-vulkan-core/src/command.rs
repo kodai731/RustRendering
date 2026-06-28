@@ -63,6 +63,15 @@ impl RRCommandPool {
         println!("Created command pool");
         rrcommand_pool
     }
+
+    pub unsafe fn new_headless(instance: &Instance, rrdevice: &RRDevice) -> Self {
+        let mut rrcommand_pool = RRCommandPool::default();
+        if let Err(e) = create_command_pool_headless(instance, rrdevice, &mut rrcommand_pool) {
+            eprintln!("Create headless command pool failed {:?}", e);
+        }
+        println!("Created headless command pool");
+        rrcommand_pool
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -238,6 +247,21 @@ unsafe fn create_command_pool(
     let info = vk::CommandPoolCreateInfo::builder()
         .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
         .queue_family_index(indices.graphics); // Each command pool can only allocate command buffers that are submitted on a single type of queue.
+
+    rrcommand_buffer.command_pool = rrdevice.device.create_command_pool(&info, None)?;
+
+    Ok(())
+}
+
+unsafe fn create_command_pool_headless(
+    instance: &Instance,
+    rrdevice: &RRDevice,
+    rrcommand_buffer: &mut RRCommandPool,
+) -> Result<()> {
+    let graphics = GraphicsQueueIndex::find(instance, &rrdevice.physical_device)?;
+    let info = vk::CommandPoolCreateInfo::builder()
+        .flags(vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER)
+        .queue_family_index(graphics.0);
 
     rrcommand_buffer.command_pool = rrdevice.device.create_command_pool(&info, None)?;
 
