@@ -36,6 +36,8 @@ RUN apt-get update -qq \
         libwayland-dev \
         libfontconfig1-dev \
         libfreetype-dev \
+        zenity \
+        dbus-x11 \
         xz-utils \
     && rm -rf /var/lib/apt/lists/*
 

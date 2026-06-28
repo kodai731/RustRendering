@@ -16,8 +16,8 @@ name = "thyllore-animation"
 path = "src/main.rs"
 
 [[bin]]
-name = "thyllore-render-usd"
-path = "src/bin/render_usd.rs"
+name = "thyllore-render"
+path = "src/bin/render.rs"
 
 [lib]
 crate-type = ["cdylib", "rlib"]

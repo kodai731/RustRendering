@@ -81,5 +81,7 @@ fi
 
 echo "[run_blackwell] launching app. If it fails with a display error, run: xhost +local:" >&2
 
+# dbus-run-session gives the GUI a private D-Bus session bus so the native GTK
+# file dialog (rfd -> zenity) can reach dconf and navigate directories.
 exec docker run -it "${run_args[@]}" "${display_args[@]}" "${image}" \
-    cargo run --bin thyllore-animation
+    dbus-run-session -- cargo run --bin thyllore-animation
