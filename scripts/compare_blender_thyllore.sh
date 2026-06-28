@@ -17,6 +17,7 @@ usd="${1:-blender/20260624_ellie_animation/ellie_animation.usdc}"
 out="${2:-log/compare_v4.png}"
 resolution="${3:-512}"
 frame="${4:-1}"
+blend="${5:-${usd%.usdc}.blend}"
 fov_deg=39.6
 
 blender="${repo_root}/scripts/blender_offload.sh"
@@ -25,9 +26,9 @@ engine_png="${repo_root}/log/compare_engine.png"
 
 mkdir -p "${repo_root}/log"
 
-echo "[compare] 1/4 auto-framing camera from ${usd}"
+echo "[compare] 1/4 auto-framing camera from ${blend}"
 cam_out="$("${blender}" --background --python "${repo_root}/scripts/_cam_params.py" \
-    -- "${repo_root}/${usd}" 2>/dev/null)"
+    -- "${repo_root}/${blend}" 2>/dev/null)"
 read -r _ cx cy cz <<<"$(echo "${cam_out}" | grep '^CENTER')"
 read -r _ px py pz <<<"$(echo "${cam_out}" | grep '^CAMPOS')"
 echo "[compare]     pos=${px},${py},${pz} target=${cx},${cy},${cz} fov=${fov_deg}"
@@ -35,8 +36,8 @@ echo "[compare]     pos=${px},${py},${pz} target=${cx},${cy},${cz} fov=${fov_deg
 echo "[compare] 2/4 Blender ground-truth render (RX 550) -> ${blender_gt}"
 config_json="$(printf '{"camera_pos":[%s,%s,%s],"camera_target":[%s,%s,%s],"fov_deg":%s,"resolution":%s,"frame":%s}' \
     "$px" "$py" "$pz" "$cx" "$cy" "$cz" "$fov_deg" "$resolution" "$frame")"
-"${blender}" --background --python "${repo_root}/scripts/blender_render_usd.py" -- \
-    "${repo_root}/${usd}" "${blender_gt}" "${config_json}"
+"${blender}" --background "${repo_root}/${blend}" --python "${repo_root}/scripts/blender_render_blend.py" -- \
+    "${blender_gt}" "${config_json}"
 
 echo "[compare] 3/4 Thyllore engine render (Blackwell container) -> ${engine_png}"
 "${repo_root}/scripts/render_usd_blackwell.sh" \

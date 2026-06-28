@@ -3,9 +3,12 @@ from mathutils import Vector
 
 argv = sys.argv[sys.argv.index('--')+1:] if '--' in sys.argv else []
 if argv:
-    bpy.ops.object.select_all(action='SELECT')
-    bpy.ops.object.delete(use_global=False)
-    bpy.ops.wm.usd_import(filepath=argv[0])
+    if argv[0].endswith('.blend'):
+        bpy.ops.wm.open_mainfile(filepath=argv[0])
+    else:
+        bpy.ops.object.select_all(action='SELECT')
+        bpy.ops.object.delete(use_global=False)
+        bpy.ops.wm.usd_import(filepath=argv[0])
 
 arms=[o for o in bpy.data.objects if o.type=='ARMATURE']
 arm=max(arms, key=lambda a: len(a.data.bones))
