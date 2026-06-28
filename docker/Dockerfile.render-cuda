@@ -28,6 +28,10 @@ RUN apt-get update -qq \
         libudev-dev \
         libx11-dev \
         libxcb1-dev \
+        libxcursor-dev \
+        libxrandr-dev \
+        libxi-dev \
+        libxinerama-dev \
         libxkbcommon-dev \
         libwayland-dev \
         libfontconfig1-dev \

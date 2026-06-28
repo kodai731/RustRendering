@@ -4,7 +4,7 @@
 #
 #   docker compose -f docker/docker-compose.cuda.yaml --profile cuda build
 #   docker compose -f docker/docker-compose.cuda.yaml --profile cuda run --rm render-cuda \
-#       cargo run --release --bin thyllore-render-usd -- --render-usd <usd> --out <png> --gpu ...
+#       cargo run --bin thyllore-render -- --model <model> --out <png> --gpu ...
 
 services:
   render-cuda:

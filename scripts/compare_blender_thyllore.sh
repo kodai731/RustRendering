@@ -40,8 +40,8 @@ config_json="$(printf '{"camera_pos":[%s,%s,%s],"camera_target":[%s,%s,%s],"fov_
     "${blender_gt}" "${config_json}"
 
 echo "[compare] 3/4 Thyllore engine render (Blackwell container) -> ${engine_png}"
-"${repo_root}/scripts/render_usd_blackwell.sh" \
-    --render-usd "${usd}" --out "log/compare_engine.png" --gpu \
+"${repo_root}/scripts/run_blackwell.sh" \
+    --model "${usd}" --out "log/compare_engine.png" --gpu \
     --camera-pos "${px},${py},${pz}" --camera-target "${cx},${cy},${cz}" \
     --fov "${fov_deg}" --resolution "${resolution}" --frame "${frame}"
 
