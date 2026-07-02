@@ -12,12 +12,7 @@ pub enum InferenceModelKind {
 #[derive(Clone, Debug)]
 #[non_exhaustive]
 pub enum InferenceRequestKind {
-    CurveCopilotPredict {
-        context: Vec<f32>,
-        future: Vec<f32>,
-        reveal_mask: Vec<bool>,
-        fps: f32,
-    },
+    CurveCopilotPredict { context: Vec<f32>, fps: f32 },
 }
 
 #[derive(Clone, Debug)]

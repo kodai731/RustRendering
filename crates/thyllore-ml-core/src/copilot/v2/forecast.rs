@@ -1,7 +1,7 @@
 use anyhow::Result;
 
-use crate::copilot::v1::inference::{
-    V1CurveCopilotRequest, V1CurveCopilotSession, CONTEXT_LENGTH, MAX_HORIZON,
+use crate::copilot::v2::inference::{
+    V2CurveCopilotRequest, V2CurveCopilotSession, CONTEXT_LENGTH, MAX_HORIZON,
 };
 
 const ANCHOR_EPSILON: f32 = 1.0e-6;
@@ -116,21 +116,14 @@ pub fn assemble_forecast(
 }
 
 pub fn build_forecast_preview(
-    session: &mut V1CurveCopilotSession,
+    session: &mut V2CurveCopilotSession,
     context: &[f32],
-    future: &[f32],
-    reveal_mask: &[bool],
     fps: f32,
     origin: f32,
     origin_value: f32,
     frame_step: f32,
 ) -> Result<ForecastPreview> {
-    let mean_curve = session.predict_mean_curve(V1CurveCopilotRequest {
-        context,
-        future,
-        reveal_mask,
-        fps,
-    })?;
+    let mean_curve = session.predict_mean_curve(V2CurveCopilotRequest { context, fps })?;
     Ok(assemble_forecast(
         mean_curve,
         origin,
