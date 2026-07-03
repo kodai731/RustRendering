@@ -41,7 +41,7 @@ download_model() {
         echo "Set the HF_TOKEN environment variable (read-scoped access token)." >&2
         exit 1
     fi
-    write_step "Downloading v1 curve_copilot model from private HuggingFace (${HF_REPO}@${HF_REVISION})"
+    write_step "Downloading v2 curve_copilot model from private HuggingFace (${HF_REPO}@${HF_REVISION})"
     mkdir -p "$MODEL_DIR"
     curl -L --fail --retry 3 --retry-delay 2 \
         -H "Authorization: Bearer ${HF_TOKEN}" \
@@ -51,6 +51,6 @@ download_model() {
 ensure_onnxruntime
 download_model
 
-write_step "Running v1 curve_copilot inference smoke test against the model"
+write_step "Running v2 curve_copilot inference smoke test against the model"
 export THYLLORE_CURVE_MODEL="$MODEL_PATH"
-cargo test -p thyllore-ml-core --test v1_curve_copilot_inference_smoke -- --ignored --nocapture
+cargo test -p thyllore-ml-core --test v2_curve_copilot_inference_smoke -- --ignored --nocapture

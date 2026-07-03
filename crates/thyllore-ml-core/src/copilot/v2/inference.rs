@@ -2,24 +2,19 @@ use anyhow::{ensure, Result};
 use ort::session::Session as OrtSession;
 use ort::value::Tensor;
 
-pub const CONTEXT_LENGTH: usize = 32;
+pub const CONTEXT_LENGTH: usize = 64;
 pub const MAX_HORIZON: usize = 64;
 pub const STD_FLOOR: f32 = 0.05;
 pub const CLIP: f32 = 8.0;
 
 const INPUT_CONTEXT: &str = "context";
-const INPUT_FUTURE: &str = "future";
-const INPUT_REVEAL_MASK: &str = "reveal_mask";
 const INPUT_CONTEXT_TIMES: &str = "context_times";
 const INPUT_FUTURE_TIMES: &str = "future_times";
 const INPUT_CONTEXT_TANGENT: &str = "context_tangent";
-const INPUT_FUTURE_TANGENT: &str = "future_tangent";
 const OUTPUT_MEAN_CURVE: &str = "mean_curve";
 
-pub struct V1CurveCopilotRequest<'a> {
+pub struct V2CurveCopilotRequest<'a> {
     pub context: &'a [f32],
-    pub future: &'a [f32],
-    pub reveal_mask: &'a [bool],
     pub fps: f32,
 }
 
@@ -29,22 +24,19 @@ pub struct DeploySafeStats {
     pub sd: f32,
 }
 
-struct V1CurveCopilotTensors {
+struct V2CurveCopilotTensors {
     context: Tensor<f32>,
-    future: Tensor<f32>,
-    reveal_mask: Tensor<f32>,
     context_times: Tensor<f32>,
     future_times: Tensor<f32>,
     context_tangent: Tensor<f32>,
-    future_tangent: Tensor<f32>,
     stats: DeploySafeStats,
 }
 
-pub struct V1CurveCopilotSession {
+pub struct V2CurveCopilotSession {
     ort: OrtSession,
 }
 
-impl V1CurveCopilotSession {
+impl V2CurveCopilotSession {
     pub fn from_onnx_path(path: &str) -> Result<Self> {
         let ort = OrtSession::builder()?
             .with_intra_threads(1)?
@@ -53,37 +45,55 @@ impl V1CurveCopilotSession {
         Ok(Self { ort })
     }
 
-    pub fn predict_mean_curve(&mut self, request: V1CurveCopilotRequest<'_>) -> Result<Vec<f32>> {
-        let tensors = build_v1_curve_copilot_tensors(&request)?;
+    pub fn predict_mean_curve(&mut self, request: V2CurveCopilotRequest<'_>) -> Result<Vec<f32>> {
+        let tensors = build_v2_curve_copilot_tensors(&request)?;
         let stats = tensors.stats;
 
         let outputs = self.ort.run(ort::inputs![
             INPUT_CONTEXT => tensors.context,
-            INPUT_FUTURE => tensors.future,
-            INPUT_REVEAL_MASK => tensors.reveal_mask,
             INPUT_CONTEXT_TIMES => tensors.context_times,
             INPUT_FUTURE_TIMES => tensors.future_times,
-            INPUT_CONTEXT_TANGENT => tensors.context_tangent,
-            INPUT_FUTURE_TANGENT => tensors.future_tangent
+            INPUT_CONTEXT_TANGENT => tensors.context_tangent
         ])?;
 
         let (_shape, mean_norm) = outputs[OUTPUT_MEAN_CURVE].try_extract_tensor::<f32>()?;
         Ok(denormalize(mean_norm, stats))
     }
+
+    pub fn run_raw(
+        &mut self,
+        context: &[f32],
+        context_times: &[f32],
+        future_times: &[f32],
+        context_tangent: &[f32],
+    ) -> Result<Vec<f32>> {
+        ensure!(
+            context.len() == CONTEXT_LENGTH
+                && context_times.len() == CONTEXT_LENGTH
+                && future_times.len() == MAX_HORIZON
+                && context_tangent.len() == CONTEXT_LENGTH,
+            "raw inputs must have context/context_times/context_tangent len {CONTEXT_LENGTH} \
+             and future_times len {MAX_HORIZON}"
+        );
+
+        let row_ctx = vec![1i64, CONTEXT_LENGTH as i64];
+        let row_fut = vec![1i64, MAX_HORIZON as i64];
+        let outputs = self.ort.run(ort::inputs![
+            INPUT_CONTEXT => Tensor::from_array((row_ctx.clone(), context.to_vec()))?,
+            INPUT_CONTEXT_TIMES => Tensor::from_array((row_ctx.clone(), context_times.to_vec()))?,
+            INPUT_FUTURE_TIMES => Tensor::from_array((row_fut, future_times.to_vec()))?,
+            INPUT_CONTEXT_TANGENT => Tensor::from_array((row_ctx, context_tangent.to_vec()))?
+        ])?;
+
+        let (_shape, mean_curve) = outputs[OUTPUT_MEAN_CURVE].try_extract_tensor::<f32>()?;
+        Ok(mean_curve.to_vec())
+    }
 }
 
-pub fn deploy_safe_stats(context: &[f32], future: &[f32], reveal_mask: &[bool]) -> DeploySafeStats {
-    let mut known: Vec<f32> = context.to_vec();
-    known.extend(
-        future
-            .iter()
-            .zip(reveal_mask)
-            .filter_map(|(&v, &revealed)| revealed.then_some(v)),
-    );
-
-    let count = known.len().max(1) as f32;
-    let mu = known.iter().sum::<f32>() / count;
-    let variance = known.iter().map(|&v| (v - mu).powi(2)).sum::<f32>() / count;
+pub fn deploy_safe_stats(context: &[f32]) -> DeploySafeStats {
+    let count = context.len().max(1) as f32;
+    let mu = context.iter().sum::<f32>() / count;
+    let variance = context.iter().map(|&v| (v - mu).powi(2)).sum::<f32>() / count;
     let sd = variance.sqrt().max(STD_FLOOR);
     DeploySafeStats { mu, sd }
 }
@@ -118,23 +128,13 @@ fn finite_difference(values: &[f32], dt: f32) -> Vec<f32> {
     gradient
 }
 
-fn build_v1_curve_copilot_tensors(
-    request: &V1CurveCopilotRequest<'_>,
-) -> Result<V1CurveCopilotTensors> {
+fn build_v2_curve_copilot_tensors(
+    request: &V2CurveCopilotRequest<'_>,
+) -> Result<V2CurveCopilotTensors> {
     ensure!(
         request.context.len() == CONTEXT_LENGTH,
         "context must have {CONTEXT_LENGTH} values, got {}",
         request.context.len()
-    );
-    ensure!(
-        request.future.len() == MAX_HORIZON,
-        "future must have {MAX_HORIZON} values, got {}",
-        request.future.len()
-    );
-    ensure!(
-        request.reveal_mask.len() == MAX_HORIZON,
-        "reveal_mask must have {MAX_HORIZON} values, got {}",
-        request.reveal_mask.len()
     );
     ensure!(
         request.fps > 0.0,
@@ -142,31 +142,21 @@ fn build_v1_curve_copilot_tensors(
         request.fps
     );
 
-    let stats = deploy_safe_stats(request.context, request.future, request.reveal_mask);
+    let stats = deploy_safe_stats(request.context);
     let dt = 1.0 / request.fps;
 
     let context_norm = normalize_clip(request.context, stats);
-    let future_norm = normalize_clip(request.future, stats);
     let context_times = seconds_times(CONTEXT_LENGTH, -(CONTEXT_LENGTH as i64) + 1, dt);
     let future_times = seconds_times(MAX_HORIZON, 1, dt);
     let context_tangent = finite_difference(&context_norm, dt);
-    let future_tangent = finite_difference(&future_norm, dt);
-    let reveal: Vec<f32> = request
-        .reveal_mask
-        .iter()
-        .map(|&revealed| if revealed { 1.0 } else { 0.0 })
-        .collect();
 
     let row_ctx = vec![1i64, CONTEXT_LENGTH as i64];
     let row_fut = vec![1i64, MAX_HORIZON as i64];
-    Ok(V1CurveCopilotTensors {
+    Ok(V2CurveCopilotTensors {
         context: Tensor::from_array((row_ctx.clone(), context_norm))?,
-        future: Tensor::from_array((row_fut.clone(), future_norm))?,
-        reveal_mask: Tensor::from_array((row_fut.clone(), reveal))?,
         context_times: Tensor::from_array((row_ctx.clone(), context_times))?,
-        future_times: Tensor::from_array((row_fut.clone(), future_times))?,
+        future_times: Tensor::from_array((row_fut, future_times))?,
         context_tangent: Tensor::from_array((row_ctx, context_tangent))?,
-        future_tangent: Tensor::from_array((row_fut, future_tangent))?,
         stats,
     })
 }
@@ -176,26 +166,21 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deploy_safe_stats_use_known_values_only() {
-        let context = vec![0.0_f32; CONTEXT_LENGTH];
-        let mut future = vec![100.0_f32; MAX_HORIZON];
-        future[0] = 4.0;
-        let mut reveal = vec![false; MAX_HORIZON];
-        reveal[0] = true;
+    fn deploy_safe_stats_use_context_only() {
+        let mut context = vec![0.0_f32; CONTEXT_LENGTH];
+        context[0] = 4.0;
 
-        let stats = deploy_safe_stats(&context, &future, &reveal);
-        let expected_mu = 4.0 / (CONTEXT_LENGTH as f32 + 1.0);
+        let stats = deploy_safe_stats(&context);
+        let expected_mu = 4.0 / CONTEXT_LENGTH as f32;
         assert!((stats.mu - expected_mu).abs() < 1e-6);
         assert!(stats.sd >= STD_FLOOR);
     }
 
     #[test]
-    fn std_floor_clamps_flat_known_region() {
+    fn std_floor_clamps_flat_context() {
         let context = vec![42.0_f32; CONTEXT_LENGTH];
-        let future = vec![42.0_f32; MAX_HORIZON];
-        let reveal = vec![true; MAX_HORIZON];
 
-        let stats = deploy_safe_stats(&context, &future, &reveal);
+        let stats = deploy_safe_stats(&context);
         assert!((stats.mu - 42.0).abs() < 1e-4);
         assert!((stats.sd - STD_FLOOR).abs() < 1e-7);
     }

@@ -3,8 +3,8 @@ use std::thread;
 
 use anyhow::Result;
 
-use thyllore_ml_core::copilot::v1::inference::{
-    V1CurveCopilotRequest, V1CurveCopilotSession, MAX_HORIZON,
+use thyllore_ml_core::copilot::v2::inference::{
+    V2CurveCopilotRequest, V2CurveCopilotSession, MAX_HORIZON,
 };
 use thyllore_ml_core::{
     InferenceActorId, InferenceModelKind, InferenceRequest, InferenceRequestKind, InferenceResult,
@@ -30,7 +30,7 @@ impl InferenceThreadHandle {
         let InferenceModelKind::CurveCopilot = model_kind else {
             return Err(anyhow::anyhow!("unsupported inference model kind"));
         };
-        let session = V1CurveCopilotSession::from_onnx_path(model_path)?;
+        let session = V2CurveCopilotSession::from_onnx_path(model_path)?;
         let max_steps = Some(MAX_HORIZON);
 
         let join_handle = thread::Builder::new()
@@ -74,7 +74,7 @@ impl Drop for InferenceThreadHandle {
 }
 
 fn run_inference_loop(
-    mut session: V1CurveCopilotSession,
+    mut session: V2CurveCopilotSession,
     receiver: mpsc::Receiver<InferenceRequest>,
     sender: mpsc::Sender<InferenceResult>,
 ) {
@@ -98,25 +98,14 @@ fn run_inference_loop(
 }
 
 fn execute_inference(
-    session: &mut V1CurveCopilotSession,
+    session: &mut V2CurveCopilotSession,
     request: &InferenceRequest,
 ) -> Result<InferenceResultKind> {
-    let InferenceRequestKind::CurveCopilotPredict {
-        context,
-        future,
-        reveal_mask,
-        fps,
-    } = &request.kind
-    else {
+    let InferenceRequestKind::CurveCopilotPredict { context, fps } = &request.kind else {
         return Err(anyhow::anyhow!("unsupported inference request kind"));
     };
 
-    let mean_curve = session.predict_mean_curve(V1CurveCopilotRequest {
-        context,
-        future,
-        reveal_mask,
-        fps: *fps,
-    })?;
+    let mean_curve = session.predict_mean_curve(V2CurveCopilotRequest { context, fps: *fps })?;
 
     log!(
         "CurveCopilot raw output: {} dense values (fps={:.1})",

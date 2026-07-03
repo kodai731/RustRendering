@@ -95,7 +95,7 @@ class THYLLORE_OT_CurveCopilot(Operator):
 
         all_fcurves = _action_fcurves(context.active_object)
         try:
-            session = tml.PyV1CurveCopilotSession.from_onnx_path(model_path)
+            session = tml.PyV2CurveCopilotSession.from_onnx_path(model_path)
             ghosts = [
                 ghost
                 for index, fcurve in enumerate(fcurves)
@@ -273,13 +273,11 @@ def _forecast_ghost_for_fcurve(
 
 
 def _forecast_direct_ghost(fcurve, session, origin_frame: float, deploy_fps: float, frame_step: float):
-    context_offsets, future_offsets = tml.forecast_sample_offsets()
+    context_offsets, _future_offsets = tml.forecast_sample_offsets()
     context = [fcurve.evaluate(origin_frame + offset * frame_step) for offset in context_offsets]
-    future = [fcurve.evaluate(origin_frame + offset * frame_step) for offset in future_offsets]
-    reveal_mask = [False] * len(future_offsets)
     origin_value = float(fcurve.evaluate(origin_frame))
     return session.build_forecast_preview(
-        context, future, reveal_mask, deploy_fps, float(origin_frame), origin_value, frame_step
+        context, deploy_fps, float(origin_frame), origin_value, frame_step
     )
 
 
@@ -307,9 +305,8 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, session, origin_frame, deplo
         return _forecast_direct_ghost(fcurve, session, origin_frame, deploy_fps, frame_step)
 
     selected = fcurve.array_index
-    context_offsets, future_offsets = tml.forecast_sample_offsets()
+    context_offsets, _future_offsets = tml.forecast_sample_offsets()
     sample_frames = [origin_frame + offset * frame_step for offset in context_offsets]
-    sample_frames += [origin_frame + offset * frame_step for offset in future_offsets]
 
     eulers = []
     previous = None
@@ -326,21 +323,14 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, session, origin_frame, deplo
         previous = euler
         eulers.append((euler.x, euler.y, euler.z))
 
-    n_context = len(context_offsets)
-    context_eulers = eulers[:n_context]
-    future_eulers = eulers[n_context:]
-    reveal_mask = [False] * len(future_offsets)
-
     axis_ghosts = []
     for axis in range(3):
         axis_ghosts.append(
             session.build_forecast_preview(
-                [e[axis] for e in context_eulers],
-                [e[axis] for e in future_eulers],
-                reveal_mask,
+                [e[axis] for e in eulers],
                 deploy_fps,
                 float(origin_frame),
-                context_eulers[-1][axis],
+                eulers[-1][axis],
                 frame_step,
             )
         )
@@ -353,5 +343,3 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, session, origin_frame, deplo
         )
         points.append((frame, euler.to_quaternion()[selected]))
     return points
-
-    return ghost

@@ -16,8 +16,6 @@ pub struct GhostCurveSuggestion {
 
 pub struct CurveSuggestionPendingDump {
     pub context: Vec<f32>,
-    pub future: Vec<f32>,
-    pub reveal_mask: Vec<bool>,
     pub fps: f32,
     pub anchor_time: f32,
 }

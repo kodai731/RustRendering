@@ -24,7 +24,6 @@ import json
 import sys
 from pathlib import Path
 
-CONTEXT_KEYFRAME_COUNT = 32
 ARMATURE_OBJECT_NAME = "CurveCopilotSmokeArmature"
 ARMATURE_DATA_NAME = "CurveCopilotSmokeArmatureData"
 ROOT_BONE_NAME = "curve_copilot_smoke_root"

@@ -8,11 +8,10 @@ use crate::ml::{
     CurveSuggestionPendingDump, CurveSuggestionState, GhostCurveSuggestion, InferenceActorId,
     InferenceRequestKind, InferenceResultKind,
 };
-use thyllore_ml_core::copilot::v1::dump::{
-    dump_v1_curve_copilot_inference, V1CurveCopilotInferenceDump,
+use thyllore_ml_core::copilot::v2::dump::{
+    dump_v2_curve_copilot_inference, V2CurveCopilotInferenceDump,
 };
-use thyllore_ml_core::copilot::v1::forecast;
-use thyllore_ml_core::copilot::v1::inference::MAX_HORIZON;
+use thyllore_ml_core::copilot::v2::forecast;
 
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
@@ -35,27 +34,11 @@ fn sample_or_hold(curve: &PropertyCurve, time: f32) -> f32 {
         .unwrap_or(0.0)
 }
 
-struct V1CurveCopilotWindows {
-    context: Vec<f32>,
-    future: Vec<f32>,
-}
-
-fn build_v1_curve_copilot_windows(
-    curve: &PropertyCurve,
-    origin_time: f32,
-    dt: f32,
-) -> V1CurveCopilotWindows {
-    let context: Vec<f32> = forecast::context_sample_offsets()
+fn build_v2_curve_copilot_context(curve: &PropertyCurve, origin_time: f32, dt: f32) -> Vec<f32> {
+    forecast::context_sample_offsets()
         .iter()
         .map(|&offset| sample_or_hold(curve, origin_time + offset as f32 * dt))
-        .collect();
-
-    let future: Vec<f32> = forecast::future_sample_offsets()
-        .iter()
-        .map(|&offset| sample_or_hold(curve, origin_time + offset as f32 * dt))
-        .collect();
-
-    V1CurveCopilotWindows { context, future }
+        .collect()
 }
 
 pub struct CurveSuggestionInputs<'a> {
@@ -94,8 +77,7 @@ pub fn curve_suggestion_submit(
 
     let dt = 1.0 / forecast::DEPLOY_FPS;
     let origin_value = sample_or_hold(curve, origin_time);
-    let windows = build_v1_curve_copilot_windows(curve, origin_time, dt);
-    let reveal_mask = vec![false; MAX_HORIZON];
+    let context = build_v2_curve_copilot_context(curve, origin_time, dt);
 
     log!(
         "CurveCopilot input: bone_id={} property={:?} origin={:.4} fps={:.1} forecast",
@@ -107,9 +89,7 @@ pub fn curve_suggestion_submit(
 
     let dump_snapshot = if suggestion_state.dump_inference {
         Some(CurveSuggestionPendingDump {
-            context: windows.context.clone(),
-            future: windows.future.clone(),
-            reveal_mask: reveal_mask.clone(),
+            context: context.clone(),
             fps: forecast::DEPLOY_FPS,
             anchor_time: origin_time,
         })
@@ -118,9 +98,7 @@ pub fn curve_suggestion_submit(
     };
 
     let kind = InferenceRequestKind::CurveCopilotPredict {
-        context: windows.context,
-        future: windows.future,
-        reveal_mask,
+        context,
         fps: forecast::DEPLOY_FPS,
     };
 
@@ -236,16 +214,14 @@ fn build_suggestions_from_curve(
 }
 
 fn write_inference_dump(snapshot: &CurveSuggestionPendingDump, mean_curve: &[f32]) {
-    let dump = V1CurveCopilotInferenceDump {
+    let dump = V2CurveCopilotInferenceDump {
         context: &snapshot.context,
-        future: &snapshot.future,
-        reveal_mask: &snapshot.reveal_mask,
         mean_curve,
         fps: snapshot.fps,
         anchor_time: snapshot.anchor_time,
     };
 
-    match dump_v1_curve_copilot_inference(&dump, std::path::Path::new("tmp")) {
+    match dump_v2_curve_copilot_inference(&dump, std::path::Path::new("tmp")) {
         Ok(path) => log!("CurveCopilot dump: saved {}", path.display()),
         Err(e) => log_warn!("CurveCopilot dump failed: {}", e),
     }
@@ -274,7 +250,7 @@ pub fn curve_suggestion_dismiss(suggestion_state: &mut CurveSuggestionState) {
 mod tests {
     use super::*;
     use crate::animation::editable::{curve_add_keyframe, CurveId};
-    use thyllore_ml_core::copilot::v1::inference::CONTEXT_LENGTH;
+    use thyllore_ml_core::copilot::v2::inference::{CONTEXT_LENGTH, MAX_HORIZON};
 
     fn create_test_curve(keyframe_count: usize) -> PropertyCurve {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
@@ -328,14 +304,13 @@ mod tests {
     }
 
     #[test]
-    fn build_windows_have_fixed_lengths() {
+    fn build_context_has_fixed_length() {
         let mut curve = PropertyCurve::new(1 as CurveId, PropertyType::TranslationX);
         curve_add_keyframe(&mut curve, 0.0, 0.0);
         let dt = 1.0 / forecast::DEPLOY_FPS;
 
-        let windows = build_v1_curve_copilot_windows(&curve, 0.0, dt);
-        assert_eq!(windows.context.len(), CONTEXT_LENGTH);
-        assert_eq!(windows.future.len(), MAX_HORIZON);
+        let context = build_v2_curve_copilot_context(&curve, 0.0, dt);
+        assert_eq!(context.len(), CONTEXT_LENGTH);
     }
 
     #[test]
