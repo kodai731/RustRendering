@@ -3,28 +3,28 @@ use pyo3::prelude::*;
 #[cfg(feature = "debug-log")]
 mod debuglog;
 mod error;
-mod v1_curve_copilot;
+mod v2_curve_copilot;
 
-pub use v1_curve_copilot::PyV1CurveCopilotSession;
+pub use v2_curve_copilot::PyV2CurveCopilotSession;
 
 #[pymodule]
 fn thyllore_ml_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add("__version__", env!("CARGO_PKG_VERSION"))?;
     m.add("__abi_marker__", thyllore_ml_api::ABI_MARKER)?;
 
-    m.add_class::<PyV1CurveCopilotSession>()?;
+    m.add_class::<PyV2CurveCopilotSession>()?;
 
-    m.add_function(wrap_pyfunction!(v1_curve_copilot::capabilities, m)?)?;
-    m.add_function(wrap_pyfunction!(v1_curve_copilot::deploy_fps, m)?)?;
+    m.add_function(wrap_pyfunction!(v2_curve_copilot::capabilities, m)?)?;
+    m.add_function(wrap_pyfunction!(v2_curve_copilot::deploy_fps, m)?)?;
     m.add_function(wrap_pyfunction!(
-        v1_curve_copilot::resolve_curve_copilot_model_path,
+        v2_curve_copilot::resolve_curve_copilot_model_path,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(
-        v1_curve_copilot::forecast_sample_offsets,
+        v2_curve_copilot::forecast_sample_offsets,
         m
     )?)?;
-    m.add_function(wrap_pyfunction!(v1_curve_copilot::resolve_origin_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(v2_curve_copilot::resolve_origin_frame, m)?)?;
 
     #[cfg(feature = "debug-log")]
     {

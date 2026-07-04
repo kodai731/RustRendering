@@ -73,27 +73,35 @@ scripts/collect_wheels.sh --debug-log     # debug wheel (addon file logging)
 This runs the same maturin invocation CI does and surfaces compile errors
 directly. Local turnaround is ~30s incremental vs minutes per CI round-trip.
 
-### ML path: v1 curve-copilot only
+### ML path: v2 curve-copilot only
 
-The only supported ML inference path is the **v1 curve-copilot** model
-(`V1CurveCopilotSession` / `forecast`, under `copilot::v1::`). The pre-v1
-multi-input copilot and curve-predict surface (old `Session`, `MlOps`/`MlCoreImpl`,
-`PySession`, topology/tokenizer, the `*_parity` / `curve_copilot_*` fixture tests,
-and the `python_parity.yml` / `blender_parity.yml` workflows + `run_parity_local.sh`
-/ `generate_parity_fixtures.sh`) has been removed. `ABI_MARKER = 1` is the v1
+The only supported ML inference path is the **v2 curve-copilot** model
+(`V2CurveCopilotSession` / `forecast`, under `copilot::v2::`,
+`curve_copilot_20260630_v2_k48opt.onnx`). v2 is reveal-none extrapolation:
+4 ONNX inputs (`context` / `context_times` / `future_times` / `context_tangent`,
+all `[batch, 64]`), no `future` / `reveal_mask`. The Rust runtime does the
+deploy-safe z-score over the context (std floor 0.05, clip ±8), builds the
+seconds-based times and the finite-difference tangent, and denormalizes the
+`mean_curve` output. The v1 7-input surface (ctx32 + reveal) and the pre-v1
+multi-input copilot surface have been removed. `ABI_MARKER = 2` is the v2
 baseline.
+
+Bit-parity against the training export is verified by
+`cargo test -p thyllore-ml-core --test v2_curve_copilot_golden_parity -- --ignored`
+(needs `THYLLORE_SHARED_DATA_DIR`; fixture
+`exports/curve_copilot_20260630_v2_k48opt_golden.json`).
 
 A structurally-correct all-zero dummy model is published on HuggingFace
 (`kodai731/thyllore-curve-copilot`, fixed name `curve_copilot.onnx`). The
-`v1-curve-copilot-smoke` CI job downloads it and asserts only that inference runs
+`v2-curve-copilot-smoke` CI job downloads it and asserts only that inference runs
 and returns finite values — not numeric parity with the production model. Run the
-same check locally with `scripts/ci_v1_curve_copilot_inference_smoke.sh`.
+same check locally with `scripts/ci_v2_curve_copilot_inference_smoke.sh`.
 
 ### Local verification for ML / addon changes
 
 | What changed | Local check |
 |---|---|
-| `crates/thyllore-ml-core/src/**` (v1 inference / forecast / pybindings) | `cargo test -p thyllore-ml-core --lib` + `scripts/collect_wheels.sh` |
+| `crates/thyllore-ml-core/src/**` (v2 inference / forecast / pybindings) | `cargo test -p thyllore-ml-core --lib` + `scripts/collect_wheels.sh` |
 | Blender addon (`blender_addon/**`) | `scripts/run_blender_debug.sh` — builds the debug wheel + addon, installs, launches the test scene; the operator smoke runs headless via `blender_addon/tests/curve_copilot_operator_smoke.py` |
 | engine ML systems (`src/ecs/systems/curve_suggestion_systems.rs`, `src/ml/`) | `cargo check --lib` + `cargo test --lib curve_suggestion` |
 | Animation / ECS / rendering (no ML) | `cargo test --lib` + `cargo test --test ecs_tests --no-default-features` |

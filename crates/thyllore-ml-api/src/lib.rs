@@ -1,3 +1,3 @@
 #![doc = include_str!("../README.md")]
 
-pub const ABI_MARKER: u32 = 1;
+pub const ABI_MARKER: u32 = 2;

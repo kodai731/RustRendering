@@ -7,8 +7,8 @@ import onnx
 from onnx import numpy_helper
 
 SHARED_DATA_ENV_VAR = "THYLLORE_SHARED_DATA_DIR"
-SOURCE_MODEL_FILENAME = "curve_copilot_20260531_v1_tangent.onnx"
-DUMMY_MODEL_FILENAME = "curve_copilot_20260531_dummy_v1_tangent.onnx"
+SOURCE_MODEL_FILENAME = "curve_copilot_20260630_v2_k48opt.onnx"
+DUMMY_MODEL_FILENAME = "curve_copilot_20260630_dummy_v2_k48opt.onnx"
 
 
 def zero_all_initializers(model):
