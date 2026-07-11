@@ -4,6 +4,10 @@ Cloudflare Worker + R2 ingest for anonymized Curve Copilot correction pairs
 (mode B builds) and free-text feedback messages. Design:
 `${DocumentPath}/Rust_Rendering/Design/20260711_curve_copilot_data_collection/`.
 
+Every Cloudflare interaction is done with **curl + jq only** — no npm, no
+wrangler, no Node.js. The worker code (`src/index.mjs`) has zero imports and
+uses only Workers runtime built-ins, so there is nothing to `npm install`.
+
 ## Endpoints
 
 | Route | Purpose | Response |
@@ -14,23 +18,101 @@ Cloudflare Worker + R2 ingest for anonymized Curve Copilot correction pairs
 
 All routes require `Authorization: Bearer <INGEST_TOKEN>`.
 
-## Deploy
+## One-time bootstrap (dashboard, no CLI)
+
+Done once in the Cloudflare dashboard — these steps mint the credentials the
+scripts need:
+
+1. Sign in (GitHub-linked account works) and enable R2 Object Storage.
+2. Create a **User API Token** with permissions: `Account > Workers Scripts >
+   Edit`, `Account > Workers R2 Storage > Edit`, `Account > Account Settings >
+   Read`. Copy the token and your Account ID.
+
+## Environments: separate test and production buckets
+
+| Env | Worker | R2 bucket |
+|---|---|---|
+| prod (default) | `curve-copilot-feedback` | `curve-feedback` |
+| test | `curve-copilot-feedback-test` | `curve-feedback-test` |
+
+`deploy.sh --env test` appends a `-test` suffix to both names so staging /
+test data never lands in the production bucket. `wrangler.toml` holds the
+production base names.
+
+## Deploy (curl)
+
+`deploy.sh` reads non-secret config from `wrangler.toml` (the config source of
+truth) and uploads the worker, its R2 binding, plain-text vars, and the two
+secrets via the Cloudflare REST API. Secrets come from the environment and are
+never printed or written to disk unencrypted.
 
 ```bash
-npm i -g wrangler
-wrangler login                                  # browser OAuth (GitHub-linked account works)
-wrangler r2 bucket create curve-feedback
+# 1. Generate the signing keypair (writes secrets/, which is gitignored)
+scripts/gen_license_keypair.sh
+
+# 2. Deploy
+export CF_API_TOKEN=...            # the token from bootstrap step 2
+export CF_ACCOUNT_ID=...           # your account id
+export THYLLORE_INGEST_TOKEN=...   # a random shared token; also bake into mode B builds
+export THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE=secrets/private_key_pkcs8.b64
 cd worker
-wrangler secret put INGEST_TOKEN                # shared bearer token for mode B builds
-wrangler secret put UNLOCK_PRIVATE_KEY_PKCS8_B64  # Ed25519 private key, base64 PKCS8 DER
-wrangler deploy
+./deploy.sh --env test             # test bucket first; drop --env or use prod for production
+./deploy.sh                        # --dry-run validates config without any API call
 ```
 
-`UNLOCK_PRIVATE_KEY_PKCS8_B64` is the PEM body (base64 lines joined, headers
-stripped) of `secrets/private_key.pem` from `scripts/gen_license_keypair.sh`.
-The matching public key must be baked into the wheel at build time via
-`THYLLORE_UNLOCK_PUBKEY_B64` (base64 of the 32 raw public key bytes) and into
-mode B/C addon builds via the same environment variable.
+On success it prints the `https://<name>.<subdomain>.workers.dev` URL. Use its
+`/v1/feedback` form as `THYLLORE_FEEDBACK_ENDPOINT` when building mode B addons.
+The matching public key (`secrets/public_key.b64`) is baked into the wheel and
+mode B/C builds via `THYLLORE_UNLOCK_PUBKEY_B64`.
+
+Options: `--env prod|test`, `--dry-run` (build + validate, no API calls),
+`--skip-bucket` (do not create the R2 bucket).
+
+## Test locally through the production path (no npm)
+
+The same code path as production is exercised locally by running the real
+`src/index.mjs` in a local **workerd** instance. workerd is Cloudflare's own
+Workers runtime; its standalone binary is downloaded with curl and pinned by
+SHA256 (the npm `workerd` package merely wraps the same binary), so no npm is
+involved.
+
+```bash
+./test_local_e2e.sh
+```
+
+This generates an Ed25519 keypair, builds the wheel with its public key baked
+in, starts local workerd, and asserts the full chain:
+
+```
+local workerd (real index.mjs)  --WebCrypto Ed25519 unlock_token-->  wheel -> ctx64
+```
+
+plus a 401 on unauthorized access and ctx32 for a garbage token. To just serve
+the worker locally (e.g. to point the addon at it):
+
+```bash
+INGEST_TOKEN=... UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE=secrets/private_key_pkcs8.b64 \
+./run_local.sh --port 8787
+```
+
+R2 is not bound locally (workerd's R2 binding needs the miniflare/npm
+simulator), so the local run covers everything except the R2 write. The R2
+write path is verified against the **`curve-feedback-test`** bucket via a test
+deployment (`deploy.sh --env test`) — this is why the buckets are separated.
+
+## Verify a deployed worker (curl)
+
+`smoke.sh` exercises a deployed URL: unauthorized request rejected (401),
+authorized message accepted (204, R2 write), empty feedback batch returns an
+`unlock_token`. Use `--skip-r2` for a local run without R2.
+
+```bash
+WORKER_URL=https://<name>-test.<subdomain>.workers.dev \
+THYLLORE_INGEST_TOKEN=... ./smoke.sh
+```
+
+Uploads are also validated server-side: an invalid worker makes `deploy.sh`
+fail with the Cloudflare compile error.
 
 ## Storage layout (R2 `curve-feedback`)
 
@@ -39,10 +121,15 @@ feedback/<yyyymmdd>/curve_copilot_feedback_v0/<uuid>.jsonl
 feedback-messages/<yyyymmdd>/<uuid>.json
 ```
 
-Training-side ingest reads these with `wrangler r2 object` (no S3 API), then
-deletes/archives consumed objects.
-
 ## Rate limiting
 
 Handlers enforce size and schema only. Configure Cloudflare Rate Limiting
 Rules in front of the Worker (per-IP) in the dashboard.
+
+## Training-side ingest (separate repo)
+
+Reading these objects for training lives in `../AnimationModelTraining`, not
+here. Keep it npm-free too: R2 object GET/LIST is the S3-compatible API, so use
+curl with AWS SigV4, or a standalone binary such as `rclone` / the `aws` CLI
+pointed at the R2 endpoint with an R2 access key — never wrangler/npm. Delete or
+archive consumed objects after ingest.

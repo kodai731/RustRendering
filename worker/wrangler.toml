@@ -11,7 +11,12 @@ TOKEN_TTL_SECONDS = "604800"
 MAX_BODY_BYTES = "1048576"
 MAX_MESSAGE_TEXT_BYTES = "4096"
 
-# Secrets (register with `wrangler secret put <NAME>`):
-#   INGEST_TOKEN                  shared bearer token baked into mode B builds
-#   UNLOCK_PRIVATE_KEY_PKCS8_B64  Ed25519 private key, base64 PKCS8 DER
-#                                 (PEM body from scripts/gen_license_keypair)
+# This file is the config source of truth. Deploy with ./deploy.sh (curl only,
+# no npm / wrangler); it parses the values above and uploads the worker plus the
+# secrets below as secret_text bindings via the Cloudflare REST API.
+#
+# Secrets (supplied to deploy.sh via the environment, never committed):
+#   INGEST_TOKEN                  <- THYLLORE_INGEST_TOKEN
+#   UNLOCK_PRIVATE_KEY_PKCS8_B64  <- THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64[_FILE]
+#                                    (Ed25519 PKCS8 DER base64 from
+#                                     scripts/gen_license_keypair.sh)
