@@ -5,6 +5,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PLATFORM=""
 VARIANT="lite"
+BUILD_MODE="A"
 VERSION="0.0.1"
 OUTPUT_DIR="dist"
 INCLUDE_ONNX_MODEL=0
@@ -25,6 +26,15 @@ Required:
 
 Options:
   --variant lite|full            "lite" excludes Tier A (default: lite)
+  --build-mode A|B|C             Distribution build mode (default: A)
+                                 A: official repo, no telemetry, ctx32 fixed
+                                 B: self-hosted static repo, telemetry opt-in
+                                    (requires THYLLORE_FEEDBACK_ENDPOINT,
+                                     THYLLORE_INGEST_TOKEN,
+                                     THYLLORE_UNLOCK_PUBKEY_B64)
+                                 C: Blender Market, online license activation
+                                    (requires THYLLORE_LICENSE_ENDPOINT,
+                                     THYLLORE_UNLOCK_PUBKEY_B64)
   --version VERSION              Extension version (default: $VERSION)
   --output-dir PATH              Output directory (default: $OUTPUT_DIR)
   --include-onnx-model           Bundle the curve_copilot ONNX
@@ -45,6 +55,13 @@ while [[ $# -gt 0 ]]; do
             case "$2" in
                 lite|full) VARIANT="$2" ;;
                 *) echo "invalid variant: $2 (expected lite or full)" >&2; exit 2 ;;
+            esac
+            shift 2
+            ;;
+        --build-mode)
+            case "$2" in
+                A|B|C) BUILD_MODE="$2" ;;
+                *) echo "invalid build mode: $2 (expected A, B or C)" >&2; exit 2 ;;
             esac
             shift 2
             ;;
@@ -98,9 +115,34 @@ case "$PLATFORM" in
         ;;
 esac
 
-echo "[build_blender_addon] Platform: $PLATFORM -> Blender: $BLENDER_NAME, variant: $VARIANT"
+FEEDBACK_ENDPOINT="${THYLLORE_FEEDBACK_ENDPOINT:-}"
+INGEST_TOKEN="${THYLLORE_INGEST_TOKEN:-}"
+UNLOCK_PUBKEY="${THYLLORE_UNLOCK_PUBKEY_B64:-}"
+LICENSE_ENDPOINT="${THYLLORE_LICENSE_ENDPOINT:-}"
 
-STAGE_DIR="$REPO_ROOT/build/blender_addon_stage_${PLATFORM}_${VARIANT}"
+require_build_mode_env() {
+    local name="$1" value="$2"
+    if [[ -z "$value" ]]; then
+        echo "build mode $BUILD_MODE requires environment variable $name" >&2
+        exit 2
+    fi
+}
+
+case "$BUILD_MODE" in
+    B)
+        require_build_mode_env THYLLORE_FEEDBACK_ENDPOINT "$FEEDBACK_ENDPOINT"
+        require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
+        require_build_mode_env THYLLORE_UNLOCK_PUBKEY_B64 "$UNLOCK_PUBKEY"
+        ;;
+    C)
+        require_build_mode_env THYLLORE_LICENSE_ENDPOINT "$LICENSE_ENDPOINT"
+        require_build_mode_env THYLLORE_UNLOCK_PUBKEY_B64 "$UNLOCK_PUBKEY"
+        ;;
+esac
+
+echo "[build_blender_addon] Platform: $PLATFORM -> Blender: $BLENDER_NAME, variant: $VARIANT, build mode: $BUILD_MODE"
+
+STAGE_DIR="$REPO_ROOT/build/blender_addon_stage_${PLATFORM}_${VARIANT}_${BUILD_MODE}"
 SOURCE_DIR="$REPO_ROOT/blender_addon"
 
 rm -rf "$STAGE_DIR"
@@ -139,6 +181,15 @@ if [[ "$VARIANT" == "lite" ]]; then
     done
 else
     rm -f "$STAGE_DIR/blender_manifest.lite.toml"
+fi
+
+if [[ "$BUILD_MODE" != "B" && -e "$STAGE_DIR/telemetry" ]]; then
+    rm -rf "$STAGE_DIR/telemetry"
+    echo "[build_blender_addon] (mode $BUILD_MODE) excluded: telemetry"
+fi
+if [[ "$BUILD_MODE" != "C" && -e "$STAGE_DIR/license_client" ]]; then
+    rm -rf "$STAGE_DIR/license_client"
+    echo "[build_blender_addon] (mode $BUILD_MODE) excluded: license_client"
 fi
 
 WHEELS_DIR="$STAGE_DIR/wheels"
@@ -310,6 +361,22 @@ else
     echo "  searched: ${ONNXRUNTIME_LIB_PATH:-<none>}" >&2
 fi
 
+BUILD_CONFIG_PATH="$STAGE_DIR/build_config.py"
+{
+    echo "BUILD_MODE = \"$BUILD_MODE\""
+    if [[ "$BUILD_MODE" == "B" ]]; then
+        echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
+        echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
+    fi
+    if [[ "$BUILD_MODE" == "B" || "$BUILD_MODE" == "C" ]]; then
+        echo "UNLOCK_PUBKEY = \"$UNLOCK_PUBKEY\""
+    fi
+    if [[ "$BUILD_MODE" == "C" ]]; then
+        echo "LICENSE_ENDPOINT = \"$LICENSE_ENDPOINT\""
+    fi
+} >"$BUILD_CONFIG_PATH"
+echo "[build_blender_addon] Generated build_config.py (mode $BUILD_MODE)"
+
 DEBUG_CONFIG_PATH="$STAGE_DIR/_debug_config.py"
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
     DEBUG_LOG_PATH="$REPO_ROOT/log/log_blender.log"
@@ -353,6 +420,9 @@ if [[ "$VARIANT" == "lite" ]]; then
     ZIP_BASENAME="thyllore_animation_lite"
 else
     ZIP_BASENAME="thyllore_animation_addon"
+fi
+if [[ "$BUILD_MODE" != "A" ]]; then
+    ZIP_BASENAME="${ZIP_BASENAME}_mode_$(tr '[:upper:]' '[:lower:]' <<<"$BUILD_MODE")"
 fi
 ZIP_PATH="$ABS_OUT_DIR/${ZIP_BASENAME}-${VERSION}-${PLATFORM}.zip"
 rm -f "$ZIP_PATH"

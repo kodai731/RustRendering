@@ -11,6 +11,8 @@ non-destructive ghost in the Graph Editor and never edits the real FCurve.
 """
 from __future__ import annotations
 
+import hashlib
+from dataclasses import dataclass
 from pathlib import Path
 
 import bpy
@@ -25,6 +27,49 @@ try:
 except ImportError:
     tml = None  # type: ignore
     _TML_AVAILABLE = False
+
+try:
+    from .. import telemetry
+except ImportError:
+    telemetry = None
+
+
+@dataclass
+class _ForecastRun:
+    """Per-execute settings shared by the per-curve forecast helpers."""
+
+    session: object
+    object_name: str
+    scene_fps: float
+    deploy_fps: float
+    frame_step: float
+    unlock_token: str | None
+    record_feedback: bool
+    model_hash: str
+
+
+_MODEL_HASH_CACHE: dict[str, tuple[float, str]] = {}
+
+
+def _resolve_unlock_token() -> str | None:
+    if telemetry is not None:
+        return telemetry.resolve_unlock_token()
+    return None
+
+
+def _model_hash(model_path: str) -> str:
+    path = Path(model_path)
+    mtime = path.stat().st_mtime
+    cached = _MODEL_HASH_CACHE.get(model_path)
+    if cached is not None and cached[0] == mtime:
+        return cached[1]
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    _MODEL_HASH_CACHE[model_path] = (mtime, digest)
+    return digest
+
+
+def _channel_kind(data_path: str) -> str:
+    return data_path.rsplit(".", 1)[-1]
 
 
 class THYLLORE_OT_CurveCopilot(Operator):
@@ -50,6 +95,8 @@ class THYLLORE_OT_CurveCopilot(Operator):
         # screen, this press erases it so the animator can drop unwanted curves;
         # the next press redraws from the current channel selection.
         if _ghost_overlay.has_ghost():
+            if telemetry is not None:
+                telemetry.mark_all_cleared()
             _ghost_overlay.clear_ghost()
             self.report({"INFO"}, "Forecast preview cleared")
             return {"FINISHED"}
@@ -93,14 +140,25 @@ class THYLLORE_OT_CurveCopilot(Operator):
                 model_path,
             )
 
+        record_feedback = telemetry is not None and telemetry.should_send(prefs)
         all_fcurves = _action_fcurves(context.active_object)
         try:
             session = tml.PyV2CurveCopilotSession.from_onnx_path(model_path)
+            run = _ForecastRun(
+                session=session,
+                object_name=context.active_object.name,
+                scene_fps=scene_fps,
+                deploy_fps=deploy_fps,
+                frame_step=frame_step,
+                unlock_token=_resolve_unlock_token(),
+                record_feedback=record_feedback,
+                model_hash=_model_hash(model_path) if record_feedback else "",
+            )
             ghosts = [
                 ghost
                 for index, fcurve in enumerate(fcurves)
                 if (ghost := _forecast_ghost_for_fcurve(
-                    fcurve, all_fcurves, session, playhead, deploy_fps, frame_step, index, logger
+                    fcurve, all_fcurves, run, playhead, index, logger
                 )) is not None
             ]
         except Exception as e:  # noqa: BLE001
@@ -132,6 +190,8 @@ class THYLLORE_OT_CurveCopilotClear(Operator):
         return _ghost_overlay.has_ghost()
 
     def execute(self, context):
+        if telemetry is not None:
+            telemetry.mark_all_cleared()
         _ghost_overlay.clear_ghost()
         return {"FINISHED"}
 
@@ -218,10 +278,7 @@ def _scene_fps(scene) -> float:
     return float(scene.render.fps) / float(fps_base)
 
 
-def _forecast_ghost_for_fcurve(
-    fcurve, all_fcurves, session, playhead: float, deploy_fps: float, frame_step: float,
-    index: int, logger,
-):
+def _forecast_ghost_for_fcurve(fcurve, all_fcurves, run: _ForecastRun, playhead: float, index: int, logger):
     """Forecast one selected FCurve and return its ghost polyline (or None).
 
     Samples are read at the model's deploy rate (every ``frame_step =
@@ -243,12 +300,10 @@ def _forecast_ghost_for_fcurve(
         return None
 
     if fcurve.data_path.endswith("rotation_quaternion"):
-        ghost = _forecast_quaternion_ghost(
-            fcurve, all_fcurves, session, origin_frame, deploy_fps, frame_step
-        )
+        ghost = _forecast_quaternion_ghost(fcurve, all_fcurves, run, origin_frame)
         representation = "quaternion->euler"
     else:
-        ghost = _forecast_direct_ghost(fcurve, session, origin_frame, deploy_fps, frame_step)
+        ghost = _forecast_direct_ghost(fcurve, run, origin_frame)
         representation = "direct"
 
     if logger is not None:
@@ -272,13 +327,33 @@ def _forecast_ghost_for_fcurve(
     return ghost
 
 
-def _forecast_direct_ghost(fcurve, session, origin_frame: float, deploy_fps: float, frame_step: float):
+def _forecast_direct_ghost(fcurve, run: _ForecastRun, origin_frame: float):
     context_offsets, _future_offsets = tml.forecast_sample_offsets()
-    context = [fcurve.evaluate(origin_frame + offset * frame_step) for offset in context_offsets]
+    context = [
+        fcurve.evaluate(origin_frame + offset * run.frame_step) for offset in context_offsets
+    ]
     origin_value = float(fcurve.evaluate(origin_frame))
-    return session.build_forecast_preview(
-        context, deploy_fps, float(origin_frame), origin_value, frame_step
+    ghost = run.session.build_forecast_preview(
+        context, run.deploy_fps, float(origin_frame), origin_value, run.frame_step,
+        run.unlock_token,
     )
+
+    if run.record_feedback and telemetry is not None:
+        telemetry.record_prediction(
+            object_name=run.object_name,
+            data_path=fcurve.data_path,
+            array_index=fcurve.array_index,
+            channel_kind=_channel_kind(fcurve.data_path),
+            scene_fps=run.scene_fps,
+            deploy_fps=run.deploy_fps,
+            frame_step=run.frame_step,
+            origin_value=origin_value,
+            context=[float(value) for value in context],
+            prediction_frames=[float(frame) for frame, _ in ghost[1:]],
+            prediction_values=[float(value) for _, value in ghost[1:]],
+            model_hash=run.model_hash,
+        )
+    return ghost
 
 
 def _quaternion_siblings(all_fcurves, fcurve):
@@ -290,23 +365,27 @@ def _quaternion_siblings(all_fcurves, fcurve):
     return found if len(found) == 4 else None
 
 
-def _forecast_quaternion_ghost(fcurve, all_fcurves, session, origin_frame, deploy_fps, frame_step):
+def _forecast_quaternion_ghost(fcurve, all_fcurves, run: _ForecastRun, origin_frame):
     """Forecast a quaternion channel in Euler space (the trained representation).
 
     Samples the bone's full quaternion, converts to a continuous Euler curve
     (the model's training representation), forecasts each Euler axis with the
     Rust session, then converts the predicted Euler back to a quaternion and
     extracts the selected component for the ghost.
+
+    Feedback recording is skipped here: the ground truth would have to be
+    re-sampled in Euler space from all four sibling curves, which the two-stage
+    collector does not support yet.
     """
     from mathutils import Euler, Quaternion
 
     siblings = _quaternion_siblings(all_fcurves, fcurve)
     if siblings is None:
-        return _forecast_direct_ghost(fcurve, session, origin_frame, deploy_fps, frame_step)
+        return _forecast_direct_ghost(fcurve, run, origin_frame)
 
     selected = fcurve.array_index
     context_offsets, _future_offsets = tml.forecast_sample_offsets()
-    sample_frames = [origin_frame + offset * frame_step for offset in context_offsets]
+    sample_frames = [origin_frame + offset * run.frame_step for offset in context_offsets]
 
     eulers = []
     previous = None
@@ -326,12 +405,13 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, session, origin_frame, deplo
     axis_ghosts = []
     for axis in range(3):
         axis_ghosts.append(
-            session.build_forecast_preview(
+            run.session.build_forecast_preview(
                 [e[axis] for e in eulers],
-                deploy_fps,
+                run.deploy_fps,
                 float(origin_frame),
                 eulers[-1][axis],
-                frame_step,
+                run.frame_step,
+                run.unlock_token,
             )
         )
 

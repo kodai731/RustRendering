@@ -54,6 +54,14 @@ if _BPY_AVAILABLE:
     from . import panels  # noqa: E402
     from . import preferences  # noqa: E402
 
+    # Telemetry ships only in mode B builds; A/C ZIPs exclude the package.
+    try:
+        from . import telemetry  # noqa: E402
+
+        _TELEMETRY_AVAILABLE = True
+    except ImportError:
+        _TELEMETRY_AVAILABLE = False
+
     _REGISTERED_ABI_FAILURE: bool = False
 
     FORCE_MOCK_SERVER_ENV_VAR = "THYLLORE_FORCE_MOCK_SERVER"
@@ -120,6 +128,8 @@ if _BPY_AVAILABLE:
         preferences.register()
         operators.register()
         panels.register()
+        if _TELEMETRY_AVAILABLE:
+            telemetry.register()
         _apply_mock_server_pin_if_requested()
         _REGISTERED_ABI_FAILURE = False
         print("[Thyllore] Addon registered successfully")
@@ -127,6 +137,8 @@ if _BPY_AVAILABLE:
     def unregister() -> None:
         global _REGISTERED_ABI_FAILURE
 
+        if _TELEMETRY_AVAILABLE and not _REGISTERED_ABI_FAILURE:
+            telemetry.unregister()
         panels.unregister()
         if not _REGISTERED_ABI_FAILURE:
             operators.unregister()

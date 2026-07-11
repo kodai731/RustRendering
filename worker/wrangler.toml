@@ -1,0 +1,17 @@
+name = "curve-copilot-feedback"
+main = "src/index.mjs"
+compatibility_date = "2026-07-01"
+
+[[r2_buckets]]
+binding = "FEEDBACK_BUCKET"
+bucket_name = "curve-feedback"
+
+[vars]
+TOKEN_TTL_SECONDS = "604800"
+MAX_BODY_BYTES = "1048576"
+MAX_MESSAGE_TEXT_BYTES = "4096"
+
+# Secrets (register with `wrangler secret put <NAME>`):
+#   INGEST_TOKEN                  shared bearer token baked into mode B builds
+#   UNLOCK_PRIVATE_KEY_PKCS8_B64  Ed25519 private key, base64 PKCS8 DER
+#                                 (PEM body from scripts/gen_license_keypair)

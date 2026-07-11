@@ -11,6 +11,16 @@ param(
     [ValidateSet("lite", "full")]
     [string]$Variant = "lite",
 
+    # Distribution build mode (see the curve copilot data collection design):
+    # A: official repo, no telemetry, ctx32 fixed
+    # B: self-hosted static repo, telemetry opt-in (requires
+    #    THYLLORE_FEEDBACK_ENDPOINT, THYLLORE_INGEST_TOKEN,
+    #    THYLLORE_UNLOCK_PUBKEY_B64)
+    # C: Blender Market, online license activation (requires
+    #    THYLLORE_LICENSE_ENDPOINT, THYLLORE_UNLOCK_PUBKEY_B64)
+    [ValidateSet("A", "B", "C")]
+    [string]$BuildMode = "A",
+
     [string]$Version = "0.0.1",
 
     [string]$OutputDir = "dist",
@@ -27,6 +37,29 @@ $RepoRoot = Resolve-Path "$PSScriptRoot/.."
 
 if (-not $PSBoundParameters.ContainsKey('OnnxSourcePath') -and $env:THYLLORE_CURVE_COPILOT_ONNX) {
     $OnnxSourcePath = $env:THYLLORE_CURVE_COPILOT_ONNX
+}
+
+$FeedbackEndpoint = $env:THYLLORE_FEEDBACK_ENDPOINT
+$IngestToken = $env:THYLLORE_INGEST_TOKEN
+$UnlockPubkey = $env:THYLLORE_UNLOCK_PUBKEY_B64
+$LicenseEndpoint = $env:THYLLORE_LICENSE_ENDPOINT
+
+function Assert-BuildModeEnv([string]$Name, [string]$Value) {
+    if ([string]::IsNullOrEmpty($Value)) {
+        throw "build mode $BuildMode requires environment variable $Name"
+    }
+}
+
+switch ($BuildMode) {
+    "B" {
+        Assert-BuildModeEnv "THYLLORE_FEEDBACK_ENDPOINT" $FeedbackEndpoint
+        Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
+        Assert-BuildModeEnv "THYLLORE_UNLOCK_PUBKEY_B64" $UnlockPubkey
+    }
+    "C" {
+        Assert-BuildModeEnv "THYLLORE_LICENSE_ENDPOINT" $LicenseEndpoint
+        Assert-BuildModeEnv "THYLLORE_UNLOCK_PUBKEY_B64" $UnlockPubkey
+    }
 }
 
 $PlatformConfig = @{
@@ -66,13 +99,13 @@ $PlatformConfig = @{
     }
 }[$Platform]
 
-Write-Host "[build_blender_addon] Platform: $Platform -> Blender: $($PlatformConfig.BlenderName), wheel: $($PlatformConfig.WheelSuffix), variant: $Variant" -ForegroundColor Cyan
+Write-Host "[build_blender_addon] Platform: $Platform -> Blender: $($PlatformConfig.BlenderName), wheel: $($PlatformConfig.WheelSuffix), variant: $Variant, build mode: $BuildMode" -ForegroundColor Cyan
 
 # ---------------------------------------------------------------------------
 # 1. Stage directory (mirror blender_addon/ minus excluded paths)
 # ---------------------------------------------------------------------------
 
-$StageDir = Join-Path $RepoRoot "build/blender_addon_stage_${Platform}_${Variant}"
+$StageDir = Join-Path $RepoRoot "build/blender_addon_stage_${Platform}_${Variant}_${BuildMode}"
 if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
 New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
@@ -136,6 +169,17 @@ if ($Variant -eq "lite") {
     # from the stage to avoid shipping a duplicate.
     $LiteManifestStage = Join-Path $StageDir "blender_manifest.lite.toml"
     if (Test-Path $LiteManifestStage) { Remove-Item -Force $LiteManifestStage }
+}
+
+$TelemetryStage = Join-Path $StageDir "telemetry"
+if ($BuildMode -ne "B" -and (Test-Path $TelemetryStage)) {
+    Remove-Item -Recurse -Force $TelemetryStage
+    Write-Host "[build_blender_addon] (mode $BuildMode) excluded: telemetry" -ForegroundColor DarkYellow
+}
+$LicenseClientStage = Join-Path $StageDir "license_client"
+if ($BuildMode -ne "C" -and (Test-Path $LicenseClientStage)) {
+    Remove-Item -Recurse -Force $LicenseClientStage
+    Write-Host "[build_blender_addon] (mode $BuildMode) excluded: license_client" -ForegroundColor DarkYellow
 }
 
 # ---------------------------------------------------------------------------
@@ -267,6 +311,29 @@ if ($IncludeOnnxModel) {
 }
 
 # ---------------------------------------------------------------------------
+# 5b. Generate build_config.py (BUILD_MODE single source of truth)
+# ---------------------------------------------------------------------------
+
+$BuildConfigLines = @("BUILD_MODE = `"$BuildMode`"")
+if ($BuildMode -eq "B") {
+    $BuildConfigLines += "FEEDBACK_ENDPOINT = `"$FeedbackEndpoint`""
+    $BuildConfigLines += "INGEST_TOKEN = `"$IngestToken`""
+}
+if ($BuildMode -eq "B" -or $BuildMode -eq "C") {
+    $BuildConfigLines += "UNLOCK_PUBKEY = `"$UnlockPubkey`""
+}
+if ($BuildMode -eq "C") {
+    $BuildConfigLines += "LICENSE_ENDPOINT = `"$LicenseEndpoint`""
+}
+$Utf8NoBomConfig = New-Object System.Text.UTF8Encoding($false)
+[System.IO.File]::WriteAllText(
+    (Join-Path $StageDir "build_config.py"),
+    (($BuildConfigLines -join "`n") + "`n"),
+    $Utf8NoBomConfig
+)
+Write-Host "[build_blender_addon] Generated build_config.py (mode $BuildMode)" -ForegroundColor Cyan
+
+# ---------------------------------------------------------------------------
 # 6. Optional: validate via Blender CLI
 # ---------------------------------------------------------------------------
 
@@ -303,6 +370,9 @@ $ZipBaseName = if ($Variant -eq "lite") {
     "thyllore_animation_lite"
 } else {
     "thyllore_animation_addon"
+}
+if ($BuildMode -ne "A") {
+    $ZipBaseName = "${ZipBaseName}_mode_$($BuildMode.ToLower())"
 }
 $ZipPath = Join-Path $AbsOutDir "$ZipBaseName-$Version-$Platform.zip"
 if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }

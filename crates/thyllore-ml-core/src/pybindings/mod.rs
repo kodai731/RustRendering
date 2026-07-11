@@ -25,6 +25,14 @@ fn thyllore_ml_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(v2_curve_copilot::resolve_origin_frame, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        v2_curve_copilot::effective_context_length,
+        m
+    )?)?;
+    m.add_function(wrap_pyfunction!(
+        v2_curve_copilot::degraded_context_length,
+        m
+    )?)?;
 
     #[cfg(feature = "debug-log")]
     {
