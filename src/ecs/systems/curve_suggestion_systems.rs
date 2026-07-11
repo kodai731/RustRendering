@@ -5,13 +5,16 @@ use crate::animation::editable::{
 use crate::animation::BoneId;
 use crate::ecs::resource::InferenceActorState;
 use crate::ml::{
-    CurveSuggestionPendingDump, CurveSuggestionState, GhostCurveSuggestion, InferenceActorId,
+    build_engine_feedback_record, CurveCopilotMode, CurveSuggestionPendingDump,
+    CurveSuggestionState, FeedbackSenderHandle, GhostCurveSuggestion, InferenceActorId,
     InferenceRequestKind, InferenceResultKind,
 };
 use thyllore_ml_core::copilot::v2::dump::{
     dump_v2_curve_copilot_inference, V2CurveCopilotInferenceDump,
 };
 use thyllore_ml_core::copilot::v2::forecast;
+use thyllore_ml_core::copilot::v2::inference::CONTEXT_LENGTH;
+use thyllore_ml_core::unlock::degrade_context_window;
 
 use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
 
@@ -53,6 +56,7 @@ pub fn curve_suggestion_submit(
     property_type: PropertyType,
     bone_id: BoneId,
     current_time: f32,
+    mode: CurveCopilotMode,
 ) {
     if !suggestion_state.enabled {
         return;
@@ -77,7 +81,11 @@ pub fn curve_suggestion_submit(
 
     let dt = 1.0 / forecast::DEPLOY_FPS;
     let origin_value = sample_or_hold(curve, origin_time);
-    let context = build_v2_curve_copilot_context(curve, origin_time, dt);
+    let mut context = build_v2_curve_copilot_context(curve, origin_time, dt);
+
+    if mode.effective_context_length() < CONTEXT_LENGTH {
+        degrade_context_window(&mut context);
+    }
 
     log!(
         "CurveCopilot input: bone_id={} property={:?} origin={:.4} fps={:.1} forecast",
@@ -97,6 +105,12 @@ pub fn curve_suggestion_submit(
         None
     };
 
+    let feedback_context = if mode.sends_feedback() {
+        Some(context.clone())
+    } else {
+        None
+    };
+
     let kind = InferenceRequestKind::CurveCopilotPredict {
         context,
         fps: forecast::DEPLOY_FPS,
@@ -110,12 +124,14 @@ pub fn curve_suggestion_submit(
         suggestion_state.pending_origin_value = Some(origin_value);
         suggestion_state.pending_dt = Some(dt);
         suggestion_state.pending_dump = dump_snapshot;
+        suggestion_state.pending_feedback_context = feedback_context;
     }
 }
 
 pub fn curve_suggestion_poll_results(
     suggestion_state: &mut CurveSuggestionState,
     inference_state: &mut InferenceActorState,
+    feedback_sender: Option<&FeedbackSenderHandle>,
 ) {
     if suggestion_state.pending_request_id.is_none() {
         return;
@@ -168,6 +184,22 @@ pub fn curve_suggestion_poll_results(
 
             if let Some(snapshot) = suggestion_state.pending_dump.take() {
                 write_inference_dump(&snapshot, &mean_curve);
+            }
+
+            let feedback_context = suggestion_state.pending_feedback_context.take();
+            if let (Some(sender), Some(context)) = (feedback_sender, feedback_context) {
+                let record = build_engine_feedback_record(
+                    sender.model_hash(),
+                    property_type,
+                    origin_value,
+                    &context,
+                    &mean_curve,
+                );
+                sender.send(record);
+                log!(
+                    "CurveCopilot feedback: record queued (channel={:?})",
+                    property_type
+                );
             }
 
             suggestion_state.pending_request_id = None;
@@ -244,6 +276,7 @@ pub fn curve_suggestion_apply(suggestion: &GhostCurveSuggestion, curve: &mut Pro
 pub fn curve_suggestion_dismiss(suggestion_state: &mut CurveSuggestionState) {
     suggestion_state.suggestions.clear();
     suggestion_state.pending_request_id = None;
+    suggestion_state.pending_feedback_context = None;
 }
 
 #[cfg(test)]

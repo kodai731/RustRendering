@@ -29,6 +29,7 @@ pub struct CurveSuggestionState {
     pub pending_origin_value: Option<f32>,
     pub pending_dt: Option<f32>,
     pub pending_dump: Option<CurveSuggestionPendingDump>,
+    pub pending_feedback_context: Option<Vec<f32>>,
     pub enabled: bool,
     pub dump_inference: bool,
 }
@@ -44,6 +45,7 @@ impl Default for CurveSuggestionState {
             pending_origin_value: None,
             pending_dt: None,
             pending_dump: None,
+            pending_feedback_context: None,
             enabled: true,
             dump_inference: false,
         }

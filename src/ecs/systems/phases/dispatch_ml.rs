@@ -10,7 +10,7 @@ pub fn dispatch_curve_suggestion_events(
         curve_suggestion_apply, curve_suggestion_dismiss, curve_suggestion_submit,
         CurveSuggestionInputs,
     };
-    use crate::ml::{CurveSuggestionState, CURVE_COPILOT_ACTOR_ID};
+    use crate::ml::{CurveCopilotMode, CurveSuggestionState, CURVE_COPILOT_ACTOR_ID};
 
     for event in events {
         match event {
@@ -35,6 +35,10 @@ pub fn dispatch_curve_suggestion_events(
                     continue;
                 };
 
+                let mode = world
+                    .get_resource::<CurveCopilotMode>()
+                    .map(|mode| *mode)
+                    .unwrap_or_default();
                 let mut suggestion_state = world.resource_mut::<CurveSuggestionState>();
                 let mut inference_state = world.resource_mut::<InferenceActorState>();
                 curve_suggestion_submit(
@@ -45,6 +49,7 @@ pub fn dispatch_curve_suggestion_events(
                     *property_type,
                     *bone_id,
                     current_time,
+                    mode,
                 );
             }
 

@@ -20,7 +20,7 @@ use crate::ecs::resource::InferenceActorState;
 use crate::ecs::resource::{ClipLibrary, HierarchyState, TimelineState};
 use crate::ecs::world::Animator;
 #[cfg(feature = "ml")]
-use crate::ml::CurveSuggestionState;
+use crate::ml::{CurveSuggestionState, FeedbackSenderHandle};
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
 pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
@@ -160,8 +160,13 @@ fn run_inference_actor_phase(ctx: &mut FrameContext) {
     inference_actor_poll(&mut state);
 
     if ctx.world.contains_resource::<CurveSuggestionState>() {
+        let feedback_sender = ctx.world.get_resource::<FeedbackSenderHandle>();
         let mut suggestion_state = ctx.world.resource_mut::<CurveSuggestionState>();
-        curve_suggestion_poll_results(&mut suggestion_state, &mut state);
+        curve_suggestion_poll_results(
+            &mut suggestion_state,
+            &mut state,
+            feedback_sender.as_ref().map(|sender| &**sender),
+        );
     }
 }
 

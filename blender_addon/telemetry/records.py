@@ -7,6 +7,10 @@ future frames, anonymizes the pair and hands the batch to ``sender`` on a
 background thread. Failed sends are kept in a local outbox and retried on the
 next flush.
 
+Record construction (schema ``curve_copilot_feedback/v0``) is delegated to the
+``thyllore_ml_core`` wheel, the schema's single source of truth; this module
+keeps only the bpy-dependent parts (FCurve sampling, outbox storage).
+
 Anonymization: records never contain object names, file paths or bone names;
 curve values are stored relative to ``origin_value``.
 """
@@ -14,7 +18,6 @@ from __future__ import annotations
 
 import json
 import threading
-import time
 from pathlib import Path
 
 import bpy
@@ -92,22 +95,21 @@ def _sample_ground_truth(entry: dict) -> list[float] | None:
 
 
 def _finalize(entry: dict, ground_truth: list[float] | None) -> dict:
-    origin_value = entry["origin_value"]
-    return {
-        "schema": sender.SCHEMA_VERSION,
-        "model_hash": entry["model_hash"],
-        "channel": {"kind": entry["channel_kind"], "array_index": entry["array_index"]},
-        "fps": {
-            "scene": entry["scene_fps"],
-            "deploy": entry["deploy_fps"],
-            "frame_step": entry["frame_step"],
-        },
-        "context": [value - origin_value for value in entry["context"]],
-        "prediction": [value - origin_value for value in entry["prediction_values"]],
-        "ground_truth": ground_truth,
-        "signal": entry["signal"],
-        "ts": int(time.time()),
-    }
+    import thyllore_ml_core as tml
+
+    return tml.build_feedback_record(
+        model_hash=entry["model_hash"],
+        channel_kind=entry["channel_kind"],
+        array_index=entry["array_index"],
+        scene_fps=entry["scene_fps"],
+        deploy_fps=entry["deploy_fps"],
+        frame_step=entry["frame_step"],
+        origin_value=entry["origin_value"],
+        context=entry["context"],
+        prediction=entry["prediction_values"],
+        ground_truth=ground_truth,
+        signal=entry["signal"],
+    )
 
 
 def _outbox_path() -> Path:

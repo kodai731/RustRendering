@@ -27,7 +27,11 @@ anyhow = "1"
 base64 = "0.22"
 cgmath = "0.18"
 ed25519-dalek = "2"
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sha2 = "0.10"
+ureq = { version = "2", features = ["json"] }
 ndarray = "0.16"
 ndarray-npy = "0.9"
 obfstr = "0.4"

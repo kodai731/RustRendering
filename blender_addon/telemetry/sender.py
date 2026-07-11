@@ -1,27 +1,19 @@
-"""HTTPS transport for Curve Copilot feedback (mode B only).
+"""Transport shim for Curve Copilot feedback (mode B only).
 
-Sends anonymized feedback batches to the Cloudflare Worker with stdlib
-``urllib`` (no extra dependencies), and stores the short-lived Ed25519
-``unlock_token`` returned by the Worker. The wheel re-verifies the token
-signature and expiry itself, so this module only caches what the server
-issued.
+The HTTPS transport (gzip JSONL, headers, endpoints) lives in the
+``thyllore_ml_core`` wheel — the single source of truth shared with the
+engine. This module keeps only the bpy-dependent parts: the opt-in check,
+the anonymous client id and the cached Ed25519 ``unlock_token`` returned by
+the Worker (the wheel re-verifies the token signature and expiry itself).
 """
 from __future__ import annotations
 
-import gzip
-import json
-import time
 import uuid
 
 import bpy
 
 from .._token_store import TokenStore
 from ..build_config import FEEDBACK_ENDPOINT, INGEST_TOKEN
-
-MESSAGE_ENDPOINT = FEEDBACK_ENDPOINT.rsplit("/", 1)[0] + "/message"
-SCHEMA_VERSION = "curve_copilot_feedback/v0"
-REQUEST_TIMEOUT_SECONDS = 10.0
-USER_AGENT = "ThylloreCurveCopilot/1.0"
 
 _store = TokenStore("thyllore_curve_copilot_feedback.json")
 
@@ -49,33 +41,18 @@ def should_send(prefs) -> bool:
 
 
 def send_feedback_batch(records: list[dict]) -> bool:
-    """POST one gzip JSONL batch; caches the refreshed unlock token.
+    """POST one gzip JSONL batch via the wheel; caches the refreshed token.
 
     An empty batch is a valid token-refresh handshake. Returns False on any
     network / server error (callers keep their records and retry later).
     """
-    import urllib.error
-    import urllib.request
+    import thyllore_ml_core as tml
 
-    lines = "\n".join(json.dumps(record) for record in records)
-    body = gzip.compress(lines.encode("utf-8"))
-    request = urllib.request.Request(
-        FEEDBACK_ENDPOINT,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {INGEST_TOKEN}",
-            "Content-Type": "application/x-ndjson",
-            "Content-Encoding": "gzip",
-            "X-Schema-Version": SCHEMA_VERSION,
-            "X-Anon-Id": anon_id(),
-            "User-Agent": USER_AGENT,
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        payload = tml.send_feedback_batch(
+            FEEDBACK_ENDPOINT, INGEST_TOKEN, anon_id(), records
+        )
+    except Exception:  # noqa: BLE001
         return False
 
     token = payload.get("unlock_token")
@@ -86,30 +63,11 @@ def send_feedback_batch(records: list[dict]) -> bool:
 
 
 def send_message(text: str, addon_version: str) -> bool:
-    """POST one free-text feedback message to the Worker (/v1/message)."""
-    import urllib.error
-    import urllib.request
+    """POST one free-text feedback message via the wheel (/v1/message)."""
+    import thyllore_ml_core as tml
 
-    body = json.dumps(
-        {
-            "text": text,
-            "addon_version": addon_version,
-            "anon_id": anon_id(),
-            "ts": int(time.time()),
-        }
-    ).encode("utf-8")
-    request = urllib.request.Request(
-        MESSAGE_ENDPOINT,
-        data=body,
-        method="POST",
-        headers={
-            "Authorization": f"Bearer {INGEST_TOKEN}",
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS):
-            return True
-    except (urllib.error.URLError, TimeoutError, OSError):
+        tml.send_message(FEEDBACK_ENDPOINT, INGEST_TOKEN, anon_id(), text, addon_version)
+        return True
+    except Exception:  # noqa: BLE001
         return False
