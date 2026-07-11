@@ -101,3 +101,6 @@ fixtures/
 *.dylib
 *.pyd
 *.dll
+
+# machine-local secrets / runtime env (never commit)
+.config/

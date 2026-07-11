@@ -33,6 +33,7 @@ impl FeedbackSenderHandle {
             );
             return None;
         };
+        let url = normalize_feedback_endpoint(&url);
         let Ok(ingest_token) = std::env::var(INGEST_TOKEN_ENV) else {
             log_warn!(
                 "CurveCopilot full mode: {} not set, feedback sending disabled",
@@ -90,13 +91,22 @@ impl Drop for FeedbackSenderHandle {
     }
 }
 
+fn normalize_feedback_endpoint(url: &str) -> String {
+    let trimmed = url.trim_end_matches('/');
+    if trimmed.ends_with("/v1/feedback") {
+        trimmed.to_string()
+    } else {
+        format!("{trimmed}/v1/feedback")
+    }
+}
+
 fn run_sender_loop(endpoint: FeedbackEndpoint, receiver: mpsc::Receiver<FeedbackRecord>) {
     let gate = UnlockGate::from_build_env();
 
     while let Ok(record) = receiver.recv() {
         match send_feedback_batch(&endpoint, &[record]) {
             Ok(response) => log_feedback_response(&gate, &response),
-            Err(e) => log_warn!("CurveCopilot feedback: send failed: {}", e),
+            Err(e) => log_warn!("CurveCopilot feedback: send failed: {:#}", e),
         }
     }
 }
@@ -153,6 +163,20 @@ pub fn build_engine_feedback_record(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn endpoint_normalization_appends_feedback_path_once() {
+        let full = "https://example.workers.dev/v1/feedback";
+        assert_eq!(normalize_feedback_endpoint(full), full);
+        assert_eq!(
+            normalize_feedback_endpoint("https://example.workers.dev"),
+            full
+        );
+        assert_eq!(
+            normalize_feedback_endpoint("https://example.workers.dev/"),
+            full
+        );
+    }
 
     #[test]
     fn engine_record_is_origin_relative_and_anonymous() {
