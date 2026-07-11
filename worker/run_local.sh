@@ -9,6 +9,7 @@ set -euo pipefail
 #
 # Required environment:
 #   INGEST_TOKEN                        bearer token the local worker accepts
+#   ADMIN_TOKEN                         bearer token for /v1/license/provision
 #   UNLOCK_PRIVATE_KEY_PKCS8_B64[_FILE] Ed25519 PKCS8 DER base64 signing key;
 #                                       must match the public key baked into the
 #                                       wheel under test
@@ -58,6 +59,10 @@ if [[ -z "${INGEST_TOKEN:-}" ]]; then
     echo "INGEST_TOKEN is required" >&2
     exit 2
 fi
+if [[ -z "${ADMIN_TOKEN:-}" ]]; then
+    echo "ADMIN_TOKEN is required" >&2
+    exit 2
+fi
 if [[ -n "${UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE:-}" ]]; then
     UNLOCK_PRIVATE_KEY_PKCS8_B64="$(tr -d '\r\n' <"$UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE")"
 fi
@@ -65,7 +70,7 @@ if [[ -z "${UNLOCK_PRIVATE_KEY_PKCS8_B64:-}" ]]; then
     echo "provide UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE or UNLOCK_PRIVATE_KEY_PKCS8_B64" >&2
     exit 2
 fi
-export INGEST_TOKEN UNLOCK_PRIVATE_KEY_PKCS8_B64
+export INGEST_TOKEN ADMIN_TOKEN UNLOCK_PRIVATE_KEY_PKCS8_B64
 
 ensure_workerd() {
     local binary="$LOCAL_DIR/workerd"

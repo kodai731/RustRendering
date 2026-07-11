@@ -15,11 +15,18 @@ const config :Workerd.Config = (
 const mainWorker :Workerd.Worker = (
   modules = [ (name = "index.mjs", esModule = embed "src/index.mjs") ],
   compatibilityDate = "2026-07-01",
+  durableObjectNamespaces = [
+    (className = "LicenseSeats", uniqueKey = "thyllore-license-seats"),
+  ],
+  durableObjectStorage = (inMemory = void),
   bindings = [
     (name = "INGEST_TOKEN", fromEnvironment = "INGEST_TOKEN"),
+    (name = "ADMIN_TOKEN", fromEnvironment = "ADMIN_TOKEN"),
     (name = "UNLOCK_PRIVATE_KEY_PKCS8_B64", fromEnvironment = "UNLOCK_PRIVATE_KEY_PKCS8_B64"),
     (name = "TOKEN_TTL_SECONDS", text = "604800"),
     (name = "MAX_BODY_BYTES", text = "1048576"),
     (name = "MAX_MESSAGE_TEXT_BYTES", text = "4096"),
+    (name = "SEAT_TTL_SECONDS", text = "2592000"),
+    (name = "LICENSE_SEATS", durableObjectNamespace = "LicenseSeats"),
   ],
 );
