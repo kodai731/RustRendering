@@ -121,11 +121,15 @@ def test_build_config_has_exactly_the_mode_fields(built_zips, mode, expected_key
     assert _build_config_keys(built_zips[mode]) == expected_keys
 
 
-@pytest.mark.parametrize("mode", ["A", "B"])
-def test_license_client_not_bundled_outside_mode_c(built_zips, mode):
-    assert not any(
+@pytest.mark.parametrize(
+    ("mode", "license_client_bundled"),
+    [("A", False), ("B", False), ("C", True)],
+)
+def test_license_client_bundled_only_in_mode_c(built_zips, mode, license_client_bundled):
+    has_license_client = any(
         name.startswith("license_client/") for name in _zip_names(built_zips[mode])
     )
+    assert has_license_client is license_client_bundled
 
 
 def test_mode_b_fails_fast_without_required_env():

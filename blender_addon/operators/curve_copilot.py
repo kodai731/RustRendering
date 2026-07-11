@@ -52,9 +52,9 @@ _MODEL_HASH_CACHE: dict[str, tuple[float, str]] = {}
 
 
 def _resolve_unlock_token() -> str | None:
-    if telemetry is not None:
-        return telemetry.resolve_unlock_token()
-    return None
+    from .. import _unlock
+
+    return _unlock.resolve_unlock_token()
 
 
 def _model_hash(model_path: str) -> str:

@@ -12,10 +12,10 @@ import gzip
 import json
 import time
 import uuid
-from pathlib import Path
 
 import bpy
 
+from .._token_store import TokenStore
 from ..build_config import FEEDBACK_ENDPOINT, INGEST_TOKEN
 
 MESSAGE_ENDPOINT = FEEDBACK_ENDPOINT.rsplit("/", 1)[0] + "/message"
@@ -23,59 +23,25 @@ SCHEMA_VERSION = "curve_copilot_feedback/v0"
 REQUEST_TIMEOUT_SECONDS = 10.0
 USER_AGENT = "ThylloreCurveCopilot/1.0"
 
-_state_cache: dict | None = None
-
-
-def _state_path() -> Path:
-    config_dir = Path(bpy.utils.user_resource("CONFIG", create=True))
-    return config_dir / "thyllore_curve_copilot_feedback.json"
-
-
-def _load_state() -> dict:
-    global _state_cache
-    if _state_cache is not None:
-        return _state_cache
-    try:
-        _state_cache = json.loads(_state_path().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        _state_cache = {}
-    return _state_cache
-
-
-def _save_state(state: dict) -> None:
-    global _state_cache
-    _state_cache = state
-    try:
-        _state_path().write_text(json.dumps(state), encoding="utf-8")
-    except OSError:
-        pass
+_store = TokenStore("thyllore_curve_copilot_feedback.json")
 
 
 def anon_id() -> str:
     """Random anonymous client id, unrelated to the license device_id."""
-    state = _load_state()
+    state = _store.load()
     if "anon_id" not in state:
         state["anon_id"] = str(uuid.uuid4())
-        _save_state(state)
+        _store.save(state)
     return state["anon_id"]
 
 
 def resolve_unlock_token() -> str | None:
-    """The cached unlock token if the server-issued expiry is still ahead."""
-    state = _load_state()
-    token = state.get("unlock_token")
-    exp = state.get("unlock_exp", 0)
-    if not token or exp <= time.time():
-        return None
-    return token
+    return _store.resolve_unlock_token()
 
 
 def discard_unlock_token() -> None:
     """Opt-out immediately reverts to ctx32: drop the cached token."""
-    state = _load_state()
-    state.pop("unlock_token", None)
-    state.pop("unlock_exp", None)
-    _save_state(state)
+    _store.discard_unlock_token()
 
 
 def should_send(prefs) -> bool:
@@ -115,10 +81,7 @@ def send_feedback_batch(records: list[dict]) -> bool:
     token = payload.get("unlock_token")
     exp = payload.get("exp")
     if isinstance(token, str) and isinstance(exp, (int, float)):
-        state = _load_state()
-        state["unlock_token"] = token
-        state["unlock_exp"] = exp
-        _save_state(state)
+        _store.store_unlock_token(token, exp)
     return True
 
 

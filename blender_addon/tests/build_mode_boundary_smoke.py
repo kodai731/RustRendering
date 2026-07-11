@@ -15,10 +15,16 @@ prediction is recorded, save the file to trigger the batch send, then assert
 the Worker's unlock token flips ``effective_ctx`` to 64 and ``/v1/message``
 accepts a free-text feedback message.
 
+With ``--live-license`` + ``--license-key`` (mode C builds pointed at the
+*test* Worker, key provisioned by the caller with max_seats=1) it exercises
+the seat licensing path: activate -> ctx64, re-activate on the registered
+device -> ctx64, switch device_id (a copied key) -> refused -> ctx32.
+
 Invocation::
 
     blender --background --factory-startup --python <this script> -- \\
-        --result result.json --expect-mode B [--onnx <path> --live-send]
+        --result result.json --expect-mode B [--onnx <path> --live-send] \\
+        [--live-license --license-key <key>]
 """
 from __future__ import annotations
 
@@ -58,6 +64,8 @@ def parse_args():
     parser.add_argument("--expect-mode", required=True, choices=sorted(MODE_EXPECTATIONS))
     parser.add_argument("--onnx", default="")
     parser.add_argument("--live-send", action="store_true")
+    parser.add_argument("--live-license", action="store_true")
+    parser.add_argument("--license-key", default="")
     return parser.parse_args(argv)
 
 
@@ -115,8 +123,9 @@ def run_common_checks(addon_pkg: str, expect_mode: str) -> None:
     check("Discord invite hook present", hasattr(preferences, "DISCORD_INVITE_URL"))
 
     if expected["telemetry"]:
-        telemetry = importlib.import_module(f"{addon_pkg}.telemetry")
-        telemetry.discard_unlock_token()
+        importlib.import_module(f"{addon_pkg}.telemetry").discard_unlock_token()
+    if expected["license_client"]:
+        importlib.import_module(f"{addon_pkg}.license_client").discard_unlock_token()
     ctx = effective_ctx(addon_pkg)
     check(
         "effective_ctx defaults to degraded",
@@ -184,6 +193,38 @@ def run_live_send_checks(addon_pkg: str, onnx_path: str) -> None:
     check("opt-out reverts to degraded ctx", effective_ctx(addon_pkg) == DEGRADED_CTX)
 
 
+def run_live_license_checks(addon_pkg: str, license_key: str) -> None:
+    import bpy
+
+    preferences = importlib.import_module(f"{addon_pkg}.preferences")
+    prefs = preferences.get_preferences()
+    bpy.context.preferences.system.use_online_access = True
+    original_device_id = prefs.device_id
+
+    prefs.license_key = license_key
+    status = bpy.ops.thyllore.refresh_license()
+    check("license activation finished", "FINISHED" in status)
+    ctx = effective_ctx(addon_pkg)
+    check("effective_ctx unlocked by license", ctx == FULL_CTX, f"got {ctx}")
+
+    status = bpy.ops.thyllore.refresh_license()
+    check("registered device re-activates", "FINISHED" in status)
+
+    prefs.device_id = "smoke-copied-device"
+    try:
+        status = bpy.ops.thyllore.refresh_license()
+        refused = "CANCELLED" in status
+    except RuntimeError as error:
+        refused = "seats" in str(error)
+    check("copied key (new device, 1 seat) refused", refused)
+    ctx = effective_ctx(addon_pkg)
+    check("refusal reverts to degraded ctx", ctx == DEGRADED_CTX, f"got {ctx}")
+
+    prefs.device_id = original_device_id
+    prefs.license_key = ""
+    check("clearing key discards token", effective_ctx(addon_pkg) == DEGRADED_CTX)
+
+
 def main() -> None:
     args = parse_args()
 
@@ -194,6 +235,12 @@ def main() -> None:
         else:
             run_common_checks(addon_pkg, args.expect_mode)
             run_live_send_checks(addon_pkg, str(Path(args.onnx).resolve()))
+    elif args.live_license and args.expect_mode == "C":
+        if not args.license_key:
+            check("license key provided for live license", False, "<missing>")
+        else:
+            run_common_checks(addon_pkg, args.expect_mode)
+            run_live_license_checks(addon_pkg, args.license_key)
     else:
         run_common_checks(addon_pkg, args.expect_mode)
 
