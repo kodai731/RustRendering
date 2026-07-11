@@ -12,8 +12,10 @@ zip archive — the dynamic loader requires a real on-disk file. Inserting the
 for grpcio and the L3 PyO3 wheel.
 
 Extraction is idempotent: each wheel is unpacked once into
-``<wheels-extracted>/<wheel_stem>/`` and a sentinel file marks completion so
-subsequent registrations skip the work.
+``<wheels-extracted>/<wheel_stem>/`` and a sentinel file records the wheel's
+SHA256, so subsequent registrations skip the work while a replaced wheel
+(same filename, different content) is re-extracted instead of being masked
+by a stale extraction.
 
 Layer responsibility (see Phase4_AddonRegistration.md):
 - This module is the only place that touches sys.path.
@@ -21,6 +23,7 @@ Layer responsibility (see Phase4_AddonRegistration.md):
 """
 from __future__ import annotations
 
+import hashlib
 import importlib
 import os
 import platform
@@ -79,14 +82,23 @@ def _is_already_imported(module_name: str) -> bool:
     )
 
 
+def _wheel_sha256(wheel_path: Path) -> str:
+    digest = hashlib.sha256()
+    with wheel_path.open("rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _extract_wheel_once(wheel_path: Path, target_dir: Path) -> None:
     """Extract a single wheel into ``target_dir`` if not already done.
 
-    Idempotent: re-running with the same wheel + target is a no-op once the
-    sentinel file exists.
+    Idempotent: the sentinel stores the wheel's SHA256, so re-running with an
+    unchanged wheel is a no-op while a replaced wheel is re-extracted.
     """
+    wheel_hash = _wheel_sha256(wheel_path)
     sentinel = target_dir / _EXTRACTED_SENTINEL
-    if sentinel.is_file():
+    if sentinel.is_file() and sentinel.read_text(encoding="utf-8").strip() == wheel_hash:
         return
 
     if target_dir.exists():
@@ -96,7 +108,7 @@ def _extract_wheel_once(wheel_path: Path, target_dir: Path) -> None:
     with zipfile.ZipFile(wheel_path) as zf:
         zf.extractall(target_dir)
 
-    sentinel.touch()
+    sentinel.write_text(wheel_hash, encoding="utf-8")
 
 
 def insert_wheels_to_sys_path() -> None:

@@ -21,6 +21,7 @@ from ..build_config import FEEDBACK_ENDPOINT, INGEST_TOKEN
 MESSAGE_ENDPOINT = FEEDBACK_ENDPOINT.rsplit("/", 1)[0] + "/message"
 SCHEMA_VERSION = "curve_copilot_feedback/v0"
 REQUEST_TIMEOUT_SECONDS = 10.0
+USER_AGENT = "ThylloreCurveCopilot/1.0"
 
 _state_cache: dict | None = None
 
@@ -102,6 +103,7 @@ def send_feedback_batch(records: list[dict]) -> bool:
             "Content-Encoding": "gzip",
             "X-Schema-Version": SCHEMA_VERSION,
             "X-Anon-Id": anon_id(),
+            "User-Agent": USER_AGENT,
         },
     )
     try:
@@ -140,6 +142,7 @@ def send_message(text: str, addon_version: str) -> bool:
         headers={
             "Authorization": f"Bearer {INGEST_TOKEN}",
             "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
         },
     )
     try:

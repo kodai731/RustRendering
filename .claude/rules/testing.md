@@ -83,8 +83,9 @@ all `[batch, 64]`), no `future` / `reveal_mask`. The Rust runtime does the
 deploy-safe z-score over the context (std floor 0.05, clip ±8), builds the
 seconds-based times and the finite-difference tangent, and denormalizes the
 `mean_curve` output. The v1 7-input surface (ctx32 + reveal) and the pre-v1
-multi-input copilot surface have been removed. `ABI_MARKER = 2` is the v2
-baseline.
+multi-input copilot surface have been removed. `ABI_MARKER = 2` was the v2
+baseline; it was bumped to 3 when `build_forecast_preview` gained the
+`unlock_token` parameter (mode B ctx64 unlock gate).
 
 Bit-parity against the training export is verified by
 `cargo test -p thyllore-ml-core --test v2_curve_copilot_golden_parity -- --ignored`

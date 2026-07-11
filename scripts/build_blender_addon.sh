@@ -154,11 +154,12 @@ if command -v rsync >/dev/null 2>&1; then
         --exclude='__pycache__/' \
         --exclude='.pytest_cache/' \
         --exclude='.egg-info/' \
+        --exclude='wheels-extracted/' \
         --exclude='*.pyc' \
         "$SOURCE_DIR/" "$STAGE_DIR/"
 else
     cp -a "$SOURCE_DIR/." "$STAGE_DIR/"
-    find "$STAGE_DIR" -type d \( -name tests -o -name __pycache__ -o -name .pytest_cache -o -name .egg-info \) -prune -exec rm -rf {} +
+    find "$STAGE_DIR" -type d \( -name tests -o -name __pycache__ -o -name .pytest_cache -o -name .egg-info -o -name wheels-extracted \) -prune -exec rm -rf {} +
     find "$STAGE_DIR" -type f -name "*.pyc" -delete
 fi
 
