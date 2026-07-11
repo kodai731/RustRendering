@@ -4,7 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 OUTPUT_DIR="${1:-secrets}"
-PUBLIC_KEY_DEST="${2:-blender_addon/license/public_key.pem}"
+PUBLIC_KEY_DEST="${2:-secrets/public_key.pem}"
 
 PYTHON_BIN="${PYTHON:-python3}"
 if ! "$PYTHON_BIN" -c "from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey" 2>/dev/null; then

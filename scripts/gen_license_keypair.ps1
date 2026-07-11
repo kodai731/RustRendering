@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDir = "secrets",
-    [string]$PublicKeyDest = "blender_addon/license/public_key.pem"
+    [string]$PublicKeyDest = "secrets/public_key.pem"
 )
 
 $ErrorActionPreference = "Stop"
