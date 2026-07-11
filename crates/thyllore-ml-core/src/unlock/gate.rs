@@ -17,9 +17,19 @@ pub struct UnlockGate {
 
 impl UnlockGate {
     pub fn from_build_env() -> Self {
-        let verifying_key =
-            option_env!("THYLLORE_UNLOCK_PUBKEY_B64").and_then(parse_public_key_base64);
-        Self { verifying_key }
+        const PUBKEY_B64: &str = match option_env!("THYLLORE_UNLOCK_PUBKEY_B64") {
+            Some(value) => value,
+            None => "",
+        };
+
+        if PUBKEY_B64.is_empty() {
+            return Self {
+                verifying_key: None,
+            };
+        }
+        Self {
+            verifying_key: parse_public_key_base64(obfstr::obfstr!(PUBKEY_B64)),
+        }
     }
 
     pub fn with_verifying_key(verifying_key: VerifyingKey) -> Self {
@@ -96,6 +106,15 @@ mod tests {
             gate().effective_context_length(Some("garbage"), NOW),
             DEGRADED_CONTEXT_LENGTH
         );
+    }
+
+    #[test]
+    fn from_build_env_key_presence_matches_build_env() {
+        let gate = UnlockGate::from_build_env();
+        match option_env!("THYLLORE_UNLOCK_PUBKEY_B64") {
+            Some(_) => assert!(gate.verifying_key.is_some()),
+            None => assert!(gate.verifying_key.is_none()),
+        }
     }
 
     #[test]

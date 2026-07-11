@@ -60,3 +60,9 @@ auto-rig = ["text-to-motion", "thyllore-grpc-client/auto-rig", "thyllore-importe
 [dependencies.gltf]
 version = "1.4"
 features = ["extras", "names", "extensions"]
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true

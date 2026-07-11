@@ -32,7 +32,7 @@ pub fn verify_unlock_token(token: &str, key: &VerifyingKey, now_unix: u64) -> bo
     let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&payload) else {
         return false;
     };
-    let Some(exp) = claims.get("exp").and_then(|v| v.as_u64()) else {
+    let Some(exp) = claims.get(obfstr::obfstr!("exp")).and_then(|v| v.as_u64()) else {
         return false;
     };
     exp > now_unix

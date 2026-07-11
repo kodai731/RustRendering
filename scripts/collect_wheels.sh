@@ -132,6 +132,7 @@ if [[ "$SKIP_MATURIN" -eq 0 ]]; then
     "$PYTHON_BIN" -m pip install --quiet maturin
     (
         cd "$REPO_ROOT/crates/thyllore-ml-core"
+        export RUSTFLAGS="${RUSTFLAGS:+$RUSTFLAGS }--remap-path-prefix=$HOME=."
         maturin build --release --features "$MATURIN_FEATURES" --out "$ABS_WHEELS"
     )
 fi

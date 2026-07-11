@@ -2309,6 +2309,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "obfstr"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fac6bb46461d099d52dbd345e021b92d21d1be9be967ef2bb4430b23af439a4f"
+
+[[package]]
 name = "objc"
 version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3740,6 +3746,7 @@ dependencies = [
  "ndarray 0.16.1",
  "ndarray-npy",
  "numpy",
+ "obfstr",
  "ort",
  "pyo3",
  "pythonize",
