@@ -1,7 +1,7 @@
 """Curve Copilot license activation (bundled in mode C builds only).
 
 Public surface used by the rest of the addon:
-- ``resolve_unlock_token`` / ``discard_unlock_token`` -- gating helpers
+- ``resolve_full_token`` / ``discard_full_token`` -- gating helpers
 - ``refresh_license`` -- explicit online activation
 - ``register`` / ``unregister`` -- operator lifecycle + startup seat renewal
 """
@@ -12,7 +12,7 @@ import threading
 import bpy
 
 from . import client, operators
-from .client import discard_unlock_token, refresh_license, resolve_unlock_token
+from .client import discard_full_token, refresh_license, resolve_full_token
 
 
 def _renew_seat_in_background() -> None:

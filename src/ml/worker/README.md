@@ -12,9 +12,9 @@ uses only Workers runtime built-ins, so there is nothing to `npm install`.
 
 | Route | Purpose | Response |
 |---|---|---|
-| `POST /v1/feedback` | gzip JSONL batch (`curve_copilot_feedback/v0`); empty batch = token handshake | `{unlock_token, exp}` |
+| `POST /v1/feedback` | gzip JSONL batch (`curve_copilot_feedback/v0`); empty batch = token handshake | `{full_token, exp}` |
 | `POST /v1/message` | one free-text message (4KB limit) | `204` |
-| `POST /v1/license/refresh` | mode C seat licensing: `{license_key, device_id}`; the LicenseSeats Durable Object grants or refuses a seat | `{unlock_token, exp}` or `403 {error}` |
+| `POST /v1/license/refresh` | mode C seat licensing: `{license_key, device_id}`; the LicenseSeats Durable Object grants or refuses a seat | `{full_token, exp}` or `403 {error}` |
 | `POST /v1/license/provision` | admin upsert of a license: `{license_key, max_seats, status}` (`active` / `revoked`) | `204` |
 
 `/v1/feedback` and `/v1/message` require `Authorization: Bearer <INGEST_TOKEN>`;
@@ -64,7 +64,7 @@ export CF_API_TOKEN=...            # the token from bootstrap step 2
 export CF_ACCOUNT_ID=...           # your account id
 export THYLLORE_INGEST_TOKEN=...   # a random shared token; also bake into mode B builds
 export THYLLORE_ADMIN_TOKEN=...    # a random token guarding /v1/license/provision
-export THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE=secrets/private_key_pkcs8.b64
+export THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE=secrets/private_key_pkcs8.b64
 cd src/ml/worker
 ./deploy.sh --env test             # test bucket first; drop --env or use prod for production
 ./deploy.sh                        # --dry-run validates config without any API call
@@ -73,7 +73,7 @@ cd src/ml/worker
 On success it prints the `https://<name>.<subdomain>.workers.dev` URL. Use its
 `/v1/feedback` form as `THYLLORE_FEEDBACK_ENDPOINT` when building mode B addons.
 The matching public key (`secrets/public_key.b64`) is baked into the wheel and
-mode B/C builds via `THYLLORE_UNLOCK_PUBKEY_B64`.
+mode B/C builds via `THYLLORE_FULL_TOKEN_PUBKEY_B64`.
 
 Options: `--env prod|test`, `--dry-run` (build + validate, no API calls),
 `--skip-bucket` (do not create the R2 bucket).
@@ -96,7 +96,7 @@ build the wheel with its public key baked in, start local workerd, and assert
 the full chain:
 
 ```
-local workerd (real index.mjs + LicenseSeats DO)  --Ed25519 unlock_token-->  wheel -> ctx64
+local workerd (real index.mjs + LicenseSeats DO)  --Ed25519 full_token-->  wheel -> ctx64
 ```
 
 The seat e2e additionally proves copy invalidation: a third device on a
@@ -106,7 +106,7 @@ To just serve the worker locally (e.g. to point the addon at it):
 
 ```bash
 INGEST_TOKEN=... ADMIN_TOKEN=... \
-UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE=secrets/private_key_pkcs8.b64 \
+FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE=secrets/private_key_pkcs8.b64 \
 ./run_local.sh --port 8787
 ```
 
@@ -119,7 +119,7 @@ deployment (`deploy.sh --env test`) — this is why the buckets are separated.
 
 `smoke.sh` exercises a deployed URL: unauthorized request rejected (401),
 authorized message accepted (204, R2 write), empty feedback batch returns an
-`unlock_token`. Use `--skip-r2` for a local run without R2.
+`full_token`. Use `--skip-r2` for a local run without R2.
 
 ```bash
 WORKER_URL=https://<name>-test.<subdomain>.workers.dev \

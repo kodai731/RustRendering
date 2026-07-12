@@ -15,8 +15,8 @@ fn degrade_gate() -> &'static DegradeGate {
     GATE.get_or_init(DegradeGate::from_build_env)
 }
 
-fn apply_degrade_gate(context: &mut [f32], unlock_token: Option<&str>) {
-    if degrade_gate().should_degrade(unlock_token, now_unix()) {
+fn apply_degrade_gate(context: &mut [f32], full_token: Option<&str>) {
+    if degrade_gate().should_degrade(full_token, now_unix()) {
         degrade_context_window(context);
     }
 }
@@ -27,9 +27,9 @@ pub fn capabilities() -> Vec<&'static str> {
 }
 
 #[pyfunction]
-#[pyo3(signature = (unlock_token=None))]
-pub fn effective_context_length(unlock_token: Option<&str>) -> usize {
-    degrade_gate().effective_context_length(unlock_token, now_unix())
+#[pyo3(signature = (full_token=None))]
+pub fn effective_context_length(full_token: Option<&str>) -> usize {
+    degrade_gate().effective_context_length(full_token, now_unix())
 }
 
 #[pyfunction]
@@ -83,20 +83,20 @@ impl PyV2CurveCopilotSession {
         MAX_HORIZON
     }
 
-    #[pyo3(signature = (context, fps, unlock_token=None))]
+    #[pyo3(signature = (context, fps, full_token=None))]
     fn predict_mean_curve<'py>(
         &mut self,
         py: Python<'py>,
         context: PyReadonlyArray1<'py, f32>,
         fps: f32,
-        unlock_token: Option<&str>,
+        full_token: Option<&str>,
     ) -> PyResult<Bound<'py, PyArray1<f32>>> {
         let mut context = context.as_slice()?.to_vec();
 
         if context.len() != CONTEXT_LENGTH {
             return Err(shape_mismatch("context", CONTEXT_LENGTH, context.len()));
         }
-        apply_degrade_gate(&mut context, unlock_token);
+        apply_degrade_gate(&mut context, full_token);
 
         let mean_curve = py
             .detach(|| {
@@ -110,7 +110,7 @@ impl PyV2CurveCopilotSession {
         Ok(mean_curve.into_pyarray(py))
     }
 
-    #[pyo3(signature = (context, fps, origin, origin_value, frame_step, unlock_token=None))]
+    #[pyo3(signature = (context, fps, origin, origin_value, frame_step, full_token=None))]
     fn build_forecast_preview(
         &mut self,
         py: Python<'_>,
@@ -119,12 +119,12 @@ impl PyV2CurveCopilotSession {
         origin: f32,
         origin_value: f32,
         frame_step: f32,
-        unlock_token: Option<&str>,
+        full_token: Option<&str>,
     ) -> PyResult<Vec<(f32, f32)>> {
         if context.len() != CONTEXT_LENGTH {
             return Err(shape_mismatch("context", CONTEXT_LENGTH, context.len()));
         }
-        apply_degrade_gate(&mut context, unlock_token);
+        apply_degrade_gate(&mut context, full_token);
 
         let preview = py
             .detach(|| {

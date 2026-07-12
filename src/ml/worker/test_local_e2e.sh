@@ -3,7 +3,7 @@ set -euo pipefail
 
 # End-to-end test of the production mode B path, entirely local and npm-free:
 #
-#   local workerd (real index.mjs)  --Ed25519 unlock_token-->  wheel verify
+#   local workerd (real index.mjs)  --Ed25519 full_token-->  wheel verify
 #
 # Requires: curl, jq, gzip, and maturin (from .venv-collect-wheels) + python3.
 # R2 writes are out of scope here (see run_local.sh); they are covered by the
@@ -31,28 +31,28 @@ WORKER_URL="http://127.0.0.1:$PORT"
 echo "[e2e] Running endpoint smoke checks (local, R2 paths skipped)..."
 THYLLORE_INGEST_TOKEN="$INGEST_TOKEN" bash "$WORKER_DIR/smoke.sh" --skip-r2 "$WORKER_URL"
 
-echo "[e2e] Obtaining an unlock token from the local worker..."
+echo "[e2e] Obtaining a full token from the local worker..."
 token="$(printf '' | gzip -c | curl -sS -X POST "$WORKER_URL/v1/feedback" \
     -H "Authorization: Bearer $INGEST_TOKEN" \
     -H "Content-Encoding: gzip" \
     -H "X-Schema-Version: curve_copilot_feedback/v0" \
-    --data-binary @- | jq -r '.unlock_token')"
+    --data-binary @- | jq -r '.full_token')"
 if [[ -z "$token" || "$token" == "null" ]]; then
-    echo "[e2e] FAIL: local worker did not return an unlock token" >&2
+    echo "[e2e] FAIL: local worker did not return a full token" >&2
     exit 1
 fi
 
-echo "[e2e] Verifying the worker-signed token unlocks ctx64 in the wheel..."
+echo "[e2e] Verifying the worker-signed token keeps ctx64 in the wheel..."
 "$LOCAL_DIR/venv/bin/python" - "$token" <<'PY'
 import sys
 import thyllore_ml_core as tml
 
 token = sys.argv[1]
-unlocked = tml.effective_context_length(token)
+full_ctx = tml.effective_context_length(token)
 degraded = tml.effective_context_length("garbage-token")
-assert unlocked == 64, f"expected ctx64 for worker token, got {unlocked}"
+assert full_ctx == 64, f"expected ctx64 for worker token, got {full_ctx}"
 assert degraded == 32, f"expected ctx32 for garbage token, got {degraded}"
-print(f"[e2e] PASS: worker token -> ctx{unlocked}, garbage -> ctx{degraded}")
+print(f"[e2e] PASS: worker token -> ctx{full_ctx}, garbage -> ctx{degraded}")
 PY
 
 echo "[e2e] All local same-path checks passed."

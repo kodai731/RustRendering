@@ -61,13 +61,13 @@ check "provision without admin token -> 401" 401 \
         -H "Content-Type: application/json" --data '{}')"
 check "provision (2 seats, active) -> 204" 204 "$(provision active)"
 
-token_d1="$(refresh smoke-device-1 | jq -r '.unlock_token')"
+token_d1="$(refresh smoke-device-1 | jq -r '.full_token')"
 check "device-1 seat -> token issued" "true" \
     "$([[ -n "$token_d1" && "$token_d1" != "null" ]] && echo true || echo false)"
-token_d1_again="$(refresh smoke-device-1 | jq -r '.unlock_token')"
+token_d1_again="$(refresh smoke-device-1 | jq -r '.full_token')"
 check "device-1 re-refresh -> token issued" "true" \
     "$([[ -n "$token_d1_again" && "$token_d1_again" != "null" ]] && echo true || echo false)"
-token_d2="$(refresh smoke-device-2 | jq -r '.unlock_token')"
+token_d2="$(refresh smoke-device-2 | jq -r '.full_token')"
 check "device-2 seat -> token issued" "true" \
     "$([[ -n "$token_d2" && "$token_d2" != "null" ]] && echo true || echo false)"
 check "device-3 (copied key) -> seat_exhausted" "seat_exhausted" \

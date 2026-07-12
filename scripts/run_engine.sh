@@ -31,12 +31,12 @@ Any other argument is passed to cargo run before "--", e.g.:
 full mode env file (gitignored) must define:
   THYLLORE_FEEDBACK_ENDPOINT=https://<worker>.workers.dev/v1/feedback
   THYLLORE_INGEST_TOKEN=<ingest token>
-  # Optional. Baked at compile time; required for the "ctx64 unlocked" log
-  # (verifies the unlock token returned by the worker):
-  THYLLORE_UNLOCK_PUBKEY_B64=<base64 of the 32 raw public key bytes>
+  # Optional. Baked at compile time; required for the "full ctx kept" log
+  # (verifies the full token returned by the worker):
+  THYLLORE_FULL_TOKEN_PUBKEY_B64=<base64 of the 32 raw public key bytes>
 
 On the first full run the file is generated automatically:
-  THYLLORE_UNLOCK_PUBKEY_B64   from secrets/public_key.b64 (gen_license_keypair.sh)
+  THYLLORE_FULL_TOKEN_PUBKEY_B64   from secrets/public_key.b64 (gen_license_keypair.sh)
   THYLLORE_FEEDBACK_ENDPOINT   from the Cloudflare API (test worker URL) when
                                CF_API_TOKEN and CF_ACCOUNT_ID are exported
   THYLLORE_INGEST_TOKEN        cannot be derived (write-only secret) — fill in
@@ -77,7 +77,7 @@ generate_full_env_file() {
 # it is write-only on Cloudflare and must be filled in here once by hand.
 THYLLORE_FEEDBACK_ENDPOINT=$endpoint
 THYLLORE_INGEST_TOKEN=
-THYLLORE_UNLOCK_PUBKEY_B64=$pubkey
+THYLLORE_FULL_TOKEN_PUBKEY_B64=$pubkey
 EOF
     chmod 600 "$ENV_FILE"
     echo "[run_engine] generated $ENV_FILE" >&2
@@ -85,7 +85,7 @@ EOF
         echo "[run_engine]   endpoint auto-filled: $endpoint" >&2
     fi
     if [[ -n "$pubkey" ]]; then
-        echo "[run_engine]   unlock pubkey auto-filled from $pubkey_file" >&2
+        echo "[run_engine]   full-token pubkey auto-filled from $pubkey_file" >&2
     fi
 }
 

@@ -7,14 +7,14 @@ pub const DEGRADED_CONTEXT_LENGTH: usize = 32;
 
 /// Full context is the base behaviour; without a valid token the gate
 /// degrades. The Ed25519 public key is baked in at compile time via
-/// `THYLLORE_UNLOCK_PUBKEY_B64`, so builds without it always degrade.
+/// `THYLLORE_FULL_TOKEN_PUBKEY_B64`, so builds without it always degrade.
 pub struct DegradeGate {
     verifying_key: Option<VerifyingKey>,
 }
 
 impl DegradeGate {
     pub fn from_build_env() -> Self {
-        const PUBKEY_B64: &str = match option_env!("THYLLORE_UNLOCK_PUBKEY_B64") {
+        const PUBKEY_B64: &str = match option_env!("THYLLORE_FULL_TOKEN_PUBKEY_B64") {
             Some(value) => value,
             None => "",
         };
@@ -115,7 +115,7 @@ mod tests {
     #[test]
     fn from_build_env_key_presence_matches_build_env() {
         let gate = DegradeGate::from_build_env();
-        match option_env!("THYLLORE_UNLOCK_PUBKEY_B64") {
+        match option_env!("THYLLORE_FULL_TOKEN_PUBKEY_B64") {
             Some(_) => assert!(gate.verifying_key.is_some()),
             None => assert!(gate.verifying_key.is_none()),
         }

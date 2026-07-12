@@ -96,7 +96,7 @@ jobs:
     env:
       THYLLORE_FEEDBACK_ENDPOINT: ${{ secrets.THYLLORE_FEEDBACK_ENDPOINT || 'https://feedback.example.invalid/v1/feedback' }}
       THYLLORE_INGEST_TOKEN: ${{ secrets.THYLLORE_INGEST_TOKEN || 'ci-dummy-ingest-token' }}
-      THYLLORE_UNLOCK_PUBKEY_B64: ${{ secrets.THYLLORE_UNLOCK_PUBKEY_B64 || 'ZHVtbXktcHVia2V5' }}
+      THYLLORE_FULL_TOKEN_PUBKEY_B64: ${{ secrets.THYLLORE_FULL_TOKEN_PUBKEY_B64 || 'ZHVtbXktcHVia2V5' }}
       THYLLORE_LICENSE_ENDPOINT: ${{ secrets.THYLLORE_LICENSE_ENDPOINT || 'https://license.example.invalid/v1/license/refresh' }}
 
     steps:
@@ -227,7 +227,7 @@ jobs:
     env:
       THYLLORE_FEEDBACK_ENDPOINT: https://feedback.example.invalid/v1/feedback
       THYLLORE_INGEST_TOKEN: ci-dummy-ingest-token
-      THYLLORE_UNLOCK_PUBKEY_B64: ZHVtbXktcHVia2V5
+      THYLLORE_FULL_TOKEN_PUBKEY_B64: ZHVtbXktcHVia2V5
       THYLLORE_LICENSE_ENDPOINT: https://license.example.invalid/v1/license/refresh
     steps:
       - uses: actions/checkout@v4

@@ -33,7 +33,7 @@ if (-not $PSBoundParameters.ContainsKey('OnnxSourcePath') -and $env:THYLLORE_CUR
 
 $FeedbackEndpoint = $env:THYLLORE_FEEDBACK_ENDPOINT
 $IngestToken = $env:THYLLORE_INGEST_TOKEN
-$UnlockPubkey = $env:THYLLORE_UNLOCK_PUBKEY_B64
+$FullTokenPubkey = $env:THYLLORE_FULL_TOKEN_PUBKEY_B64
 $LicenseEndpoint = $env:THYLLORE_LICENSE_ENDPOINT
 
 function Assert-BuildModeEnv([string]$Name, [string]$Value) {
@@ -47,11 +47,11 @@ Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
 
 switch ($BuildMode) {
     "B" {
-        Assert-BuildModeEnv "THYLLORE_UNLOCK_PUBKEY_B64" $UnlockPubkey
+        Assert-BuildModeEnv "THYLLORE_FULL_TOKEN_PUBKEY_B64" $FullTokenPubkey
     }
     "C" {
         Assert-BuildModeEnv "THYLLORE_LICENSE_ENDPOINT" $LicenseEndpoint
-        Assert-BuildModeEnv "THYLLORE_UNLOCK_PUBKEY_B64" $UnlockPubkey
+        Assert-BuildModeEnv "THYLLORE_FULL_TOKEN_PUBKEY_B64" $FullTokenPubkey
     }
 }
 
@@ -275,7 +275,7 @@ $BuildConfigLines = @("BUILD_MODE = `"$BuildMode`"")
 $BuildConfigLines += "FEEDBACK_ENDPOINT = `"$FeedbackEndpoint`""
 $BuildConfigLines += "INGEST_TOKEN = `"$IngestToken`""
 if ($BuildMode -eq "B" -or $BuildMode -eq "C") {
-    $BuildConfigLines += "UNLOCK_PUBKEY = `"$UnlockPubkey`""
+    $BuildConfigLines += "FULL_TOKEN_PUBKEY = `"$FullTokenPubkey`""
 }
 if ($BuildMode -eq "C") {
     $BuildConfigLines += "LICENSE_ENDPOINT = `"$LicenseEndpoint`""

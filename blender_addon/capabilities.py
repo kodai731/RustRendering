@@ -6,7 +6,7 @@ and is the single source of truth for the distribution mode. Everything
 mode-dependent (telemetry availability, license activation, free-text message
 channel) is derived here and nowhere else. The effective context length
 (32/64) is NOT decided here -- the ``thyllore_ml_core`` wheel decides it from
-the unlock token.
+the full token.
 
 Source-tree runs (no generated ``build_config.py``) behave like mode A with
 no endpoints: no telemetry, no license activation, no message channel.

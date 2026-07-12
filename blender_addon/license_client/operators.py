@@ -21,7 +21,7 @@ REFUSAL_MESSAGES = {
 class THYLLORE_OT_RefreshLicense(Operator):
     bl_idname = "thyllore.refresh_license"
     bl_label = "Activate License"
-    bl_description = "Verify the license key online and unlock ctx64 prediction"
+    bl_description = "Verify the license key online and enable ctx64 prediction"
     bl_options = {"INTERNAL"}
 
     def execute(self, context):
@@ -42,7 +42,7 @@ class THYLLORE_OT_RefreshLicense(Operator):
             self.report({"ERROR"}, REFUSAL_MESSAGES.get(reason, f"Activation failed ({reason})"))
             return {"CANCELLED"}
 
-        self.report({"INFO"}, "License activated: ctx64 prediction unlocked")
+        self.report({"INFO"}, "License activated: ctx64 prediction enabled")
         return {"FINISHED"}
 
 

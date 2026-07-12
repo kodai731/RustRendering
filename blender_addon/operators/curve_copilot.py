@@ -43,7 +43,7 @@ class _ForecastRun:
     scene_fps: float
     deploy_fps: float
     frame_step: float
-    unlock_token: str | None
+    full_token: str | None
     record_feedback: bool
     model_hash: str
 
@@ -51,10 +51,10 @@ class _ForecastRun:
 _MODEL_HASH_CACHE: dict[str, tuple[float, str]] = {}
 
 
-def _resolve_unlock_token() -> str | None:
-    from .. import _unlock
+def _resolve_full_token() -> str | None:
+    from .. import _full_token
 
-    return _unlock.resolve_unlock_token()
+    return _full_token.resolve_full_token()
 
 
 def _model_hash(model_path: str) -> str:
@@ -150,7 +150,7 @@ class THYLLORE_OT_CurveCopilot(Operator):
                 scene_fps=scene_fps,
                 deploy_fps=deploy_fps,
                 frame_step=frame_step,
-                unlock_token=_resolve_unlock_token(),
+                full_token=_resolve_full_token(),
                 record_feedback=record_feedback,
                 model_hash=_model_hash(model_path) if record_feedback else "",
             )
@@ -335,7 +335,7 @@ def _forecast_direct_ghost(fcurve, run: _ForecastRun, origin_frame: float):
     origin_value = float(fcurve.evaluate(origin_frame))
     ghost = run.session.build_forecast_preview(
         context, run.deploy_fps, float(origin_frame), origin_value, run.frame_step,
-        run.unlock_token,
+        run.full_token,
     )
 
     if run.record_feedback and telemetry is not None:
@@ -411,7 +411,7 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, run: _ForecastRun, origin_fr
                 float(origin_frame),
                 eulers[-1][axis],
                 run.frame_step,
-                run.unlock_token,
+                run.full_token,
             )
         )
 

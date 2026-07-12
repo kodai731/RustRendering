@@ -16,7 +16,7 @@ pub fn refresh_license<'py>(
     match result {
         Ok(session) => {
             dict.set_item("ok", true)?;
-            dict.set_item("unlock_token", session.unlock_token)?;
+            dict.set_item("full_token", session.full_token)?;
             dict.set_item("exp", session.exp)?;
         }
         Err(refusal) => {

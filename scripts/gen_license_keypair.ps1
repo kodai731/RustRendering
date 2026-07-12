@@ -63,9 +63,9 @@ Path(os.environ['THYLLORE_PUB_KEY_PATH']).write_bytes(pub_pem)
 Path(os.environ['THYLLORE_PUB_RAW_B64_PATH']).write_text(base64.b64encode(pub_raw).decode() + '\n')
 print('[gen_license_keypair] Generated:')
 print('  private (PEM):        ' + os.environ['THYLLORE_PRIV_KEY_PATH'] + '  (KEEP SECRET)')
-print('  private (PKCS8 b64):  ' + os.environ['THYLLORE_PRIV_PKCS8_B64_PATH'] + '  (KEEP SECRET, Worker secret UNLOCK_PRIVATE_KEY_PKCS8_B64)')
+print('  private (PKCS8 b64):  ' + os.environ['THYLLORE_PRIV_PKCS8_B64_PATH'] + '  (KEEP SECRET, Worker secret FULL_TOKEN_PRIVATE_KEY_PKCS8_B64)')
 print('  public  (PEM):        ' + os.environ['THYLLORE_PUB_KEY_PATH'])
-print('  public  (raw b64):    ' + os.environ['THYLLORE_PUB_RAW_B64_PATH'] + '  (THYLLORE_UNLOCK_PUBKEY_B64 for wheel/addon builds)')
+print('  public  (raw b64):    ' + os.environ['THYLLORE_PUB_RAW_B64_PATH'] + '  (THYLLORE_FULL_TOKEN_PUBKEY_B64 for wheel/addon builds)')
 "@
 
 & python -c $PythonScript

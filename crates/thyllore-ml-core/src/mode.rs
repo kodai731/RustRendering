@@ -9,8 +9,8 @@ use crate::degrade::DEGRADED_CONTEXT_LENGTH;
 /// | Mode    | Addon build          | Behaviour                     | Extra build env                                           |
 /// |---------|----------------------|-------------------------------|-----------------------------------------------------------|
 /// | Degrade | A (official repo)    | ctx32 fixed, no data sending  | (none)                                                    |
-/// | Full    | B (self-hosted repo) | ctx64, sends feedback records | `THYLLORE_UNLOCK_PUBKEY_B64`                              |
-/// | Private | C (Blender Market)   | ctx64 via license, no records | `THYLLORE_LICENSE_ENDPOINT`, `THYLLORE_UNLOCK_PUBKEY_B64` |
+/// | Full    | B (self-hosted repo) | ctx64, sends feedback records | `THYLLORE_FULL_TOKEN_PUBKEY_B64`                              |
+/// | Private | C (Blender Market)   | ctx64 via license, no records | `THYLLORE_LICENSE_ENDPOINT`, `THYLLORE_FULL_TOKEN_PUBKEY_B64` |
 ///
 /// Every build mode requires `THYLLORE_FEEDBACK_ENDPOINT` and
 /// `THYLLORE_INGEST_TOKEN` for the free-text message channel (`/v1/message`),

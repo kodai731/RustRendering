@@ -3,7 +3,7 @@
 The HTTPS transport (gzip JSONL, headers, endpoints) lives in the
 ``thyllore_ml_core`` wheel — the single source of truth shared with the
 engine. This module keeps only the bpy-dependent parts: the opt-in check,
-the anonymous client id and the cached Ed25519 ``unlock_token`` returned by
+the anonymous client id and the cached Ed25519 ``full_token`` returned by
 the Worker (the wheel re-verifies the token signature and expiry itself).
 """
 from __future__ import annotations
@@ -27,13 +27,13 @@ def anon_id() -> str:
     return state["anon_id"]
 
 
-def resolve_unlock_token() -> str | None:
-    return _store.resolve_unlock_token()
+def resolve_full_token() -> str | None:
+    return _store.resolve_full_token()
 
 
-def discard_unlock_token() -> None:
+def discard_full_token() -> None:
     """Opt-out immediately reverts to ctx32: drop the cached token."""
-    _store.discard_unlock_token()
+    _store.discard_full_token()
 
 
 def should_send(prefs) -> bool:
@@ -55,8 +55,8 @@ def send_feedback_batch(records: list[dict]) -> bool:
     except Exception:  # noqa: BLE001
         return False
 
-    token = payload.get("unlock_token")
+    token = payload.get("full_token")
     exp = payload.get("exp")
     if isinstance(token, str) and isinstance(exp, (int, float)):
-        _store.store_unlock_token(token, exp)
+        _store.store_full_token(token, exp)
     return True

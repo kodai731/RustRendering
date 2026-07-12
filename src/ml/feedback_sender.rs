@@ -111,7 +111,7 @@ fn run_sender_loop(endpoint: FeedbackEndpoint, receiver: mpsc::Receiver<Feedback
 }
 
 fn log_feedback_response(gate: &DegradeGate, response: &FeedbackResponse) {
-    match &response.unlock_token {
+    match &response.full_token {
         Some(token) if !gate.should_degrade(Some(token), now_unix()) => {
             log!(
                 "CurveCopilot feedback: record accepted, token verified (full ctx kept, exp={:?})",
@@ -122,7 +122,7 @@ fn log_feedback_response(gate: &DegradeGate, response: &FeedbackResponse) {
             "CurveCopilot feedback: token rejected by DegradeGate \
              (no baked pubkey, invalid signature, or expired)"
         ),
-        None => log_warn!("CurveCopilot feedback: response has no unlock_token"),
+        None => log_warn!("CurveCopilot feedback: response has no full_token"),
     }
 }
 

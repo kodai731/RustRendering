@@ -2,7 +2,7 @@
 
 Public surface used by the rest of the addon:
 - ``record_prediction`` / ``mark_all_cleared`` -- stage-1 collection
-- ``resolve_unlock_token`` / ``should_send`` -- gating helpers
+- ``resolve_full_token`` / ``should_send`` -- gating helpers
 - ``request_token_refresh`` -- opt-in handshake
 - ``register`` / ``unregister`` -- save handler lifecycle
 
@@ -22,7 +22,7 @@ from .records import (
     record_prediction,
     request_token_refresh,
 )
-from .sender import discard_unlock_token, resolve_unlock_token, should_send
+from .sender import discard_full_token, resolve_full_token, should_send
 
 
 @persistent

@@ -4,7 +4,7 @@
 #   REPO_ROOT, WORKER_DIR, LOCAL_DIR, PORT, INGEST_TOKEN, ADMIN_TOKEN
 #
 # One Ed25519 keypair is shared between both sides: the wheel is built with the
-# public key baked in, the local workerd signs unlock tokens with the private
+# public key baked in, the local workerd signs full tokens with the private
 # key — the exact chain production relies on.
 
 MATURIN="$REPO_ROOT/.venv-collect-wheels/bin/maturin"
@@ -58,7 +58,7 @@ e2e_build_and_install_wheel() {
     mkdir -p "$LOCAL_DIR/wheels"
     (
         cd "$REPO_ROOT/crates/thyllore-ml-core"
-        THYLLORE_UNLOCK_PUBKEY_B64="$pub_b64" \
+        THYLLORE_FULL_TOKEN_PUBKEY_B64="$pub_b64" \
             "$MATURIN" build --release --features python --out "$LOCAL_DIR/wheels" >/dev/null
     )
 
@@ -73,7 +73,7 @@ e2e_build_and_install_wheel() {
 
 e2e_start_worker() {
     echo "[e2e] Starting local workerd on port $PORT..."
-    UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE="$PRIV_PKCS8_FILE" \
+    FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE="$PRIV_PKCS8_FILE" \
         INGEST_TOKEN="$INGEST_TOKEN" ADMIN_TOKEN="$ADMIN_TOKEN" \
         bash "$WORKER_DIR/run_local.sh" --port "$PORT" >"$LOCAL_DIR/workerd.log" 2>&1 &
     E2E_WORKERD_PID=$!

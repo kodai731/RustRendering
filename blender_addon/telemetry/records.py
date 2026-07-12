@@ -170,7 +170,7 @@ def complete_and_flush(prefs) -> None:
 
 
 def request_token_refresh() -> None:
-    """Empty-batch handshake so ctx64 unlocks right after opt-in."""
+    """Empty-batch handshake so ctx64 is granted right after opt-in."""
     threading.Thread(
         target=sender.send_feedback_batch, args=([],), daemon=True
     ).start()

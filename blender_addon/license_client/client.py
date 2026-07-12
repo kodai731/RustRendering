@@ -11,12 +11,12 @@ from ..build_config import LICENSE_ENDPOINT
 _store = TokenStore("thyllore_curve_copilot_license.json")
 
 
-def resolve_unlock_token() -> str | None:
-    return _store.resolve_unlock_token()
+def resolve_full_token() -> str | None:
+    return _store.resolve_full_token()
 
 
-def discard_unlock_token() -> None:
-    _store.discard_unlock_token()
+def discard_full_token() -> None:
+    _store.discard_full_token()
 
 
 def refresh_license(license_key: str, device_id: str) -> tuple[bool, str]:
@@ -29,9 +29,9 @@ def refresh_license(license_key: str, device_id: str) -> tuple[bool, str]:
         return False, "network_error"
 
     if result.get("ok"):
-        _store.store_unlock_token(result["unlock_token"], result["exp"])
+        _store.store_full_token(result["full_token"], result["exp"])
         return True, ""
 
     if result.get("discard_cached_token"):
-        discard_unlock_token()
+        discard_full_token()
     return False, str(result.get("reason", "refused"))

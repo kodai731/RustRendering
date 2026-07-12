@@ -69,7 +69,7 @@ pub fn send_feedback_batch<'py>(
         .map_err(anyhow_to_pyerr)?;
 
     let payload = serde_json::json!({
-        "unlock_token": response.unlock_token,
+        "full_token": response.full_token,
         "exp": response.exp,
     });
     pythonize(py, &payload).map_err(pythonize_to_pyerr)

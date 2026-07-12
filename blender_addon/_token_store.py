@@ -1,4 +1,4 @@
-"""Cached unlock-token state shared by telemetry (mode B) and license_client
+"""Cached full-token state shared by telemetry (mode B) and license_client
 (mode C).
 
 One JSON file per channel under Blender's user CONFIG directory. The wheel
@@ -40,23 +40,23 @@ class TokenStore:
         except OSError:
             pass
 
-    def resolve_unlock_token(self) -> str | None:
-        """The cached unlock token if the server-issued expiry is still ahead."""
+    def resolve_full_token(self) -> str | None:
+        """The cached full token if the server-issued expiry is still ahead."""
         state = self.load()
-        token = state.get("unlock_token")
-        exp = state.get("unlock_exp", 0)
+        token = state.get("full_token")
+        exp = state.get("full_token_exp", 0)
         if not token or exp <= time.time():
             return None
         return token
 
-    def store_unlock_token(self, token: str, exp: float) -> None:
+    def store_full_token(self, token: str, exp: float) -> None:
         state = self.load()
-        state["unlock_token"] = token
-        state["unlock_exp"] = exp
+        state["full_token"] = token
+        state["full_token_exp"] = exp
         self.save(state)
 
-    def discard_unlock_token(self) -> None:
+    def discard_full_token(self) -> None:
         state = self.load()
-        state.pop("unlock_token", None)
-        state.pop("unlock_exp", None)
+        state.pop("full_token", None)
+        state.pop("full_token_exp", None)
         self.save(state)

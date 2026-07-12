@@ -3,14 +3,14 @@
  *
  * POST /v1/feedback  gzip JSONL batch of anonymized correction pairs.
  *                    Valid (even empty) batches receive a short-lived Ed25519
- *                    unlock_token so mode B clients keep ctx64 unlocked.
+ *                    full_token so mode B clients keep ctx64.
  * POST /v1/message   one free-text feedback message (separate storage prefix).
- * POST /v1/license/refresh    mode C: {license_key, device_id} -> unlock_token
+ * POST /v1/license/refresh    mode C: {license_key, device_id} -> full_token
  *                    while the LicenseSeats Durable Object grants a seat;
  *                    copied license keys exhaust seats and are refused (403).
  * POST /v1/license/provision  admin-only upsert of a license's max_seats/status.
  *
- * Secrets: INGEST_TOKEN, ADMIN_TOKEN, UNLOCK_PRIVATE_KEY_PKCS8_B64
+ * Secrets: INGEST_TOKEN, ADMIN_TOKEN, FULL_TOKEN_PRIVATE_KEY_PKCS8_B64
  * (see wrangler.toml). Hard rate limiting is expected from Cloudflare Rate
  * Limiting Rules in front of this Worker; handlers only enforce size and schema.
  */
@@ -99,8 +99,8 @@ async function handleLicenseRefresh(request, env) {
     return Response.json({ error: decision.reason }, { status: 403 });
   }
   const ttl = Number(env.TOKEN_TTL_SECONDS);
-  const { token, exp } = await signUnlockToken(env, ttl);
-  return Response.json({ unlock_token: token, exp });
+  const { token, exp } = await signFullToken(env, ttl);
+  return Response.json({ full_token: token, exp });
 }
 
 async function handleLicenseProvision(request, env) {
@@ -210,8 +210,8 @@ async function handleFeedback(request, env) {
   }
 
   const ttl = Number(env.TOKEN_TTL_SECONDS);
-  const { token, exp } = await signUnlockToken(env, ttl);
-  return Response.json({ unlock_token: token, exp });
+  const { token, exp } = await signFullToken(env, ttl);
+  return Response.json({ full_token: token, exp });
 }
 
 async function handleMessage(request, env) {
@@ -289,11 +289,11 @@ function feedbackObjectKey() {
   return `feedback/${day}/${FEEDBACK_SCHEMA.replaceAll("/", "_")}/${crypto.randomUUID()}.jsonl`;
 }
 
-async function signUnlockToken(env, ttlSeconds) {
+async function signFullToken(env, ttlSeconds) {
   const exp = Math.floor(Date.now() / 1000) + ttlSeconds;
   const payload = new TextEncoder().encode(JSON.stringify({ exp }));
 
-  const der = base64Decode(env.UNLOCK_PRIVATE_KEY_PKCS8_B64);
+  const der = base64Decode(env.FULL_TOKEN_PRIVATE_KEY_PKCS8_B64);
   const key = await crypto.subtle.importKey("pkcs8", der, { name: "Ed25519" }, false, ["sign"]);
   const signature = new Uint8Array(await crypto.subtle.sign({ name: "Ed25519" }, key, payload));
 

@@ -75,17 +75,17 @@ else
     check_status "POST /v1/message with token" 204 "$message_status"
 fi
 
-echo "[smoke] 3. Empty feedback batch returns an unlock token"
+echo "[smoke] 3. Empty feedback batch returns a full token"
 feedback_response="$(printf '' | gzip -c | curl -sS -X POST "$WORKER_URL/v1/feedback" \
     -H "Authorization: Bearer $THYLLORE_INGEST_TOKEN" \
     -H "Content-Encoding: gzip" \
     -H "X-Schema-Version: curve_copilot_feedback/v0" \
     --data-binary @-)"
-if jq -e 'has("unlock_token") and has("exp")' >/dev/null 2>&1 <<<"$feedback_response"; then
+if jq -e 'has("full_token") and has("exp")' >/dev/null 2>&1 <<<"$feedback_response"; then
     exp="$(jq -r '.exp' <<<"$feedback_response")"
-    echo "  PASS  POST /v1/feedback returns unlock_token (exp=$exp)"
+    echo "  PASS  POST /v1/feedback returns full_token (exp=$exp)"
 else
-    echo "  FAIL  POST /v1/feedback did not return an unlock token"
+    echo "  FAIL  POST /v1/feedback did not return a full token"
     echo "        response: $feedback_response"
     FAILURES=$((FAILURES + 1))
 fi

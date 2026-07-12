@@ -5,7 +5,7 @@ use crate::feedback::USER_AGENT;
 pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
 
 pub struct LicenseSession {
-    pub unlock_token: String,
+    pub full_token: String,
     pub exp: u64,
 }
 
@@ -60,9 +60,9 @@ pub fn refresh_license(
 }
 
 fn parse_session(payload: &serde_json::Value) -> Option<LicenseSession> {
-    let unlock_token = payload.get("unlock_token")?.as_str()?.to_string();
+    let full_token = payload.get("full_token")?.as_str()?.to_string();
     let exp = payload.get("exp")?.as_u64()?;
-    Some(LicenseSession { unlock_token, exp })
+    Some(LicenseSession { full_token, exp })
 }
 
 fn refusal_reason(response: ureq::Response) -> String {
@@ -84,14 +84,14 @@ mod tests {
 
     #[test]
     fn parse_session_requires_token_and_exp() {
-        let full = serde_json::json!({"unlock_token": "a.b", "exp": 123});
+        let full = serde_json::json!({"full_token": "a.b", "exp": 123});
         let session = parse_session(&full).expect("session");
-        assert_eq!(session.unlock_token, "a.b");
+        assert_eq!(session.full_token, "a.b");
         assert_eq!(session.exp, 123);
 
-        assert!(parse_session(&serde_json::json!({"unlock_token": "a.b"})).is_none());
+        assert!(parse_session(&serde_json::json!({"full_token": "a.b"})).is_none());
         assert!(parse_session(&serde_json::json!({"exp": 123})).is_none());
-        assert!(parse_session(&serde_json::json!({"unlock_token": 5, "exp": 123})).is_none());
+        assert!(parse_session(&serde_json::json!({"full_token": 5, "exp": 123})).is_none());
     }
 
     #[test]

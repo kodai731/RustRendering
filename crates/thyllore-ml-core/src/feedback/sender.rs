@@ -19,7 +19,7 @@ pub struct FeedbackEndpoint {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FeedbackResponse {
-    pub unlock_token: Option<String>,
+    pub full_token: Option<String>,
     pub exp: Option<u64>,
 }
 
@@ -32,7 +32,7 @@ pub fn message_endpoint_from_feedback(feedback_url: &str) -> String {
 
 /// POSTs one gzip JSONL batch to `/v1/feedback`. An empty batch is a valid
 /// token-refresh handshake. The caller decides what to do with the returned
-/// `unlock_token` (cache it, verify it with `DegradeGate`, or just log it).
+/// `full_token` (cache it, verify it with `DegradeGate`, or just log it).
 pub fn send_feedback_batch<T: Serialize>(
     endpoint: &FeedbackEndpoint,
     records: &[T],
@@ -65,8 +65,8 @@ pub fn send_feedback_batch<T: Serialize>(
         .into_json()
         .context("feedback response is not JSON")?;
     Ok(FeedbackResponse {
-        unlock_token: payload
-            .get("unlock_token")
+        full_token: payload
+            .get("full_token")
             .and_then(|value| value.as_str())
             .map(str::to_string),
         exp: payload.get("exp").and_then(|value| value.as_u64()),

@@ -13,7 +13,7 @@ this script runs inside Blender and asserts the boundary matrix from
 With ``--live-send`` (mode B builds pointed at the *test* Worker) it also
 exercises the real data path end to end: run the curve_copilot operator so a
 prediction is recorded, save the file to trigger the batch send, then assert
-the Worker's unlock token flips ``effective_ctx`` to 64 and ``/v1/message``
+the Worker's full token flips ``effective_ctx`` to 64 and ``/v1/message``
 accepts a free-text feedback message.
 
 With ``--live-license`` + ``--license-key`` (mode C builds pointed at the
@@ -128,9 +128,9 @@ def run_common_checks(addon_pkg: str, expect_mode: str) -> None:
     check("Discord invite hook present", hasattr(preferences, "DISCORD_INVITE_URL"))
 
     if expected["telemetry"]:
-        importlib.import_module(f"{addon_pkg}.telemetry").discard_unlock_token()
+        importlib.import_module(f"{addon_pkg}.telemetry").discard_full_token()
     if expected["license_client"]:
-        importlib.import_module(f"{addon_pkg}.license_client").discard_unlock_token()
+        importlib.import_module(f"{addon_pkg}.license_client").discard_full_token()
     ctx = effective_ctx(addon_pkg)
     check(
         "effective_ctx defaults to degraded",
@@ -180,13 +180,13 @@ def run_live_send_checks(addon_pkg: str, onnx_path: str) -> None:
 
     sent = wait_for(
         lambda: not records._outbox_path().exists()
-        and telemetry.resolve_unlock_token() is not None,
+        and telemetry.resolve_full_token() is not None,
         LIVE_SEND_TIMEOUT_SECONDS,
     )
-    check("feedback batch sent and unlock token cached", sent)
+    check("feedback batch sent and full token cached", sent)
 
     ctx = effective_ctx(addon_pkg)
-    check("effective_ctx unlocked to full", ctx == FULL_CTX, f"got {ctx}, expected {FULL_CTX}")
+    check("effective_ctx raised to full", ctx == FULL_CTX, f"got {ctx}, expected {FULL_CTX}")
 
     feedback_message = importlib.import_module(f"{addon_pkg}.feedback_message")
     check(
@@ -210,7 +210,7 @@ def run_live_license_checks(addon_pkg: str, license_key: str) -> None:
     status = bpy.ops.thyllore.refresh_license()
     check("license activation finished", "FINISHED" in status)
     ctx = effective_ctx(addon_pkg)
-    check("effective_ctx unlocked by license", ctx == FULL_CTX, f"got {ctx}")
+    check("effective_ctx raised by license", ctx == FULL_CTX, f"got {ctx}")
 
     status = bpy.ops.thyllore.refresh_license()
     check("registered device re-activates", "FINISHED" in status)

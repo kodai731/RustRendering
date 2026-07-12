@@ -28,12 +28,12 @@ MODE_ENV = {
     "A": {**MESSAGE_ENV},
     "B": {
         **MESSAGE_ENV,
-        "THYLLORE_UNLOCK_PUBKEY_B64": "ZHVtbXktcHVia2V5",
+        "THYLLORE_FULL_TOKEN_PUBKEY_B64": "ZHVtbXktcHVia2V5",
     },
     "C": {
         **MESSAGE_ENV,
         "THYLLORE_LICENSE_ENDPOINT": "https://example.invalid/v1/license/refresh",
-        "THYLLORE_UNLOCK_PUBKEY_B64": "ZHVtbXktcHVia2V5",
+        "THYLLORE_FULL_TOKEN_PUBKEY_B64": "ZHVtbXktcHVia2V5",
     },
 }
 
@@ -48,7 +48,7 @@ def _run_build(mode: str, extra_env: dict) -> subprocess.CompletedProcess:
     for key in (
         "THYLLORE_FEEDBACK_ENDPOINT",
         "THYLLORE_INGEST_TOKEN",
-        "THYLLORE_UNLOCK_PUBKEY_B64",
+        "THYLLORE_FULL_TOKEN_PUBKEY_B64",
         "THYLLORE_LICENSE_ENDPOINT",
     ):
         env.pop(key, None)
@@ -117,14 +117,14 @@ def test_telemetry_bundled_only_in_mode_b(built_zips, mode, telemetry_bundled):
     ("mode", "expected_keys"),
     [
         ("A", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN"}),
-        ("B", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN", "UNLOCK_PUBKEY"}),
+        ("B", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN", "FULL_TOKEN_PUBKEY"}),
         (
             "C",
             {
                 "BUILD_MODE",
                 "FEEDBACK_ENDPOINT",
                 "INGEST_TOKEN",
-                "UNLOCK_PUBKEY",
+                "FULL_TOKEN_PUBKEY",
                 "LICENSE_ENDPOINT",
             },
         ),

@@ -17,7 +17,7 @@ import bpy
 from bpy.props import BoolProperty, FloatProperty, IntProperty, StringProperty
 from bpy.types import AddonPreferences, Operator
 
-from . import _unlock
+from . import _full_token
 from .capabilities import CAPS
 
 try:
@@ -66,7 +66,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
 
     def _on_license_key_changed(self, context):
         if license_client is not None and not self.license_key.strip():
-            license_client.discard_unlock_token()
+            license_client.discard_full_token()
 
     license_key: StringProperty(  # type: ignore[valid-type]
         name="License Key",
@@ -107,7 +107,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
             if bpy.app.online_access:
                 telemetry.request_token_refresh()
         else:
-            telemetry.discard_unlock_token()
+            telemetry.discard_full_token()
 
     telemetry_opt_in: BoolProperty(  # type: ignore[valid-type]
         name="I consent to sending Curve Copilot feedback data",
@@ -184,7 +184,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
 
     def _draw_telemetry_box(self, layout):
         box = layout.box()
-        box.label(text="Curve Copilot Feedback (unlocks ctx64)", icon="EXPERIMENTAL")
+        box.label(text="Curve Copilot Feedback (enables ctx64)", icon="EXPERIMENTAL")
         box.prop(self, "telemetry_opt_in")
 
         col = box.column()
@@ -203,7 +203,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
 
     def _draw_license_box(self, layout):
         box = layout.box()
-        box.label(text="Curve Copilot License (unlocks ctx64)", icon="LOCKED")
+        box.label(text="Curve Copilot License (enables ctx64)", icon="LOCKED")
         box.prop(self, "license_key")
 
         row = box.row()
@@ -257,7 +257,7 @@ def _effective_context_length() -> int | None:
         return None
 
     try:
-        return int(tml.effective_context_length(_unlock.resolve_unlock_token()))
+        return int(tml.effective_context_length(_full_token.resolve_full_token()))
     except AttributeError:
         return None
 

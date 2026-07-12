@@ -13,8 +13,8 @@ set -euo pipefail
 #   THYLLORE_INGEST_TOKEN   shared bearer token baked into mode B addon builds
 #   THYLLORE_ADMIN_TOKEN    bearer token guarding /v1/license/provision
 #   Ed25519 private key (PKCS8 DER, base64), via EITHER:
-#     THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE   path to the b64 file
-#     THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64         the b64 value itself
+#     THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE   path to the b64 file
+#     THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64         the b64 value itself
 #   (scripts/gen_license_keypair.sh writes secrets/private_key_pkcs8.b64)
 
 WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -78,19 +78,19 @@ require_env THYLLORE_INGEST_TOKEN
 require_env THYLLORE_ADMIN_TOKEN
 
 resolve_private_key() {
-    if [[ -n "${THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE:-}" ]]; then
-        if [[ ! -f "$THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE" ]]; then
-            echo "private key file not found: $THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE" >&2
+    if [[ -n "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE:-}" ]]; then
+        if [[ ! -f "$THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE" ]]; then
+            echo "private key file not found: $THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE" >&2
             exit 2
         fi
-        tr -d '\r\n' <"$THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE"
+        tr -d '\r\n' <"$THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE"
         return
     fi
-    if [[ -n "${THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64:-}" ]]; then
-        printf '%s' "$THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64" | tr -d '\r\n'
+    if [[ -n "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64:-}" ]]; then
+        printf '%s' "$THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64" | tr -d '\r\n'
         return
     fi
-    echo "provide THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE or THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64" >&2
+    echo "provide THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE or THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64" >&2
     exit 2
 }
 
@@ -210,7 +210,7 @@ METADATA="$(jq -nc \
             + [
                 {type: "secret_text", name: "INGEST_TOKEN", text: $ingest},
                 {type: "secret_text", name: "ADMIN_TOKEN", text: $admin},
-                {type: "secret_text", name: "UNLOCK_PRIVATE_KEY_PKCS8_B64", text: $privkey}
+                {type: "secret_text", name: "FULL_TOKEN_PRIVATE_KEY_PKCS8_B64", text: $privkey}
             ]
         )
     }')"

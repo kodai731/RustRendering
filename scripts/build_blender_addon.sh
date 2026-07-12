@@ -111,7 +111,7 @@ esac
 
 FEEDBACK_ENDPOINT="${THYLLORE_FEEDBACK_ENDPOINT:-}"
 INGEST_TOKEN="${THYLLORE_INGEST_TOKEN:-}"
-UNLOCK_PUBKEY="${THYLLORE_UNLOCK_PUBKEY_B64:-}"
+FULL_TOKEN_PUBKEY="${THYLLORE_FULL_TOKEN_PUBKEY_B64:-}"
 LICENSE_ENDPOINT="${THYLLORE_LICENSE_ENDPOINT:-}"
 
 require_build_mode_env() {
@@ -127,11 +127,11 @@ require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
 
 case "$BUILD_MODE" in
     B)
-        require_build_mode_env THYLLORE_UNLOCK_PUBKEY_B64 "$UNLOCK_PUBKEY"
+        require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
         ;;
     C)
         require_build_mode_env THYLLORE_LICENSE_ENDPOINT "$LICENSE_ENDPOINT"
-        require_build_mode_env THYLLORE_UNLOCK_PUBKEY_B64 "$UNLOCK_PUBKEY"
+        require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
         ;;
 esac
 
@@ -363,7 +363,7 @@ BUILD_CONFIG_PATH="$STAGE_DIR/build_config.py"
     echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
     echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
     if [[ "$BUILD_MODE" == "B" || "$BUILD_MODE" == "C" ]]; then
-        echo "UNLOCK_PUBKEY = \"$UNLOCK_PUBKEY\""
+        echo "FULL_TOKEN_PUBKEY = \"$FULL_TOKEN_PUBKEY\""
     fi
     if [[ "$BUILD_MODE" == "C" ]]; then
         echo "LICENSE_ENDPOINT = \"$LICENSE_ENDPOINT\""

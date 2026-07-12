@@ -7,7 +7,7 @@ set -euo pipefail
 #   local workerd (real index.mjs + LicenseSeats DO)  --token-->  wheel verify
 #
 # Asserts the boundary-tests.md layer-5 matrix:
-#   - free seat / registered device_id -> unlock_token issued
+#   - free seat / registered device_id -> full_token issued
 #   - seat exhaustion (same license_key, extra device_id) -> refused, no token
 #   - revoked license -> refused
 #   - issued token -> wheel ctx64; no token / expired token -> ctx32
@@ -80,13 +80,13 @@ unknown_response="$(refresh_body '{"license_key":"never-provisioned","device_id"
 check "unknown license -> refused" "unknown_license" "$(jq -r '.error' <<<"$unknown_response")"
 
 echo "[seat-e2e] 4. Free seat and registered device get tokens"
-token_d1="$(refresh_body "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-1\"}" | jq -r '.unlock_token')"
+token_d1="$(refresh_body "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-1\"}" | jq -r '.full_token')"
 check "device-1 first seat -> token issued" "true" \
     "$([[ -n "$token_d1" && "$token_d1" != "null" ]] && echo true || echo false)"
-token_d1_again="$(refresh_body "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-1\"}" | jq -r '.unlock_token')"
+token_d1_again="$(refresh_body "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-1\"}" | jq -r '.full_token')"
 check "device-1 registered re-refresh -> token issued" "true" \
     "$([[ -n "$token_d1_again" && "$token_d1_again" != "null" ]] && echo true || echo false)"
-token_d2="$(refresh_body "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-2\"}" | jq -r '.unlock_token')"
+token_d2="$(refresh_body "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-2\"}" | jq -r '.full_token')"
 check "device-2 second seat -> token issued" "true" \
     "$([[ -n "$token_d2" && "$token_d2" != "null" ]] && echo true || echo false)"
 
@@ -94,7 +94,7 @@ echo "[seat-e2e] 5. Copied license key exhausts seats and is refused"
 copy_response="$(refresh_body "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-3-copy\"}")"
 check "device-3 (copy) -> refused" "seat_exhausted" "$(jq -r '.error' <<<"$copy_response")"
 check "device-3 (copy) -> no token in response" "false" \
-    "$(jq 'has("unlock_token")' <<<"$copy_response")"
+    "$(jq 'has("full_token")' <<<"$copy_response")"
 check "device-1 still refreshes after copy attempt" 200 \
     "$(refresh_status "{\"license_key\":\"$LICENSE_KEY\",\"device_id\":\"device-1\"}")"
 
@@ -124,7 +124,7 @@ import sys
 import thyllore_ml_core as tml
 
 seat_token, expired_token = sys.argv[1], sys.argv[2]
-assert tml.effective_context_length(seat_token) == 64, "seat token must unlock ctx64"
+assert tml.effective_context_length(seat_token) == 64, "seat token must keep ctx64"
 assert tml.effective_context_length(None) == 32, "no token must degrade to ctx32"
 assert tml.effective_context_length(expired_token) == 32, "expired token must degrade to ctx32"
 print("  PASS  seat token -> ctx64, no token -> ctx32, expired token -> ctx32")
@@ -142,7 +142,7 @@ endpoint, license_key = sys.argv[1], sys.argv[2]
 
 granted = tml.refresh_license(endpoint, license_key, "wheel-device-1")
 assert granted["ok"] is True, granted
-assert tml.effective_context_length(granted["unlock_token"]) == 64, granted
+assert tml.effective_context_length(granted["full_token"]) == 64, granted
 
 copied = tml.refresh_license(endpoint, license_key, "wheel-device-2-copy")
 assert copied["ok"] is False and copied["reason"] == "seat_exhausted", copied

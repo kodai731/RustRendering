@@ -22,7 +22,7 @@ const mainWorker :Workerd.Worker = (
   bindings = [
     (name = "INGEST_TOKEN", fromEnvironment = "INGEST_TOKEN"),
     (name = "ADMIN_TOKEN", fromEnvironment = "ADMIN_TOKEN"),
-    (name = "UNLOCK_PRIVATE_KEY_PKCS8_B64", fromEnvironment = "UNLOCK_PRIVATE_KEY_PKCS8_B64"),
+    (name = "FULL_TOKEN_PRIVATE_KEY_PKCS8_B64", fromEnvironment = "FULL_TOKEN_PRIVATE_KEY_PKCS8_B64"),
     (name = "TOKEN_TTL_SECONDS", text = "604800"),
     (name = "MAX_BODY_BYTES", text = "1048576"),
     (name = "MAX_MESSAGE_TEXT_BYTES", text = "4096"),
