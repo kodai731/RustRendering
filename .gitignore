@@ -83,8 +83,9 @@ blender_addon/operators/__pycache__/
 blender_addon/modal/__pycache__/
 blender_addon/panels/__pycache__/
 
-# Blender Scene
-blender/
+# Blender Scene (keep the docker harness tracked)
+blender/*
+!blender/docker/
 
 # build outputs
 release/
