@@ -1,8 +1,15 @@
-name: Blender Addon Release (GitHub Pages)
+name: Blender Addon Release
 
 on:
   workflow_dispatch:
     inputs:
+      build_mode:
+        description: "B: full (GitHub Pages deploy) / A: degraded (artifact for extensions.blender.org)"
+        type: choice
+        options:
+          - B
+          - A
+        default: B
       platform:
         description: "Target platform to build"
         type: choice
@@ -76,7 +83,7 @@ jobs:
           PY
 
   build:
-    name: Build release ZIP (${{ matrix.platform }} / mode B, prod)
+    name: Build release ZIP (${{ matrix.platform }} / mode ${{ inputs.build_mode }}, prod)
     needs: setup
     strategy:
       fail-fast: false
@@ -91,16 +98,17 @@ jobs:
         shell: pwsh
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          BUILD_MODE: ${{ inputs.build_mode }}
         run: |
-          $missing = @()
-          foreach ($name in @(
-              'THYLLORE_FEEDBACK_PROD_ENDPOINT',
-              'THYLLORE_INGEST_TOKEN',
-              'THYLLORE_FULL_TOKEN_PUBKEY_B64',
-              'HF_TOKEN'
-          )) {
-              if (-not [Environment]::GetEnvironmentVariable($name)) { $missing += $name }
+          $required = @('HF_TOKEN')
+          if ($env:BUILD_MODE -eq 'B') {
+              $required += @(
+                  'THYLLORE_FEEDBACK_PROD_ENDPOINT',
+                  'THYLLORE_INGEST_TOKEN',
+                  'THYLLORE_FULL_TOKEN_PUBKEY_B64'
+              )
           }
+          $missing = @($required | Where-Object { -not [Environment]::GetEnvironmentVariable($_) })
           if ($missing.Count -gt 0) {
               Write-Host "::error::Missing repository secrets required for release: $($missing -join ', ')"
               exit 1
@@ -162,39 +170,39 @@ jobs:
               -OutFile $dest -MaximumRetryCount 3 -RetryIntervalSec 2
           "path=$dest" >> $env:GITHUB_OUTPUT
 
-      - name: Build release ZIP (mode B, prod endpoint, production model)
+      - name: Build release ZIP (prod endpoint, production model)
         id: build
         shell: pwsh
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1 `
               -Platform ${{ matrix.platform }} `
               -Variant lite `
-              -BuildMode B `
+              -BuildMode ${{ inputs.build_mode }} `
               -EndpointEnv prod `
               -Version '${{ inputs.version }}' `
               -IncludeOnnxModel `
               -OnnxSourcePath '${{ steps.model.outputs.path }}' `
               -OnnxruntimeLib '${{ steps.ort.outputs.lib_path }}' `
-              -OutputDir dist/pages `
+              -OutputDir dist/release `
               -SkipBlenderValidate
 
       - name: Upload release ZIP artifact
         uses: actions/upload-artifact@v4
         with:
-          name: pages-zip-${{ matrix.platform }}
-          path: dist/pages/*.zip
+          name: release-zip-${{ matrix.platform }}
+          path: dist/release/*.zip
           retention-days: 7
           if-no-files-found: error
 
   publish:
-    name: Generate index.json and upload Pages artifact
+    name: Validate ZIPs (+ Pages index for mode B)
     needs: build
     runs-on: ubuntu-latest
     steps:
       - name: Download all release ZIPs
         uses: actions/download-artifact@v4
         with:
-          pattern: pages-zip-*
+          pattern: release-zip-*
           path: site
           merge-multiple: true
 
@@ -205,7 +213,7 @@ jobs:
           tar -xJf blender.tar.xz -C /opt/blender --strip-components=1
           /opt/blender/blender --version
 
-      - name: Validate ZIPs and generate index.json
+      - name: Validate ZIPs
         run: |
           set -euo pipefail
           for zip in site/*.zip; do
@@ -213,10 +221,16 @@ jobs:
               /opt/blender/blender --command extension validate "$zip"
               echo "::endgroup::"
           done
+
+      - name: Generate index.json (mode B)
+        if: inputs.build_mode == 'B'
+        run: |
+          set -euo pipefail
           /opt/blender/blender --command extension server-generate --repo-dir=site --html
           cat site/index.json
 
-      - name: Upload Pages artifact
+      - name: Upload Pages artifact (mode B)
+        if: inputs.build_mode == 'B'
         uses: actions/upload-pages-artifact@v3
         with:
           path: site
@@ -224,6 +238,7 @@ jobs:
   deploy:
     name: Deploy GitHub Pages
     needs: publish
+    if: inputs.build_mode == 'B'
     runs-on: ubuntu-latest
     permissions:
       pages: write
