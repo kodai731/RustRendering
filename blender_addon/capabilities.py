@@ -8,8 +8,10 @@ channel) is derived here and nowhere else. The effective context length
 (32/64) is NOT decided here -- the ``thyllore_ml_core`` wheel decides it from
 the full token.
 
-Source-tree runs (no generated ``build_config.py``) behave like mode A with
-no endpoints: no telemetry, no license activation, no message channel.
+Mode A (official repo) ships no network code at all: the build excludes
+``feedback_message.py`` and bakes no endpoints, so telemetry, license
+activation, and the message channel are all unavailable. Source-tree runs
+(no generated ``build_config.py``) behave the same way.
 """
 from __future__ import annotations
 
@@ -36,7 +38,9 @@ class Capabilities:
         self.mode = mode
         self.telemetry_available = mode is BuildMode.STATIC
         self.license_activation = mode is BuildMode.MARKET
-        self.message_available = bool(FEEDBACK_ENDPOINT and INGEST_TOKEN)
+        self.message_available = mode is not BuildMode.OFFICIAL and bool(
+            FEEDBACK_ENDPOINT and INGEST_TOKEN
+        )
 
     @classmethod
     def from_build(cls) -> "Capabilities":

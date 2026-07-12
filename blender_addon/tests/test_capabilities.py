@@ -56,8 +56,11 @@ def test_generated_build_config_overrides_default(monkeypatch):
         importlib.reload(capabilities_module)
 
 
-@pytest.mark.parametrize("mode", ["A", "B", "C"])
-def test_message_available_in_every_mode_with_endpoint(monkeypatch, mode):
+@pytest.mark.parametrize(
+    ("mode", "message_available"),
+    [("A", False), ("B", True), ("C", True)],
+)
+def test_message_available_only_outside_official_mode(monkeypatch, mode, message_available):
     build_config = types.ModuleType("blender_addon.build_config")
     build_config.BUILD_MODE = mode
     build_config.FEEDBACK_ENDPOINT = "https://example.invalid/v1/feedback"
@@ -65,7 +68,7 @@ def test_message_available_in_every_mode_with_endpoint(monkeypatch, mode):
     monkeypatch.setitem(sys.modules, "blender_addon.build_config", build_config)
     try:
         reloaded = importlib.reload(capabilities_module)
-        assert reloaded.CAPS.message_available is True
+        assert reloaded.CAPS.message_available is message_available
     finally:
         monkeypatch.delitem(sys.modules, "blender_addon.build_config", raising=False)
         importlib.reload(capabilities_module)

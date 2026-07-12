@@ -3,7 +3,8 @@
 Runs scripts/build_blender_addon.sh with --build-mode A/B/C and asserts the
 boundary matrix (boundary-tests.md): telemetry bundled only in B, secret keys
 present per mode (key presence only -- values are never asserted or logged),
-and every mode fails fast without the message-channel environment variables.
+mode A builds with no environment variables and ships no network code, and
+modes B/C fail fast without the message-channel environment variables.
 """
 from __future__ import annotations
 
@@ -25,7 +26,7 @@ MESSAGE_ENV = {
     "THYLLORE_INGEST_TOKEN": "dummy-ingest-token",
 }
 MODE_ENV = {
-    "A": {**MESSAGE_ENV},
+    "A": {},
     "B": {
         **MESSAGE_ENV,
         "THYLLORE_FULL_TOKEN_PUBKEY_B64": "ZHVtbXktcHVia2V5",
@@ -117,7 +118,7 @@ def test_telemetry_bundled_only_in_mode_b(built_zips, mode, telemetry_bundled):
 @pytest.mark.parametrize(
     ("mode", "expected_keys"),
     [
-        ("A", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN"}),
+        ("A", {"BUILD_MODE"}),
         ("B", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN", "FULL_TOKEN_PUBKEY"}),
         (
             "C",
@@ -146,13 +147,17 @@ def test_license_client_bundled_only_in_mode_c(built_zips, mode, license_client_
     assert has_license_client is license_client_bundled
 
 
-@pytest.mark.parametrize("mode", ["A", "B", "C"])
-def test_every_mode_fails_fast_without_message_env(mode):
+@pytest.mark.parametrize("mode", ["B", "C"])
+def test_network_modes_fail_fast_without_message_env(mode):
     result = _run_build(mode, {})
     assert result.returncode != 0
     assert "THYLLORE_FEEDBACK_ENDPOINT" in result.stderr
 
 
-def test_feedback_message_bundled_in_every_mode(built_zips):
-    for mode, zip_path in built_zips.items():
-        assert "feedback_message.py" in _zip_names(zip_path), f"missing in mode {mode}"
+@pytest.mark.parametrize(
+    ("mode", "feedback_message_bundled"),
+    [("A", False), ("B", True), ("C", True)],
+)
+def test_feedback_message_excluded_from_mode_a(built_zips, mode, feedback_message_bundled):
+    bundled = "feedback_message.py" in _zip_names(built_zips[mode])
+    assert bundled is feedback_message_bundled

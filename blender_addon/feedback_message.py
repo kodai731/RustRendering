@@ -1,7 +1,8 @@
-"""Free-text feedback to the developers (/v1/message), available in every
-build mode (A/B/C). Separate channel from the mode-B learning records: only
-the user-written text is sent, always via an explicit button press, and
-``bpy.app.online_access`` is respected. Transport lives in the
+"""Free-text feedback to the developers (/v1/message), shipped only in
+mode B/C builds -- mode A ZIPs exclude this module (no network permission
+declared for the official repo). Separate channel from the mode-B learning
+records: only the user-written text is sent, always via an explicit button
+press, and ``bpy.app.online_access`` is respected. Transport lives in the
 ``thyllore_ml_core`` wheel.
 """
 from __future__ import annotations

@@ -50,10 +50,17 @@ except ImportError:
 if _BPY_AVAILABLE:
     import os  # noqa: E402
 
-    from . import feedback_message  # noqa: E402
     from . import operators  # noqa: E402
     from . import panels  # noqa: E402
     from . import preferences  # noqa: E402
+
+    # The message channel ships only in mode B/C builds; A ZIPs exclude it.
+    try:
+        from . import feedback_message  # noqa: E402
+
+        _FEEDBACK_MESSAGE_AVAILABLE = True
+    except ImportError:
+        _FEEDBACK_MESSAGE_AVAILABLE = False
 
     # Telemetry ships only in mode B builds; A/C ZIPs exclude the package.
     try:
@@ -137,7 +144,8 @@ if _BPY_AVAILABLE:
         preferences.register()
         operators.register()
         panels.register()
-        feedback_message.register()
+        if _FEEDBACK_MESSAGE_AVAILABLE:
+            feedback_message.register()
         if _TELEMETRY_AVAILABLE:
             telemetry.register()
         if _LICENSE_CLIENT_AVAILABLE:
@@ -153,7 +161,7 @@ if _BPY_AVAILABLE:
             license_client.unregister()
         if _TELEMETRY_AVAILABLE and not _REGISTERED_ABI_FAILURE:
             telemetry.unregister()
-        if not _REGISTERED_ABI_FAILURE:
+        if _FEEDBACK_MESSAGE_AVAILABLE and not _REGISTERED_ABI_FAILURE:
             feedback_message.unregister()
         panels.unregister()
         if not _REGISTERED_ABI_FAILURE:

@@ -140,19 +140,26 @@ require_build_mode_env() {
     fi
 }
 
-require_build_mode_env "$FEEDBACK_ENDPOINT_VAR" "$FEEDBACK_ENDPOINT"
-require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
-echo "[build_blender_addon] Feedback endpoint (${ENDPOINT_ENV:-explicit}): $FEEDBACK_ENDPOINT"
-
 case "$BUILD_MODE" in
+    A)
+        FEEDBACK_ENDPOINT=""
+        INGEST_TOKEN=""
+        ;;
     B)
+        require_build_mode_env "$FEEDBACK_ENDPOINT_VAR" "$FEEDBACK_ENDPOINT"
+        require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
         require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
         ;;
     C)
+        require_build_mode_env "$FEEDBACK_ENDPOINT_VAR" "$FEEDBACK_ENDPOINT"
+        require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
         require_build_mode_env THYLLORE_LICENSE_ENDPOINT "$LICENSE_ENDPOINT"
         require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
         ;;
 esac
+if [[ "$BUILD_MODE" != "A" ]]; then
+    echo "[build_blender_addon] Feedback endpoint (${ENDPOINT_ENV:-explicit}): $FEEDBACK_ENDPOINT"
+fi
 
 echo "[build_blender_addon] Platform: $PLATFORM -> Blender: $BLENDER_NAME, variant: $VARIANT, build mode: $BUILD_MODE"
 
@@ -205,6 +212,10 @@ fi
 if [[ "$BUILD_MODE" != "C" && -e "$STAGE_DIR/license_client" ]]; then
     rm -rf "$STAGE_DIR/license_client"
     echo "[build_blender_addon] (mode $BUILD_MODE) excluded: license_client"
+fi
+if [[ "$BUILD_MODE" == "A" && -e "$STAGE_DIR/feedback_message.py" ]]; then
+    rm -f "$STAGE_DIR/feedback_message.py"
+    echo "[build_blender_addon] (mode $BUILD_MODE) excluded: feedback_message.py"
 fi
 
 WHEELS_DIR="$STAGE_DIR/wheels"
@@ -393,9 +404,9 @@ fi
 BUILD_CONFIG_PATH="$STAGE_DIR/build_config.py"
 {
     echo "BUILD_MODE = \"$BUILD_MODE\""
-    echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
-    echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
     if [[ "$BUILD_MODE" == "B" || "$BUILD_MODE" == "C" ]]; then
+        echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
+        echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
         echo "FULL_TOKEN_PUBKEY = \"$FULL_TOKEN_PUBKEY\""
     fi
     if [[ "$BUILD_MODE" == "C" ]]; then
