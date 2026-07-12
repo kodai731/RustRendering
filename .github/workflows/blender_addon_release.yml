@@ -187,18 +187,9 @@ jobs:
           if-no-files-found: error
 
   publish:
-    name: Generate index.json and deploy GitHub Pages
+    name: Generate index.json and upload Pages artifact
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      pages: write
-      id-token: write
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    concurrency:
-      group: github-pages
-      cancel-in-progress: false
     steps:
       - name: Download all release ZIPs
         uses: actions/download-artifact@v4
@@ -230,6 +221,20 @@ jobs:
         with:
           path: site
 
+  deploy:
+    name: Deploy GitHub Pages
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
