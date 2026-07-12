@@ -191,7 +191,9 @@ pub fn dispatch_text_to_animation_events(
                             prompt
                         );
                         drop(handle);
-                        let handle = world.get_resource::<GrpcThreadHandle>().unwrap();
+                        let Some(handle) = world.get_resource::<GrpcThreadHandle>() else {
+                            continue;
+                        };
                         let mut auto_rig_state = world.resource_mut::<AutoRigState>();
                         auto_rig_state.original_glb_backup = Some(glb_data.clone());
                         auto_rig_submit(&mut auto_rig_state, &*handle, glb_data, entity);
@@ -401,7 +403,7 @@ pub fn drain_grpc_responses(
 
             #[cfg(feature = "auto-rig")]
             GrpcResponse::MeshServerStatus { ready } => {
-                handle_mesh_server_status(world, ready);
+                handle_mesh_server_status(world, ServerReadiness::from_flag(ready));
             }
 
             #[cfg(feature = "auto-rig")]
@@ -424,7 +426,7 @@ pub fn drain_grpc_responses(
 
             #[cfg(feature = "auto-rig")]
             GrpcResponse::RiggingServerStatus { ready, .. } => {
-                handle_rigging_server_status(world, ready);
+                handle_rigging_server_status(world, ServerReadiness::from_flag(ready));
             }
 
             GrpcResponse::Error { message } => {
@@ -553,7 +555,25 @@ fn apply_mesh_response(
 }
 
 #[cfg(feature = "auto-rig")]
-fn handle_mesh_server_status(world: &mut crate::ecs::world::World, ready: bool) {
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ServerReadiness {
+    Ready,
+    NotReady,
+}
+
+#[cfg(feature = "auto-rig")]
+impl ServerReadiness {
+    fn from_flag(ready: bool) -> Self {
+        if ready {
+            Self::Ready
+        } else {
+            Self::NotReady
+        }
+    }
+}
+
+#[cfg(feature = "auto-rig")]
+fn handle_mesh_server_status(world: &mut crate::ecs::world::World, readiness: ServerReadiness) {
     use crate::ecs::resource::{TextToMeshState, TextToMeshStatus};
     use crate::grpc::GrpcThreadHandle;
 
@@ -562,17 +582,20 @@ fn handle_mesh_server_status(world: &mut crate::ecs::world::World, ready: bool) 
         return;
     }
 
-    if ready {
-        log!("TextToMesh: server ready, submitting pending request");
-        drop(state);
+    match readiness {
+        ServerReadiness::Ready => {
+            log!("TextToMesh: server ready, submitting pending request");
+            drop(state);
 
-        let handle = world.get_resource::<GrpcThreadHandle>();
-        let mut state = world.resource_mut::<TextToMeshState>();
-        if let Some(handle) = handle {
-            crate::ecs::systems::text_to_mesh_send_generate(&mut state, &*handle);
+            let handle = world.get_resource::<GrpcThreadHandle>();
+            let mut state = world.resource_mut::<TextToMeshState>();
+            if let Some(handle) = handle {
+                crate::ecs::systems::text_to_mesh_send_generate(&mut state, &*handle);
+            }
         }
-    } else {
-        state.last_status_check = Some(std::time::Instant::now());
+        ServerReadiness::NotReady => {
+            state.last_status_check = Some(std::time::Instant::now());
+        }
     }
 }
 
@@ -838,7 +861,7 @@ fn apply_rig_response(
 }
 
 #[cfg(feature = "auto-rig")]
-fn handle_rigging_server_status(world: &mut crate::ecs::world::World, ready: bool) {
+fn handle_rigging_server_status(world: &mut crate::ecs::world::World, readiness: ServerReadiness) {
     use crate::ecs::resource::{AutoRigState, AutoRigStatus};
     use crate::grpc::GrpcThreadHandle;
 
@@ -847,17 +870,20 @@ fn handle_rigging_server_status(world: &mut crate::ecs::world::World, ready: boo
         return;
     }
 
-    if ready {
-        log!("AutoRig: server ready, submitting rig request");
-        drop(state);
+    match readiness {
+        ServerReadiness::Ready => {
+            log!("AutoRig: server ready, submitting rig request");
+            drop(state);
 
-        let handle = world.get_resource::<GrpcThreadHandle>();
-        let mut state = world.resource_mut::<AutoRigState>();
-        if let Some(handle) = handle {
-            crate::ecs::systems::auto_rig_send_generate(&mut state, &*handle);
+            let handle = world.get_resource::<GrpcThreadHandle>();
+            let mut state = world.resource_mut::<AutoRigState>();
+            if let Some(handle) = handle {
+                crate::ecs::systems::auto_rig_send_generate(&mut state, &*handle);
+            }
         }
-    } else {
-        state.last_status_check = Some(std::time::Instant::now());
+        ServerReadiness::NotReady => {
+            state.last_status_check = Some(std::time::Instant::now());
+        }
     }
 }
 
