@@ -5,18 +5,21 @@ use crate::animation::editable::{
 use crate::animation::BoneId;
 use crate::ecs::resource::InferenceActorState;
 use crate::ml::{
-    build_engine_feedback_record, CurveCopilotMode, CurveSuggestionPendingDump,
-    CurveSuggestionState, FeedbackSenderHandle, GhostCurveSuggestion, InferenceActorId,
-    InferenceRequestKind, InferenceResultKind,
+    CurveCopilotMode, CurveSuggestionPendingDump, CurveSuggestionState, FeedbackSenderHandle,
+    GhostCurveSuggestion, InferenceActorId, InferenceRequestKind, InferenceResultKind,
 };
 use thyllore_ml_core::copilot::v2::dump::{
     dump_v2_curve_copilot_inference, V2CurveCopilotInferenceDump,
 };
 use thyllore_ml_core::copilot::v2::forecast;
-use thyllore_ml_core::copilot::v2::inference::CONTEXT_LENGTH;
-use thyllore_ml_core::unlock::degrade_context_window;
 
-use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
+use super::mode_systems::{
+    curve_copilot_capture_feedback_context, curve_copilot_degrade_context,
+    curve_copilot_send_feedback,
+};
+use crate::ecs::systems::inference_actor_systems::{
+    inference_actor_submit, inference_actor_take_results,
+};
 
 fn resolve_anchor_time(curve: &PropertyCurve, current_time: f32) -> Option<f32> {
     let times: Vec<f32> = curve.keyframes.iter().map(|kf| kf.time).collect();
@@ -82,10 +85,7 @@ pub fn curve_suggestion_submit(
     let dt = 1.0 / forecast::DEPLOY_FPS;
     let origin_value = sample_or_hold(curve, origin_time);
     let mut context = build_v2_curve_copilot_context(curve, origin_time, dt);
-
-    if mode.effective_context_length() < CONTEXT_LENGTH {
-        degrade_context_window(&mut context);
-    }
+    curve_copilot_degrade_context(mode, &mut context);
 
     log!(
         "CurveCopilot input: bone_id={} property={:?} origin={:.4} fps={:.1} forecast",
@@ -105,11 +105,7 @@ pub fn curve_suggestion_submit(
         None
     };
 
-    let feedback_context = if mode.sends_feedback() {
-        Some(context.clone())
-    } else {
-        None
-    };
+    let feedback_context = curve_copilot_capture_feedback_context(mode, &context);
 
     let kind = InferenceRequestKind::CurveCopilotPredict {
         context,
@@ -188,17 +184,12 @@ pub fn curve_suggestion_poll_results(
 
             let feedback_context = suggestion_state.pending_feedback_context.take();
             if let (Some(sender), Some(context)) = (feedback_sender, feedback_context) {
-                let record = build_engine_feedback_record(
-                    sender.model_hash(),
+                curve_copilot_send_feedback(
+                    sender,
                     property_type,
                     origin_value,
                     &context,
                     &mean_curve,
-                );
-                sender.send(record);
-                log!(
-                    "CurveCopilot feedback: record queued (channel={:?})",
-                    property_type
                 );
             }
 

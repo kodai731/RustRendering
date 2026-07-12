@@ -1,21 +1,18 @@
 use ed25519_dalek::VerifyingKey;
 
-use super::token::{parse_public_key_base64, verify_unlock_token};
+use super::token::{parse_public_key_base64, verify_token};
 use crate::copilot::v2::inference::CONTEXT_LENGTH;
 
 pub const DEGRADED_CONTEXT_LENGTH: usize = 32;
 
-/// Decides the effective context window from an unlock token.
-///
-/// The Ed25519 public key is baked in at compile time via
-/// `THYLLORE_UNLOCK_PUBKEY_B64` (base64 of the 32 raw key bytes). Without a
-/// baked-in key no token can unlock, so dev builds always degrade to
-/// [`DEGRADED_CONTEXT_LENGTH`].
-pub struct UnlockGate {
+/// Full context is the base behaviour; without a valid token the gate
+/// degrades. The Ed25519 public key is baked in at compile time via
+/// `THYLLORE_UNLOCK_PUBKEY_B64`, so builds without it always degrade.
+pub struct DegradeGate {
     verifying_key: Option<VerifyingKey>,
 }
 
-impl UnlockGate {
+impl DegradeGate {
     pub fn from_build_env() -> Self {
         const PUBKEY_B64: &str = match option_env!("THYLLORE_UNLOCK_PUBKEY_B64") {
             Some(value) => value,
@@ -38,17 +35,24 @@ impl UnlockGate {
         }
     }
 
-    pub fn effective_context_length(&self, unlock_token: Option<&str>, now_unix: u64) -> usize {
-        match (&self.verifying_key, unlock_token) {
-            (Some(key), Some(token)) if verify_unlock_token(token, key, now_unix) => CONTEXT_LENGTH,
-            _ => DEGRADED_CONTEXT_LENGTH,
+    pub fn should_degrade(&self, token: Option<&str>, now_unix: u64) -> bool {
+        match (&self.verifying_key, token) {
+            (Some(key), Some(token)) => !verify_token(token, key, now_unix),
+            _ => true,
+        }
+    }
+
+    pub fn effective_context_length(&self, token: Option<&str>, now_unix: u64) -> usize {
+        if self.should_degrade(token, now_unix) {
+            DEGRADED_CONTEXT_LENGTH
+        } else {
+            CONTEXT_LENGTH
         }
     }
 }
 
-/// Degrades a full context window in place: only the most recent
-/// [`DEGRADED_CONTEXT_LENGTH`] samples are kept, older samples are zero-padded
-/// so the input length stays [`CONTEXT_LENGTH`].
+/// Keeps only the most recent [`DEGRADED_CONTEXT_LENGTH`] samples; older
+/// samples are zero-padded so the input length stays [`CONTEXT_LENGTH`].
 pub fn degrade_context_window(context: &mut [f32]) {
     let keep_from = context.len().saturating_sub(DEGRADED_CONTEXT_LENGTH);
     for value in &mut context[..keep_from] {
@@ -66,17 +70,18 @@ pub fn now_unix() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::unlock::token::test_support::{signing_key, token_with_exp};
+    use crate::degrade::token::test_support::{signing_key, token_with_exp};
 
     const NOW: u64 = 1_752_200_000;
 
-    fn gate() -> UnlockGate {
-        UnlockGate::with_verifying_key(signing_key().verifying_key())
+    fn gate() -> DegradeGate {
+        DegradeGate::with_verifying_key(signing_key().verifying_key())
     }
 
     #[test]
-    fn valid_token_unlocks_full_context() {
+    fn valid_token_keeps_full_context() {
         let token = token_with_exp(&signing_key(), NOW + 3600);
+        assert!(!gate().should_degrade(Some(&token), NOW));
         assert_eq!(
             gate().effective_context_length(Some(&token), NOW),
             CONTEXT_LENGTH
@@ -86,6 +91,7 @@ mod tests {
     #[test]
     fn expired_token_degrades() {
         let token = token_with_exp(&signing_key(), NOW - 1);
+        assert!(gate().should_degrade(Some(&token), NOW));
         assert_eq!(
             gate().effective_context_length(Some(&token), NOW),
             DEGRADED_CONTEXT_LENGTH
@@ -94,6 +100,7 @@ mod tests {
 
     #[test]
     fn missing_token_degrades() {
+        assert!(gate().should_degrade(None, NOW));
         assert_eq!(
             gate().effective_context_length(None, NOW),
             DEGRADED_CONTEXT_LENGTH
@@ -102,15 +109,12 @@ mod tests {
 
     #[test]
     fn garbage_token_degrades() {
-        assert_eq!(
-            gate().effective_context_length(Some("garbage"), NOW),
-            DEGRADED_CONTEXT_LENGTH
-        );
+        assert!(gate().should_degrade(Some("garbage"), NOW));
     }
 
     #[test]
     fn from_build_env_key_presence_matches_build_env() {
-        let gate = UnlockGate::from_build_env();
+        let gate = DegradeGate::from_build_env();
         match option_env!("THYLLORE_UNLOCK_PUBKEY_B64") {
             Some(_) => assert!(gate.verifying_key.is_some()),
             None => assert!(gate.verifying_key.is_none()),
@@ -118,11 +122,12 @@ mod tests {
     }
 
     #[test]
-    fn gate_without_key_never_unlocks() {
-        let keyless = UnlockGate {
+    fn gate_without_key_always_degrades() {
+        let keyless = DegradeGate {
             verifying_key: None,
         };
         let token = token_with_exp(&signing_key(), NOW + 3600);
+        assert!(keyless.should_degrade(Some(&token), NOW));
         assert_eq!(
             keyless.effective_context_length(Some(&token), NOW),
             DEGRADED_CONTEXT_LENGTH

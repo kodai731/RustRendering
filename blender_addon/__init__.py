@@ -50,6 +50,7 @@ except ImportError:
 if _BPY_AVAILABLE:
     import os  # noqa: E402
 
+    from . import feedback_message  # noqa: E402
     from . import operators  # noqa: E402
     from . import panels  # noqa: E402
     from . import preferences  # noqa: E402
@@ -136,6 +137,7 @@ if _BPY_AVAILABLE:
         preferences.register()
         operators.register()
         panels.register()
+        feedback_message.register()
         if _TELEMETRY_AVAILABLE:
             telemetry.register()
         if _LICENSE_CLIENT_AVAILABLE:
@@ -151,6 +153,8 @@ if _BPY_AVAILABLE:
             license_client.unregister()
         if _TELEMETRY_AVAILABLE and not _REGISTERED_ABI_FAILURE:
             telemetry.unregister()
+        if not _REGISTERED_ABI_FAILURE:
+            feedback_message.unregister()
         panels.unregister()
         if not _REGISTERED_ABI_FAILURE:
             operators.unregister()

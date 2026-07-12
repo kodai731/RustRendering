@@ -4,20 +4,12 @@ param(
     [ValidateSet("win_amd64", "linux_x86_64", "macosx_arm64")]
     [string]$Platform,
 
-    # MVP "lite" Variant ships only Tier B (curve_copilot, and once the
-    # light_t2m PyO3 rewrite lands, text_to_motion). The "full" Variant adds
-    # the Tier A gRPC operators (auto_rig / text_to_mesh) and is intended for
-    # the Phase 6 SaaS-authenticated deployment.
+    # "lite" ships Tier B only; "full" adds the Tier A gRPC operators.
     [ValidateSet("lite", "full")]
     [string]$Variant = "lite",
 
-    # Distribution build mode (see the curve copilot data collection design):
-    # A: official repo, no telemetry, ctx32 fixed
-    # B: self-hosted static repo, telemetry opt-in (requires
-    #    THYLLORE_FEEDBACK_ENDPOINT, THYLLORE_INGEST_TOKEN,
-    #    THYLLORE_UNLOCK_PUBKEY_B64)
-    # C: Blender Market, online license activation (requires
-    #    THYLLORE_LICENSE_ENDPOINT, THYLLORE_UNLOCK_PUBKEY_B64)
+    # Distribution build mode; definition SSoT (modes, behaviour, required
+    # env vars): crates/thyllore-ml-core/src/mode.rs (CurveCopilotMode).
     [ValidateSet("A", "B", "C")]
     [string]$BuildMode = "A",
 
@@ -50,10 +42,11 @@ function Assert-BuildModeEnv([string]$Name, [string]$Value) {
     }
 }
 
+Assert-BuildModeEnv "THYLLORE_FEEDBACK_ENDPOINT" $FeedbackEndpoint
+Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
+
 switch ($BuildMode) {
     "B" {
-        Assert-BuildModeEnv "THYLLORE_FEEDBACK_ENDPOINT" $FeedbackEndpoint
-        Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
         Assert-BuildModeEnv "THYLLORE_UNLOCK_PUBKEY_B64" $UnlockPubkey
     }
     "C" {
@@ -66,19 +59,12 @@ $PlatformConfig = @{
     "win_amd64" = @{
         BlenderName  = "windows-x64"
         WheelSuffix  = "win_amd64"
-        # Multiple regex anchors: a wheel is accepted for Windows if any of
-        # these matches its filename. This tolerates wheels that come with
-        # several platform tags (grpcio dual-tag, maturin manylinux_2_34, ...).
         WheelMatchers = @("win_amd64\.whl$")
     }
     "linux_x86_64" = @{
         BlenderName  = "linux-x64"
         WheelSuffix  = "manylinux2014_x86_64"
-        # Accept any glibc-tagged x86_64 Linux wheel:
-        #   manylinux2014_x86_64.whl
-        #   manylinux_2_17_x86_64.manylinux2014_x86_64.whl (PEP 600 dual)
-        #   manylinux_2_34_x86_64.whl (maturin on Ubuntu 24)
-        #   linux_x86_64.whl (no manylinux tag — must be vetted manually)
+        # any glibc-tagged x86_64 Linux wheel (PEP 600 dual tags included)
         WheelMatchers = @(
             "manylinux2014_x86_64\.whl$",
             "manylinux_2_\d+_x86_64\.whl$",
@@ -88,10 +74,7 @@ $PlatformConfig = @{
     "macosx_arm64" = @{
         BlenderName  = "macos-arm64"
         WheelSuffix  = "macosx_11_0_arm64"
-        # macOS wheels may be arm64-only (cp* native) or universal2
-        # (single binary containing both arm64 and x86_64 slices).
-        # grpcio and protobuf publish universal2 wheels for cp310, so
-        # the arm64-only regex alone drops them and the build fails.
+        # universal2 included: grpcio/protobuf ship no arm64-only wheels
         WheelMatchers = @(
             "macosx_\d+_\d+_arm64\.whl$",
             "macosx_\d+_\d+_universal2\.whl$"
@@ -101,9 +84,7 @@ $PlatformConfig = @{
 
 Write-Host "[build_blender_addon] Platform: $Platform -> Blender: $($PlatformConfig.BlenderName), wheel: $($PlatformConfig.WheelSuffix), variant: $Variant, build mode: $BuildMode" -ForegroundColor Cyan
 
-# ---------------------------------------------------------------------------
-# 1. Stage directory (mirror blender_addon/ minus excluded paths)
-# ---------------------------------------------------------------------------
+# Stage directory (mirror blender_addon/ minus excluded paths)
 
 $StageDir = Join-Path $RepoRoot "build/blender_addon_stage_${Platform}_${Variant}_${BuildMode}"
 if (Test-Path $StageDir) { Remove-Item -Recurse -Force $StageDir }
@@ -111,9 +92,7 @@ New-Item -ItemType Directory -Path $StageDir -Force | Out-Null
 
 $Source = Join-Path $RepoRoot "blender_addon"
 
-# Tier A files excluded from the lite Variant ZIP. These stay in the source
-# tree so Phase 6 (full Variant restoration) does not need to revive them
-# from git history; the build script just leaves them out of the artifact.
+# Tier A files excluded from the lite Variant ZIP.
 $LiteExcludeRelPaths = @(
     "operators/auto_rig.py",
     "operators/text_to_mesh.py",
@@ -121,13 +100,10 @@ $LiteExcludeRelPaths = @(
     "grpc_client",
     "blender_manifest.toml"
 )
-# text_to_motion currently still routes through gRPC; exclude it from lite
-# until the PyO3 rewrite (phase5_5_onnx/Phase5_5_TextToMotionMlCore.md) ships.
+# still gRPC-based; excluded from lite until the PyO3 rewrite ships
 $LiteExcludeRelPaths += "operators/text_to_motion.py"
 
-# Use robocopy on Windows, cp -a on POSIX. We are running PowerShell on
-# Windows; if pwsh is invoked on Linux/macOS the path separators still work
-# via .NET and we fall back to copy-by-file.
+# robocopy on Windows, rsync/cp fallback on POSIX pwsh
 if ($IsWindows -or $env:OS -like "*Windows*") {
     $RoboArgs = @(
         $Source, $StageDir, "/MIR",
@@ -152,9 +128,7 @@ if ($IsWindows -or $env:OS -like "*Windows*") {
     }
 }
 
-# ---------------------------------------------------------------------------
-# 1b. Apply Variant-specific pruning (lite removes Tier A files)
-# ---------------------------------------------------------------------------
+# Apply Variant-specific pruning (lite removes Tier A files)
 
 if ($Variant -eq "lite") {
     foreach ($rel in $LiteExcludeRelPaths) {
@@ -165,8 +139,6 @@ if ($Variant -eq "lite") {
         }
     }
 } else {
-    # Full Variant uses the canonical manifest, so the lite copy is removed
-    # from the stage to avoid shipping a duplicate.
     $LiteManifestStage = Join-Path $StageDir "blender_manifest.lite.toml"
     if (Test-Path $LiteManifestStage) { Remove-Item -Force $LiteManifestStage }
 }
@@ -182,17 +154,14 @@ if ($BuildMode -ne "C" -and (Test-Path $LicenseClientStage)) {
     Write-Host "[build_blender_addon] (mode $BuildMode) excluded: license_client" -ForegroundColor DarkYellow
 }
 
-# ---------------------------------------------------------------------------
-# 2. Filter wheels/ down to platform-matching files (and Variant-allowed names)
-# ---------------------------------------------------------------------------
+# Filter wheels/ down to platform-matching files (and Variant-allowed names)
 
 $WheelsDir = Join-Path $StageDir "wheels"
 if (-not (Test-Path $WheelsDir)) {
     throw "Stage directory has no wheels/. Run scripts/collect_wheels.ps1 first."
 }
 
-# Tier B-only wheel families allowed in the lite Variant. Anything not
-# matching is dropped before platform filtering.
+# wheel families allowed in the lite Variant
 $LiteAllowedWheelPrefixes = @("thyllore_ml_core")
 
 $AllWheels = Get-ChildItem -Path $WheelsDir -Filter "*.whl"
@@ -230,8 +199,6 @@ foreach ($wheel in $AllWheels) {
     }
 }
 
-# Also remove HASHES.txt from the staged wheels/ since it is a development
-# artifact, not part of the extension.
 $StagedHashes = Join-Path $WheelsDir "HASHES.txt"
 if (Test-Path $StagedHashes) { Remove-Item -Force $StagedHashes }
 $StagedReadme = Join-Path $WheelsDir "README.md"
@@ -243,13 +210,9 @@ if ($KeptWheels.Count -lt $MinWheels) {
 }
 Write-Host "[build_blender_addon] Kept $($KeptWheels.Count) wheels for $Platform/$Variant" -ForegroundColor Cyan
 
-# ---------------------------------------------------------------------------
-# 3. Substitute placeholders in the Variant's manifest
-# ---------------------------------------------------------------------------
+# Substitute placeholders in the Variant's manifest
 
-# The lite Variant uses blender_manifest.lite.toml (id = thyllore_animation_lite),
-# the full Variant uses the canonical blender_manifest.toml. The non-active
-# manifest copy is removed from the stage so the ZIP carries exactly one.
+# the ZIP carries exactly one manifest: lite renames its own to canonical
 $CanonicalManifestStage = Join-Path $StageDir "blender_manifest.toml"
 $LiteManifestStage = Join-Path $StageDir "blender_manifest.lite.toml"
 
@@ -268,13 +231,11 @@ $ManifestContent = $ManifestContent -replace 'PLATFORM_BLENDER_NAME', $PlatformC
 $WheelLines = ($KeptWheels | ForEach-Object { "    `"./wheels/$_`"," }) -join "`n"
 $ManifestContent = $ManifestContent -replace '(?ms)wheels = \[.*?\]', "wheels = [`n$WheelLines`n]"
 
-# Use UTF-8 *without BOM* so Blender's TOML parser does not choke on a leading byte order mark.
+# UTF-8 without BOM: Blender's TOML parser rejects a BOM
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($ManifestPath, $ManifestContent, $Utf8NoBom)
 
-# ---------------------------------------------------------------------------
-# 4. ABI marker handshake — wheel ml-api ABI_MARKER must match addon EXPECTED_ABI_MARKER
-# ---------------------------------------------------------------------------
+# ABI marker handshake — wheel ml-api ABI_MARKER must match addon EXPECTED_ABI_MARKER
 
 $ExpectedAbi = & python -c "import re, pathlib; m = re.search(r'EXPECTED_ABI_MARKER\s*[:=]\s*int\s*=\s*(\d+)', pathlib.Path(r'$RepoRoot/blender_addon/__init__.py').read_text(encoding='utf-8')); print(m.group(1) if m else 'MISSING')"
 if ($ExpectedAbi -eq "MISSING") {
@@ -291,9 +252,7 @@ if ($ExpectedAbi.Trim() -ne $ApiMarker.Trim()) {
 }
 Write-Host "[build_blender_addon] ABI marker verified: $ApiMarker" -ForegroundColor Green
 
-# ---------------------------------------------------------------------------
-# 5. Optional: include the Tier B onnx model
-# ---------------------------------------------------------------------------
+# Optional: include the Tier B onnx model
 
 if ($IncludeOnnxModel) {
     $OnnxAbs = if ([System.IO.Path]::IsPathRooted($OnnxSourcePath)) {
@@ -310,15 +269,11 @@ if ($IncludeOnnxModel) {
     Write-Host "[build_blender_addon] Bundled ONNX model from $OnnxSourcePath" -ForegroundColor Cyan
 }
 
-# ---------------------------------------------------------------------------
-# 5b. Generate build_config.py (BUILD_MODE single source of truth)
-# ---------------------------------------------------------------------------
+# Generate build_config.py (BUILD_MODE single source of truth)
 
 $BuildConfigLines = @("BUILD_MODE = `"$BuildMode`"")
-if ($BuildMode -eq "B") {
-    $BuildConfigLines += "FEEDBACK_ENDPOINT = `"$FeedbackEndpoint`""
-    $BuildConfigLines += "INGEST_TOKEN = `"$IngestToken`""
-}
+$BuildConfigLines += "FEEDBACK_ENDPOINT = `"$FeedbackEndpoint`""
+$BuildConfigLines += "INGEST_TOKEN = `"$IngestToken`""
 if ($BuildMode -eq "B" -or $BuildMode -eq "C") {
     $BuildConfigLines += "UNLOCK_PUBKEY = `"$UnlockPubkey`""
 }
@@ -333,9 +288,7 @@ $Utf8NoBomConfig = New-Object System.Text.UTF8Encoding($false)
 )
 Write-Host "[build_blender_addon] Generated build_config.py (mode $BuildMode)" -ForegroundColor Cyan
 
-# ---------------------------------------------------------------------------
-# 6. Optional: validate via Blender CLI
-# ---------------------------------------------------------------------------
+# Optional: validate via Blender CLI
 
 if (-not $SkipBlenderValidate) {
     $BlenderExe = $null
@@ -359,9 +312,7 @@ if (-not $SkipBlenderValidate) {
     }
 }
 
-# ---------------------------------------------------------------------------
-# 7. Create ZIP
-# ---------------------------------------------------------------------------
+# Create ZIP
 
 $AbsOutDir = Join-Path $RepoRoot $OutputDir
 New-Item -ItemType Directory -Path $AbsOutDir -Force | Out-Null
@@ -377,10 +328,8 @@ if ($BuildMode -ne "A") {
 $ZipPath = Join-Path $AbsOutDir "$ZipBaseName-$Version-$Platform.zip"
 if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
 
-# Compress-Archive on Windows PowerShell 5.1 (.NET Framework) emits ZIP entry
-# names with backslash separators, which Linux/macOS unzip treats as flat
-# filenames -- breaking the addon's package layout. Build the ZIP manually so
-# every entry name uses forward slashes, regardless of the host filename.
+# manual ZIP: Compress-Archive on PowerShell 5.1 emits backslash entry
+# names, which Linux/macOS unzip treats as flat filenames
 Add-Type -AssemblyName "System.IO.Compression"
 Add-Type -AssemblyName "System.IO.Compression.FileSystem"
 $AbsStageDir = (Resolve-Path $StageDir).Path
@@ -399,9 +348,7 @@ finally {
     $Zip.Dispose()
 }
 
-# ---------------------------------------------------------------------------
-# 8. Report
-# ---------------------------------------------------------------------------
+# Report
 
 $Hash = (Get-FileHash -Path $ZipPath -Algorithm SHA256).Hash.ToLower()
 $SizeMb = [math]::Round((Get-Item $ZipPath).Length / 1MB, 2)

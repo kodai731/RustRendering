@@ -2,7 +2,7 @@ use anyhow::Result;
 use cgmath::Vector3;
 
 #[cfg(feature = "ml")]
-use super::curve_suggestion_systems::curve_suggestion_poll_results;
+use super::curve_copilot::curve_suggestion_poll_results;
 #[cfg(feature = "ml")]
 use super::inference_actor_systems::{inference_actor_initialize, inference_actor_poll};
 use super::object_picking_systems::apply_mesh_selection;

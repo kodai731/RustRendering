@@ -18,6 +18,7 @@ from blender_addon.capabilities import BuildMode, Capabilities
 def test_source_tree_defaults_to_official_mode():
     assert capabilities_module.BUILD_MODE == "A"
     assert capabilities_module.CAPS.mode is BuildMode.OFFICIAL
+    assert capabilities_module.CAPS.message_available is False
 
 
 @pytest.mark.parametrize(
@@ -42,11 +43,29 @@ def test_invalid_build_mode_is_rejected():
 def test_generated_build_config_overrides_default(monkeypatch):
     build_config = types.ModuleType("blender_addon.build_config")
     build_config.BUILD_MODE = "B"
+    build_config.FEEDBACK_ENDPOINT = "https://example.invalid/v1/feedback"
+    build_config.INGEST_TOKEN = "dummy-ingest-token"
     monkeypatch.setitem(sys.modules, "blender_addon.build_config", build_config)
     try:
         reloaded = importlib.reload(capabilities_module)
         assert reloaded.BUILD_MODE == "B"
         assert reloaded.CAPS.telemetry_available is True
+        assert reloaded.CAPS.message_available is True
+    finally:
+        monkeypatch.delitem(sys.modules, "blender_addon.build_config", raising=False)
+        importlib.reload(capabilities_module)
+
+
+@pytest.mark.parametrize("mode", ["A", "B", "C"])
+def test_message_available_in_every_mode_with_endpoint(monkeypatch, mode):
+    build_config = types.ModuleType("blender_addon.build_config")
+    build_config.BUILD_MODE = mode
+    build_config.FEEDBACK_ENDPOINT = "https://example.invalid/v1/feedback"
+    build_config.INGEST_TOKEN = "dummy-ingest-token"
+    monkeypatch.setitem(sys.modules, "blender_addon.build_config", build_config)
+    try:
+        reloaded = importlib.reload(capabilities_module)
+        assert reloaded.CAPS.message_available is True
     finally:
         monkeypatch.delitem(sys.modules, "blender_addon.build_config", raising=False)
         importlib.reload(capabilities_module)

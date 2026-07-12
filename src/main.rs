@@ -20,7 +20,8 @@ fn main() -> Result<()> {
     cleanup_old_screenshots()?;
 
     #[cfg(feature = "ml")]
-    let curve_copilot_mode = thyllore_animation::ml::resolve_curve_copilot_mode_from_env_args()?;
+    let curve_copilot_mode =
+        thyllore_animation::ecs::systems::curve_copilot_mode_resolve_from_env_args()?;
 
     let window_title = format!("Thyllore Animation v{}", env!("CARGO_PKG_VERSION"));
     let mut system = platform::init(&window_title);

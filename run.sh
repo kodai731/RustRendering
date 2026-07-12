@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # Single entry point for every launch flavour. The actual run scripts live in
-# scripts/ (and worker/); this file only dispatches.
+# scripts/ (and src/ml/worker/); this file only dispatches.
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FULL_ENV_FILE="$REPO_ROOT/.config/curve_copilot_full.env"
@@ -25,7 +25,7 @@ Commands:
   auto [args...]
       Launch the Claude auto-mode container (scripts/run_auto_mode.sh).
   worker-smoke [worker-url] [args...]
-      Smoke-test the deployed feedback worker (worker/smoke.sh). Sources the
+      Smoke-test the deployed feedback worker (src/ml/worker/smoke.sh). Sources the
       full-mode env file; WORKER_URL is derived from
       THYLLORE_FEEDBACK_ENDPOINT when not given.
   help
@@ -56,7 +56,7 @@ case "$command" in
         if [[ -z "${WORKER_URL:-}" && -n "${THYLLORE_FEEDBACK_ENDPOINT:-}" ]]; then
             export WORKER_URL="${THYLLORE_FEEDBACK_ENDPOINT%/v1/feedback}"
         fi
-        exec bash "$REPO_ROOT/worker/smoke.sh" "$@"
+        exec bash "$REPO_ROOT/src/ml/worker/smoke.sh" "$@"
         ;;
     help|-h|--help)
         usage

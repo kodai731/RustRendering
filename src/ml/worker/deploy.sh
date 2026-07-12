@@ -29,7 +29,7 @@ usage() {
     cat <<EOF
 Usage: $0 [options]
 
-Deploys worker/src/index.mjs to Cloudflare via the REST API (curl only).
+Deploys src/ml/worker/src/index.mjs to Cloudflare via the REST API (curl only).
 
 Options:
   --env prod|test  Target environment (default: prod). "test" appends a "-test"

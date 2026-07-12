@@ -10,7 +10,7 @@ pub fn parse_public_key_base64(encoded: &str) -> Option<VerifyingKey> {
 
 /// Token format: `base64url(payload_json).base64url(ed25519_signature)`,
 /// payload is `{"exp": <unix seconds>}` signed over the raw payload bytes.
-pub fn verify_unlock_token(token: &str, key: &VerifyingKey, now_unix: u64) -> bool {
+pub fn verify_token(token: &str, key: &VerifyingKey, now_unix: u64) -> bool {
     let Some((payload_b64, signature_b64)) = token.split_once('.') else {
         return false;
     };
@@ -74,21 +74,21 @@ mod tests {
     fn valid_future_token_verifies() {
         let key = signing_key();
         let token = token_with_exp(&key, NOW + 3600);
-        assert!(verify_unlock_token(&token, &key.verifying_key(), NOW));
+        assert!(verify_token(&token, &key.verifying_key(), NOW));
     }
 
     #[test]
     fn expired_token_is_rejected() {
         let key = signing_key();
         let token = token_with_exp(&key, NOW - 1);
-        assert!(!verify_unlock_token(&token, &key.verifying_key(), NOW));
+        assert!(!verify_token(&token, &key.verifying_key(), NOW));
     }
 
     #[test]
     fn exp_equal_to_now_is_rejected() {
         let key = signing_key();
         let token = token_with_exp(&key, NOW);
-        assert!(!verify_unlock_token(&token, &key.verifying_key(), NOW));
+        assert!(!verify_token(&token, &key.verifying_key(), NOW));
     }
 
     #[test]
@@ -96,7 +96,7 @@ mod tests {
         let key = signing_key();
         let other = SigningKey::from_bytes(&[9u8; 32]);
         let token = token_with_exp(&other, NOW + 3600);
-        assert!(!verify_unlock_token(&token, &key.verifying_key(), NOW));
+        assert!(!verify_token(&token, &key.verifying_key(), NOW));
     }
 
     #[test]
@@ -106,14 +106,14 @@ mod tests {
         let (_, signature) = token.split_once('.').unwrap();
         let forged_payload = URL_SAFE_NO_PAD.encode(format!("{{\"exp\":{}}}", NOW + 999_999));
         let forged = format!("{forged_payload}.{signature}");
-        assert!(!verify_unlock_token(&forged, &key.verifying_key(), NOW));
+        assert!(!verify_token(&forged, &key.verifying_key(), NOW));
     }
 
     #[test]
     fn payload_without_exp_is_rejected() {
         let key = signing_key();
         let token = sign_token(&key, "{\"mode\":\"B\"}");
-        assert!(!verify_unlock_token(&token, &key.verifying_key(), NOW));
+        assert!(!verify_token(&token, &key.verifying_key(), NOW));
     }
 
     #[test]
@@ -122,7 +122,7 @@ mod tests {
         let verifying = key.verifying_key();
         for token in ["", "no-dot", "a.b", "!!.!!", "eyJleHAiOjF9."] {
             assert!(
-                !verify_unlock_token(token, &verifying, NOW),
+                !verify_token(token, &verifying, NOW),
                 "token {token:?} must not verify"
             );
         }

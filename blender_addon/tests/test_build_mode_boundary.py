@@ -3,7 +3,7 @@
 Runs scripts/build_blender_addon.sh with --build-mode A/B/C and asserts the
 boundary matrix (boundary-tests.md): telemetry bundled only in B, secret keys
 present per mode (key presence only -- values are never asserted or logged),
-and B fails fast without its environment variables.
+and every mode fails fast without the message-channel environment variables.
 """
 from __future__ import annotations
 
@@ -20,14 +20,18 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILD_SCRIPT = REPO_ROOT / "scripts" / "build_blender_addon.sh"
 OUTPUT_REL_DIR = "build/test_dist_build_mode_boundary"
 
+MESSAGE_ENV = {
+    "THYLLORE_FEEDBACK_ENDPOINT": "https://example.invalid/v1/feedback",
+    "THYLLORE_INGEST_TOKEN": "dummy-ingest-token",
+}
 MODE_ENV = {
-    "A": {},
+    "A": {**MESSAGE_ENV},
     "B": {
-        "THYLLORE_FEEDBACK_ENDPOINT": "https://example.invalid/v1/feedback",
-        "THYLLORE_INGEST_TOKEN": "dummy-ingest-token",
+        **MESSAGE_ENV,
         "THYLLORE_UNLOCK_PUBKEY_B64": "ZHVtbXktcHVia2V5",
     },
     "C": {
+        **MESSAGE_ENV,
         "THYLLORE_LICENSE_ENDPOINT": "https://example.invalid/v1/license/refresh",
         "THYLLORE_UNLOCK_PUBKEY_B64": "ZHVtbXktcHVia2V5",
     },
@@ -112,9 +116,18 @@ def test_telemetry_bundled_only_in_mode_b(built_zips, mode, telemetry_bundled):
 @pytest.mark.parametrize(
     ("mode", "expected_keys"),
     [
-        ("A", {"BUILD_MODE"}),
+        ("A", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN"}),
         ("B", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN", "UNLOCK_PUBKEY"}),
-        ("C", {"BUILD_MODE", "UNLOCK_PUBKEY", "LICENSE_ENDPOINT"}),
+        (
+            "C",
+            {
+                "BUILD_MODE",
+                "FEEDBACK_ENDPOINT",
+                "INGEST_TOKEN",
+                "UNLOCK_PUBKEY",
+                "LICENSE_ENDPOINT",
+            },
+        ),
     ],
 )
 def test_build_config_has_exactly_the_mode_fields(built_zips, mode, expected_keys):
@@ -132,7 +145,13 @@ def test_license_client_bundled_only_in_mode_c(built_zips, mode, license_client_
     assert has_license_client is license_client_bundled
 
 
-def test_mode_b_fails_fast_without_required_env():
-    result = _run_build("B", {})
+@pytest.mark.parametrize("mode", ["A", "B", "C"])
+def test_every_mode_fails_fast_without_message_env(mode):
+    result = _run_build(mode, {})
     assert result.returncode != 0
     assert "THYLLORE_FEEDBACK_ENDPOINT" in result.stderr
+
+
+def test_feedback_message_bundled_in_every_mode(built_zips):
+    for mode, zip_path in built_zips.items():
+        assert "feedback_message.py" in _zip_names(zip_path), f"missing in mode {mode}"

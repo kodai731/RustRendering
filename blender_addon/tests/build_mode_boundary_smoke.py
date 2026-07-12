@@ -5,9 +5,10 @@ this script runs inside Blender and asserts the boundary matrix from
 ``boundary-tests.md`` against the *installed* addon:
 
 - common: addon enables, ``build_config.BUILD_MODE`` matches, Discord hook
-  present, ``effective_ctx`` defaults to 32 (wheel-decided, no cached token)
-- A/C: ``thyllore.send_feedback`` is NOT registered, telemetry not importable
-- B: send operator registered, ``should_send`` follows opt-in x online access
+  present, ``thyllore.send_feedback`` registered in every mode,
+  ``effective_ctx`` defaults to 32 (wheel-decided, no cached token)
+- A/C: telemetry not importable
+- B: telemetry bundled, ``should_send`` follows opt-in x online access
 
 With ``--live-send`` (mode B builds pointed at the *test* Worker) it also
 exercises the real data path end to end: run the curve_copilot operator so a
@@ -41,9 +42,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import curve_copilot_operator_smoke as operator_smoke
 
 MODE_EXPECTATIONS = {
-    "A": {"telemetry": False, "license_client": False, "send_operator": False},
-    "B": {"telemetry": True, "license_client": False, "send_operator": True},
-    "C": {"telemetry": False, "license_client": True, "send_operator": False},
+    "A": {"telemetry": False, "license_client": False},
+    "B": {"telemetry": True, "license_client": False},
+    "C": {"telemetry": False, "license_client": True},
 }
 DEGRADED_CTX = 32
 FULL_CTX = 64
@@ -115,8 +116,12 @@ def run_common_checks(addon_pkg: str, expect_mode: str) -> None:
         module_bundled(addon_pkg, "license_client") == expected["license_client"],
     )
     check(
-        "send_feedback operator registered iff mode B",
-        send_operator_registered() == expected["send_operator"],
+        "send_feedback operator registered in every mode",
+        send_operator_registered() is True,
+    )
+    check(
+        "capabilities.message_available",
+        capabilities.CAPS.message_available is True,
     )
 
     preferences = importlib.import_module(f"{addon_pkg}.preferences")
@@ -183,10 +188,10 @@ def run_live_send_checks(addon_pkg: str, onnx_path: str) -> None:
     ctx = effective_ctx(addon_pkg)
     check("effective_ctx unlocked to full", ctx == FULL_CTX, f"got {ctx}, expected {FULL_CTX}")
 
-    sender = importlib.import_module(f"{addon_pkg}.telemetry.sender")
+    feedback_message = importlib.import_module(f"{addon_pkg}.feedback_message")
     check(
         "free-text message accepted by worker",
-        sender.send_message("layer3 boundary smoke", "0.0.1") is True,
+        feedback_message.send_message("layer3 boundary smoke", "0.0.1") is True,
     )
 
     prefs.telemetry_opt_in = False

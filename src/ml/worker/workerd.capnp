@@ -1,6 +1,6 @@
 using Workerd = import "/workerd/workerd.capnp";
 
-# Runs the real worker/src/index.mjs in a local workerd instance so the same
+# Runs the real src/ml/worker/src/index.mjs in a local workerd instance so the same
 # code path as production (gzip decode, schema validation, Ed25519 signing,
 # response shape) can be exercised without npm or wrangler. Secrets are read
 # from the process environment at startup and never stored in this file.

@@ -26,15 +26,9 @@ Required:
 
 Options:
   --variant lite|full            "lite" excludes Tier A (default: lite)
-  --build-mode A|B|C             Distribution build mode (default: A)
-                                 A: official repo, no telemetry, ctx32 fixed
-                                 B: self-hosted static repo, telemetry opt-in
-                                    (requires THYLLORE_FEEDBACK_ENDPOINT,
-                                     THYLLORE_INGEST_TOKEN,
-                                     THYLLORE_UNLOCK_PUBKEY_B64)
-                                 C: Blender Market, online license activation
-                                    (requires THYLLORE_LICENSE_ENDPOINT,
-                                     THYLLORE_UNLOCK_PUBKEY_B64)
+  --build-mode A|B|C             Distribution build mode (default: A).
+                                 SSoT (behaviour, required env vars):
+                                 crates/thyllore-ml-core/src/mode.rs
   --version VERSION              Extension version (default: $VERSION)
   --output-dir PATH              Output directory (default: $OUTPUT_DIR)
   --include-onnx-model           Bundle the curve_copilot ONNX
@@ -128,10 +122,11 @@ require_build_mode_env() {
     fi
 }
 
+require_build_mode_env THYLLORE_FEEDBACK_ENDPOINT "$FEEDBACK_ENDPOINT"
+require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
+
 case "$BUILD_MODE" in
     B)
-        require_build_mode_env THYLLORE_FEEDBACK_ENDPOINT "$FEEDBACK_ENDPOINT"
-        require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
         require_build_mode_env THYLLORE_UNLOCK_PUBKEY_B64 "$UNLOCK_PUBKEY"
         ;;
     C)
@@ -365,10 +360,8 @@ fi
 BUILD_CONFIG_PATH="$STAGE_DIR/build_config.py"
 {
     echo "BUILD_MODE = \"$BUILD_MODE\""
-    if [[ "$BUILD_MODE" == "B" ]]; then
-        echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
-        echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
-    fi
+    echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
+    echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
     if [[ "$BUILD_MODE" == "B" || "$BUILD_MODE" == "C" ]]; then
         echo "UNLOCK_PUBKEY = \"$UNLOCK_PUBKEY\""
     fi

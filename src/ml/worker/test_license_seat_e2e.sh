@@ -15,8 +15,8 @@ set -euo pipefail
 # The Durable Object runs in workerd with in-memory storage, so every run
 # starts from a clean seat table (idempotent by construction).
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORKER_DIR="$REPO_ROOT/worker"
+WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$WORKER_DIR/../../.." && pwd)"
 LOCAL_DIR="$WORKER_DIR/.local"
 PORT="8789"
 
@@ -128,6 +128,29 @@ assert tml.effective_context_length(seat_token) == 64, "seat token must unlock c
 assert tml.effective_context_length(None) == 32, "no token must degrade to ctx32"
 assert tml.effective_context_length(expired_token) == 32, "expired token must degrade to ctx32"
 print("  PASS  seat token -> ctx64, no token -> ctx32, expired token -> ctx32")
+PY
+
+echo "[seat-e2e] 8. Wheel refresh_license: full round-trip via the Rust transport"
+LICENSE_KEY_WHEEL="e2e-license-wheel-$(date +%s)"
+check "provision wheel-test license -> 204" 204 \
+    "$(provision "$ADMIN_TOKEN" "{\"license_key\":\"$LICENSE_KEY_WHEEL\",\"max_seats\":1,\"status\":\"active\"}")"
+"$LOCAL_DIR/venv/bin/python" - "$WORKER_URL/v1/license/refresh" "$LICENSE_KEY_WHEEL" <<'PY'
+import sys
+import thyllore_ml_core as tml
+
+endpoint, license_key = sys.argv[1], sys.argv[2]
+
+granted = tml.refresh_license(endpoint, license_key, "wheel-device-1")
+assert granted["ok"] is True, granted
+assert tml.effective_context_length(granted["unlock_token"]) == 64, granted
+
+copied = tml.refresh_license(endpoint, license_key, "wheel-device-2-copy")
+assert copied["ok"] is False and copied["reason"] == "seat_exhausted", copied
+assert copied["discard_cached_token"] is True, copied
+
+unknown = tml.refresh_license(endpoint, "never-provisioned", "wheel-device-1")
+assert unknown["ok"] is False and unknown["reason"] == "unknown_license", unknown
+print("  PASS  wheel refresh_license: grant -> ctx64, copy -> seat_exhausted, unknown -> refused")
 PY
 
 echo

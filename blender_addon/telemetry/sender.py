@@ -60,14 +60,3 @@ def send_feedback_batch(records: list[dict]) -> bool:
     if isinstance(token, str) and isinstance(exp, (int, float)):
         _store.store_unlock_token(token, exp)
     return True
-
-
-def send_message(text: str, addon_version: str) -> bool:
-    """POST one free-text feedback message via the wheel (/v1/message)."""
-    import thyllore_ml_core as tml
-
-    try:
-        tml.send_message(FEEDBACK_ENDPOINT, INGEST_TOKEN, anon_id(), text, addon_version)
-        return True
-    except Exception:  # noqa: BLE001
-        return False

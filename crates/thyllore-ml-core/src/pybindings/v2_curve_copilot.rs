@@ -8,15 +8,15 @@ use crate::copilot::v2::forecast;
 use crate::copilot::v2::inference::{
     V2CurveCopilotRequest, V2CurveCopilotSession, CONTEXT_LENGTH, MAX_HORIZON,
 };
-use crate::unlock::{degrade_context_window, now_unix, UnlockGate, DEGRADED_CONTEXT_LENGTH};
+use crate::degrade::{degrade_context_window, now_unix, DegradeGate, DEGRADED_CONTEXT_LENGTH};
 
-fn unlock_gate() -> &'static UnlockGate {
-    static GATE: OnceLock<UnlockGate> = OnceLock::new();
-    GATE.get_or_init(UnlockGate::from_build_env)
+fn degrade_gate() -> &'static DegradeGate {
+    static GATE: OnceLock<DegradeGate> = OnceLock::new();
+    GATE.get_or_init(DegradeGate::from_build_env)
 }
 
-fn apply_unlock_gate(context: &mut [f32], unlock_token: Option<&str>) {
-    if unlock_gate().effective_context_length(unlock_token, now_unix()) < CONTEXT_LENGTH {
+fn apply_degrade_gate(context: &mut [f32], unlock_token: Option<&str>) {
+    if degrade_gate().should_degrade(unlock_token, now_unix()) {
         degrade_context_window(context);
     }
 }
@@ -29,7 +29,7 @@ pub fn capabilities() -> Vec<&'static str> {
 #[pyfunction]
 #[pyo3(signature = (unlock_token=None))]
 pub fn effective_context_length(unlock_token: Option<&str>) -> usize {
-    unlock_gate().effective_context_length(unlock_token, now_unix())
+    degrade_gate().effective_context_length(unlock_token, now_unix())
 }
 
 #[pyfunction]
@@ -96,7 +96,7 @@ impl PyV2CurveCopilotSession {
         if context.len() != CONTEXT_LENGTH {
             return Err(shape_mismatch("context", CONTEXT_LENGTH, context.len()));
         }
-        apply_unlock_gate(&mut context, unlock_token);
+        apply_degrade_gate(&mut context, unlock_token);
 
         let mean_curve = py
             .detach(|| {
@@ -124,7 +124,7 @@ impl PyV2CurveCopilotSession {
         if context.len() != CONTEXT_LENGTH {
             return Err(shape_mismatch("context", CONTEXT_LENGTH, context.len()));
         }
-        apply_unlock_gate(&mut context, unlock_token);
+        apply_degrade_gate(&mut context, unlock_token);
 
         let preview = py
             .detach(|| {

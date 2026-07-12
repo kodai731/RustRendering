@@ -30,7 +30,7 @@ try:
 except ImportError:
     license_client = None
 
-DISCORD_INVITE_URL = ""
+DISCORD_INVITE_URL = "https://discord.gg/HZNRAENX8"
 
 # Resolve the addon's package name so AddonPreferences.bl_idname matches the
 # top-level extension id (legacy install: "blender_addon"; lite extension:
@@ -149,6 +149,8 @@ class ThylloreAnimationPreferences(AddonPreferences):
             self._draw_telemetry_box(layout)
         if CAPS.license_activation:
             self._draw_license_box(layout)
+        if CAPS.message_available:
+            self._draw_message_box(layout)
         if DISCORD_INVITE_URL:
             layout.operator(
                 "wm.url_open", text="Join the community (Discord)", icon="URL"
@@ -192,6 +194,9 @@ class ThylloreAnimationPreferences(AddonPreferences):
         col.label(text="Used solely to improve the Curve Copilot model (license-clean training).")
         col.label(text="Requires 'Allow Online Access'. Turning off reverts to ctx32 immediately.")
 
+    def _draw_message_box(self, layout):
+        box = layout.box()
+        box.label(text="Feedback to the Developers", icon="OUTLINER_OB_SPEAKER")
         row = box.row(align=True)
         row.prop(self, "feedback_text", text="")
         row.operator("thyllore.send_feedback", text="Send Feedback")

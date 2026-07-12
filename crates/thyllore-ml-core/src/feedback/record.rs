@@ -5,9 +5,7 @@ use serde::Serialize;
 use sha2::{Digest, Sha256};
 use thyllore_anim_core::editable::PropertyType;
 
-/// Schema SSoT for `curve_copilot_feedback/v0`. The Blender addon builds the
-/// same records through the pybindings; keep this the only place that knows
-/// the field layout.
+/// Schema SSoT, shared with the Blender addon via the pybindings.
 pub const FEEDBACK_SCHEMA_VERSION: &str = "curve_copilot_feedback/v0";
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
@@ -80,9 +78,8 @@ pub fn build_feedback_record(inputs: FeedbackRecordInputs<'_>) -> FeedbackRecord
     }
 }
 
-/// Maps the engine `PropertyType` (kind and axis fused) onto the Blender
-/// channel vocabulary used by the feedback schema. Bone names never leave the
-/// engine; only the channel kind and axis index are transmitted.
+/// Bone names never leave the engine; only the channel kind and axis index
+/// are transmitted.
 pub fn channel_for_property_type(property_type: PropertyType) -> FeedbackChannel {
     let (kind, array_index) = match property_type {
         PropertyType::TranslationX => ("location", 0),

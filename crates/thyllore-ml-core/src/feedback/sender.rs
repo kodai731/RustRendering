@@ -32,7 +32,7 @@ pub fn message_endpoint_from_feedback(feedback_url: &str) -> String {
 
 /// POSTs one gzip JSONL batch to `/v1/feedback`. An empty batch is a valid
 /// token-refresh handshake. The caller decides what to do with the returned
-/// `unlock_token` (cache it, verify it with `UnlockGate`, or just log it).
+/// `unlock_token` (cache it, verify it with `DegradeGate`, or just log it).
 pub fn send_feedback_batch<T: Serialize>(
     endpoint: &FeedbackEndpoint,
     records: &[T],

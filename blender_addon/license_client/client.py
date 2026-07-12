@@ -1,21 +1,12 @@
-"""Online license activation for Curve Copilot (mode C only).
-
-POSTs ``{license_key, device_id}`` to the Worker's ``/v1/license/refresh``.
-While the LicenseSeats Durable Object grants a seat, the response carries a
-short-lived Ed25519 unlock_token that the wheel verifies itself, so ctx64
-stays unlocked between refreshes (offline grace = token expiry). An explicit
-refusal (copied key exhausting seats, revoked license) discards the cached
-token immediately; network failures keep it until expiry.
+"""Thin shim over the ``thyllore_ml_core`` wheel for license activation
+(mode C only). The HTTPS transport and refusal policy live in the wheel —
+the single source of truth shared with the engine. This module keeps only
+the addon-local token cache.
 """
 from __future__ import annotations
 
-import json
-
 from .._token_store import TokenStore
 from ..build_config import LICENSE_ENDPOINT
-
-REQUEST_TIMEOUT_SECONDS = 10.0
-USER_AGENT = "ThylloreCurveCopilot/1.0"
 
 _store = TokenStore("thyllore_curve_copilot_license.json")
 
@@ -29,41 +20,18 @@ def discard_unlock_token() -> None:
 
 
 def refresh_license(license_key: str, device_id: str) -> tuple[bool, str]:
-    """Request a seat and cache the unlock token. Returns (ok, refusal_reason)."""
-    import urllib.error
-    import urllib.request
+    """Request a seat via the wheel and cache the token. Returns (ok, refusal_reason)."""
+    import thyllore_ml_core as tml
 
-    body = json.dumps({"license_key": license_key, "device_id": device_id}).encode("utf-8")
-    request = urllib.request.Request(
-        LICENSE_ENDPOINT,
-        data=body,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "User-Agent": USER_AGENT,
-        },
-    )
     try:
-        with urllib.request.urlopen(request, timeout=REQUEST_TIMEOUT_SECONDS) as response:
-            payload = json.loads(response.read().decode("utf-8"))
-    except urllib.error.HTTPError as error:
-        if error.code == 403:
-            discard_unlock_token()
-            return False, _refusal_reason(error)
-        return False, f"http_{error.code}"
-    except (urllib.error.URLError, TimeoutError, ValueError, OSError):
+        result = tml.refresh_license(LICENSE_ENDPOINT, license_key, device_id)
+    except Exception:  # noqa: BLE001
         return False, "network_error"
 
-    token = payload.get("unlock_token")
-    exp = payload.get("exp")
-    if not isinstance(token, str) or not isinstance(exp, (int, float)):
-        return False, "invalid_response"
-    _store.store_unlock_token(token, exp)
-    return True, ""
+    if result.get("ok"):
+        _store.store_unlock_token(result["unlock_token"], result["exp"])
+        return True, ""
 
-
-def _refusal_reason(error) -> str:
-    try:
-        return str(json.loads(error.read().decode("utf-8")).get("error", "refused"))
-    except (ValueError, OSError):
-        return "refused"
+    if result.get("discard_cached_token"):
+        discard_unlock_token()
+    return False, str(result.get("reason", "refused"))

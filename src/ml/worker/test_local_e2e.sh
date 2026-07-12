@@ -10,8 +10,8 @@ set -euo pipefail
 # -test bucket via deploy.sh --env test. Seat licensing (mode C) is covered by
 # test_license_seat_e2e.sh.
 
-REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORKER_DIR="$REPO_ROOT/worker"
+WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$WORKER_DIR/../../.." && pwd)"
 LOCAL_DIR="$WORKER_DIR/.local"
 PORT="8788"
 

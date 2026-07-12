@@ -65,7 +65,7 @@ export CF_ACCOUNT_ID=...           # your account id
 export THYLLORE_INGEST_TOKEN=...   # a random shared token; also bake into mode B builds
 export THYLLORE_ADMIN_TOKEN=...    # a random token guarding /v1/license/provision
 export THYLLORE_UNLOCK_PRIVATE_KEY_PKCS8_B64_FILE=secrets/private_key_pkcs8.b64
-cd worker
+cd src/ml/worker
 ./deploy.sh --env test             # test bucket first; drop --env or use prod for production
 ./deploy.sh                        # --dry-run validates config without any API call
 ```

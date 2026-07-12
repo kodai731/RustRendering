@@ -2,10 +2,11 @@ pub mod components;
 pub mod copilot;
 #[cfg(feature = "debug-log")]
 pub mod debug_log;
+pub mod degrade;
 pub mod feedback;
+pub mod license;
 pub mod mode;
 pub mod model_path;
-pub mod unlock;
 
 #[cfg(feature = "python")]
 mod pybindings;

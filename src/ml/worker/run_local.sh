@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Runs worker/src/index.mjs in a local workerd instance so the exact production
+# Runs src/ml/worker/src/index.mjs in a local workerd instance so the exact production
 # code path (gzip decode, schema validation, Ed25519 signing) can be tested
 # without npm or wrangler. The workerd binary is the standalone GitHub release
 # (the npm 'workerd' package merely wraps it); it is downloaded with curl and
@@ -31,7 +31,7 @@ usage() {
     cat <<EOF
 Usage: $0 [--port N]
 
-Serves worker/src/index.mjs locally with workerd (foreground).
+Serves src/ml/worker/src/index.mjs locally with workerd (foreground).
 
 Options:
   --port N    HTTP port (default: $PORT)

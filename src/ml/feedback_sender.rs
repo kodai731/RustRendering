@@ -3,12 +3,11 @@ use std::sync::mpsc;
 use std::thread;
 
 use thyllore_ml_core::copilot::v2::forecast;
-use thyllore_ml_core::copilot::v2::inference::CONTEXT_LENGTH;
+use thyllore_ml_core::degrade::{now_unix, DegradeGate};
 use thyllore_ml_core::feedback::{
     build_feedback_record, channel_for_property_type, hash_model_file, send_feedback_batch,
     FeedbackEndpoint, FeedbackRecord, FeedbackRecordInputs, FeedbackResponse,
 };
-use thyllore_ml_core::unlock::{now_unix, UnlockGate};
 
 use crate::animation::editable::PropertyType;
 
@@ -101,7 +100,7 @@ fn normalize_feedback_endpoint(url: &str) -> String {
 }
 
 fn run_sender_loop(endpoint: FeedbackEndpoint, receiver: mpsc::Receiver<FeedbackRecord>) {
-    let gate = UnlockGate::from_build_env();
+    let gate = DegradeGate::from_build_env();
 
     while let Ok(record) = receiver.recv() {
         match send_feedback_batch(&endpoint, &[record]) {
@@ -111,16 +110,16 @@ fn run_sender_loop(endpoint: FeedbackEndpoint, receiver: mpsc::Receiver<Feedback
     }
 }
 
-fn log_feedback_response(gate: &UnlockGate, response: &FeedbackResponse) {
+fn log_feedback_response(gate: &DegradeGate, response: &FeedbackResponse) {
     match &response.unlock_token {
-        Some(token) if gate.effective_context_length(Some(token), now_unix()) == CONTEXT_LENGTH => {
+        Some(token) if !gate.should_degrade(Some(token), now_unix()) => {
             log!(
-                "CurveCopilot feedback: record accepted, unlock token verified (ctx64 unlocked, exp={:?})",
+                "CurveCopilot feedback: record accepted, token verified (full ctx kept, exp={:?})",
                 response.exp
             );
         }
         Some(_) => log_warn!(
-            "CurveCopilot feedback: unlock token rejected by UnlockGate \
+            "CurveCopilot feedback: token rejected by DegradeGate \
              (no baked pubkey, invalid signature, or expired)"
         ),
         None => log_warn!("CurveCopilot feedback: response has no unlock_token"),
