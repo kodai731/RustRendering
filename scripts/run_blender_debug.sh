@@ -94,7 +94,7 @@ if [[ -r "$FULL_ENV_FILE" ]]; then
     set +a
 fi
 missing=()
-for var in THYLLORE_FEEDBACK_ENDPOINT THYLLORE_INGEST_TOKEN; do
+for var in THYLLORE_FEEDBACK_TEST_ENDPOINT THYLLORE_INGEST_TOKEN; do
     [[ -z "${!var:-}" ]] && missing+=("$var")
 done
 if [[ ${#missing[@]} -gt 0 ]]; then
@@ -110,7 +110,7 @@ fi
 echo "[run_blender_debug] mode=$MODE (build mode $BUILD_MODE)"
 bash "$REPO_ROOT/scripts/build_blender_addon.sh" \
     --platform "$PLATFORM" --variant lite --debug --build-mode "$BUILD_MODE" \
-    --include-onnx-model --onnx-source-path "$MODEL"
+    --env test --include-onnx-model --onnx-source-path "$MODEL"
 
 rm -rf "$HOME"/.config/blender/*/extensions/.local/lib/python*/site-packages/thyllore_ml_core*
 echo "[run_blender_debug] purged Blender-managed wheel copies (same-version wheels are not re-extracted otherwise)"

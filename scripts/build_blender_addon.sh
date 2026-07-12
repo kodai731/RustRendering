@@ -13,6 +13,7 @@ ONNX_SOURCE_PATH="${THYLLORE_CURVE_COPILOT_ONNX:-ml/model/curve_copilot.onnx}"
 ONNXRUNTIME_LIB_PATH=""
 DEBUG_BUILD=0
 SKIP_BLENDER_VALIDATE=0
+ENDPOINT_ENV=""
 
 usage() {
     cat <<EOF
@@ -29,6 +30,11 @@ Options:
   --build-mode A|B|C             Distribution build mode (default: A).
                                  SSoT (behaviour, required env vars):
                                  crates/thyllore-ml-core/src/mode.rs
+  --env prod|test                Feedback endpoint to bake: reads
+                                 THYLLORE_FEEDBACK_PROD_ENDPOINT or
+                                 THYLLORE_FEEDBACK_TEST_ENDPOINT. Without
+                                 this option, THYLLORE_FEEDBACK_ENDPOINT
+                                 is used as before (CI compatibility)
   --version VERSION              Extension version (default: $VERSION)
   --output-dir PATH              Output directory (default: $OUTPUT_DIR)
   --include-onnx-model           Bundle the curve_copilot ONNX
@@ -56,6 +62,13 @@ while [[ $# -gt 0 ]]; do
             case "$2" in
                 A|B|C) BUILD_MODE="$2" ;;
                 *) echo "invalid build mode: $2 (expected A, B or C)" >&2; exit 2 ;;
+            esac
+            shift 2
+            ;;
+        --env)
+            case "$2" in
+                prod|test) ENDPOINT_ENV="$2" ;;
+                *) echo "invalid env: $2 (expected prod or test)" >&2; exit 2 ;;
             esac
             shift 2
             ;;
@@ -109,7 +122,12 @@ case "$PLATFORM" in
         ;;
 esac
 
-FEEDBACK_ENDPOINT="${THYLLORE_FEEDBACK_ENDPOINT:-}"
+case "$ENDPOINT_ENV" in
+    prod) FEEDBACK_ENDPOINT_VAR="THYLLORE_FEEDBACK_PROD_ENDPOINT" ;;
+    test) FEEDBACK_ENDPOINT_VAR="THYLLORE_FEEDBACK_TEST_ENDPOINT" ;;
+    "")   FEEDBACK_ENDPOINT_VAR="THYLLORE_FEEDBACK_ENDPOINT" ;;
+esac
+FEEDBACK_ENDPOINT="${!FEEDBACK_ENDPOINT_VAR:-}"
 INGEST_TOKEN="${THYLLORE_INGEST_TOKEN:-}"
 FULL_TOKEN_PUBKEY="${THYLLORE_FULL_TOKEN_PUBKEY_B64:-}"
 LICENSE_ENDPOINT="${THYLLORE_LICENSE_ENDPOINT:-}"
@@ -122,8 +140,9 @@ require_build_mode_env() {
     fi
 }
 
-require_build_mode_env THYLLORE_FEEDBACK_ENDPOINT "$FEEDBACK_ENDPOINT"
+require_build_mode_env "$FEEDBACK_ENDPOINT_VAR" "$FEEDBACK_ENDPOINT"
 require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
+echo "[build_blender_addon] Feedback endpoint (${ENDPOINT_ENV:-explicit}): $FEEDBACK_ENDPOINT"
 
 case "$BUILD_MODE" in
     B)
@@ -420,6 +439,9 @@ case "$BUILD_MODE" in
     B) ZIP_BASENAME="${ZIP_BASENAME}_full" ;;
     C) ZIP_BASENAME="${ZIP_BASENAME}_private" ;;
 esac
+if [[ "$ENDPOINT_ENV" == "test" ]]; then
+    ZIP_BASENAME="${ZIP_BASENAME}_test"
+fi
 ZIP_PATH="$ABS_OUT_DIR/${ZIP_BASENAME}-${VERSION}-${PLATFORM}.zip"
 rm -f "$ZIP_PATH"
 

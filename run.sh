@@ -15,7 +15,7 @@ Commands:
   engine [private|degrade|full] [cargo args...]
       Launch the engine (cargo run) with a curve copilot mode.
       full sources .config/curve_copilot_full.env (gitignored) for
-      THYLLORE_FEEDBACK_ENDPOINT / THYLLORE_INGEST_TOKEN.
+      THYLLORE_FEEDBACK_TEST_ENDPOINT / THYLLORE_INGEST_TOKEN.
         ./run.sh engine                              # private (default)
         ./run.sh engine degrade
         ./run.sh engine full --features auto-rig
@@ -23,15 +23,15 @@ Commands:
       Build + install the debug addon and launch Blender
       (scripts/run_blender_debug.sh). The mode maps to the addon build mode
       (degrade=A, full=B, private=C; default: degrade). Sources
-      .config/curve_copilot_full.env for THYLLORE_FEEDBACK_ENDPOINT /
-      THYLLORE_INGEST_TOKEN.
+      .config/curve_copilot_full.env for THYLLORE_FEEDBACK_TEST_ENDPOINT /
+      THYLLORE_INGEST_TOKEN (dev builds always bake the test endpoint).
         ./run.sh blender --mode full
   auto [args...]
       Launch the Claude auto-mode container (scripts/run_auto_mode.sh).
   worker-smoke [worker-url] [args...]
       Smoke-test the deployed feedback worker (src/ml/worker/smoke.sh). Sources the
       full-mode env file; WORKER_URL is derived from
-      THYLLORE_FEEDBACK_ENDPOINT when not given.
+      THYLLORE_FEEDBACK_TEST_ENDPOINT when not given.
   help
       Show this help.
 EOF
@@ -57,8 +57,9 @@ case "$command" in
             source "$FULL_ENV_FILE"
             set +a
         fi
-        if [[ -z "${WORKER_URL:-}" && -n "${THYLLORE_FEEDBACK_ENDPOINT:-}" ]]; then
-            export WORKER_URL="${THYLLORE_FEEDBACK_ENDPOINT%/v1/feedback}"
+        smoke_endpoint="${THYLLORE_FEEDBACK_TEST_ENDPOINT:-${THYLLORE_FEEDBACK_ENDPOINT:-}}"
+        if [[ -z "${WORKER_URL:-}" && -n "$smoke_endpoint" ]]; then
+            export WORKER_URL="${smoke_endpoint%/v1/feedback}"
         fi
         exec bash "$REPO_ROOT/src/ml/worker/smoke.sh" "$@"
         ;;

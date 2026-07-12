@@ -13,6 +13,12 @@ param(
     [ValidateSet("A", "B", "C")]
     [string]$BuildMode = "A",
 
+    # Feedback endpoint to bake: reads THYLLORE_FEEDBACK_PROD_ENDPOINT or
+    # THYLLORE_FEEDBACK_TEST_ENDPOINT. Empty keeps the CI-compatible
+    # THYLLORE_FEEDBACK_ENDPOINT behaviour.
+    [ValidateSet("", "prod", "test")]
+    [string]$EndpointEnv = "",
+
     [string]$Version = "0.0.1",
 
     [string]$OutputDir = "dist",
@@ -31,7 +37,12 @@ if (-not $PSBoundParameters.ContainsKey('OnnxSourcePath') -and $env:THYLLORE_CUR
     $OnnxSourcePath = $env:THYLLORE_CURVE_COPILOT_ONNX
 }
 
-$FeedbackEndpoint = $env:THYLLORE_FEEDBACK_ENDPOINT
+$FeedbackEndpointVar = switch ($EndpointEnv) {
+    "prod" { "THYLLORE_FEEDBACK_PROD_ENDPOINT" }
+    "test" { "THYLLORE_FEEDBACK_TEST_ENDPOINT" }
+    ""     { "THYLLORE_FEEDBACK_ENDPOINT" }
+}
+$FeedbackEndpoint = [Environment]::GetEnvironmentVariable($FeedbackEndpointVar)
 $IngestToken = $env:THYLLORE_INGEST_TOKEN
 $FullTokenPubkey = $env:THYLLORE_FULL_TOKEN_PUBKEY_B64
 $LicenseEndpoint = $env:THYLLORE_LICENSE_ENDPOINT
@@ -42,8 +53,9 @@ function Assert-BuildModeEnv([string]$Name, [string]$Value) {
     }
 }
 
-Assert-BuildModeEnv "THYLLORE_FEEDBACK_ENDPOINT" $FeedbackEndpoint
+Assert-BuildModeEnv $FeedbackEndpointVar $FeedbackEndpoint
 Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
+Write-Host "[build_blender_addon] Feedback endpoint ($(if ($EndpointEnv) { $EndpointEnv } else { 'explicit' })): $FeedbackEndpoint"
 
 switch ($BuildMode) {
     "B" {
@@ -326,6 +338,9 @@ $ZipBaseName = switch ($BuildMode) {
     "A" { "${ZipBaseName}_degraded" }
     "B" { "${ZipBaseName}_full" }
     "C" { "${ZipBaseName}_private" }
+}
+if ($EndpointEnv -eq "test") {
+    $ZipBaseName = "${ZipBaseName}_test"
 }
 $ZipPath = Join-Path $AbsOutDir "$ZipBaseName-$Version-$Platform.zip"
 if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }
