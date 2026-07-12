@@ -56,18 +56,25 @@ function Assert-BuildModeEnv([string]$Name, [string]$Value) {
     }
 }
 
-Assert-BuildModeEnv $FeedbackEndpointVar $FeedbackEndpoint
-Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
-Write-Host "[build_blender_addon] Feedback endpoint ($(if ($EndpointEnv) { $EndpointEnv } else { 'explicit' })): $FeedbackEndpoint"
-
 switch ($BuildMode) {
+    "A" {
+        $FeedbackEndpoint = ""
+        $IngestToken = ""
+    }
     "B" {
+        Assert-BuildModeEnv $FeedbackEndpointVar $FeedbackEndpoint
+        Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
         Assert-BuildModeEnv "THYLLORE_FULL_TOKEN_PUBKEY_B64" $FullTokenPubkey
     }
     "C" {
+        Assert-BuildModeEnv $FeedbackEndpointVar $FeedbackEndpoint
+        Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
         Assert-BuildModeEnv "THYLLORE_LICENSE_ENDPOINT" $LicenseEndpoint
         Assert-BuildModeEnv "THYLLORE_FULL_TOKEN_PUBKEY_B64" $FullTokenPubkey
     }
+}
+if ($BuildMode -ne "A") {
+    Write-Host "[build_blender_addon] Feedback endpoint ($(if ($EndpointEnv) { $EndpointEnv } else { 'explicit' })): $FeedbackEndpoint"
 }
 
 $PlatformConfig = @{
@@ -173,6 +180,11 @@ $LicenseClientStage = Join-Path $StageDir "license_client"
 if ($BuildMode -ne "C" -and (Test-Path $LicenseClientStage)) {
     Remove-Item -Recurse -Force $LicenseClientStage
     Write-Host "[build_blender_addon] (mode $BuildMode) excluded: license_client" -ForegroundColor DarkYellow
+}
+$FeedbackMessageStage = Join-Path $StageDir "feedback_message.py"
+if ($BuildMode -eq "A" -and (Test-Path $FeedbackMessageStage)) {
+    Remove-Item -Force $FeedbackMessageStage
+    Write-Host "[build_blender_addon] (mode $BuildMode) excluded: feedback_message.py" -ForegroundColor DarkYellow
 }
 
 # Filter wheels/ down to platform-matching files (and Variant-allowed names)
@@ -324,9 +336,9 @@ if ($OnnxruntimeLib -and (Test-Path $OnnxruntimeLib)) {
 # Generate build_config.py (BUILD_MODE single source of truth)
 
 $BuildConfigLines = @("BUILD_MODE = `"$BuildMode`"")
-$BuildConfigLines += "FEEDBACK_ENDPOINT = `"$FeedbackEndpoint`""
-$BuildConfigLines += "INGEST_TOKEN = `"$IngestToken`""
 if ($BuildMode -eq "B" -or $BuildMode -eq "C") {
+    $BuildConfigLines += "FEEDBACK_ENDPOINT = `"$FeedbackEndpoint`""
+    $BuildConfigLines += "INGEST_TOKEN = `"$IngestToken`""
     $BuildConfigLines += "FULL_TOKEN_PUBKEY = `"$FullTokenPubkey`""
 }
 if ($BuildMode -eq "C") {

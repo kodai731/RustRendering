@@ -5,10 +5,12 @@ this script runs inside Blender and asserts the boundary matrix from
 ``boundary-tests.md`` against the *installed* addon:
 
 - common: addon enables, ``build_config.BUILD_MODE`` matches, Discord hook
-  present, ``thyllore.send_feedback`` registered in every mode,
-  ``effective_ctx`` defaults to 32 (wheel-decided, no cached token)
-- A/C: telemetry not importable
+  present, ``effective_ctx`` defaults to 32 (wheel-decided, no cached token)
+- A: telemetry not importable, feedback_message not bundled,
+  ``thyllore.send_feedback`` unregistered
+- B/C: ``thyllore.send_feedback`` registered
 - B: telemetry bundled, ``should_send`` follows opt-in x online access
+- C: telemetry not importable
 
 With ``--live-send`` (mode B builds pointed at the *test* Worker) it also
 exercises the real data path end to end: run the curve_copilot operator so a
@@ -42,9 +44,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import curve_copilot_operator_smoke as operator_smoke
 
 MODE_EXPECTATIONS = {
-    "A": {"telemetry": False, "license_client": False},
-    "B": {"telemetry": True, "license_client": False},
-    "C": {"telemetry": False, "license_client": True},
+    "A": {"telemetry": False, "license_client": False, "message": False},
+    "B": {"telemetry": True, "license_client": False, "message": True},
+    "C": {"telemetry": False, "license_client": True, "message": True},
 }
 DEGRADED_CTX = 32
 FULL_CTX = 64
@@ -116,12 +118,16 @@ def run_common_checks(addon_pkg: str, expect_mode: str) -> None:
         module_bundled(addon_pkg, "license_client") == expected["license_client"],
     )
     check(
-        "send_feedback operator registered in every mode",
-        send_operator_registered() is True,
+        "feedback_message bundled iff mode B/C",
+        module_bundled(addon_pkg, "feedback_message") == expected["message"],
+    )
+    check(
+        "send_feedback operator registered iff mode B/C",
+        send_operator_registered() == expected["message"],
     )
     check(
         "capabilities.message_available",
-        capabilities.CAPS.message_available is True,
+        capabilities.CAPS.message_available == expected["message"],
     )
 
     preferences = importlib.import_module(f"{addon_pkg}.preferences")
