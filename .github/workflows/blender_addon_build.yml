@@ -279,8 +279,8 @@ jobs:
           done
           for zip in build/ci_boundary/*.zip; do
               case "$zip" in
-                  *_mode_b-*) mode=B ;;
-                  *_mode_c-*) mode=C ;;
+                  *_full-*) mode=B ;;
+                  *_private-*) mode=C ;;
                   *) mode=A ;;
               esac
               echo "::group::mode $mode :: $(basename "$zip")"

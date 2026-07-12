@@ -83,9 +83,10 @@ def built_zips() -> dict[str, Path]:
     for mode, extra_env in MODE_ENV.items():
         result = _run_build(mode, extra_env)
         assert result.returncode == 0, f"mode {mode} build failed:\n{result.stderr}"
-        suffix = "" if mode == "A" else f"_mode_{mode.lower()}"
+        suffix = {"A": "_degraded", "B": "_full", "C": "_private"}[mode]
         zips[mode] = (
-            output_dir / f"thyllore_animation_lite{suffix}-0.0.1-linux_x86_64.zip"
+            output_dir
+            / f"thyllore_animation_curve_copilot{suffix}-0.0.1-linux_x86_64.zip"
         )
         assert zips[mode].exists(), f"expected ZIP missing for mode {mode}"
 

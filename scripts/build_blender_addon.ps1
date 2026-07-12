@@ -318,12 +318,14 @@ $AbsOutDir = Join-Path $RepoRoot $OutputDir
 New-Item -ItemType Directory -Path $AbsOutDir -Force | Out-Null
 
 $ZipBaseName = if ($Variant -eq "lite") {
-    "thyllore_animation_lite"
+    "thyllore_animation_curve_copilot"
 } else {
     "thyllore_animation_addon"
 }
-if ($BuildMode -ne "A") {
-    $ZipBaseName = "${ZipBaseName}_mode_$($BuildMode.ToLower())"
+$ZipBaseName = switch ($BuildMode) {
+    "A" { "${ZipBaseName}_degraded" }
+    "B" { "${ZipBaseName}_full" }
+    "C" { "${ZipBaseName}_private" }
 }
 $ZipPath = Join-Path $AbsOutDir "$ZipBaseName-$Version-$Platform.zip"
 if (Test-Path $ZipPath) { Remove-Item -Force $ZipPath }

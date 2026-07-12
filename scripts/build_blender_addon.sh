@@ -411,13 +411,15 @@ ABS_OUT_DIR="$REPO_ROOT/$OUTPUT_DIR"
 mkdir -p "$ABS_OUT_DIR"
 
 if [[ "$VARIANT" == "lite" ]]; then
-    ZIP_BASENAME="thyllore_animation_lite"
+    ZIP_BASENAME="thyllore_animation_curve_copilot"
 else
     ZIP_BASENAME="thyllore_animation_addon"
 fi
-if [[ "$BUILD_MODE" != "A" ]]; then
-    ZIP_BASENAME="${ZIP_BASENAME}_mode_$(tr '[:upper:]' '[:lower:]' <<<"$BUILD_MODE")"
-fi
+case "$BUILD_MODE" in
+    A) ZIP_BASENAME="${ZIP_BASENAME}_degraded" ;;
+    B) ZIP_BASENAME="${ZIP_BASENAME}_full" ;;
+    C) ZIP_BASENAME="${ZIP_BASENAME}_private" ;;
+esac
 ZIP_PATH="$ABS_OUT_DIR/${ZIP_BASENAME}-${VERSION}-${PLATFORM}.zip"
 rm -f "$ZIP_PATH"
 

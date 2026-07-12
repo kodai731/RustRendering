@@ -23,7 +23,7 @@ artifact per platform:
 1. Open the repository's **Actions** tab and select the **Blender Addon Build** workflow.
 2. Open the run you want, scroll to the **Artifacts** section at the bottom.
 3. Download the artifact for your platform and unzip it — inside is the extension ZIP
-   (e.g. `thyllore_animation_lite-0.0.1-linux_x86_64.zip`). Keep this ZIP as-is; do not
+   (e.g. `thyllore_animation_curve_copilot_degraded-0.0.1-linux_x86_64.zip`). Keep this ZIP as-is; do not
    unzip it further.
 
 ### Via the `gh` CLI
