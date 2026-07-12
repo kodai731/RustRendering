@@ -93,7 +93,9 @@ Bit-parity against the training export is verified by
 `exports/curve_copilot_20260630_v2_k48opt_golden.json`).
 
 A structurally-correct all-zero dummy model is published on HuggingFace
-(`kodai731/thyllore-curve-copilot`, fixed name `curve_copilot.onnx`). The
+(`kodai731/thyllore-curve-copilot`, fixed name `curve_copilot_dummy.onnx`;
+the production weights live in the same private repo as
+`curve_copilot_prod.onnx`, used only by the release workflow). The
 `v2-curve-copilot-smoke` CI job downloads it and asserts only that inference runs
 and returns finite values — not numeric parity with the production model. Run the
 same check locally with `scripts/ci_v2_curve_copilot_inference_smoke.sh`.

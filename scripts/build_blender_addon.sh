@@ -294,10 +294,12 @@ done
 WHEEL_LINES_JOINED="$WHEEL_LINES_JOINED" \
 MANIFEST_PATH="$MANIFEST_PATH" \
 BLENDER_NAME="$BLENDER_NAME" \
+BUILD_MODE="$BUILD_MODE" \
 "$PYTHON_BIN" - <<'PY'
 import os, re
 manifest_path = os.environ["MANIFEST_PATH"]
 blender_name = os.environ["BLENDER_NAME"]
+build_mode = os.environ["BUILD_MODE"]
 wheel_lines = os.environ["WHEEL_LINES_JOINED"].replace("\\n", "\n").rstrip("\n")
 
 with open(manifest_path, "rb") as f:
@@ -311,6 +313,18 @@ text = re.sub(
     text,
     flags=re.DOTALL,
 )
+
+# Blender manifest limit: permission text must be <= 64 characters
+network_permission_by_mode = {
+    "A": None,
+    "B": "Send opt-in anonymized FCurve feedback (unlocks full context)",
+    "C": "Online license check to unlock the purchased full context",
+}
+network_permission = network_permission_by_mode[build_mode]
+if network_permission is None:
+    text = re.sub(r'\nnetwork = "NETWORK_PERMISSION"', "", text)
+else:
+    text = text.replace("NETWORK_PERMISSION", network_permission)
 
 with open(manifest_path, "w", encoding="utf-8", newline="") as f:
     f.write(text)

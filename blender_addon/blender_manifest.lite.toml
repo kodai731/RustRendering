@@ -6,8 +6,8 @@ schema_version = "1.0.0"
 id = "thyllore_animation_lite"
 version = "0.0.1"
 name = "Thyllore Animation Curve Copilot"
-tagline = "Offline FCurve copilot + Text-to-Motion for Blender"
-maintainer = "kodai731 <kodai731@example.com>"
+tagline = "Offline FCurve copilot for Blender"
+maintainer = "kodai731 <kodai731@gmail.com>"
 
 type = "add-on"
 
@@ -24,9 +24,12 @@ wheels = [
 
 platforms = ["PLATFORM_BLENDER_NAME"]
 
+# The network line below is a placeholder substituted per build mode by
+# build_blender_addon.sh/.ps1; mode A ships no network code, so the line
+# is removed entirely.
 [permissions]
 files = "Read bundled ONNX model and write FCurve / Action keyframes"
-network = "Download Text-to-Motion model from HuggingFace on first use"
+network = "NETWORK_PERMISSION"
 
 [build]
 paths_exclude_pattern = [

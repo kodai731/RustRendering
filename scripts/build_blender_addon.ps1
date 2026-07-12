@@ -27,6 +27,9 @@ param(
 
     [string]$OnnxSourcePath = "ml/model/curve_copilot.onnx",
 
+    # ONNX Runtime shared library to bundle in lib/ (empty: platform default)
+    [string]$OnnxruntimeLib = "",
+
     [switch]$SkipBlenderValidate
 )
 
@@ -72,6 +75,8 @@ $PlatformConfig = @{
         BlenderName  = "windows-x64"
         WheelSuffix  = "win_amd64"
         WheelMatchers = @("win_amd64\.whl$")
+        OrtLibDestName = "onnxruntime.dll"
+        OrtLibDefault  = ""
     }
     "linux_x86_64" = @{
         BlenderName  = "linux-x64"
@@ -82,6 +87,8 @@ $PlatformConfig = @{
             "manylinux_2_\d+_x86_64\.whl$",
             "linux_x86_64\.whl$"
         )
+        OrtLibDestName = "libonnxruntime.so"
+        OrtLibDefault  = (Join-Path $RepoRoot "vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so")
     }
     "macosx_arm64" = @{
         BlenderName  = "macos-arm64"
@@ -91,6 +98,8 @@ $PlatformConfig = @{
             "macosx_\d+_\d+_arm64\.whl$",
             "macosx_\d+_\d+_universal2\.whl$"
         )
+        OrtLibDestName = "libonnxruntime.dylib"
+        OrtLibDefault  = ""
     }
 }[$Platform]
 
@@ -243,6 +252,18 @@ $ManifestContent = $ManifestContent -replace 'PLATFORM_BLENDER_NAME', $PlatformC
 $WheelLines = ($KeptWheels | ForEach-Object { "    `"./wheels/$_`"," }) -join "`n"
 $ManifestContent = $ManifestContent -replace '(?ms)wheels = \[.*?\]', "wheels = [`n$WheelLines`n]"
 
+# Blender manifest limit: permission text must be <= 64 characters
+$NetworkPermission = switch ($BuildMode) {
+    "A" { $null }
+    "B" { "Send opt-in anonymized FCurve feedback (unlocks full context)" }
+    "C" { "Online license check to unlock the purchased full context" }
+}
+if ($null -eq $NetworkPermission) {
+    $ManifestContent = $ManifestContent -replace "`nnetwork = `"NETWORK_PERMISSION`"", ""
+} else {
+    $ManifestContent = $ManifestContent.Replace("NETWORK_PERMISSION", $NetworkPermission)
+}
+
 # UTF-8 without BOM: Blender's TOML parser rejects a BOM
 $Utf8NoBom = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText($ManifestPath, $ManifestContent, $Utf8NoBom)
@@ -279,6 +300,25 @@ if ($IncludeOnnxModel) {
     New-Item -ItemType Directory -Path $ModelsDir -Force | Out-Null
     Copy-Item -Path $OnnxAbs -Destination (Join-Path $ModelsDir "curve_copilot.onnx") -Force
     Write-Host "[build_blender_addon] Bundled ONNX model from $OnnxSourcePath" -ForegroundColor Cyan
+}
+
+# Optional: bundle the ONNX Runtime shared library in lib/
+
+if (-not $OnnxruntimeLib) {
+    $OnnxruntimeLib = $PlatformConfig.OrtLibDefault
+}
+if ($OnnxruntimeLib -and (Test-Path $OnnxruntimeLib)) {
+    $LibDir = Join-Path $StageDir "lib"
+    New-Item -ItemType Directory -Path $LibDir -Force | Out-Null
+    $OrtItem = Get-Item $OnnxruntimeLib
+    $OrtLinkTarget = $OrtItem.ResolveLinkTarget($true)
+    $OrtRealPath = if ($OrtLinkTarget) { $OrtLinkTarget.FullName } else { $OrtItem.FullName }
+    Copy-Item -Path $OrtRealPath -Destination (Join-Path $LibDir $PlatformConfig.OrtLibDestName) -Force
+    Write-Host "[build_blender_addon] Bundled ONNX Runtime: $OnnxruntimeLib -> lib/$($PlatformConfig.OrtLibDestName)" -ForegroundColor Cyan
+} else {
+    Write-Host "[build_blender_addon] WARNING: ONNX Runtime lib not bundled for $Platform" -ForegroundColor Yellow
+    Write-Host "  (in-process inference will fail unless the user sets ORT_DYLIB_PATH)" -ForegroundColor Yellow
+    Write-Host "  searched: $(if ($OnnxruntimeLib) { $OnnxruntimeLib } else { '<none>' })" -ForegroundColor Yellow
 }
 
 # Generate build_config.py (BUILD_MODE single source of truth)

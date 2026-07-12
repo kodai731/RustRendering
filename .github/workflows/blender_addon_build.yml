@@ -144,7 +144,7 @@ jobs:
               exit 0
           }
           $dest = Join-Path $env:RUNNER_TEMP "curve_copilot.onnx"
-          $url = "https://huggingface.co/kodai731/thyllore-curve-copilot/resolve/main/curve_copilot.onnx"
+          $url = "https://huggingface.co/kodai731/thyllore-curve-copilot/resolve/main/curve_copilot_dummy.onnx"
           Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $env:HF_TOKEN" } -OutFile $dest
           "include=1" >> $env:GITHUB_OUTPUT
           "path=$dest" >> $env:GITHUB_OUTPUT

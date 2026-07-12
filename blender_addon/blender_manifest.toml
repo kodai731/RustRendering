@@ -4,7 +4,7 @@ id = "thyllore_animation"
 version = "0.0.1"
 name = "Thyllore Animation"
 tagline = "AI rig, mesh-generation, and FCurve copilot for Blender"
-maintainer = "kodai731 <kodai731@example.com>"
+maintainer = "kodai731 <kodai731@gmail.com>"
 
 type = "add-on"
 

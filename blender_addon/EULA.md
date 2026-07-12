@@ -154,7 +154,7 @@ continue in full force and effect.
 
 ## 13. Contact
 
-kodai731 <kodai731@example.com>
+kodai731 <kodai731@gmail.com>
 
 ---
 
