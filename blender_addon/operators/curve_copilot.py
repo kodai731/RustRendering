@@ -378,9 +378,9 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, run: _ForecastRun, origin_fr
     Rust session, then converts the predicted Euler back to a quaternion and
     extracts the selected component for the ghost.
 
-    Feedback recording is skipped here: the ground truth would have to be
-    re-sampled in Euler space from all four sibling curves, which the two-stage
-    collector does not support yet.
+    Feedback is recorded per Euler axis (the trained representation); the
+    ground truth is re-sampled in Euler space from all four sibling curves at
+    save time (``records._sample_quaternion_euler_ground_truth``).
     """
     from mathutils import Euler, Quaternion
 
@@ -419,6 +419,25 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, run: _ForecastRun, origin_fr
                 run.full_token,
             )
         )
+
+    if run.record_feedback and telemetry is not None:
+        for axis in range(3):
+            axis_ghost = axis_ghosts[axis]
+            telemetry.record_prediction(
+                object_name=run.object_name,
+                data_path=fcurve.data_path,
+                array_index=axis,
+                channel_kind="rotation_euler",
+                scene_fps=run.scene_fps,
+                deploy_fps=run.deploy_fps,
+                frame_step=run.frame_step,
+                origin_value=float(eulers[-1][axis]),
+                context=[float(e[axis]) for e in eulers],
+                prediction_frames=[float(frame) for frame, _ in axis_ghost[1:]],
+                prediction_values=[float(value) for _, value in axis_ghost[1:]],
+                model_hash=run.model_hash,
+                representation="quaternion_euler",
+            )
 
     points = [(float(origin_frame), float(fcurve.evaluate(origin_frame)))]
     for j in range(1, len(axis_ghosts[0])):

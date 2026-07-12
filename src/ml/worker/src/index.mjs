@@ -15,7 +15,7 @@
  * Limiting Rules in front of this Worker; handlers only enforce size and schema.
  */
 
-const FEEDBACK_SCHEMA = "curve_copilot_feedback/v0";
+const FEEDBACK_SCHEMA = "curve_copilot_feedback/v1";
 const REQUIRED_RECORD_KEYS = ["schema", "channel", "fps", "context", "prediction"];
 const MAX_KEY_STRING_LENGTH = 128;
 const MAX_SEATS_LIMIT = 100;

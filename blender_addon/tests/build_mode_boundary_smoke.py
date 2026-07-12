@@ -86,7 +86,7 @@ def send_operator_registered() -> bool:
 
 def effective_ctx(addon_pkg: str) -> int | None:
     preferences = importlib.import_module(f"{addon_pkg}.preferences")
-    return preferences._effective_context_length()
+    return preferences.effective_context_length()
 
 
 def run_common_checks(addon_pkg: str, expect_mode: str) -> None:

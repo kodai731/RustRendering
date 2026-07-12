@@ -1,9 +1,14 @@
 """Vendored wheel bootstrap for the Thyllore Animation addon.
 
-Extracts the .whl files in ``wheels/`` next to this module into a flat
-``wheels-extracted/`` directory and inserts the per-wheel directories into
-``sys.path`` BEFORE any grpc / thyllore_ml_core import, so the addon's
-vendored versions take priority over any system-installed copies.
+Inside Blender the manifest-declared wheels are installed by Blender's own
+extension wheel manager into its site-packages, so this module only
+configures the ONNX Runtime dylib path. Extracting wheels into the extension
+directory and inserting them into ``sys.path`` would trigger Blender's
+"Policy violation with top level module" warning in the Add-ons UI.
+
+Outside Blender (pytest importing ``blender_addon`` as a plain package) no
+wheel manager exists, so the .whl files in ``wheels/`` are extracted into a
+flat ``wheels-extracted/`` directory and inserted into ``sys.path``.
 
 Why extract: Python's zipimport cannot load compiled extensions
 (``cygrpc.so`` / ``thyllore_ml_core.abi3.so`` etc.) from inside a ``.whl``
@@ -75,6 +80,14 @@ def _extracted_root() -> Path:
     return Path(__file__).resolve().parent / "wheels-extracted"
 
 
+def _is_blender_runtime() -> bool:
+    try:
+        import bpy  # type: ignore  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 def _is_already_imported(module_name: str) -> bool:
     prefix = module_name + "."
     return module_name in sys.modules or any(
@@ -121,6 +134,10 @@ def insert_wheels_to_sys_path() -> None:
         return
 
     configure_ort_dylib()
+
+    if _is_blender_runtime():
+        _WHEELS_INSERTED = True
+        return
 
     wheels_dir = _wheels_dir()
     if not wheels_dir.is_dir():

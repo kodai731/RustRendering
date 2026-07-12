@@ -155,6 +155,8 @@ pub fn build_engine_feedback_record(
         prediction: &prediction,
         ground_truth: None,
         signal: "ignored",
+        record_id: "",
+        revision: 0,
         ts: now_unix(),
     })
 }

@@ -29,6 +29,9 @@ def anon_id() -> str:
 
 
 def resolve_full_token() -> str | None:
+    """ctx64 is granted in exchange for sending; offline sessions degrade."""
+    if not bpy.app.online_access:
+        return None
     return _store.resolve_full_token()
 
 

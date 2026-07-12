@@ -154,9 +154,16 @@ opt-in.
 
 ## Data collection and training policy
 
-- **What is sent (full mode, opt-in only):** the curve the model predicted and the
-  keyframe values you actually entered, stored relative to an origin value. No file
+- **What is sent (full mode, opt-in only):** per-channel curve-shape fragments — the
+  curve the model predicted and the keyframe values you actually entered. No file
   names, object names, bone names, scene contents, or personal data are ever collected.
+- **The original animation cannot be reconstructed** from the sent data
+  (schema `curve_copilot_feedback/v1`): values are stored relative to an origin value
+  and divided by the fragment's peak amplitude (the scale factor is never transmitted,
+  so real units and magnitudes are lost), then quantized; timestamps are coarsened to
+  day granularity and batches are shuffled, so fragments cannot be re-correlated into
+  runs, bones, or timelines. Only the normalized curve shape needed for training
+  remains.
 - **What it is used for:** sent data feeds the model training pipeline (the model
   factory) exclusively, to improve the Curve Copilot model. It is not shared with third
   parties and is not used for any other purpose.

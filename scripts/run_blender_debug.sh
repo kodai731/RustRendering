@@ -18,10 +18,11 @@ SCENE="$REPO_ROOT/blender/test.blend"
 MODEL="$(resolve_default_model)"
 PLATFORM="linux_x86_64"
 REBUILD_WHEEL=1
+MODE="degrade"
 
 usage() {
     cat <<EOF
-Usage: $0 [options] [scene.blend]
+Usage: $0 [--mode degrade|full|private] [options] [scene.blend]
 
 Builds the debug Blender addon (model + ONNX Runtime + debug logging to
 <repo>/log/log_blender.log), installs it, and launches Blender with the test
@@ -32,6 +33,9 @@ methods are present (production wheels omit them). The actual logging
 implementation lives in Rust; _debuglog.py only calls it.
 
 Options:
+  --mode MODE          Curve copilot mode, same vocabulary as ./run.sh engine
+                       (degrade=A, full=B, private=C; default: degrade).
+                       SSoT: crates/thyllore-ml-core/src/mode.rs
   --skip-wheel         Reuse the existing wheel (only safe if it was already
                        built with --debug-log)
   --model PATH         curve_copilot ONNX to bundle. Default resolves from
@@ -42,14 +46,29 @@ Options:
 EOF
 }
 
+build_mode_for() {
+    case "$1" in
+        degrade) printf 'A' ;;
+        full)    printf 'B' ;;
+        private) printf 'C' ;;
+        *)
+            echo "invalid mode: $1 (expected degrade, full or private)" >&2
+            exit 2
+            ;;
+    esac
+}
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
+        --mode) MODE="$2"; shift 2 ;;
         --skip-wheel) REBUILD_WHEEL=0; shift ;;
         --model) MODEL="$2"; shift 2 ;;
         -h|--help) usage; exit 0 ;;
         *) SCENE="$1"; shift ;;
     esac
 done
+
+BUILD_MODE="$(build_mode_for "$MODE")"
 
 if [[ -z "$MODEL" ]]; then
     echo "curve_copilot model path is not set. Pass --model PATH, or set THYLLORE_CURVE_MODEL," >&2
@@ -88,11 +107,15 @@ if [[ "$REBUILD_WHEEL" -eq 1 ]]; then
     bash "$REPO_ROOT/scripts/collect_wheels.sh" --skip-pip-download --variant lite --debug-log
 fi
 
+echo "[run_blender_debug] mode=$MODE (build mode $BUILD_MODE)"
 bash "$REPO_ROOT/scripts/build_blender_addon.sh" \
-    --platform "$PLATFORM" --variant lite --debug \
+    --platform "$PLATFORM" --variant lite --debug --build-mode "$BUILD_MODE" \
     --include-onnx-model --onnx-source-path "$MODEL"
 
-ZIP="$REPO_ROOT/dist/thyllore_animation_lite-0.0.1-${PLATFORM}.zip"
+rm -rf "$HOME"/.config/blender/*/extensions/.local/lib/python*/site-packages/thyllore_ml_core*
+echo "[run_blender_debug] purged Blender-managed wheel copies (same-version wheels are not re-extracted otherwise)"
+
+ZIP="$(cat "$REPO_ROOT/dist/.last_built_zip")"
 "$THYLLORE_BLENDER_PATH" --command extension install-file -r user_default --enable "$ZIP"
 
 echo "[run_blender_debug] launching Blender with $SCENE"

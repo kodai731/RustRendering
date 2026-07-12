@@ -14,7 +14,8 @@ fn pythonize_to_pyerr(err: pythonize::PythonizeError) -> PyErr {
 #[pyfunction]
 #[pyo3(signature = (
     model_hash, channel_kind, array_index, scene_fps, deploy_fps, frame_step,
-    origin_value, context, prediction, ground_truth=None, signal="ignored", ts=None
+    origin_value, context, prediction, ground_truth=None, signal="ignored",
+    record_id="", revision=0, ts=None
 ))]
 #[allow(clippy::too_many_arguments)]
 pub fn build_feedback_record<'py>(
@@ -30,6 +31,8 @@ pub fn build_feedback_record<'py>(
     prediction: Vec<f64>,
     ground_truth: Option<Vec<f64>>,
     signal: &str,
+    record_id: &str,
+    revision: u32,
     ts: Option<u64>,
 ) -> PyResult<Bound<'py, PyAny>> {
     let record = feedback::build_feedback_record(FeedbackRecordInputs {
@@ -44,6 +47,8 @@ pub fn build_feedback_record<'py>(
         prediction: &prediction,
         ground_truth,
         signal,
+        record_id,
+        revision,
         ts: ts.unwrap_or_else(now_unix),
     });
     pythonize(py, &record).map_err(pythonize_to_pyerr)

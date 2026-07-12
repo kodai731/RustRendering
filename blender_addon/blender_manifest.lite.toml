@@ -5,7 +5,7 @@ schema_version = "1.0.0"
 # side by side without conflicts.
 id = "thyllore_animation_lite"
 version = "0.0.1"
-name = "Thyllore Animation Lite"
+name = "Thyllore Animation Curve Copilot"
 tagline = "Offline FCurve copilot + Text-to-Motion for Blender"
 maintainer = "kodai731 <kodai731@example.com>"
 

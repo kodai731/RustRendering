@@ -7,17 +7,23 @@ future frames, anonymizes the pair and hands the batch to ``sender`` on a
 background thread. Failed sends are kept in a local outbox and retried on the
 next flush.
 
-Record construction (schema ``curve_copilot_feedback/v0``) is delegated to the
+Record construction (schema ``curve_copilot_feedback/v1``) is delegated to the
 ``thyllore_ml_core`` wheel, the schema's single source of truth; this module
 keeps only the bpy-dependent parts (FCurve sampling, outbox storage).
 
-Anonymization: records never contain object names, file paths or bone names;
-curve values are stored relative to ``origin_value``.
+Anonymization: records never contain object names, file paths or bone names.
+The wheel stores curve values origin-relative, amplitude-normalized (scale not
+transmitted) and quantized, with day-granularity timestamps; batches are
+shuffled before sending so records cannot be re-correlated into runs or bones
+and the original animation cannot be reconstructed. ``record_id`` only links
+the revisions of one fragment's ground truth, nothing across fragments.
 """
 from __future__ import annotations
 
 import json
+import random
 import threading
+import uuid
 from pathlib import Path
 
 import bpy
@@ -44,7 +50,10 @@ def record_prediction(
     prediction_frames: list[float],
     prediction_values: list[float],
     model_hash: str,
+    representation: str = "direct",
 ) -> None:
+    channel_key = (object_name, data_path, array_index, representation)
+    _pending[:] = [entry for entry in _pending if _channel_key(entry) != channel_key]
     if len(_pending) >= PENDING_LIMIT:
         del _pending[0]
     _pending.append(
@@ -62,7 +71,19 @@ def record_prediction(
             "prediction_values": prediction_values,
             "model_hash": model_hash,
             "signal": "ignored",
+            "representation": representation,
+            "record_id": str(uuid.uuid4()),
+            "revision": 0,
         }
+    )
+
+
+def _channel_key(entry: dict) -> tuple:
+    return (
+        entry["object_name"],
+        entry["data_path"],
+        entry["array_index"],
+        entry.get("representation", "direct"),
     )
 
 
@@ -81,6 +102,8 @@ def _sample_ground_truth(entry: dict) -> list[float] | None:
     obj = bpy.data.objects.get(entry["object_name"])
     if obj is None:
         return None
+    if entry.get("representation") == "quaternion_euler":
+        return _sample_quaternion_euler_ground_truth(obj, entry)
     for fcurve in _action_fcurves(obj):
         if (
             fcurve.data_path == entry["data_path"]
@@ -92,6 +115,52 @@ def _sample_ground_truth(entry: dict) -> list[float] | None:
                 for frame in entry["prediction_frames"]
             ]
     return None
+
+
+def _sample_quaternion_euler_ground_truth(obj, entry: dict) -> list[float] | None:
+    """Re-samples the edited quaternion siblings as a continuous Euler curve.
+
+    Mirrors the prediction-time conversion in ``_forecast_quaternion_ghost``:
+    the context frames seed the Euler continuity, then the prediction frames
+    are evaluated on the same continuous curve. ``array_index`` of a
+    quaternion_euler entry is the Euler axis (0..2).
+    """
+    import thyllore_ml_core as tml
+    from mathutils import Quaternion
+
+    from ..operators.curve_copilot import _action_fcurves
+
+    siblings = {}
+    for fcurve in _action_fcurves(obj):
+        if fcurve.data_path == entry["data_path"] and 0 <= fcurve.array_index <= 3:
+            siblings[fcurve.array_index] = fcurve
+    if len(siblings) != 4:
+        return None
+
+    frame_step = entry["frame_step"]
+    prediction_frames = entry["prediction_frames"]
+    context_offsets, future_offsets = tml.forecast_sample_offsets()
+    origin_frame = prediction_frames[0] - future_offsets[0] * frame_step
+    context_frames = [origin_frame + offset * frame_step for offset in context_offsets]
+
+    axis = entry["array_index"]
+    origin_value = entry["origin_value"]
+    previous = None
+    ground_truth = []
+    for index, frame in enumerate(context_frames + list(prediction_frames)):
+        quat = Quaternion(
+            (
+                siblings[0].evaluate(frame),
+                siblings[1].evaluate(frame),
+                siblings[2].evaluate(frame),
+                siblings[3].evaluate(frame),
+            )
+        )
+        euler = quat.to_euler("XYZ") if previous is None else quat.to_euler("XYZ", previous)
+        previous = euler
+        if index >= len(context_frames):
+            ground_truth.append(float(euler[axis]) - origin_value)
+    return ground_truth
 
 
 def _finalize(entry: dict, ground_truth: list[float] | None) -> dict:
@@ -109,6 +178,8 @@ def _finalize(entry: dict, ground_truth: list[float] | None) -> dict:
         prediction=entry["prediction_values"],
         ground_truth=ground_truth,
         signal=entry["signal"],
+        record_id=entry.get("record_id", ""),
+        revision=entry.get("revision", 0),
     )
 
 
@@ -155,14 +226,28 @@ def complete_and_flush(prefs) -> None:
     Must run on the main thread (reads bpy data); only the network send moves
     to a background thread. When sending is not allowed the completed records
     stay in the outbox.
+
+    Entries whose ground truth could be sampled are RETAINED with a bumped
+    revision: later saves within the prediction window re-send the same
+    record_id with the updated ground truth (training keeps the highest
+    revision). An entry leaves the pending list when its channel gets a new
+    prediction, its curves disappear, or the pending limit evicts it.
     """
     global _pending
-    completed = [_finalize(entry, _sample_ground_truth(entry)) for entry in _pending]
-    _pending = []
+    completed = []
+    retained = []
+    for entry in _pending:
+        ground_truth = _sample_ground_truth(entry)
+        completed.append(_finalize(entry, ground_truth))
+        if ground_truth is not None:
+            entry["revision"] += 1
+            retained.append(entry)
+    _pending = retained
 
     records = _load_outbox() + completed
     if not records:
         return
+    random.shuffle(records)
     _store_outbox(records)
     if not sender.should_send(prefs):
         return

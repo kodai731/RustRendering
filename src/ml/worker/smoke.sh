@@ -79,7 +79,7 @@ echo "[smoke] 3. Empty feedback batch returns a full token"
 feedback_response="$(printf '' | gzip -c | curl -sS -X POST "$WORKER_URL/v1/feedback" \
     -H "Authorization: Bearer $THYLLORE_INGEST_TOKEN" \
     -H "Content-Encoding: gzip" \
-    -H "X-Schema-Version: curve_copilot_feedback/v0" \
+    -H "X-Schema-Version: curve_copilot_feedback/v1" \
     --data-binary @-)"
 if jq -e 'has("full_token") and has("exp")' >/dev/null 2>&1 <<<"$feedback_response"; then
     exp="$(jq -r '.exp' <<<"$feedback_response")"

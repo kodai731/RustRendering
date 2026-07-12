@@ -84,7 +84,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
     enable_curve_copilot: BoolProperty(  # type: ignore[valid-type]
         name="Enable Curve Copilot",
         default=True,
-        description="Enable in-process ONNX inference for FCurve suggestions (Tier B)",
+        description="Enable in-process ONNX inference for FCurve suggestions",
     )
     curve_copilot_model_path: StringProperty(  # type: ignore[valid-type]
         name="Curve Copilot Model Path",
@@ -115,8 +115,9 @@ class ThylloreAnimationPreferences(AddonPreferences):
         update=_on_telemetry_opt_in_changed,
         description=(
             "Enables ctx64 high-accuracy prediction. In exchange, anonymized "
-            "feedback (the curve the model predicted and the keyframe values "
-            "you actually entered) is sent periodically in the background. "
+            "curve-shape fragments (the model's prediction vs. your "
+            "correction, scale-normalized) are sent in the background. "
+            "Your animation cannot be reconstructed from them. "
             "No file names, object names, bone names, scene contents or "
             "personal data are ever collected. Used solely to improve the "
             "Curve Copilot model. Turn off anytime: sending stops immediately "
@@ -138,10 +139,10 @@ class ThylloreAnimationPreferences(AddonPreferences):
         layout = self.layout
 
         box = layout.box()
-        box.label(text="Curve Copilot (Tier B - PyO3)", icon="FCURVE")
+        box.label(text="Curve Copilot", icon="FCURVE")
         box.prop(self, "enable_curve_copilot")
         box.prop(self, "curve_copilot_model_path")
-        effective_ctx = _effective_context_length()
+        effective_ctx = effective_context_length()
         if effective_ctx is not None:
             box.label(text=f"Prediction accuracy: ctx {effective_ctx}", icon="INFO")
 
@@ -158,13 +159,13 @@ class ThylloreAnimationPreferences(AddonPreferences):
 
         if operators.has_text_to_motion():
             box = layout.box()
-            box.label(text="Text to Motion (Tier B - PyO3)", icon="POSE_HLT")
+            box.label(text="Text to Motion", icon="POSE_HLT")
             box.prop(self, "text_to_motion_model_dir")
             box.label(text="Models are downloaded from HuggingFace on first use.")
 
         if operators.has_tier_a():
             box = layout.box()
-            box.label(text="Server (Tier A - gRPC)", icon="URL")
+            box.label(text="Server", icon="URL")
             box.prop(self, "server_host")
             box.prop(self, "server_port")
             box.prop(self, "use_tls")
@@ -176,11 +177,6 @@ class ThylloreAnimationPreferences(AddonPreferences):
             row = box.row()
             row.label(text=f"Device: {self.device_id or '(not set)'}")
             row.operator("thyllore.regenerate_device_id", text="Regenerate")
-        else:
-            layout.label(
-                text="Tier A cloud features (mesh / auto-rig) require Phase 6 SaaS upgrade.",
-                icon="INFO",
-            )
 
     def _draw_telemetry_box(self, layout):
         box = layout.box()
@@ -189,9 +185,10 @@ class ThylloreAnimationPreferences(AddonPreferences):
 
         col = box.column()
         col.scale_y = 0.8
-        col.label(text="Sent: only the predicted curve and the keyframe values you enter.")
+        col.label(text="Sent: scale-normalized curve fragments (prediction vs. your correction).")
         col.label(text="Never sent: file / object / bone names, scene contents, personal data.")
-        col.label(text="Used solely to improve the Curve Copilot model (license-clean training).")
+        col.label(text="Your animation cannot be reconstructed from the sent data.")
+        col.label(text="Used solely to improve the Curve Copilot model.")
         col.label(text="Requires 'Allow Online Access'. Turning off reverts to ctx32 immediately.")
 
     def _draw_message_box(self, layout):
@@ -249,7 +246,7 @@ def unregister() -> None:
             pass
 
 
-def _effective_context_length() -> int | None:
+def effective_context_length() -> int | None:
     """The wheel-decided context window (read-only display; addon holds no 32/64)."""
     try:
         import thyllore_ml_core as tml

@@ -35,7 +35,7 @@ echo "[e2e] Obtaining a full token from the local worker..."
 token="$(printf '' | gzip -c | curl -sS -X POST "$WORKER_URL/v1/feedback" \
     -H "Authorization: Bearer $INGEST_TOKEN" \
     -H "Content-Encoding: gzip" \
-    -H "X-Schema-Version: curve_copilot_feedback/v0" \
+    -H "X-Schema-Version: curve_copilot_feedback/v1" \
     --data-binary @- | jq -r '.full_token')"
 if [[ -z "$token" || "$token" == "null" ]]; then
     echo "[e2e] FAIL: local worker did not return a full token" >&2

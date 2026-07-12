@@ -19,10 +19,13 @@ Commands:
         ./run.sh engine                              # private (default)
         ./run.sh engine degrade
         ./run.sh engine full --features auto-rig
-  blender [scene.blend] [args...]
+  blender [--mode degrade|full|private] [scene.blend] [args...]
       Build + install the debug addon and launch Blender
-      (scripts/run_blender_debug.sh). Sources .config/curve_copilot_full.env
-      for THYLLORE_FEEDBACK_ENDPOINT / THYLLORE_INGEST_TOKEN.
+      (scripts/run_blender_debug.sh). The mode maps to the addon build mode
+      (degrade=A, full=B, private=C; default: degrade). Sources
+      .config/curve_copilot_full.env for THYLLORE_FEEDBACK_ENDPOINT /
+      THYLLORE_INGEST_TOKEN.
+        ./run.sh blender --mode full
   auto [args...]
       Launch the Claude auto-mode container (scripts/run_auto_mode.sh).
   worker-smoke [worker-url] [args...]

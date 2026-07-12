@@ -1,6 +1,6 @@
 """Wheel `build_feedback_record` must match the legacy Python `_finalize`.
 
-The `curve_copilot_feedback/v0` record construction moved from
+The `curve_copilot_feedback/v1` record construction moved from
 ``telemetry/records.py`` into the ``thyllore_ml_core`` wheel (Rust SSoT).
 This test freezes the legacy Python output and asserts the wheel produces an
 identical record for the same inputs. The wheel is loaded from
@@ -51,10 +51,18 @@ ENTRY = {
 TS = 1752200000
 
 
+def _quantize(value: float) -> float:
+    return round(value * 1e4) / 1e4
+
+
 def _legacy_finalize(entry: dict, ground_truth: list[float] | None, ts: int) -> dict:
     origin_value = entry["origin_value"]
+    context = [value - origin_value for value in entry["context"]]
+    scale = max((abs(value) for value in context), default=0.0)
+    if scale < 1e-9:
+        scale = 1.0
     return {
-        "schema": "curve_copilot_feedback/v0",
+        "schema": "curve_copilot_feedback/v1",
         "model_hash": entry["model_hash"],
         "channel": {"kind": entry["channel_kind"], "array_index": entry["array_index"]},
         "fps": {
@@ -62,11 +70,17 @@ def _legacy_finalize(entry: dict, ground_truth: list[float] | None, ts: int) -> 
             "deploy": entry["deploy_fps"],
             "frame_step": entry["frame_step"],
         },
-        "context": [value - origin_value for value in entry["context"]],
-        "prediction": [value - origin_value for value in entry["prediction_values"]],
-        "ground_truth": ground_truth,
+        "context": [_quantize(value / scale) for value in context],
+        "prediction": [
+            _quantize((value - origin_value) / scale) for value in entry["prediction_values"]
+        ],
+        "ground_truth": (
+            None if ground_truth is None else [_quantize(value / scale) for value in ground_truth]
+        ),
         "signal": entry["signal"],
-        "ts": ts,
+        "record_id": entry.get("record_id", ""),
+        "revision": entry.get("revision", 0),
+        "ts": ts - ts % 86400,
     }
 
 
@@ -83,6 +97,8 @@ def _wheel_record(tml, entry: dict, ground_truth: list[float] | None, ts: int) -
         prediction=entry["prediction_values"],
         ground_truth=ground_truth,
         signal=entry["signal"],
+        record_id=entry.get("record_id", ""),
+        revision=entry.get("revision", 0),
         ts=ts,
     )
 
@@ -103,8 +119,17 @@ def test_record_cleared_signal_matches_legacy(tml):
     assert _wheel_record(tml, entry, None, TS) == _legacy_finalize(entry, None, TS)
 
 
-def test_ts_defaults_to_now(tml):
+def test_record_id_and_revision_round_trip(tml):
+    entry = {**ENTRY, "record_id": "11111111-2222-3333-4444-555555555555", "revision": 3}
+    record = _wheel_record(tml, entry, None, TS)
+    assert record == _legacy_finalize(entry, None, TS)
+    assert record["record_id"] == entry["record_id"]
+    assert record["revision"] == 3
+
+
+def test_ts_defaults_to_now_at_day_granularity(tml):
     import time
 
     record = _wheel_record(tml, ENTRY, None, None)
-    assert abs(record["ts"] - int(time.time())) < 60
+    assert record["ts"] % 86400 == 0
+    assert 0 <= int(time.time()) - record["ts"] < 86400 + 60

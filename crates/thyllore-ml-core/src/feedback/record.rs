@@ -6,7 +6,11 @@ use sha2::{Digest, Sha256};
 use thyllore_anim_core::editable::PropertyType;
 
 /// Schema SSoT, shared with the Blender addon via the pybindings.
-pub const FEEDBACK_SCHEMA_VERSION: &str = "curve_copilot_feedback/v0";
+pub const FEEDBACK_SCHEMA_VERSION: &str = "curve_copilot_feedback/v1";
+
+const TS_GRANULARITY_SECONDS: u64 = 86_400;
+const QUANTIZE_FACTOR: f64 = 1.0e4;
+const AMPLITUDE_EPSILON: f64 = 1.0e-9;
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
 pub struct FeedbackChannel {
@@ -31,6 +35,8 @@ pub struct FeedbackRecord {
     pub prediction: Vec<f64>,
     pub ground_truth: Option<Vec<f64>>,
     pub signal: String,
+    pub record_id: String,
+    pub revision: u32,
     pub ts: u64,
 }
 
@@ -46,14 +52,28 @@ pub struct FeedbackRecordInputs<'a> {
     pub prediction: &'a [f64],
     pub ground_truth: Option<Vec<f64>>,
     pub signal: &'a str,
+    pub record_id: &'a str,
+    pub revision: u32,
     pub ts: u64,
 }
 
 /// Builds one anonymized feedback record. `context`/`prediction` are absolute
-/// curve values and are stored relative to `origin_value`; `ground_truth` is
-/// expected to be origin-relative already (sampled that way by the caller).
+/// curve values; `ground_truth` is expected to be origin-relative already
+/// (sampled that way by the caller).
+///
+/// The record is made non-reconstructable: values are stored relative to
+/// `origin_value`, divided by the context's peak amplitude (the scale is NOT
+/// transmitted, so real units and magnitudes are lost), quantized, and `ts`
+/// is coarsened to day granularity so records cannot be re-correlated into
+/// runs or bones. Only the normalized curve shape needed for training remains.
+///
+/// `record_id` + `revision` let one prediction be re-sent with an updated
+/// ground truth after each save; training keeps the highest revision per id.
 pub fn build_feedback_record(inputs: FeedbackRecordInputs<'_>) -> FeedbackRecord {
     let origin = inputs.origin_value;
+    let relative_context: Vec<f64> = inputs.context.iter().map(|value| value - origin).collect();
+    let scale = amplitude_scale(&relative_context);
+
     FeedbackRecord {
         schema: FEEDBACK_SCHEMA_VERSION.to_string(),
         model_hash: inputs.model_hash.to_string(),
@@ -66,16 +86,38 @@ pub fn build_feedback_record(inputs: FeedbackRecordInputs<'_>) -> FeedbackRecord
             deploy: inputs.deploy_fps,
             frame_step: inputs.frame_step,
         },
-        context: inputs.context.iter().map(|value| value - origin).collect(),
+        context: relative_context
+            .iter()
+            .map(|value| quantize(value / scale))
+            .collect(),
         prediction: inputs
             .prediction
             .iter()
-            .map(|value| value - origin)
+            .map(|value| quantize((value - origin) / scale))
             .collect(),
-        ground_truth: inputs.ground_truth,
+        ground_truth: inputs
+            .ground_truth
+            .map(|values| values.iter().map(|value| quantize(value / scale)).collect()),
         signal: inputs.signal.to_string(),
-        ts: inputs.ts,
+        record_id: inputs.record_id.to_string(),
+        revision: inputs.revision,
+        ts: inputs.ts - inputs.ts % TS_GRANULARITY_SECONDS,
     }
+}
+
+fn amplitude_scale(relative_context: &[f64]) -> f64 {
+    let peak = relative_context
+        .iter()
+        .fold(0.0_f64, |acc, value| acc.max(value.abs()));
+    if peak < AMPLITUDE_EPSILON {
+        1.0
+    } else {
+        peak
+    }
+}
+
+fn quantize(value: f64) -> f64 {
+    (value * QUANTIZE_FACTOR).round() / QUANTIZE_FACTOR
 }
 
 /// Bone names never leave the engine; only the channel kind and axis index
@@ -121,6 +163,8 @@ mod tests {
             prediction,
             ground_truth: Some(vec![0.5, -0.25]),
             signal: "ignored",
+            record_id: "rec-1",
+            revision: 0,
             ts: 1_752_200_000,
         }
     }
@@ -136,16 +180,41 @@ mod tests {
     }
 
     #[test]
+    fn record_normalizes_amplitude_without_transmitting_scale() {
+        let record = build_feedback_record(inputs(&[2.0, 6.0], &[4.0, 0.0]));
+
+        assert_eq!(record.context, vec![0.0, 1.0]);
+        assert_eq!(record.prediction, vec![0.5, -0.5]);
+        assert_eq!(record.ground_truth, Some(vec![0.125, -0.0625]));
+    }
+
+    #[test]
+    fn flat_context_falls_back_to_unit_scale() {
+        let record = build_feedback_record(inputs(&[2.0, 2.0], &[3.0, 1.0]));
+
+        assert_eq!(record.context, vec![0.0, 0.0]);
+        assert_eq!(record.prediction, vec![1.0, -1.0]);
+    }
+
+    #[test]
+    fn timestamp_is_coarsened_to_day_granularity() {
+        let record = build_feedback_record(inputs(&[2.0], &[2.0]));
+        assert_eq!(record.ts, 1_752_192_000);
+        assert_eq!(record.ts % 86_400, 0);
+    }
+
+    #[test]
     fn record_serializes_with_schema_field_order() {
         let record = build_feedback_record(inputs(&[2.0], &[2.0]));
         let json = serde_json::to_string(&record).expect("serialize");
 
         let expected = concat!(
-            "{\"schema\":\"curve_copilot_feedback/v0\",\"model_hash\":\"abc123\",",
+            "{\"schema\":\"curve_copilot_feedback/v1\",\"model_hash\":\"abc123\",",
             "\"channel\":{\"kind\":\"location\",\"array_index\":1},",
             "\"fps\":{\"scene\":24.0,\"deploy\":60.0,\"frame_step\":0.4},",
             "\"context\":[0.0],\"prediction\":[0.0],",
-            "\"ground_truth\":[0.5,-0.25],\"signal\":\"ignored\",\"ts\":1752200000}"
+            "\"ground_truth\":[0.5,-0.25],\"signal\":\"ignored\",",
+            "\"record_id\":\"rec-1\",\"revision\":0,\"ts\":1752192000}"
         );
         assert_eq!(json, expected);
     }
