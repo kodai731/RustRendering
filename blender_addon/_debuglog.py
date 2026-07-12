@@ -117,3 +117,21 @@ def get_logger() -> Optional[_RustLogger]:
     _logger.info("debug log opened at %s", str(log_path))
     print(f"[Thyllore] debug log -> {log_path}")
     return _logger
+
+
+def log_exception(message: str) -> None:
+    """Record the current exception with traceback in the debug log.
+
+    Call from ``except`` blocks that swallow errors, so failures stay
+    diagnosable in debug builds. No-op in production wheels.
+    """
+    logger = get_logger()
+    if logger is not None:
+        logger.exception(f"ERROR {message}")
+
+
+def log_error(message: str) -> None:
+    """Record an error shown to the user (``Operator.report``) in the debug log."""
+    logger = get_logger()
+    if logger is not None:
+        logger.info(f"ERROR {message}")

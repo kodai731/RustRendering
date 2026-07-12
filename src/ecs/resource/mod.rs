@@ -17,6 +17,8 @@ mod clip_library;
 mod constraint_editor_state;
 mod curve_editor_buffer;
 mod curve_editor_state;
+#[cfg(feature = "ml")]
+mod curve_suggestion_state;
 mod depth_of_field;
 mod edit_history;
 mod exposure;
@@ -75,6 +77,8 @@ pub use clip_library::*;
 pub use constraint_editor_state::*;
 pub use curve_editor_buffer::*;
 pub use curve_editor_state::*;
+#[cfg(feature = "ml")]
+pub use curve_suggestion_state::*;
 pub use depth_of_field::*;
 pub use edit_history::*;
 pub use exposure::*;

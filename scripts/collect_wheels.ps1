@@ -79,12 +79,16 @@ if (-not $SkipMaturin) {
         }
 
         Push-Location (Join-Path $RepoRoot "crates/thyllore-ml-core")
+        $PrevRustFlags = $env:RUSTFLAGS
         try {
+            $RemapFlag = "--remap-path-prefix=$HOME=."
+            $env:RUSTFLAGS = if ($PrevRustFlags) { "$PrevRustFlags $RemapFlag" } else { $RemapFlag }
             & maturin build --release --features python --out $AbsWheels *>&1 | Out-Null
             if ($LASTEXITCODE -ne 0) {
                 throw "maturin build failed"
             }
         } finally {
+            $env:RUSTFLAGS = $PrevRustFlags
             Pop-Location
         }
     } finally {

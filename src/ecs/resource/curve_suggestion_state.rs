@@ -1,6 +1,6 @@
-use thyllore_anim_core::editable::PropertyType;
-
-use crate::{BoneId, InferenceRequestId};
+use crate::animation::editable::PropertyType;
+use crate::animation::BoneId;
+use crate::ml::InferenceRequestId;
 
 #[derive(Clone)]
 pub struct GhostCurveSuggestion {
@@ -20,15 +20,20 @@ pub struct CurveSuggestionPendingDump {
     pub anchor_time: f32,
 }
 
+pub struct PendingSuggestionRequest {
+    pub request_id: InferenceRequestId,
+    pub bone_id: BoneId,
+    pub property_type: PropertyType,
+    pub anchor_time: f32,
+    pub origin_value: f32,
+    pub dt: f32,
+    pub dump: Option<CurveSuggestionPendingDump>,
+    pub feedback_context: Option<Vec<f32>>,
+}
+
 pub struct CurveSuggestionState {
     pub suggestions: Vec<GhostCurveSuggestion>,
-    pub pending_request_id: Option<InferenceRequestId>,
-    pub pending_bone_id: Option<BoneId>,
-    pub pending_property_type: Option<PropertyType>,
-    pub pending_anchor_time: Option<f32>,
-    pub pending_origin_value: Option<f32>,
-    pub pending_dt: Option<f32>,
-    pub pending_dump: Option<CurveSuggestionPendingDump>,
+    pub pending: Option<PendingSuggestionRequest>,
     pub enabled: bool,
     pub dump_inference: bool,
 }
@@ -37,13 +42,7 @@ impl Default for CurveSuggestionState {
     fn default() -> Self {
         Self {
             suggestions: Vec::new(),
-            pending_request_id: None,
-            pending_bone_id: None,
-            pending_property_type: None,
-            pending_anchor_time: None,
-            pending_origin_value: None,
-            pending_dt: None,
-            pending_dump: None,
+            pending: None,
             enabled: true,
             dump_inference: false,
         }

@@ -5,6 +5,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PLATFORM=""
 VARIANT="lite"
+BUILD_MODE="A"
 VERSION="0.0.1"
 OUTPUT_DIR="dist"
 INCLUDE_ONNX_MODEL=0
@@ -12,6 +13,7 @@ ONNX_SOURCE_PATH="${THYLLORE_CURVE_COPILOT_ONNX:-ml/model/curve_copilot.onnx}"
 ONNXRUNTIME_LIB_PATH=""
 DEBUG_BUILD=0
 SKIP_BLENDER_VALIDATE=0
+ENDPOINT_ENV=""
 
 usage() {
     cat <<EOF
@@ -25,6 +27,14 @@ Required:
 
 Options:
   --variant lite|full            "lite" excludes Tier A (default: lite)
+  --build-mode A|B|C             Distribution build mode (default: A).
+                                 SSoT (behaviour, required env vars):
+                                 crates/thyllore-ml-core/src/mode.rs
+  --env prod|test                Feedback endpoint to bake: reads
+                                 THYLLORE_FEEDBACK_PROD_ENDPOINT or
+                                 THYLLORE_FEEDBACK_TEST_ENDPOINT. Without
+                                 this option, THYLLORE_FEEDBACK_ENDPOINT
+                                 is used as before (CI compatibility)
   --version VERSION              Extension version (default: $VERSION)
   --output-dir PATH              Output directory (default: $OUTPUT_DIR)
   --include-onnx-model           Bundle the curve_copilot ONNX
@@ -45,6 +55,20 @@ while [[ $# -gt 0 ]]; do
             case "$2" in
                 lite|full) VARIANT="$2" ;;
                 *) echo "invalid variant: $2 (expected lite or full)" >&2; exit 2 ;;
+            esac
+            shift 2
+            ;;
+        --build-mode)
+            case "$2" in
+                A|B|C) BUILD_MODE="$2" ;;
+                *) echo "invalid build mode: $2 (expected A, B or C)" >&2; exit 2 ;;
+            esac
+            shift 2
+            ;;
+        --env)
+            case "$2" in
+                prod|test) ENDPOINT_ENV="$2" ;;
+                *) echo "invalid env: $2 (expected prod or test)" >&2; exit 2 ;;
             esac
             shift 2
             ;;
@@ -98,9 +122,41 @@ case "$PLATFORM" in
         ;;
 esac
 
-echo "[build_blender_addon] Platform: $PLATFORM -> Blender: $BLENDER_NAME, variant: $VARIANT"
+case "$ENDPOINT_ENV" in
+    prod) FEEDBACK_ENDPOINT_VAR="THYLLORE_FEEDBACK_PROD_ENDPOINT" ;;
+    test) FEEDBACK_ENDPOINT_VAR="THYLLORE_FEEDBACK_TEST_ENDPOINT" ;;
+    "")   FEEDBACK_ENDPOINT_VAR="THYLLORE_FEEDBACK_ENDPOINT" ;;
+esac
+FEEDBACK_ENDPOINT="${!FEEDBACK_ENDPOINT_VAR:-}"
+INGEST_TOKEN="${THYLLORE_INGEST_TOKEN:-}"
+FULL_TOKEN_PUBKEY="${THYLLORE_FULL_TOKEN_PUBKEY_B64:-}"
+LICENSE_ENDPOINT="${THYLLORE_LICENSE_ENDPOINT:-}"
 
-STAGE_DIR="$REPO_ROOT/build/blender_addon_stage_${PLATFORM}_${VARIANT}"
+require_build_mode_env() {
+    local name="$1" value="$2"
+    if [[ -z "$value" ]]; then
+        echo "build mode $BUILD_MODE requires environment variable $name" >&2
+        exit 2
+    fi
+}
+
+require_build_mode_env "$FEEDBACK_ENDPOINT_VAR" "$FEEDBACK_ENDPOINT"
+require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
+echo "[build_blender_addon] Feedback endpoint (${ENDPOINT_ENV:-explicit}): $FEEDBACK_ENDPOINT"
+
+case "$BUILD_MODE" in
+    B)
+        require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
+        ;;
+    C)
+        require_build_mode_env THYLLORE_LICENSE_ENDPOINT "$LICENSE_ENDPOINT"
+        require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
+        ;;
+esac
+
+echo "[build_blender_addon] Platform: $PLATFORM -> Blender: $BLENDER_NAME, variant: $VARIANT, build mode: $BUILD_MODE"
+
+STAGE_DIR="$REPO_ROOT/build/blender_addon_stage_${PLATFORM}_${VARIANT}_${BUILD_MODE}"
 SOURCE_DIR="$REPO_ROOT/blender_addon"
 
 rm -rf "$STAGE_DIR"
@@ -112,11 +168,12 @@ if command -v rsync >/dev/null 2>&1; then
         --exclude='__pycache__/' \
         --exclude='.pytest_cache/' \
         --exclude='.egg-info/' \
+        --exclude='wheels-extracted/' \
         --exclude='*.pyc' \
         "$SOURCE_DIR/" "$STAGE_DIR/"
 else
     cp -a "$SOURCE_DIR/." "$STAGE_DIR/"
-    find "$STAGE_DIR" -type d \( -name tests -o -name __pycache__ -o -name .pytest_cache -o -name .egg-info \) -prune -exec rm -rf {} +
+    find "$STAGE_DIR" -type d \( -name tests -o -name __pycache__ -o -name .pytest_cache -o -name .egg-info -o -name wheels-extracted \) -prune -exec rm -rf {} +
     find "$STAGE_DIR" -type f -name "*.pyc" -delete
 fi
 
@@ -139,6 +196,15 @@ if [[ "$VARIANT" == "lite" ]]; then
     done
 else
     rm -f "$STAGE_DIR/blender_manifest.lite.toml"
+fi
+
+if [[ "$BUILD_MODE" != "B" && -e "$STAGE_DIR/telemetry" ]]; then
+    rm -rf "$STAGE_DIR/telemetry"
+    echo "[build_blender_addon] (mode $BUILD_MODE) excluded: telemetry"
+fi
+if [[ "$BUILD_MODE" != "C" && -e "$STAGE_DIR/license_client" ]]; then
+    rm -rf "$STAGE_DIR/license_client"
+    echo "[build_blender_addon] (mode $BUILD_MODE) excluded: license_client"
 fi
 
 WHEELS_DIR="$STAGE_DIR/wheels"
@@ -228,10 +294,12 @@ done
 WHEEL_LINES_JOINED="$WHEEL_LINES_JOINED" \
 MANIFEST_PATH="$MANIFEST_PATH" \
 BLENDER_NAME="$BLENDER_NAME" \
+BUILD_MODE="$BUILD_MODE" \
 "$PYTHON_BIN" - <<'PY'
 import os, re
 manifest_path = os.environ["MANIFEST_PATH"]
 blender_name = os.environ["BLENDER_NAME"]
+build_mode = os.environ["BUILD_MODE"]
 wheel_lines = os.environ["WHEEL_LINES_JOINED"].replace("\\n", "\n").rstrip("\n")
 
 with open(manifest_path, "rb") as f:
@@ -245,6 +313,18 @@ text = re.sub(
     text,
     flags=re.DOTALL,
 )
+
+# Blender manifest limit: permission text must be <= 64 characters
+network_permission_by_mode = {
+    "A": None,
+    "B": "Send opt-in anonymized FCurve feedback (unlocks full context)",
+    "C": "Online license check to unlock the purchased full context",
+}
+network_permission = network_permission_by_mode[build_mode]
+if network_permission is None:
+    text = re.sub(r'\nnetwork = "NETWORK_PERMISSION"', "", text)
+else:
+    text = text.replace("NETWORK_PERMISSION", network_permission)
 
 with open(manifest_path, "w", encoding="utf-8", newline="") as f:
     f.write(text)
@@ -310,6 +390,20 @@ else
     echo "  searched: ${ONNXRUNTIME_LIB_PATH:-<none>}" >&2
 fi
 
+BUILD_CONFIG_PATH="$STAGE_DIR/build_config.py"
+{
+    echo "BUILD_MODE = \"$BUILD_MODE\""
+    echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
+    echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
+    if [[ "$BUILD_MODE" == "B" || "$BUILD_MODE" == "C" ]]; then
+        echo "FULL_TOKEN_PUBKEY = \"$FULL_TOKEN_PUBKEY\""
+    fi
+    if [[ "$BUILD_MODE" == "C" ]]; then
+        echo "LICENSE_ENDPOINT = \"$LICENSE_ENDPOINT\""
+    fi
+} >"$BUILD_CONFIG_PATH"
+echo "[build_blender_addon] Generated build_config.py (mode $BUILD_MODE)"
+
 DEBUG_CONFIG_PATH="$STAGE_DIR/_debug_config.py"
 if [[ "$DEBUG_BUILD" -eq 1 ]]; then
     DEBUG_LOG_PATH="$REPO_ROOT/log/log_blender.log"
@@ -350,9 +444,17 @@ ABS_OUT_DIR="$REPO_ROOT/$OUTPUT_DIR"
 mkdir -p "$ABS_OUT_DIR"
 
 if [[ "$VARIANT" == "lite" ]]; then
-    ZIP_BASENAME="thyllore_animation_lite"
+    ZIP_BASENAME="thyllore_animation_curve_copilot"
 else
     ZIP_BASENAME="thyllore_animation_addon"
+fi
+case "$BUILD_MODE" in
+    A) ZIP_BASENAME="${ZIP_BASENAME}_degraded" ;;
+    B) ZIP_BASENAME="${ZIP_BASENAME}_full" ;;
+    C) ZIP_BASENAME="${ZIP_BASENAME}_private" ;;
+esac
+if [[ "$ENDPOINT_ENV" == "test" ]]; then
+    ZIP_BASENAME="${ZIP_BASENAME}_test"
 fi
 ZIP_PATH="$ABS_OUT_DIR/${ZIP_BASENAME}-${VERSION}-${PLATFORM}.zip"
 rm -f "$ZIP_PATH"

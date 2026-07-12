@@ -75,12 +75,17 @@ blender_addon/wheels/HASHES.txt
 
 # Phase 4: built ZIP artifacts
 blender_addon/__pycache__/
+blender_addon/telemetry/__pycache__/
+blender_addon/wheels-extracted/
+src/ml/worker/.local/
+src/ml/worker/.workerd.local.capnp
 blender_addon/operators/__pycache__/
 blender_addon/modal/__pycache__/
 blender_addon/panels/__pycache__/
 
-# Blender Scene
-blender/
+# Blender Scene (keep the docker harness tracked)
+blender/*
+!blender/docker/
 
 # build outputs
 release/
@@ -97,3 +102,6 @@ fixtures/
 *.dylib
 *.pyd
 *.dll
+
+# machine-local secrets / runtime env (never commit)
+.config/

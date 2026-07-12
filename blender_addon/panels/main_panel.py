@@ -69,6 +69,42 @@ class THYLLORE_PT_TextToMotion(Panel):
         layout.operator("thyllore.text_to_motion", icon="POSE_HLT")
 
 
+def _addon_module_name() -> str:
+    return (__package__ or "blender_addon.panels").rsplit(".", 1)[0]
+
+
+def _draw_prediction_mode(layout, context) -> None:
+    """ctx status line plus, when degraded, guidance towards full accuracy."""
+    from .. import preferences
+    from ..capabilities import CAPS
+
+    effective_ctx = preferences.effective_context_length()
+    if effective_ctx is None:
+        return
+
+    import thyllore_ml_core as tml
+
+    if effective_ctx > tml.degraded_context_length():
+        layout.label(text=f"Prediction: ctx {effective_ctx} (full)", icon="CHECKMARK")
+        return
+
+    layout.label(text=f"Prediction: ctx {effective_ctx} (degraded)", icon="INFO")
+    if not (CAPS.telemetry_available or CAPS.license_activation):
+        return
+
+    if not bpy.app.online_access:
+        layout.label(text="Enable Online Access for full accuracy", icon="ERROR")
+        layout.prop(
+            context.preferences.system, "use_online_access", text="Allow Online Access"
+        )
+        return
+
+    op = layout.operator(
+        "preferences.addon_show", text="Enable Full Accuracy...", icon="PREFERENCES"
+    )
+    op.module = _addon_module_name()
+
+
 class THYLLORE_PT_CurveCopilot(Panel):
     bl_label = "Curve Copilot"
     bl_idname = "THYLLORE_PT_curve_copilot"
@@ -81,6 +117,7 @@ class THYLLORE_PT_CurveCopilot(Panel):
         if context.active_object is None or context.active_object.type != "ARMATURE":
             layout.label(text="Select an armature with FCurves", icon="ERROR")
             return
+        _draw_prediction_mode(layout, context)
         layout.operator("thyllore.curve_copilot", text="Preview Forecast (Shift+C)", icon="FCURVE")
         layout.operator("thyllore.curve_copilot_clear", text="Clear Preview", icon="X")
 
@@ -107,9 +144,7 @@ class THYLLORE_PT_PlaceholderLicenseFailure(Panel):
             "preferences.addon_show",
             text="Open Preferences",
         )
-        # __package__ here is "blender_addon.panels"; the addon module name
-        # (one level up) is what AddonPreferences.bl_idname uses.
-        op.module = (__package__ or "blender_addon.panels").rsplit(".", 1)[0]
+        op.module = _addon_module_name()
 
 
 _TIER_A_PANELS = (

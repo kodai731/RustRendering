@@ -83,8 +83,9 @@ all `[batch, 64]`), no `future` / `reveal_mask`. The Rust runtime does the
 deploy-safe z-score over the context (std floor 0.05, clip ±8), builds the
 seconds-based times and the finite-difference tangent, and denormalizes the
 `mean_curve` output. The v1 7-input surface (ctx32 + reveal) and the pre-v1
-multi-input copilot surface have been removed. `ABI_MARKER = 2` is the v2
-baseline.
+multi-input copilot surface have been removed. `ABI_MARKER = 2` was the v2
+baseline; it was bumped to 3 when `build_forecast_preview` gained the
+`full_token` parameter (mode B ctx64 degrade gate).
 
 Bit-parity against the training export is verified by
 `cargo test -p thyllore-ml-core --test v2_curve_copilot_golden_parity -- --ignored`
@@ -92,7 +93,9 @@ Bit-parity against the training export is verified by
 `exports/curve_copilot_20260630_v2_k48opt_golden.json`).
 
 A structurally-correct all-zero dummy model is published on HuggingFace
-(`kodai731/thyllore-curve-copilot`, fixed name `curve_copilot.onnx`). The
+(`kodai731/thyllore-curve-copilot`, fixed name `curve_copilot_dummy.onnx`;
+the production weights live in the same private repo as
+`curve_copilot_prod.onnx`, used only by the release workflow). The
 `v2-curve-copilot-smoke` CI job downloads it and asserts only that inference runs
 and returns finite values — not numeric parity with the production model. Run the
 same check locally with `scripts/ci_v2_curve_copilot_inference_smoke.sh`.

@@ -3,17 +3,26 @@ use crate::animation::editable::{
     EditableKeyframe, InterpolationType, PropertyCurve, PropertyType,
 };
 use crate::animation::BoneId;
-use crate::ecs::resource::InferenceActorState;
+use crate::ecs::resource::{
+    CurveSuggestionPendingDump, CurveSuggestionState, GhostCurveSuggestion, InferenceActorState,
+    PendingSuggestionRequest,
+};
 use crate::ml::{
-    CurveSuggestionPendingDump, CurveSuggestionState, GhostCurveSuggestion, InferenceActorId,
-    InferenceRequestKind, InferenceResultKind,
+    CurveCopilotMode, FeedbackSenderHandle, InferenceActorId, InferenceRequestKind,
+    InferenceResultKind,
 };
 use thyllore_ml_core::copilot::v2::dump::{
     dump_v2_curve_copilot_inference, V2CurveCopilotInferenceDump,
 };
 use thyllore_ml_core::copilot::v2::forecast;
 
-use super::inference_actor_systems::{inference_actor_submit, inference_actor_take_results};
+use super::mode_systems::{
+    curve_copilot_capture_feedback_context, curve_copilot_degrade_context,
+    curve_copilot_send_feedback,
+};
+use crate::ecs::systems::inference_actor_systems::{
+    inference_actor_submit, inference_actor_take_results,
+};
 
 fn resolve_anchor_time(curve: &PropertyCurve, current_time: f32) -> Option<f32> {
     let times: Vec<f32> = curve.keyframes.iter().map(|kf| kf.time).collect();
@@ -53,6 +62,7 @@ pub fn curve_suggestion_submit(
     property_type: PropertyType,
     bone_id: BoneId,
     current_time: f32,
+    mode: CurveCopilotMode,
 ) {
     if !suggestion_state.enabled {
         return;
@@ -77,7 +87,8 @@ pub fn curve_suggestion_submit(
 
     let dt = 1.0 / forecast::DEPLOY_FPS;
     let origin_value = sample_or_hold(curve, origin_time);
-    let context = build_v2_curve_copilot_context(curve, origin_time, dt);
+    let mut context = build_v2_curve_copilot_context(curve, origin_time, dt);
+    curve_copilot_degrade_context(mode, &mut context);
 
     log!(
         "CurveCopilot input: bone_id={} property={:?} origin={:.4} fps={:.1} forecast",
@@ -97,27 +108,33 @@ pub fn curve_suggestion_submit(
         None
     };
 
+    let feedback_context = curve_copilot_capture_feedback_context(mode, &context);
+
     let kind = InferenceRequestKind::CurveCopilotPredict {
         context,
         fps: forecast::DEPLOY_FPS,
     };
 
     if let Some(request_id) = inference_actor_submit(inference_state, actor_id, kind) {
-        suggestion_state.pending_request_id = Some(request_id);
-        suggestion_state.pending_bone_id = Some(bone_id);
-        suggestion_state.pending_property_type = Some(property_type);
-        suggestion_state.pending_anchor_time = Some(origin_time);
-        suggestion_state.pending_origin_value = Some(origin_value);
-        suggestion_state.pending_dt = Some(dt);
-        suggestion_state.pending_dump = dump_snapshot;
+        suggestion_state.pending = Some(PendingSuggestionRequest {
+            request_id,
+            bone_id,
+            property_type,
+            anchor_time: origin_time,
+            origin_value,
+            dt,
+            dump: dump_snapshot,
+            feedback_context,
+        });
     }
 }
 
 pub fn curve_suggestion_poll_results(
     suggestion_state: &mut CurveSuggestionState,
     inference_state: &mut InferenceActorState,
+    feedback_sender: Option<&FeedbackSenderHandle>,
 ) {
-    if suggestion_state.pending_request_id.is_none() {
+    if suggestion_state.pending.is_none() {
         return;
     }
 
@@ -125,33 +142,26 @@ pub fn curve_suggestion_poll_results(
 
     for result in results {
         let pending_match = suggestion_state
-            .pending_request_id
-            .map_or(false, |id| id == result.request_id);
+            .pending
+            .as_ref()
+            .map_or(false, |pending| pending.request_id == result.request_id);
 
         if !pending_match {
             continue;
         }
 
         if let InferenceResultKind::CurveCopilotPredict { mean_curve } = result.kind {
-            let bone_id = suggestion_state.pending_bone_id.unwrap_or(0);
-            let property_type = suggestion_state
-                .pending_property_type
-                .unwrap_or(PropertyType::TranslationX);
-            let anchor_time = suggestion_state.pending_anchor_time.unwrap_or(0.0);
-            let dt = suggestion_state
-                .pending_dt
-                .unwrap_or(1.0 / forecast::DEPLOY_FPS);
-            let origin_value = suggestion_state
-                .pending_origin_value
-                .unwrap_or_else(|| mean_curve.first().copied().unwrap_or(0.0));
+            let Some(pending) = suggestion_state.pending.take() else {
+                continue;
+            };
 
             let suggestions = build_suggestions_from_curve(
                 &mean_curve,
-                origin_value,
-                anchor_time,
-                dt,
-                bone_id,
-                property_type,
+                pending.origin_value,
+                pending.anchor_time,
+                pending.dt,
+                pending.bone_id,
+                pending.property_type,
                 result.request_id,
             );
 
@@ -160,22 +170,25 @@ pub fn curve_suggestion_poll_results(
                  (anchor={:.4} dt={:.4})",
                 mean_curve.len(),
                 suggestions.len(),
-                anchor_time,
-                dt,
+                pending.anchor_time,
+                pending.dt,
             );
 
             suggestion_state.suggestions.extend(suggestions);
 
-            if let Some(snapshot) = suggestion_state.pending_dump.take() {
+            if let Some(snapshot) = pending.dump {
                 write_inference_dump(&snapshot, &mean_curve);
             }
 
-            suggestion_state.pending_request_id = None;
-            suggestion_state.pending_bone_id = None;
-            suggestion_state.pending_property_type = None;
-            suggestion_state.pending_anchor_time = None;
-            suggestion_state.pending_origin_value = None;
-            suggestion_state.pending_dt = None;
+            if let (Some(sender), Some(context)) = (feedback_sender, pending.feedback_context) {
+                curve_copilot_send_feedback(
+                    sender,
+                    pending.property_type,
+                    pending.origin_value,
+                    &context,
+                    &mean_curve,
+                );
+            }
         }
     }
 }
@@ -243,7 +256,7 @@ pub fn curve_suggestion_apply(suggestion: &GhostCurveSuggestion, curve: &mut Pro
 
 pub fn curve_suggestion_dismiss(suggestion_state: &mut CurveSuggestionState) {
     suggestion_state.suggestions.clear();
-    suggestion_state.pending_request_id = None;
+    suggestion_state.pending = None;
 }
 
 #[cfg(test)]
@@ -274,12 +287,21 @@ mod tests {
             confidence: 0.9,
             request_id: 42,
         });
-        state.pending_request_id = Some(100);
+        state.pending = Some(PendingSuggestionRequest {
+            request_id: 100,
+            bone_id: 0,
+            property_type: PropertyType::TranslationX,
+            anchor_time: 0.0,
+            origin_value: 0.0,
+            dt: 1.0 / forecast::DEPLOY_FPS,
+            dump: None,
+            feedback_context: None,
+        });
 
         curve_suggestion_dismiss(&mut state);
 
         assert!(state.suggestions.is_empty());
-        assert!(state.pending_request_id.is_none());
+        assert!(state.pending.is_none());
     }
 
     #[test]

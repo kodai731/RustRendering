@@ -1,0 +1,51 @@
+{
+  "ok": true,
+  "expect_mode": "A",
+  "checks": [
+    {
+      "name": "build_config.BUILD_MODE",
+      "ok": true,
+      "detail": "got A, expected A"
+    },
+    {
+      "name": "capabilities.telemetry_available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "capabilities.license_activation",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "telemetry bundled iff mode B",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "license_client bundled iff mode C",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "send_feedback operator registered in every mode",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "capabilities.message_available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Discord invite hook present",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "effective_ctx defaults to degraded",
+      "ok": true,
+      "detail": "got 32, expected 32"
+    }
+  ]
+}

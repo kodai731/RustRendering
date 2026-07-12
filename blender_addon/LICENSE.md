@@ -27,7 +27,7 @@ proprietary binaries are bundled.
 
 ## GPL-2.0-or-later notice
 
-Copyright (C) 2026 kodai731 <kodai731@example.com>
+Copyright (C) 2026 kodai731 <kodai731@gmail.com>
 
 This program is free software: you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software

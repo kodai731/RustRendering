@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$OutputDir = "secrets",
-    [string]$PublicKeyDest = "blender_addon/license/public_key.pem"
+    [string]$PublicKeyDest = "secrets/public_key.pem"
 )
 
 $ErrorActionPreference = "Stop"
@@ -24,9 +24,12 @@ New-Item -ItemType Directory -Path (Split-Path -Parent $AbsPublicKeyDest) -Force
 $PrivKeyPath = Join-Path $AbsOutputDir "private_key.pem"
 
 $env:THYLLORE_PRIV_KEY_PATH = $PrivKeyPath
+$env:THYLLORE_PRIV_PKCS8_B64_PATH = Join-Path $AbsOutputDir "private_key_pkcs8.b64"
 $env:THYLLORE_PUB_KEY_PATH = $AbsPublicKeyDest
+$env:THYLLORE_PUB_RAW_B64_PATH = Join-Path $AbsOutputDir "public_key.b64"
 
 $PythonScript = @"
+import base64
 import os
 from pathlib import Path
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -40,18 +43,29 @@ priv_pem = priv.private_bytes(
     format=serialization.PrivateFormat.PKCS8,
     encryption_algorithm=serialization.NoEncryption(),
 )
+priv_pkcs8_der = priv.private_bytes(
+    encoding=serialization.Encoding.DER,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+)
 pub_pem = pub.public_bytes(
     encoding=serialization.Encoding.PEM,
     format=serialization.PublicFormat.SubjectPublicKeyInfo,
 )
+pub_raw = pub.public_bytes(
+    encoding=serialization.Encoding.Raw,
+    format=serialization.PublicFormat.Raw,
+)
 
-priv_path = os.environ['THYLLORE_PRIV_KEY_PATH']
-pub_path = os.environ['THYLLORE_PUB_KEY_PATH']
-Path(priv_path).write_bytes(priv_pem)
-Path(pub_path).write_bytes(pub_pem)
+Path(os.environ['THYLLORE_PRIV_KEY_PATH']).write_bytes(priv_pem)
+Path(os.environ['THYLLORE_PRIV_PKCS8_B64_PATH']).write_text(base64.b64encode(priv_pkcs8_der).decode() + '\n')
+Path(os.environ['THYLLORE_PUB_KEY_PATH']).write_bytes(pub_pem)
+Path(os.environ['THYLLORE_PUB_RAW_B64_PATH']).write_text(base64.b64encode(pub_raw).decode() + '\n')
 print('[gen_license_keypair] Generated:')
-print('  private: ' + priv_path + '  (KEEP SECRET)')
-print('  public:  ' + pub_path)
+print('  private (PEM):        ' + os.environ['THYLLORE_PRIV_KEY_PATH'] + '  (KEEP SECRET)')
+print('  private (PKCS8 b64):  ' + os.environ['THYLLORE_PRIV_PKCS8_B64_PATH'] + '  (KEEP SECRET, Worker secret FULL_TOKEN_PRIVATE_KEY_PKCS8_B64)')
+print('  public  (PEM):        ' + os.environ['THYLLORE_PUB_KEY_PATH'])
+print('  public  (raw b64):    ' + os.environ['THYLLORE_PUB_RAW_B64_PATH'] + '  (THYLLORE_FULL_TOKEN_PUBKEY_B64 for wheel/addon builds)')
 "@
 
 & python -c $PythonScript

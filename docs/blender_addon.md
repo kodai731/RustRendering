@@ -23,7 +23,7 @@ artifact per platform:
 1. Open the repository's **Actions** tab and select the **Blender Addon Build** workflow.
 2. Open the run you want, scroll to the **Artifacts** section at the bottom.
 3. Download the artifact for your platform and unzip it — inside is the extension ZIP
-   (e.g. `thyllore_animation_lite-0.0.1-linux_x86_64.zip`). Keep this ZIP as-is; do not
+   (e.g. `thyllore_animation_curve_copilot_degraded-0.0.1-linux_x86_64.zip`). Keep this ZIP as-is; do not
    unzip it further.
 
 ### Via the `gh` CLI
@@ -132,3 +132,58 @@ Configure Curve Copilot under **Edit → Preferences → Add-ons → Thyllore An
 - The `thyllore_ml_core` wheel must be loaded (it provides the `curve_forecast`
   capability). If the wheel is absent, the operator is unavailable.
 - An armature with an action containing FCurves.
+
+## Distribution modes
+
+Curve Copilot ships through three distribution modes — **degrade**, **full**, and
+**private** — selected at build time (`--build-mode A|B|C`). The definition SSoT,
+including the exact behaviour and required build environment variables, is
+[`crates/thyllore-ml-core/src/mode.rs`](../crates/thyllore-ml-core/src/mode.rs)
+(`CurveCopilotMode`).
+
+| Mode | Addon build | Prediction context | Data sending |
+|---|---|---|---|
+| **degrade** | A (official repo) | ctx32 (reduced accuracy) | none |
+| **full** | B (self-hosted repo) | ctx64 after opt-in | anonymized feedback records, opt-in only |
+| **private** | C (Blender Market) | ctx64 via license activation | none |
+
+In every mode the Preferences panel offers a **free-text feedback box** (sent only when
+you press the button) and a link to the community Discord. Feedback records — the
+learning pairs described below — exist only in **full** mode and only after explicit
+opt-in.
+
+## Data collection and training policy
+
+- **What is sent (full mode, opt-in only):** per-channel curve-shape fragments — the
+  curve the model predicted and the keyframe values you actually entered. No file
+  names, object names, bone names, scene contents, or personal data are ever collected.
+- **The original animation cannot be reconstructed** from the sent data
+  (schema `curve_copilot_feedback/v1`): values are stored relative to an origin value
+  and divided by the fragment's peak amplitude (the scale factor is never transmitted,
+  so real units and magnitudes are lost), then quantized; timestamps are coarsened to
+  day granularity and batches are shuffled, so fragments cannot be re-correlated into
+  runs, bones, or timelines. Only the normalized curve shape needed for training
+  remains.
+- **What it is used for:** sent data feeds the model training pipeline (the model
+  factory) exclusively, to improve the Curve Copilot model. It is not shared with third
+  parties and is not used for any other purpose.
+- **License-clean training:** the model is trained only on license-clean data — the
+  CMU Motion Capture Database and the 100STYLE dataset — plus the opt-in feedback
+  records above. No datasets with restrictive or unclear licensing are used, so models
+  and predictions are safe to use in commercial work.
+
+## License
+
+- The Thyllore Animation project (engine and Rust crates, including
+  `thyllore_ml_core`'s source) is licensed under **Apache License 2.0** (see the
+  repository's `LICENSE`).
+- The addon's Python files link against Blender's `bpy` API and are therefore licensed
+  under **GPL-2.0-or-later** (see `blender_addon/LICENSE.md`), as required for Blender
+  extensions.
+- The bundled binary artifacts (the compiled `thyllore_ml_core` wheel and the ONNX
+  model) are covered by the end-user license agreement in `blender_addon/EULA.md`.
+- Third-party wheels carry their own upstream licenses; see
+  `blender_addon/THIRD_PARTY_LICENSES.md`.
+
+The feature set, distribution modes, endpoints, and these terms may change without
+prior notice while the project is in pre-release development.

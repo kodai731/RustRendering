@@ -15,7 +15,7 @@ ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSI
 
 HF_REPO="kodai731/thyllore-curve-copilot"
 HF_REVISION="${THYLLORE_HF_REVISION:-main}"
-HF_MODEL_FILENAME="curve_copilot.onnx"
+HF_MODEL_FILENAME="curve_copilot_dummy.onnx"
 HF_MODEL_URL="https://huggingface.co/${HF_REPO}/resolve/${HF_REVISION}/${HF_MODEL_FILENAME}"
 MODEL_DIR="$REPO_ROOT/target/ci-models"
 MODEL_PATH="$MODEL_DIR/${HF_MODEL_FILENAME}"

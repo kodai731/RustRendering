@@ -19,6 +19,15 @@ on:
           - lite
           - full
         default: lite
+      build_mode:
+        description: "Distribution build mode(s): all builds A+B+C"
+        type: choice
+        options:
+          - all
+          - A
+          - B
+          - C
+        default: all
       version:
         description: "Extension version"
         type: string
@@ -30,7 +39,9 @@ on:
       - 'crates/thyllore-ml-api/**'
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
+      - 'scripts/build_blender_addon.sh'
       - 'scripts/collect_wheels.ps1'
+      - 'scripts/collect_wheels.sh'
       - 'scripts/ci_v2_curve_copilot_inference_smoke.sh'
       - '.github/workflows/blender_addon_build.yml'
   pull_request:
@@ -39,7 +50,9 @@ on:
       - 'crates/thyllore-ml-api/**'
       - 'crates/thyllore-ml-core/**'
       - 'scripts/build_blender_addon.ps1'
+      - 'scripts/build_blender_addon.sh'
       - 'scripts/collect_wheels.ps1'
+      - 'scripts/collect_wheels.sh'
       - 'scripts/ci_v2_curve_copilot_inference_smoke.sh'
       - '.github/workflows/blender_addon_build.yml'
 
@@ -50,32 +63,41 @@ jobs:
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
     steps:
-      - name: Resolve platform matrix from input
+      - name: Resolve platform x build_mode matrix from input
         id: resolve
         shell: bash
         env:
-          SELECTED: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'all' }}
+          SELECTED_PLATFORM: ${{ github.event_name == 'workflow_dispatch' && inputs.platform || 'all' }}
+          SELECTED_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.build_mode || 'A' }}
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
-          entries = [
+          platforms = [
               {"platform": "win_amd64", "os": "windows-latest", "wheel_platform": "win_amd64"},
               {"platform": "linux_x86_64", "os": "ubuntu-latest", "wheel_platform": "manylinux2014_x86_64"},
               {"platform": "macosx_arm64", "os": "macos-latest", "wheel_platform": "macosx_11_0_arm64"},
           ]
-          selected = os.environ["SELECTED"]
-          if selected != "all":
-              entries = [e for e in entries if e["platform"] == selected]
-          print("matrix=" + json.dumps({"include": entries}))
+          selected_platform = os.environ["SELECTED_PLATFORM"]
+          selected_mode = os.environ["SELECTED_MODE"]
+          if selected_platform != "all":
+              platforms = [e for e in platforms if e["platform"] == selected_platform]
+          modes = ["A", "B", "C"] if selected_mode == "all" else [selected_mode]
+          include = [dict(entry, build_mode=mode) for entry in platforms for mode in modes]
+          print("matrix=" + json.dumps({"include": include}))
           PY
 
   build:
-    name: Build (${{ matrix.platform }})
+    name: Build test ZIP (${{ matrix.platform }} / mode ${{ matrix.build_mode }}) -- dummy model, not for distribution
     needs: setup
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.setup.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
+    env:
+      THYLLORE_FEEDBACK_ENDPOINT: ${{ secrets.THYLLORE_FEEDBACK_ENDPOINT || 'https://feedback.example.invalid/v1/feedback' }}
+      THYLLORE_INGEST_TOKEN: ${{ secrets.THYLLORE_INGEST_TOKEN || 'ci-dummy-ingest-token' }}
+      THYLLORE_FULL_TOKEN_PUBKEY_B64: ${{ secrets.THYLLORE_FULL_TOKEN_PUBKEY_B64 || 'ZHVtbXktcHVia2V5' }}
+      THYLLORE_LICENSE_ENDPOINT: ${{ secrets.THYLLORE_LICENSE_ENDPOINT || 'https://license.example.invalid/v1/license/refresh' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -110,7 +132,7 @@ jobs:
               -Platforms ${{ matrix.wheel_platform }} `
               -Variant ${{ inputs.variant || 'lite' }}
 
-      - name: Download curve_copilot ONNX (private HF)
+      - name: Download curve_copilot ONNX (dummy all-zero weights from HF -- CI test build only, never production weights)
         id: model
         shell: pwsh
         env:
@@ -122,18 +144,19 @@ jobs:
               exit 0
           }
           $dest = Join-Path $env:RUNNER_TEMP "curve_copilot.onnx"
-          $url = "https://huggingface.co/kodai731/thyllore-curve-copilot/resolve/main/curve_copilot.onnx"
+          $url = "https://huggingface.co/kodai731/thyllore-curve-copilot/resolve/main/curve_copilot_dummy.onnx"
           Invoke-WebRequest -Uri $url -Headers @{ Authorization = "Bearer $env:HF_TOKEN" } -OutFile $dest
           "include=1" >> $env:GITHUB_OUTPUT
           "path=$dest" >> $env:GITHUB_OUTPUT
 
-      - name: Build addon ZIP (incl. ABI marker verify)
+      - name: Build addon test ZIP (dummy model + ABI marker verify -- production weights are baked out-of-CI)
         id: build
         shell: pwsh
         run: |
           $buildArgs = @(
               '-Platform', '${{ matrix.platform }}',
               '-Variant', '${{ inputs.variant || 'lite' }}',
+              '-BuildMode', '${{ matrix.build_mode }}',
               '-Version', '${{ inputs.version || '0.0.1' }}',
               '-SkipBlenderValidate'
           )
@@ -145,7 +168,7 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: thyllore_animation_addon-${{ matrix.platform }}
+          name: thyllore_animation_addon-${{ matrix.platform }}-${{ matrix.build_mode }}
           path: ${{ steps.build.outputs.zip_path }}
           retention-days: 7
           if-no-files-found: error
@@ -167,19 +190,77 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: bash scripts/ci_v2_curve_copilot_inference_smoke.sh
 
-  validate:
-    name: Validate ZIP via Blender 4.2 LTS
-    needs: build
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.platform == 'all' || inputs.platform == 'linux_x86_64' }}
+  boundary-tests:
+    name: A/B/C boundary structure (layer 1 + 2, Blender-free)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - name: Download Linux ZIP artifact
-        uses: actions/download-artifact@v4
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
         with:
-          name: thyllore_animation_addon-linux_x86_64
-          path: dist/
+          python-version: '3.11'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build + test deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "maturin>=1.5" "pytest>=8.0"
+
+      - name: Collect vendored wheels (lite)
+        run: bash scripts/collect_wheels.sh --variant lite
+
+      - name: Layer 1 - capability derivation from BUILD_MODE
+        run: python -m pytest blender_addon/tests/test_capabilities.py -v
+
+      - name: Layer 2 - built ZIP structure per mode (self-builds A/B/C)
+        run: python -m pytest blender_addon/tests/test_build_mode_boundary.py -v
+
+  boundary-smoke:
+    name: A/B/C boundary smoke (layer 3, Blender 4.2 LTS)
+    runs-on: ubuntu-latest
+    env:
+      THYLLORE_FEEDBACK_ENDPOINT: https://feedback.example.invalid/v1/feedback
+      THYLLORE_INGEST_TOKEN: ci-dummy-ingest-token
+      THYLLORE_FULL_TOKEN_PUBKEY_B64: ZHVtbXktcHVia2V5
+      THYLLORE_LICENSE_ENDPOINT: https://license.example.invalid/v1/license/refresh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install build deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install "maturin>=1.5"
+
+      - name: Download ONNX Runtime (bundled into the ZIP for wheel import)
+        run: |
+          ORT_VERSION=1.23.2
+          ORT_DIR=vendor/onnxruntime
+          mkdir -p "$ORT_DIR"
+          curl -L --fail --retry 3 --retry-delay 2 \
+              -o "$ORT_DIR/ort.tgz" \
+              "https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-linux-x64-${ORT_VERSION}.tgz"
+          tar -xzf "$ORT_DIR/ort.tgz" -C "$ORT_DIR"
+          rm -f "$ORT_DIR/ort.tgz"
+
+      - name: Collect vendored wheels (lite)
+        run: bash scripts/collect_wheels.sh --variant lite
 
       - name: Install Blender 4.2 LTS
         run: |
@@ -188,11 +269,27 @@ jobs:
           tar -xJf blender.tar.xz -C /opt/blender --strip-components=1
           /opt/blender/blender --version
 
-      - name: Validate extension
+      - name: Build A/B/C ZIPs, validate, and run headless boundary smoke
         run: |
-          ZIP=$(ls dist/*.zip | head -n1)
-          if [[ -z "$ZIP" ]]; then
-              echo "::error::No ZIP found in downloaded artifact" >&2
-              exit 1
-          fi
-          /opt/blender/blender --command extension validate "$ZIP"
+          set -euo pipefail
+          for mode in A B C; do
+              bash scripts/build_blender_addon.sh \
+                  --platform linux_x86_64 --variant lite --build-mode "$mode" \
+                  --output-dir build/ci_boundary --skip-blender-validate
+          done
+          for zip in build/ci_boundary/*.zip; do
+              case "$zip" in
+                  *_full-*) mode=B ;;
+                  *_private-*) mode=C ;;
+                  *) mode=A ;;
+              esac
+              echo "::group::mode $mode :: $(basename "$zip")"
+              /opt/blender/blender --command extension validate "$zip"
+              export HOME="$RUNNER_TEMP/blender_home_$mode"
+              mkdir -p "$HOME"
+              /opt/blender/blender --command extension install-file -r user_default --enable "$zip"
+              /opt/blender/blender --background \
+                  --python blender_addon/tests/build_mode_boundary_smoke.py -- \
+                  --result "$RUNNER_TEMP/result_$mode.json" --expect-mode "$mode"
+              echo "::endgroup::"
+          done

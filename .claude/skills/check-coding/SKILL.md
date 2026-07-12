@@ -1,8 +1,8 @@
 ---
 name: check-coding
-description: Check if code follows the robust coding guidelines defined in .claude/rules/coding.md. Use when reviewing code quality, bug prevention patterns, and design robustness.
+description: Check if code follows the robust coding guidelines defined in .claude/rules/coding.md. Use when reviewing code quality, bug prevention patterns, and design robustness. Examples: "unwrap がないか確認", "コーディング規約チェック".
 user-invocable: true
-allowed-tools: Read, Grep, Glob, Task
+allowed-tools: Read, Grep, Glob, Bash, Agent
 argument-hint: "[file-or-directory]"
 ---
 
@@ -139,7 +139,7 @@ fn do_something(x: i32, y: i32, verbose: bool) { .. }
 
 1. Read `.claude/rules/coding.md` for full rule definitions
 2. Determine target files from `$ARGUMENTS` or recent git changes
-3. Launch **two parallel agents** using the Task tool:
+3. Launch **two parallel agents** using the Agent tool:
 
 ### Agent A: Static Pattern Check (expert-explore)
 
