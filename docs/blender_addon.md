@@ -147,10 +147,47 @@ including the exact behaviour and required build environment variables, is
 | **full** | B (self-hosted repo) | ctx64 after opt-in | anonymized feedback records, opt-in only |
 | **private** | C (Blender Market) | ctx64 via license activation | none |
 
-In every mode the Preferences panel offers a **free-text feedback box** (sent only when
-you press the button) and a link to the community Discord. Feedback records — the
-learning pairs described below — exist only in **full** mode and only after explicit
-opt-in.
+In **full** and **private** modes the Preferences panel offers a **free-text feedback
+box** (sent only when you press the button); the **degrade** build ships no network
+code at all, so it has neither the feedback box nor any data sending. All modes link
+to the community Discord. Feedback records — the learning pairs described below —
+exist only in **full** mode and only after explicit opt-in.
+
+### Model performance: ctx64 vs ctx32
+
+The two context lengths were measured through the production inference path — the Rust
+`thyllore_ml_core` wheel running the production ONNX
+(`curve_copilot_20260630_v2_k48opt`), where ctx32 is the same model with the degrade
+window gate applied, exactly as shipped. The wheel's ctx64 output matches the training
+(PyTorch) evaluation to 4 decimal places on every horizon, so the numbers below contain
+no re-implementation error (measured 2026-07-11).
+
+The metric is the **curve match score** `cm = max(0, 1 − mean|Δ|)` in the
+context-normalized space (higher is better, 1.0 = perfect match), scored at 8 to 64
+frames ahead of the last context keyframe.
+
+**Bandai Namco held-out set** (out-of-distribution, fps30, n=12800 — evaluation only,
+never used for training):
+
+| Frames ahead the forecast | ctx64 | ctx32 (degrade) | Δ (64−32) | Relative drop |
+|---|---|---|---|---|
+| 8 | 0.5644 | 0.4032 | −0.1612 | −28.6% |
+| 16 | 0.4418 | 0.2915 | −0.1503 | −34.0% |
+| 24 | 0.3770 | 0.2471 | −0.1299 | −34.5% |
+| 64 | 0.3097 | 0.2035 | −0.1062 | −34.3% |
+
+**In-distribution held-out set** (fps60, n=12800):
+
+| Frames ahead the forecast | ctx64 | ctx32 (degrade) | Δ (64−32) | Relative drop |
+|---|---|---|---|---|
+| 8 | 0.7151 | 0.5737 | −0.1414 | −19.8% |
+| 16 | 0.5687 | 0.4215 | −0.1472 | −25.9% |
+| 24 | 0.4850 | 0.3426 | −0.1423 | −29.4% |
+| 64 | 0.3243 | 0.2225 | −0.1017 | −31.4% |
+
+In short: unlocking ctx64 (via **full** opt-in or a **private** license) improves the
+short-horizon match by roughly 20–29% relative over the free ctx32 tier, and the gap
+widens on longer horizons and out-of-distribution motion (up to ~34%).
 
 ## Data collection and training policy
 
@@ -178,8 +215,8 @@ opt-in.
   `thyllore_ml_core`'s source) is licensed under **Apache License 2.0** (see the
   repository's `LICENSE`).
 - The addon's Python files link against Blender's `bpy` API and are therefore licensed
-  under **GPL-2.0-or-later** (see `blender_addon/LICENSE.md`), as required for Blender
-  extensions.
+  under **GPL-3.0-or-later** (see `blender_addon/LICENSE.md`), as required by the
+  extensions.blender.org add-on policy.
 - The bundled binary artifacts (the compiled `thyllore_ml_core` wheel and the ONNX
   model) are covered by the end-user license agreement in `blender_addon/EULA.md`.
 - Third-party wheels carry their own upstream licenses; see
