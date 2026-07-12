@@ -49,6 +49,11 @@ impl System {
         let mut last_frame = Instant::now();
         let bindings = default_bindings();
         let mut status_bar_state = StatusBarState::default();
+        #[cfg(feature = "auto-rig")]
+        let mut text_to_mesh_dialog_state = crate::platform::ui::TextToMeshDialogState::default();
+        #[cfg(feature = "auto-rig")]
+        let mut text_to_animation_dialog_state =
+            crate::platform::ui::TextToAnimationDialogState::default();
 
         event_loop
             .run(move |event, window_target| match event {
@@ -79,6 +84,10 @@ impl System {
                         &window,
                         &bindings,
                         &mut status_bar_state,
+                        #[cfg(feature = "auto-rig")]
+                        &mut text_to_mesh_dialog_state,
+                        #[cfg(feature = "auto-rig")]
+                        &mut text_to_animation_dialog_state,
                     );
                 }
 
@@ -101,6 +110,10 @@ fn dispatch_window_event(
     window: &winit::window::Window,
     bindings: &[super::key_bindings::KeyBinding],
     status_bar_state: &mut StatusBarState,
+    #[cfg(feature = "auto-rig")]
+    text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
+    #[cfg(feature = "auto-rig")]
+    text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
     match event {
         WindowEvent::CloseRequested => window_target.exit(),
@@ -136,7 +149,17 @@ fn dispatch_window_event(
         }
 
         WindowEvent::RedrawRequested => {
-            handle_redraw_requested(imgui, platform, window, app, status_bar_state);
+            handle_redraw_requested(
+                imgui,
+                platform,
+                window,
+                app,
+                status_bar_state,
+                #[cfg(feature = "auto-rig")]
+                text_to_mesh_dialog,
+                #[cfg(feature = "auto-rig")]
+                text_to_animation_dialog,
+            );
         }
 
         _ => {}
@@ -173,6 +196,10 @@ fn handle_redraw_requested(
     window: &winit::window::Window,
     app: &mut App,
     status_bar_state: &mut StatusBarState,
+    #[cfg(feature = "auto-rig")]
+    text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
+    #[cfg(feature = "auto-rig")]
+    text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
     let ui = imgui.frame();
 
@@ -195,6 +222,10 @@ fn handle_redraw_requested(
     let mut overlay_state = SceneOverlayState {
         model_path: model_state.model_path.clone(),
         load_status: model_state.load_status.clone(),
+        #[cfg(feature = "auto-rig")]
+        open_text_to_mesh_dialog: false,
+        #[cfg(feature = "auto-rig")]
+        open_text_to_animation_dialog: false,
     };
     drop(model_state);
 
@@ -205,6 +236,10 @@ fn handle_redraw_requested(
         &mut debug_state,
         &mut overlay_state,
         status_bar_state,
+        #[cfg(feature = "auto-rig")]
+        text_to_mesh_dialog,
+        #[cfg(feature = "auto-rig")]
+        text_to_animation_dialog,
     );
 
     #[cfg(debug_assertions)]
@@ -232,6 +267,10 @@ fn build_ui_windows(
     #[cfg(debug_assertions)] debug_state: &mut DebugWindowState,
     overlay_state: &mut SceneOverlayState,
     status_bar_state: &mut StatusBarState,
+    #[cfg(feature = "auto-rig")]
+    text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
+    #[cfg(feature = "auto-rig")]
+    text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
     let display_size = ui.io().display_size;
 
@@ -263,6 +302,32 @@ fn build_ui_windows(
 
     build_timeline_and_fixed_overlays(ui, app, status_bar_state, &viewport_info, &layout_snapshot);
     build_curve_editor(ui, app);
+
+    #[cfg(feature = "auto-rig")]
+    {
+        if overlay_state.open_text_to_mesh_dialog {
+            text_to_mesh_dialog.open = true;
+            overlay_state.open_text_to_mesh_dialog = false;
+        }
+        if overlay_state.open_text_to_animation_dialog {
+            text_to_animation_dialog.open = true;
+            overlay_state.open_text_to_animation_dialog = false;
+        }
+
+        let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
+        crate::platform::ui::build_text_to_mesh_dialog(
+            ui,
+            &mut *ui_events,
+            text_to_mesh_dialog,
+            &app.data.ecs_world,
+        );
+        crate::platform::ui::build_text_to_animation_dialog(
+            ui,
+            &mut *ui_events,
+            text_to_animation_dialog,
+            &app.data.ecs_world,
+        );
+    }
 
     consume_needs_focus(app);
 }
@@ -507,6 +572,18 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
             }
         }
 
+        DeferredAction::LoadModelAdditive { path } => {
+            if let Err(e) = app.load_model_additive(&path) {
+                log_error!("Failed to add model: {:?}", e);
+            }
+        }
+
+        DeferredAction::DeleteEntities { entities } => {
+            if let Err(e) = app.delete_entities(&entities) {
+                log_error!("Failed to delete entities: {:?}", e);
+            }
+        }
+
         DeferredAction::TakeScreenshot => {
             log!("Taking screenshot...");
             let image_index = app.frame % crate::app::init::MAX_FRAMES_IN_FLIGHT;
@@ -598,6 +675,29 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
                 Err(e) => msg_error!("Failed to save spring bone bake: {:?}", e),
             }
         }
+
+        #[cfg(feature = "auto-rig")]
+        DeferredAction::LoadModelFromMemory { glb_data, source } => {
+            match app.load_model_from_glb(&glb_data) {
+                Ok(()) => {
+                    log!(
+                        "DeferredAction::LoadModelFromMemory: load OK, sending ModelLoadedFromMemory({:?})",
+                        source
+                    );
+                    let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
+                    ui_events.send(UIEvent::ModelLoadedFromMemory { source });
+                }
+                Err(e) => {
+                    log_error!("Failed to load generated mesh: {}", e);
+                    let mut state = app
+                        .data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::resource::TextToMeshState>();
+                    state.status = crate::ecs::resource::TextToMeshStatus::Error;
+                    state.error_message = Some(format!("Failed to load GLB: {}", e));
+                }
+            }
+        }
     }
 }
 
@@ -639,6 +739,7 @@ fn process_platform_file_events(events: &[UIEvent], app: &mut App) -> Vec<Deferr
             }
             UIEvent::ClipBrowserExportFbx(source_id) => handle_clip_export_fbx(app, *source_id),
             UIEvent::ClipBrowserExportGltf(source_id) => handle_clip_export_gltf(app, *source_id),
+            UIEvent::ExportModelGltf => handle_export_model_gltf(app),
             UIEvent::SpringBoneSaveBake => {
                 if let Some(action) = open_spring_bone_save_dialog(app) {
                     deferred.push(action);
@@ -758,13 +859,13 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         return;
     };
 
-    let source_glb_path = app
+    let source_bytes = app
         .data
         .ecs_world
         .get_resource::<crate::ecs::resource::GltfModelCache>()
-        .and_then(|cache| cache.source_path.clone());
+        .and_then(|cache| resolve_glb_bytes(&*cache));
 
-    let Some(source_glb_path) = source_glb_path else {
+    let Some(source_bytes) = source_bytes else {
         msg_error!("glTF export failed: no source glTF/GLB model loaded");
         return;
     };
@@ -779,8 +880,8 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         return;
     };
 
-    match crate::exporter::gltf_exporter::export_gltf_animation(
-        std::path::Path::new(&source_glb_path),
+    match crate::exporter::gltf_exporter::export_gltf_animation_from_bytes(
+        &source_bytes,
         &clip,
         &skeleton,
         &path,
@@ -788,6 +889,64 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         Ok(()) => msg_info!("glTF exported: {:?}", path),
         Err(e) => msg_error!("glTF export failed: {:?}", e),
     }
+}
+
+fn handle_export_model_gltf(app: &mut App) {
+    let cache = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::GltfModelCache>();
+
+    let glb_bytes = match cache {
+        Some(c) => resolve_glb_bytes(&*c),
+        None => None,
+    };
+
+    let Some(glb_bytes) = glb_bytes else {
+        msg_error!("glTF export failed: no model data available");
+        return;
+    };
+
+    let model_name = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::ModelState>()
+        .map(|s| s.model_path.clone())
+        .unwrap_or_else(|| "model".to_string());
+
+    let default_filename = format!(
+        "{}.glb",
+        std::path::Path::new(&model_name)
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("model")
+    );
+
+    let path = rfd::FileDialog::new()
+        .add_filter("glTF Binary", &["glb"])
+        .set_file_name(&default_filename)
+        .save_file();
+
+    let Some(path) = path else {
+        return;
+    };
+
+    match std::fs::write(&path, &glb_bytes) {
+        Ok(()) => msg_info!("Model exported: {:?}", path),
+        Err(e) => msg_error!("Model export failed: {:?}", e),
+    }
+}
+
+fn resolve_glb_bytes(cache: &crate::ecs::resource::GltfModelCache) -> Option<Vec<u8>> {
+    if let Some(ref data) = cache.glb_data {
+        return Some(data.clone());
+    }
+
+    if let Some(ref path) = cache.source_path {
+        return std::fs::read(path).ok();
+    }
+
+    None
 }
 
 fn extract_clip_name_from_path(path: &std::path::Path) -> String {

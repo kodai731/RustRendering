@@ -23,4 +23,15 @@ pub enum DeferredAction {
         baked_id: u64,
         path: PathBuf,
     },
+    #[cfg(feature = "auto-rig")]
+    LoadModelFromMemory {
+        glb_data: Vec<u8>,
+        source: crate::ecs::events::ModelLoadSource,
+    },
+    LoadModelAdditive {
+        path: String,
+    },
+    DeleteEntities {
+        entities: Vec<u64>,
+    },
 }

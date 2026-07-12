@@ -1,3 +1,1 @@
-pub mod fbx_animation;
-pub mod fbx_exporter;
-pub mod gltf_exporter;
+pub use thyllore_exporter_core::{fbx_animation, fbx_exporter, gltf_exporter};

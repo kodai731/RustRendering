@@ -7,27 +7,27 @@ mod mouse_input;
 mod viewport_input;
 
 mod auto_exposure;
+#[cfg(feature = "auto-rig")]
+mod auto_rig_state;
 mod bloom;
-#[cfg(feature = "ml")]
-mod bone_name_token_cache;
 mod bone_pose_override;
-#[cfg(feature = "ml")]
-mod bone_topology_cache;
 mod camera;
 mod clip_browser_state;
 mod clip_library;
 mod constraint_editor_state;
 mod curve_editor_buffer;
 mod curve_editor_state;
+#[cfg(feature = "ml")]
+mod curve_suggestion_state;
 mod depth_of_field;
 mod edit_history;
 mod exposure;
 mod fbx_model_cache;
-#[cfg(feature = "ml")]
-mod ghost_curve_data;
 mod gltf_model_cache;
 mod graphics;
 mod grid_state;
+#[cfg(feature = "text-to-motion")]
+mod grpc_server_process;
 mod hierarchy_state;
 #[cfg(feature = "ml")]
 mod inference_actor_state;
@@ -47,13 +47,16 @@ mod projection_data;
 mod scene_state;
 mod spring_bone_editor_state;
 mod spring_bone_state;
-#[cfg(feature = "text-to-motion")]
-mod text_to_motion_state;
+#[cfg(feature = "auto-rig")]
+mod text_to_animation_state;
+#[cfg(feature = "auto-rig")]
+mod text_to_mesh_state;
 mod timeline_interaction_state;
 mod timeline_state;
 mod tone_mapping;
 mod transform_gizmo_state;
 mod view_mode;
+mod weight_heatmap;
 
 pub use billboard::*;
 pub use gizmo::*;
@@ -64,27 +67,27 @@ pub use mouse_input::*;
 pub use viewport_input::*;
 
 pub use auto_exposure::*;
+#[cfg(feature = "auto-rig")]
+pub use auto_rig_state::*;
 pub use bloom::*;
-#[cfg(feature = "ml")]
-pub use bone_name_token_cache::*;
 pub use bone_pose_override::*;
-#[cfg(feature = "ml")]
-pub use bone_topology_cache::*;
 pub use camera::*;
 pub use clip_browser_state::*;
 pub use clip_library::*;
 pub use constraint_editor_state::*;
 pub use curve_editor_buffer::*;
 pub use curve_editor_state::*;
+#[cfg(feature = "ml")]
+pub use curve_suggestion_state::*;
 pub use depth_of_field::*;
 pub use edit_history::*;
 pub use exposure::*;
 pub use fbx_model_cache::*;
-#[cfg(feature = "ml")]
-pub use ghost_curve_data::*;
 pub use gltf_model_cache::*;
 pub use graphics::*;
 pub use grid_state::*;
+#[cfg(feature = "text-to-motion")]
+pub use grpc_server_process::*;
 pub use hierarchy_state::*;
 #[cfg(feature = "ml")]
 pub use inference_actor_state::*;
@@ -104,10 +107,13 @@ pub use projection_data::*;
 pub use scene_state::*;
 pub use spring_bone_editor_state::*;
 pub use spring_bone_state::*;
-#[cfg(feature = "text-to-motion")]
-pub use text_to_motion_state::*;
+#[cfg(feature = "auto-rig")]
+pub use text_to_animation_state::*;
+#[cfg(feature = "auto-rig")]
+pub use text_to_mesh_state::*;
 pub use timeline_interaction_state::*;
 pub use timeline_state::*;
 pub use tone_mapping::*;
 pub use transform_gizmo_state::*;
 pub use view_mode::*;
+pub use weight_heatmap::*;

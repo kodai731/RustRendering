@@ -148,6 +148,97 @@ pub fn clip_library_load_from_file(
     Ok(id)
 }
 
+pub fn find_clip_schedule_owner(
+    world: &crate::ecs::world::World,
+    entity: crate::ecs::world::Entity,
+) -> Option<crate::ecs::world::Entity> {
+    use crate::ecs::component::ClipSchedule;
+    use crate::ecs::world::Parent;
+
+    let mut current = entity;
+    loop {
+        if world.get_component::<ClipSchedule>(current).is_some() {
+            return Some(current);
+        }
+        match world.get_component::<Parent>(current) {
+            Some(parent) => current = parent.0,
+            None => return None,
+        }
+    }
+}
+
+pub fn query_selected_model_clip_ids(world: &crate::ecs::world::World) -> Vec<SourceClipId> {
+    use crate::ecs::component::ClipSchedule;
+    use crate::ecs::resource::HierarchyState;
+
+    let Some(selected) = world.resource::<HierarchyState>().selected_entity else {
+        return Vec::new();
+    };
+    let Some(owner) = find_clip_schedule_owner(world, selected) else {
+        return Vec::new();
+    };
+    let Some(schedule) = world.get_component::<ClipSchedule>(owner) else {
+        return Vec::new();
+    };
+
+    let mut clip_ids: Vec<SourceClipId> = schedule
+        .instances
+        .iter()
+        .map(|inst| inst.source_id)
+        .collect();
+    clip_ids.sort_unstable();
+    clip_ids.dedup();
+    clip_ids
+}
+
+pub fn clip_library_resample_selected_model(
+    world: &mut crate::ecs::world::World,
+    assets: &mut AssetStorage,
+    fps: f32,
+) -> Option<usize> {
+    use crate::animation::editable::clip_resample_at_fps;
+    use crate::ecs::resource::EditHistory;
+
+    let clip_ids = query_selected_model_clip_ids(world);
+    if clip_ids.is_empty() {
+        return None;
+    }
+
+    let mut new_sources: Vec<(SourceClipId, SourceClip)> = Vec::new();
+    {
+        let mut lib = world.resource_mut::<ClipLibrary>();
+        for source_id in &clip_ids {
+            let Some(mut clip) = lib.get(*source_id).cloned() else {
+                continue;
+            };
+            let summary = clip_resample_at_fps(&mut clip, fps);
+            clip.name = format!("{} ({}fps)", clip.name, fps as i64);
+            let new_id = clip_library_register_and_activate(&mut lib, assets, clip);
+
+            log!(
+                "Resampled clip (src {}) to new clip {} at {} fps: {} curves, {} keyframes",
+                source_id,
+                new_id,
+                fps,
+                summary.resampled_curve_count,
+                summary.total_keyframe_count,
+            );
+            if let Some(source) = lib.source_clips.get(&new_id).cloned() {
+                new_sources.push((new_id, source));
+            }
+        }
+    }
+
+    if world.contains_resource::<EditHistory>() {
+        let mut edit_history = world.resource_mut::<EditHistory>();
+        for (new_id, source) in &new_sources {
+            edit_history.push_clip_added(*new_id, source.clone(), "resample clip");
+        }
+    }
+
+    Some(new_sources.len())
+}
+
 pub fn clip_library_count_references(
     world: &crate::ecs::world::World,
 ) -> Vec<(SourceClipId, usize)> {

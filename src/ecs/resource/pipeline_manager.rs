@@ -1,4 +1,4 @@
-pub type PipelineId = usize;
+pub use thyllore_render_core::PipelineId;
 
 #[derive(Clone, Debug)]
 pub struct PipelineRef(pub PipelineId);

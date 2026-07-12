@@ -127,12 +127,18 @@ struct GizmoPipelineIds {
 }
 
 impl App {
-    pub unsafe fn create(window: &Window) -> Result<Self> {
+    pub unsafe fn create(
+        window: &Window,
+        #[cfg(feature = "ml")] curve_copilot_mode: crate::ml::CurveCopilotMode,
+    ) -> Result<Self> {
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
         let mut data = AppData::default();
 
         Self::initialize_core_ecs_resources(&mut data);
+
+        #[cfg(feature = "ml")]
+        data.ecs_world.insert_resource(curve_copilot_mode);
 
         let (instance, messenger) = Self::create_instance_with_messenger(window, &entry)?;
         let surface = vk_window::create_surface(&instance, &window, &window)?;
@@ -324,15 +330,23 @@ impl App {
                 .insert_resource(crate::ecs::resource::InferenceActorState::default());
             data.ecs_world
                 .insert_resource(crate::ecs::resource::CurveSuggestionState::default());
-            data.ecs_world
-                .insert_resource(crate::ecs::resource::BoneTopologyCache::default());
-            data.ecs_world
-                .insert_resource(crate::ecs::resource::BoneNameTokenCache::default());
         }
 
         #[cfg(feature = "text-to-motion")]
         data.ecs_world
-            .insert_resource(crate::ecs::resource::TextToMotionState::default());
+            .insert_resource(crate::ecs::resource::GrpcServerProcess::default());
+
+        #[cfg(feature = "auto-rig")]
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::TextToAnimationState::default());
+
+        #[cfg(feature = "auto-rig")]
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::TextToMeshState::default());
+
+        #[cfg(feature = "auto-rig")]
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::AutoRigState::default());
 
         let viewport_width = rrswapchain.swapchain_extent.width;
         let viewport_height = rrswapchain.swapchain_extent.height;
@@ -674,6 +688,8 @@ impl App {
         data.ecs_world.insert_resource(bone_gizmo_data);
         data.ecs_world
             .insert_resource(crate::ecs::resource::gizmo::BoneSelectionState::default());
+        data.ecs_world
+            .insert_resource(crate::ecs::resource::WeightHeatmapState::default());
 
         let mut constraint_gizmo_data = ConstraintGizmoData::default();
         constraint_gizmo_data.wire_render_info.pipeline_id = Some(pipeline_ids.bone_wire);
@@ -907,7 +923,11 @@ impl App {
         _: *mut c_void,
     ) -> vk::Bool32 {
         let data = unsafe { *data };
-        let message = unsafe { CStr::from_ptr(data.message) }.to_string_lossy();
+        let message = if data.message.is_null() {
+            std::borrow::Cow::Borrowed("(no message)")
+        } else {
+            unsafe { CStr::from_ptr(data.message) }.to_string_lossy()
+        };
 
         // コンソール（色付き）とログファイルの両方に出力
         use log::{debug, error, trace, warn};
@@ -1127,12 +1147,30 @@ impl App {
         use crate::ecs::component::InferenceActorSetup;
         use crate::ecs::world::EntityBuilder;
         use crate::ml::{
-            resolve_curve_copilot_model_path, InferenceModelKind, CURVE_COPILOT_ACTOR_ID,
+            resolve_curve_copilot_model_path, CurveCopilotMode, FeedbackSenderHandle,
+            InferenceModelKind, CURVE_COPILOT_ACTOR_ID,
         };
+
+        let Some(model_path) = resolve_curve_copilot_model_path() else {
+            return;
+        };
+
+        let mode = data
+            .ecs_world
+            .get_resource::<CurveCopilotMode>()
+            .map(|mode| *mode)
+            .unwrap_or_default();
+        log!("Curve copilot mode: {:?}", mode);
+
+        if mode.sends_feedback() {
+            if let Some(handle) = FeedbackSenderHandle::spawn_from_env(&model_path) {
+                data.ecs_world.insert_resource(handle);
+            }
+        }
 
         EntityBuilder::new(&mut data.ecs_world).with_inference_actor(InferenceActorSetup {
             actor_id: CURVE_COPILOT_ACTOR_ID,
-            model_path: resolve_curve_copilot_model_path(),
+            model_path,
             model_kind: InferenceModelKind::CurveCopilot,
             enabled: true,
         });

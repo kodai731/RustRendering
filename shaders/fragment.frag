@@ -26,7 +26,7 @@ layout(location = 0) out vec4 outColor;
 
 void main() {
     vec4 texColor = texture(texSampler, fragTexCoord);
-    if(texColor.a < 0.5) discard;
+    if (fragColor.a < 0.5) discard;
 
     vec3 lightDir = normalize(frame.light_pos.xyz - fragWorldPos);
     vec3 normal = normalize(fragNormal);
@@ -35,6 +35,6 @@ void main() {
     float diffuse = max(dot(normal, lightDir), 0.0);
     float lighting = ambient + diffuse * 0.8;
 
-    vec3 finalColor = texColor.rgb * material.base_color.rgb * lighting * frame.light_color.rgb;
-    outColor = vec4(finalColor, texColor.a);
+    vec3 finalColor = texColor.rgb * fragColor.rgb * material.base_color.rgb * lighting * frame.light_color.rgb;
+    outColor = vec4(finalColor, 1.0);
 }

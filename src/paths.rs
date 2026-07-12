@@ -1,6 +1,7 @@
-pub const SHARED_DATA_DIR: &str = "../SharedData";
-pub const SHARED_EXPORTS_DIR: &str = "../SharedData/exports";
+pub const CURVE_COPILOT_MODEL_PREFIX: &str = "curve_copilot_";
+pub const CURVE_COPILOT_MODEL_SUFFIX: &str = ".onnx";
 
-pub const CURVE_COPILOT_LOCAL_MODEL: &str = "ml/model/curve_copilot.onnx";
-pub const CURVE_COPILOT_SHARED_MODEL: &str = "../SharedData/exports/curve_copilot.onnx";
-pub const CURVE_COPILOT_DUMMY_MODEL: &str = "assets/ml/curve_copilot_dummy.onnx";
+#[cfg(feature = "ml")]
+pub use thyllore_ml_core::model_path::{
+    EXPORTS_SUBDIR, HUGGINGFACE_CURVE_COPILOT_REPO, SHARED_DATA_ENV_VAR, V2_CURVE_COPILOT_FILENAME,
+};

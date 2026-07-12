@@ -1,0 +1,10 @@
+[package]
+name = "thyllore-ml-api"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "L2 stable contract: the ABI marker shared between thyllore-ml-core (the PyO3 wheel) and the Blender addon. Changes here require a coordinated wheel rebuild and end-user reinstall — keep this surface minimal."
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]

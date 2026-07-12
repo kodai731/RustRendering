@@ -6,9 +6,9 @@ use crate::ecs::systems::camera_systems::{
 use crate::ecs::world::World;
 use crate::vulkanr::context::SwapchainState;
 use crate::vulkanr::descriptor::RRBillboardDescriptorSet;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::swapchain::RRSwapchain;
 use cgmath::{Deg, Vector3};
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 use vulkanalia::prelude::v1_0::*;
 
 pub fn collect_and_log_billboard_debug(world: &World, raytracing: &RayTracingData) {

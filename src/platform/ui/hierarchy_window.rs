@@ -139,6 +139,10 @@ fn build_entity_tree(
             ui_events.send(UIEvent::FocusOnEntity(entry.entity));
         }
     }
+
+    if ui.is_key_pressed(imgui::Key::Delete) && state.selected_entity.is_some() {
+        ui_events.send(UIEvent::DeleteSelectedEntities);
+    }
 }
 
 fn build_bone_tree(

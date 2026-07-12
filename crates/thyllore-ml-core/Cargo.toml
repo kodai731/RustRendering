@@ -1,0 +1,46 @@
+[package]
+name = "thyllore-ml-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Layer 2 ML inference core for ThylloreAnimation. Depends on thyllore-model-core and thyllore-anim-core (for curve-attached component types). Optionally exposes a PyO3 facade for Blender addon when built with the `python` feature"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[lib]
+name = "thyllore_ml_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+default = []
+python = ["dep:pyo3", "dep:numpy", "dep:pythonize"]
+# Debug-only: compiles the addon file-logging output methods. Production wheels
+# omit this feature, so the log functions are absent from the build entirely.
+debug-log = []
+
+[dependencies]
+thyllore-ml-api = { path = "../thyllore-ml-api" }
+thyllore-model-core = { path = "../thyllore-model-core" }
+thyllore-anim-core = { path = "../thyllore-anim-core" }
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "download-binaries", "copy-dylibs", "tls-native"] }
+anyhow = "1"
+base64 = "0.22"
+cgmath = "0.18"
+ed25519-dalek = "2"
+flate2 = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ureq = { version = "2", features = ["json"] }
+ndarray = "0.16"
+ndarray-npy = "0.9"
+obfstr = "0.4"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+
+pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"], optional = true }
+numpy = { version = "0.29", optional = true }
+pythonize = { version = "0.29", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
+

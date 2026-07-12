@@ -1,0 +1,91 @@
+{
+  "ok": true,
+  "expect_mode": "B",
+  "checks": [
+    {
+      "name": "build_config.BUILD_MODE",
+      "ok": true,
+      "detail": "got B, expected B"
+    },
+    {
+      "name": "capabilities.telemetry_available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "capabilities.license_activation",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "telemetry bundled iff mode B",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "license_client bundled iff mode C",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "send_feedback operator registered in every mode",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "capabilities.message_available",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "Discord invite hook present",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "effective_ctx defaults to degraded",
+      "ok": true,
+      "detail": "got 32, expected 32"
+    },
+    {
+      "name": "should_send off before opt-in",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "should_send on after opt-in + online access",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "curve_copilot operator finished",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "prediction recorded for feedback",
+      "ok": true,
+      "detail": "pending=1"
+    },
+    {
+      "name": "feedback batch sent and full token cached",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "effective_ctx raised to full",
+      "ok": true,
+      "detail": "got 64, expected 64"
+    },
+    {
+      "name": "free-text message accepted by worker",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "opt-out reverts to degraded ctx",
+      "ok": true,
+      "detail": ""
+    }
+  ]
+}

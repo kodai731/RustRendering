@@ -105,6 +105,19 @@ pub fn dispatch_clip_browser_ecs_events(
                 }
             }
 
+            UIEvent::ResampleSelectedModelAnimations { fps } => {
+                match crate::ecs::systems::clip_library_systems::clip_library_resample_selected_model(
+                    world, assets, *fps,
+                ) {
+                    Some(count) => log!(
+                        "Created {} resampled clip(s) of selected model at {} fps",
+                        count,
+                        fps
+                    ),
+                    None => log_warn!("Resample: no model with animations is selected"),
+                }
+            }
+
             _ => {}
         }
     }

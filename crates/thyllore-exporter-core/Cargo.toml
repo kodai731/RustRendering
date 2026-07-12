@@ -1,0 +1,22 @@
+[package]
+name = "thyllore-exporter-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Layer 3 model exporter for ThylloreAnimation (glTF / FBX writers). Pure domain, depends on model-core + anim-core + importer-core"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+thyllore-math-core = { path = "../thyllore-math-core" }
+thyllore-model-core = { path = "../thyllore-model-core" }
+thyllore-anim-core = { path = "../thyllore-anim-core" }
+thyllore-importer-core = { path = "../thyllore-importer-core" }
+anyhow = "1"
+cgmath = "0.18"
+serde_json = "1"
+fbxcel = { version = "0.9", features = ["writer"] }
+gltf = { version = "1.4", features = ["extras", "names", "extensions"] }
+
+[dev-dependencies]
+ufbx = "0.10"

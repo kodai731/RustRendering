@@ -1,0 +1,57 @@
+# Firewall allowlist for the ThylloreAnimation auto-mode container.
+#
+# One domain per line. Blank lines and lines starting with '#' are ignored.
+# docker/init-firewall.sh resolves each line and adds its IPs to the ipset; any
+# domain not listed here is unreachable from inside the container.
+
+# --- Claude API / Claude Code ---
+api.anthropic.com
+statsig.anthropic.com
+claude.ai
+console.anthropic.com
+
+# --- Rust toolchain + crates registry ---
+static.rust-lang.org
+forge.rust-lang.org
+crates.io
+static.crates.io
+index.crates.io
+
+# --- code / model / asset hosting (git deps, ort onnxruntime release binaries) ---
+github.com
+api.github.com
+objects.githubusercontent.com
+codeload.github.com
+raw.githubusercontent.com
+huggingface.co
+cdn-lfs.huggingface.co
+cdn-lfs.hf.co
+cdn-lfs-us-1.hf.co
+cdn-lfs-eu-1.hf.co
+cas-bridge.xethub.hf.co
+
+# --- python tooling (blender/grpc helper scripts) ---
+pypi.org
+files.pythonhosted.org
+pythonhosted.org
+
+# --- Blender (LTS tarball + docs) ---
+download.blender.org
+www.blender.org
+blender.org
+docs.blender.org
+mirror.clarkson.edu
+
+# --- container registries (DooD: pulling AnimationModelTraining training images) ---
+registry-1.docker.io
+auth.docker.io
+index.docker.io
+production.cloudflare.docker.com
+ghcr.io
+pkg-containers.githubusercontent.com
+
+# --- ubuntu apt mirrors (runtime apt-get installs) ---
+archive.ubuntu.com
+security.ubuntu.com
+ports.ubuntu.com
+download.docker.com

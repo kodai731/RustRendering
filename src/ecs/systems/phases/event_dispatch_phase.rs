@@ -30,19 +30,29 @@ pub fn run_event_dispatch_phase(
     assets: &mut AssetStorage,
     model_bounds: Option<(Vector3<f32>, Vector3<f32>, Vector3<f32>)>,
 ) -> (Vec<UIEvent>, Vec<DeferredAction>) {
+    let mut deferred: Vec<DeferredAction> = Vec::new();
+
+    #[cfg(feature = "text-to-motion")]
+    super::dispatch_ml::drain_grpc_responses(world, assets, &mut deferred);
+
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::poll_mesh_server_status(world);
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::poll_rigging_server_status(world);
+
     let events: Vec<UIEvent> = {
         if let Some(mut ui_events) = world.get_resource_mut::<UIEventQueue>() {
             ui_events.drain().collect()
         } else {
-            return (Vec::new(), Vec::new());
+            return (Vec::new(), deferred);
         }
     };
 
     if events.is_empty() {
-        return (Vec::new(), Vec::new());
+        return (Vec::new(), deferred);
     }
 
-    dispatch_hierarchy_events(&events, world, assets);
+    let hierarchy_deferred = dispatch_hierarchy_events(&events, world, assets);
     dispatch_timeline_events(&events, world, assets);
     dispatch_keyframe_clipboard_events(&events, world);
     dispatch_buffer_events(&events, world);
@@ -58,11 +68,21 @@ pub fn run_event_dispatch_phase(
     dispatch_spring_bone_bake_ecs_events(&events, world, assets);
     dispatch_spring_bone_edit_events(&events, world, assets);
     #[cfg(feature = "ml")]
-    super::dispatch_ml::dispatch_curve_suggestion_events(&events, world);
-    #[cfg(feature = "text-to-motion")]
-    super::dispatch_ml::dispatch_text_to_motion_events(&events, world, assets);
+    super::dispatch_ml::dispatch_curve_suggestion_events(&events, world, assets);
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::dispatch_text_to_animation_events(&events, world, assets);
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::dispatch_model_loaded_for_animation(&events, world);
 
-    let deferred = dispatch_camera_light_debug_events(&events, world, model_bounds);
+    let camera_deferred = dispatch_camera_light_debug_events(&events, world, model_bounds);
+    deferred.extend(camera_deferred);
+    deferred.extend(hierarchy_deferred);
+
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::dispatch_text_to_mesh_events(&events, world, &mut deferred);
+    #[cfg(feature = "auto-rig")]
+    super::dispatch_ml::dispatch_auto_rig_events(&events, world, &mut deferred);
+
     let platform_events = filter_platform_events(&events);
 
     (platform_events, deferred)
@@ -78,6 +98,7 @@ fn filter_platform_events(events: &[UIEvent]) -> Vec<UIEvent> {
                     | UIEvent::ClipBrowserSaveToFile(_)
                     | UIEvent::ClipBrowserExportFbx(_)
                     | UIEvent::ClipBrowserExportGltf(_)
+                    | UIEvent::ExportModelGltf
                     | UIEvent::SpringBoneSaveBake
             )
         })

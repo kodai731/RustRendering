@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use anyhow::{anyhow, Result};
-use cgmath::SquareMatrix;
+use cgmath::{SquareMatrix, Vector4};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::animation::editable::SourceClipId;
@@ -19,7 +19,7 @@ use crate::ecs::resource::{
 };
 use crate::ecs::world::{Animator, Transform, World};
 use crate::loader::fbx::FbxModel;
-use crate::loader::texture::load_png_image;
+use crate::loader::load_png_image;
 use crate::loader::{ModelLoadResult, TextureSource};
 use crate::render::MaterialUBO;
 use crate::vulkanr::buffer::{RRIndexBuffer, RRVertexBuffer};
@@ -27,16 +27,16 @@ use crate::vulkanr::command::RRCommandPool;
 use crate::vulkanr::data as vulkan_data;
 use crate::vulkanr::data::VertexData;
 use crate::vulkanr::device::RRDevice;
-use crate::vulkanr::image::{
-    create_image_view, create_texture_image_pixel, create_texture_sampler,
-};
-use crate::vulkanr::raytracing::acceleration::RRAccelerationStructure;
 use crate::vulkanr::resource::graphics_resource::{
     GraphicsResources, MaterialId, MeshBuffer, NodeData,
 };
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::swapchain::RRSwapchain;
 use crate::vulkanr::vulkan::Instance;
+use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
+use thyllore_vulkan_core::resource::image::{
+    create_image_view, create_texture_image_pixel, create_texture_sampler,
+};
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 pub unsafe fn load_model_from_file_system(
     path: &str,
@@ -54,7 +54,7 @@ pub unsafe fn load_model_from_file_system(
 
     let (load_result, fbx_model) = load_model_data(path)?;
 
-    apply_model_to_resources(
+    let _parent_entity = apply_model_to_resources(
         &load_result,
         path,
         instance,
@@ -71,6 +71,40 @@ pub unsafe fn load_model_from_file_system(
 
     log!("=== Model loaded successfully ===");
     Ok(())
+}
+
+#[cfg(feature = "auto-rig")]
+pub unsafe fn load_model_from_file_system_with_result(
+    load_result: &ModelLoadResult,
+    model_name: &str,
+    instance: &Instance,
+    device: &RRDevice,
+    command_pool: &Rc<RRCommandPool>,
+    swapchain: &RRSwapchain,
+    graphics: &mut GraphicsResources,
+    raytracing: &mut RayTracingData,
+    world: &mut World,
+    assets: &mut AssetStorage,
+    scene_will_provide_clips: bool,
+    fbx_model: Option<FbxModel>,
+) -> Result<crate::ecs::world::Entity> {
+    let parent_entity = apply_model_to_resources(
+        load_result,
+        model_name,
+        instance,
+        device,
+        command_pool,
+        swapchain,
+        graphics,
+        raytracing,
+        world,
+        assets,
+        scene_will_provide_clips,
+        fbx_model,
+    )?;
+
+    log!("=== Model loaded successfully ===");
+    Ok(parent_entity)
 }
 
 unsafe fn load_model_data(path: &str) -> Result<(ModelLoadResult, Option<FbxModel>)> {
@@ -102,7 +136,7 @@ unsafe fn apply_model_to_resources(
     assets: &mut AssetStorage,
     scene_will_provide_clips: bool,
     fbx_model: Option<FbxModel>,
-) -> Result<()> {
+) -> Result<crate::ecs::world::Entity> {
     cleanup_resources(device, graphics, raytracing, world, assets)?;
     insert_model_caches(world, model_name, fbx_model);
     ensure_graphics_capacity(load_result, instance, device, swapchain, graphics)?;
@@ -120,7 +154,14 @@ unsafe fn apply_model_to_resources(
             i,
             model_name,
         )?;
-        let material_id = create_material_for_mesh(instance, device, graphics, &mesh_buffer, i)?;
+        let material_id = create_material_for_mesh(
+            instance,
+            device,
+            graphics,
+            &mesh_buffer,
+            i,
+            loaded_mesh.base_color_factor,
+        )?;
 
         graphics.meshes.push(mesh_buffer);
         graphics.mesh_material_ids.push(material_id);
@@ -147,7 +188,7 @@ unsafe fn apply_model_to_resources(
     let node_animation_scale = load_result.node_animation_scale;
     log_model_load_info(load_result, animation_type.clone(), node_animation_scale);
 
-    create_ecs_entities(
+    let parent_entity = create_ecs_entities(
         model_name,
         graphics,
         world,
@@ -157,6 +198,15 @@ unsafe fn apply_model_to_resources(
         &load_result.clips.clone(),
         scene_will_provide_clips,
     );
+
+    let path_lower = model_name.to_lowercase();
+    if path_lower.ends_with(".gltf") || path_lower.ends_with(".glb") || path_lower.ends_with(".fbx")
+    {
+        world.insert_component(
+            parent_entity,
+            crate::ecs::component::GlbSource::FilePath(model_name.to_string()),
+        );
+    }
 
     apply_loaded_constraints(load_result, world);
     apply_loaded_spring_bones(load_result, world);
@@ -169,7 +219,7 @@ unsafe fn apply_model_to_resources(
     );
     initialize_constraint_gizmo_visibility(world);
 
-    Ok(())
+    Ok(parent_entity)
 }
 
 fn insert_model_caches(world: &mut World, model_name: &str, fbx_model: Option<FbxModel>) {
@@ -301,18 +351,6 @@ unsafe fn cleanup_resources(
         node_assets.nodes.clear();
     }
 
-    #[cfg(feature = "ml")]
-    {
-        if world.contains_resource::<crate::ecs::resource::BoneTopologyCache>() {
-            let mut cache = world.resource_mut::<crate::ecs::resource::BoneTopologyCache>();
-            cache.clear();
-        }
-        if world.contains_resource::<crate::ecs::resource::BoneNameTokenCache>() {
-            let mut cache = world.resource_mut::<crate::ecs::resource::BoneNameTokenCache>();
-            cache.clear();
-        }
-    }
-
     if world.contains_resource::<crate::ecs::resource::BonePoseOverride>() {
         let mut overrides = world.resource_mut::<crate::ecs::resource::BonePoseOverride>();
         overrides.overrides.clear();
@@ -343,25 +381,6 @@ fn setup_animation_system(
             skeleton: skeleton.clone(),
         };
         assets.add_skeleton(skeleton_asset);
-    }
-
-    #[cfg(feature = "ml")]
-    {
-        use crate::ecs::resource::{BoneNameTokenCache, BoneTopologyCache};
-
-        for skeleton in &load_result.skeletons {
-            if world.contains_resource::<BoneTopologyCache>() {
-                let topo_features = crate::ml::compute_bone_topology(skeleton);
-                let mut cache = world.resource_mut::<BoneTopologyCache>();
-                cache.features = topo_features;
-            }
-
-            if world.contains_resource::<BoneNameTokenCache>() {
-                let name_tokens = crate::ml::compute_bone_name_tokens(skeleton);
-                let mut cache = world.resource_mut::<BoneNameTokenCache>();
-                cache.tokens = name_tokens;
-            }
-        }
     }
 
     if world.contains_resource::<ModelState>() {
@@ -464,6 +483,13 @@ unsafe fn create_mesh_buffer(
     mesh.skeleton_id = loaded_mesh.skeleton_id;
     mesh.node_index = loaded_mesh.node_index;
     mesh.base_vertices = loaded_mesh.local_vertices.clone();
+    mesh.base_colors = Some(
+        mesh.vertex_data
+            .vertices
+            .iter()
+            .map(|v| cgmath::Vector4::new(v.color.x, v.color.y, v.color.z, v.color.w))
+            .collect(),
+    );
 
     mesh.vertex_buffer = RRVertexBuffer::new(
         instance,
@@ -499,9 +525,18 @@ unsafe fn create_material_for_mesh(
     graphics: &mut GraphicsResources,
     mesh: &MeshBuffer,
     mesh_index: usize,
+    base_color_factor: [f32; 4],
 ) -> Result<MaterialId> {
     let material_name = format!("material_{}", mesh_index);
-    let material_properties = MaterialUBO::default();
+    let material_properties = MaterialUBO {
+        base_color: Vector4::new(
+            base_color_factor[0],
+            base_color_factor[1],
+            base_color_factor[2],
+            base_color_factor[3],
+        ),
+        ..MaterialUBO::default()
+    };
 
     let material_id = graphics.materials.create_material_with_texture(
         instance,
@@ -691,6 +726,10 @@ pub unsafe fn rebuild_acceleration_structures(
     let mut acceleration_structure = RRAccelerationStructure::new();
 
     for mesh in &graphics.meshes {
+        if !mesh.render_to_gbuffer {
+            continue;
+        }
+
         let blas = RRAccelerationStructure::create_blas(
             instance,
             device,
@@ -784,7 +823,7 @@ fn create_ecs_entities(
     node_animation_scale: f32,
     loaded_clips: &[crate::animation::AnimationClip],
     scene_will_provide_clips: bool,
-) {
+) -> crate::ecs::world::Entity {
     let name = std::path::Path::new(model_name)
         .file_stem()
         .and_then(|s| s.to_str())
@@ -793,14 +832,19 @@ fn create_ecs_entities(
 
     ensure_ecs_resources(world);
 
-    let first_editable_clip_id =
+    let mut first_editable_clip_id =
         register_clips_to_library(world, assets, loaded_clips, scene_will_provide_clips);
 
     register_node_assets(world, assets);
 
-    let has_animation = !loaded_clips.is_empty();
+    if first_editable_clip_id.is_none() && !scene_will_provide_clips && !assets.skeletons.is_empty()
+    {
+        first_editable_clip_id = Some(register_empty_editable_clip(world, assets));
+    }
 
-    let initial_schedule = if has_animation && !scene_will_provide_clips {
+    let has_playable_clip = first_editable_clip_id.is_some();
+
+    let initial_schedule = if has_playable_clip && !scene_will_provide_clips {
         build_initial_clip_schedule(first_editable_clip_id, world)
     } else {
         ClipSchedule::new()
@@ -813,7 +857,7 @@ fn create_ecs_entities(
         .with_visible(true)
         .with_editor_display(EntityIcon::Model, true);
 
-    if has_animation {
+    if has_playable_clip {
         parent_builder = parent_builder
             .with_animator(Animator::new())
             .with_clip_schedule(initial_schedule)
@@ -841,6 +885,8 @@ fn create_ecs_entities(
         assets.animation_clips.len(),
         assets.nodes.len()
     );
+
+    parent_entity
 }
 
 fn ensure_ecs_resources(world: &mut World) {
@@ -903,12 +949,46 @@ fn register_clips_to_library(
     drop(clip_library);
 
     if let Some(editable_id) = first_editable_clip_id {
+        let clip_duration = world
+            .resource::<ClipLibrary>()
+            .get(editable_id)
+            .map(|c| c.duration)
+            .unwrap_or(0.0);
         let mut timeline_state = world.resource_mut::<TimelineState>();
         timeline_state.current_clip_id = Some(editable_id);
+        crate::ecs::systems::timeline_apply_fit_zoom(&mut timeline_state, clip_duration);
         log!("Set timeline current_clip_id to {}", editable_id);
     }
 
     first_editable_clip_id
+}
+
+const EMPTY_CLIP_DEFAULT_DURATION_SECONDS: f32 = 5.0;
+
+fn register_empty_editable_clip(world: &mut World, assets: &mut AssetStorage) -> SourceClipId {
+    use crate::animation::editable::EditableAnimationClip;
+
+    let mut clip_library = world.resource_mut::<ClipLibrary>();
+    let mut editable = EditableAnimationClip::new(0, "New Animation".to_string());
+    editable.duration = EMPTY_CLIP_DEFAULT_DURATION_SECONDS;
+    let source_id = crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
+        &mut clip_library,
+        assets,
+        editable,
+    );
+    drop(clip_library);
+
+    let mut timeline_state = world.resource_mut::<TimelineState>();
+    timeline_state.current_clip_id = Some(source_id);
+    drop(timeline_state);
+
+    log!(
+        "Auto-created empty animation clip 'New Animation' (source_id={}, duration={}s) for model with no animations",
+        source_id,
+        EMPTY_CLIP_DEFAULT_DURATION_SECONDS
+    );
+
+    source_id
 }
 
 fn register_node_assets(world: &World, assets: &mut AssetStorage) {
@@ -1186,4 +1266,172 @@ fn resolve_texture_path(texture_path: &str, model_path: &str) -> PathBuf {
 
     log!("Texture not found, using original path: {}", texture_path);
     original.to_path_buf()
+}
+
+pub unsafe fn load_model_additive(
+    path: &str,
+    instance: &Instance,
+    device: &RRDevice,
+    command_pool: &Rc<RRCommandPool>,
+    swapchain: &RRSwapchain,
+    graphics: &mut GraphicsResources,
+    raytracing: &mut RayTracingData,
+    world: &mut World,
+    assets: &mut AssetStorage,
+) -> Result<()> {
+    let (load_result, _fbx_model) = load_model_data(path)?;
+
+    let part_name = std::path::Path::new(path)
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("part")
+        .to_string();
+
+    let parent_entity = append_model_to_scene(
+        &load_result,
+        &part_name,
+        instance,
+        device,
+        command_pool,
+        swapchain,
+        graphics,
+        raytracing,
+        world,
+        assets,
+    )?;
+
+    world.insert_component(
+        parent_entity,
+        crate::ecs::component::GlbSource::FilePath(path.to_string()),
+    );
+
+    Ok(())
+}
+
+unsafe fn append_model_to_scene(
+    load_result: &ModelLoadResult,
+    part_name: &str,
+    instance: &Instance,
+    device: &RRDevice,
+    command_pool: &Rc<RRCommandPool>,
+    swapchain: &RRSwapchain,
+    graphics: &mut GraphicsResources,
+    raytracing: &mut RayTracingData,
+    world: &mut World,
+    assets: &mut AssetStorage,
+) -> Result<crate::ecs::world::Entity> {
+    ensure_graphics_capacity(load_result, instance, device, swapchain, graphics)?;
+
+    let mesh_index_offset = graphics.meshes.len();
+
+    for (i, loaded_mesh) in load_result.meshes.iter().enumerate() {
+        let global_index = mesh_index_offset + i;
+        let mesh_buffer = create_mesh_buffer(
+            instance,
+            device,
+            command_pool,
+            graphics,
+            loaded_mesh,
+            global_index,
+            part_name,
+        )?;
+        let material_id = create_material_for_mesh(
+            instance,
+            device,
+            graphics,
+            &mesh_buffer,
+            global_index,
+            loaded_mesh.base_color_factor,
+        )?;
+
+        graphics.meshes.push(mesh_buffer);
+        graphics.mesh_material_ids.push(material_id);
+    }
+
+    rebuild_acceleration_structures(instance, device, command_pool, graphics, raytracing)?;
+    update_ray_query_descriptor(device, raytracing)?;
+
+    {
+        let mut billboard = world.resource_mut::<BillboardData>();
+        update_billboard_descriptor(device, swapchain, &mut *billboard)?;
+    }
+
+    ensure_ecs_resources(world);
+
+    let parent_entity = world
+        .entity()
+        .with_name(part_name)
+        .with_transform(Transform::default())
+        .with_visible(true)
+        .with_editor_display(EntityIcon::Model, true)
+        .build();
+
+    log!(
+        "Created additive parent entity '{}': entity_id={}",
+        part_name,
+        parent_entity
+    );
+
+    build_mesh_entities_range(
+        part_name,
+        graphics,
+        world,
+        assets,
+        parent_entity,
+        mesh_index_offset..graphics.meshes.len(),
+    );
+
+    log!(
+        "Additively loaded '{}': {} meshes, total entities={}",
+        part_name,
+        load_result.meshes.len(),
+        world.entity_count()
+    );
+
+    Ok(parent_entity)
+}
+
+fn build_mesh_entities_range(
+    name: &str,
+    graphics: &GraphicsResources,
+    world: &mut World,
+    assets: &mut AssetStorage,
+    parent_entity: crate::ecs::Entity,
+    mesh_range: std::ops::Range<usize>,
+) {
+    for mesh_idx in mesh_range {
+        let mesh = &graphics.meshes[mesh_idx];
+        let entity_name = format!("{}_{:02}", name, mesh_idx + 1);
+
+        let mesh_asset = MeshAsset {
+            id: 0,
+            name: entity_name.clone(),
+            graphics_mesh_index: mesh_idx,
+            object_index: mesh.object_index,
+            material_id: graphics.mesh_material_ids.get(mesh_idx).copied(),
+            skeleton_id: mesh.skeleton_id,
+            node_index: mesh.node_index,
+            render_to_gbuffer: mesh.render_to_gbuffer,
+        };
+        let asset_id = assets.add_mesh(mesh_asset);
+
+        let entity = world
+            .entity()
+            .with_name(&entity_name)
+            .with_global_transform()
+            .with_visible(true)
+            .with_parent(parent_entity)
+            .with_editor_display(EntityIcon::Mesh, false)
+            .with_mesh(asset_id, mesh.object_index)
+            .build();
+
+        log!(
+            "Created additive mesh entity {} (asset_id={}) for mesh {}: entity_id={}, parent={}",
+            entity_name,
+            asset_id,
+            mesh_idx,
+            entity,
+            parent_entity
+        );
+    }
 }

@@ -2,7 +2,7 @@ use anyhow::Result;
 use cgmath::Vector3;
 
 #[cfg(feature = "ml")]
-use super::curve_suggestion_systems::curve_suggestion_poll_results;
+use super::curve_copilot::curve_suggestion_poll_results;
 #[cfg(feature = "ml")]
 use super::inference_actor_systems::{inference_actor_initialize, inference_actor_poll};
 use super::object_picking_systems::apply_mesh_selection;
@@ -15,12 +15,12 @@ use crate::app::FrameContext;
 #[cfg(feature = "ml")]
 use crate::ecs::component::InferenceActorSetup;
 use crate::ecs::context::EcsContext;
-#[cfg(feature = "text-to-motion")]
-use crate::ecs::resource::TextToMotionState;
 use crate::ecs::resource::{ClipLibrary, HierarchyState, TimelineState};
 #[cfg(feature = "ml")]
 use crate::ecs::resource::{CurveSuggestionState, InferenceActorState};
 use crate::ecs::world::Animator;
+#[cfg(feature = "ml")]
+use crate::ml::FeedbackSenderHandle;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
 pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
@@ -45,9 +45,6 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
     run_timeline_phase(ctx);
     #[cfg(feature = "ml")]
     run_inference_actor_phase(ctx);
-    #[cfg(feature = "text-to-motion")]
-    run_text_to_motion_phase(ctx);
-
     let animation_updates = run_animation_phase_ecs(ctx);
     run_animation_phase_gpu(ctx, &animation_updates)?;
     run_onion_skin_phase(ctx, &animation_updates.updated_meshes)?;
@@ -163,30 +160,12 @@ fn run_inference_actor_phase(ctx: &mut FrameContext) {
     inference_actor_poll(&mut state);
 
     if ctx.world.contains_resource::<CurveSuggestionState>() {
+        let feedback_sender = ctx.world.get_resource::<FeedbackSenderHandle>();
         let mut suggestion_state = ctx.world.resource_mut::<CurveSuggestionState>();
-        curve_suggestion_poll_results(&mut suggestion_state, &mut state);
-    }
-}
-
-#[cfg(feature = "text-to-motion")]
-fn run_text_to_motion_phase(ctx: &mut FrameContext) {
-    if !ctx.world.contains_resource::<TextToMotionState>() {
-        return;
-    }
-
-    let bone_name_to_id = ctx
-        .assets
-        .skeletons
-        .values()
-        .next()
-        .map(|sa| sa.skeleton.bone_name_to_id.clone());
-
-    if let Some(handle) = ctx.world.get_resource::<crate::grpc::GrpcThreadHandle>() {
-        let mut state = ctx.world.resource_mut::<TextToMotionState>();
-        super::text_to_motion_systems::text_to_motion_poll(
+        curve_suggestion_poll_results(
+            &mut suggestion_state,
             &mut state,
-            &*handle,
-            bone_name_to_id.as_ref(),
+            feedback_sender.as_ref().map(|sender| &**sender),
         );
     }
 }

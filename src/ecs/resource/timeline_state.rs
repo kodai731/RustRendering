@@ -4,30 +4,13 @@ use crate::animation::editable::{ClipInstanceId, KeyframeId, PropertyType, Sourc
 use crate::animation::BoneId;
 use crate::ecs::world::Entity;
 
+pub use thyllore_anim_core::editable::SnapSettings;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SelectionModifier {
     Replace,
     Add,
     Toggle,
-}
-
-#[derive(Clone, Debug)]
-pub struct SnapSettings {
-    pub snap_to_frame: bool,
-    pub snap_to_key: bool,
-    pub frame_rate: f32,
-    pub snap_threshold_px: f32,
-}
-
-impl Default for SnapSettings {
-    fn default() -> Self {
-        Self {
-            snap_to_frame: false,
-            snap_to_key: false,
-            frame_rate: 30.0,
-            snap_threshold_px: 8.0,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -72,6 +55,8 @@ pub struct TimelineState {
     pub speed: f32,
     pub zoom_level: f32,
     pub scroll_offset: f32,
+    pub last_visible_width: f32,
+    pub pan_pending_delta_x: f32,
     pub selected_keyframes: HashSet<SelectedKeyframe>,
     pub expanded_tracks: HashSet<BoneId>,
     pub show_translation: bool,
@@ -93,6 +78,8 @@ impl TimelineState {
             speed: 1.0,
             zoom_level: 1.0,
             scroll_offset: 0.0,
+            last_visible_width: 0.0,
+            pan_pending_delta_x: 0.0,
             selected_keyframes: HashSet::new(),
             expanded_tracks: HashSet::new(),
             show_translation: true,

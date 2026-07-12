@@ -178,7 +178,7 @@ impl App {
         };
 
         let scene_buffer_size =
-            std::mem::size_of::<crate::vulkanr::data::SceneUniformData>() as vk::DeviceSize;
+            std::mem::size_of::<thyllore_vulkan_core::data::SceneUniformData>() as vk::DeviceSize;
 
         data.raytracing.create_tonemap_pipeline(
             rrdevice,

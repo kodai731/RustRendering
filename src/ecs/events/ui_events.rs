@@ -20,9 +20,20 @@ use crate::ecs::resource::{
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;
 
+#[cfg(feature = "auto-rig")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ModelLoadSource {
+    UserFile,
+    AutoRigOutput,
+    TextToMeshOutput,
+}
+
 #[derive(Clone, Debug)]
 pub enum UIEvent {
     LoadModel {
+        path: String,
+    },
+    LoadModelAdditive {
         path: String,
     },
 
@@ -46,6 +57,7 @@ pub enum UIEvent {
     SelectEntity(Entity),
     DeselectAll,
     ToggleEntitySelection(Entity),
+    DeleteSelectedEntities,
     ExpandEntity(Entity),
     CollapseEntity(Entity),
     SetSearchFilter(String),
@@ -332,15 +344,47 @@ pub enum UIEvent {
     #[cfg(feature = "ml")]
     CurveSuggestionDismiss,
 
-    #[cfg(feature = "text-to-motion")]
-    TextToMotionGenerate {
+    #[cfg(feature = "auto-rig")]
+    TextToAnimationGenerate {
         prompt: String,
         duration_seconds: f32,
     },
-    #[cfg(feature = "text-to-motion")]
-    TextToMotionApply,
-    #[cfg(feature = "text-to-motion")]
-    TextToMotionCancel,
+    #[cfg(feature = "auto-rig")]
+    TextToAnimationCancel,
+    #[cfg(feature = "auto-rig")]
+    ModelLoadedFromMemory {
+        source: ModelLoadSource,
+    },
+
+    #[cfg(feature = "auto-rig")]
+    TextToMeshGenerate {
+        prompt: String,
+        target_faces: u32,
+        seed: u32,
+        input_mode: crate::grpc::MeshInputMode,
+        input_image_png: Option<Vec<u8>>,
+        model_type: crate::grpc::MeshModelType,
+        t2i_model_type: crate::grpc::TextToImageModelType,
+    },
+    #[cfg(feature = "auto-rig")]
+    TextToMeshApply,
+    #[cfg(feature = "auto-rig")]
+    TextToMeshCancel,
+
+    #[cfg(feature = "auto-rig")]
+    AutoRigGenerate {
+        num_sample_points: u32,
+    },
+    #[cfg(feature = "auto-rig")]
+    AutoRigApply,
+    #[cfg(feature = "auto-rig")]
+    AutoRigDiscard,
+
+    ExportModelGltf,
+
+    ResampleSelectedModelAnimations {
+        fps: f32,
+    },
 
     TimelineZoomIn {
         max_zoom: f32,
@@ -350,6 +394,7 @@ pub enum UIEvent {
     },
 
     SetBoneGizmoVisible(bool),
+    SetWeightHeatmapEnabled(bool),
     SetTransformGizmoMode(TransformGizmoMode),
     SetTransformGizmoSpace(CoordinateSpace),
     UpdateTransformGizmoState(Box<TransformGizmoState>),

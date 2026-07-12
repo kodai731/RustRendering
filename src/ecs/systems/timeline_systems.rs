@@ -343,6 +343,8 @@ fn timeline_select_clip(
             timeline_state.expand_track(first_bone_id);
         }
 
+        timeline_apply_fit_zoom(timeline_state, clip.duration);
+
         log!(
             "Timeline: Selected clip '{}' (id={}, duration={:.2}s, tracks={})",
             clip.name,
@@ -351,6 +353,19 @@ fn timeline_select_clip(
             clip.track_count()
         );
     }
+}
+
+pub fn timeline_apply_fit_zoom(timeline_state: &mut TimelineState, clip_duration: f32) {
+    timeline_state.scroll_offset = 0.0;
+
+    let visible_width = timeline_state.last_visible_width;
+    if visible_width < 1.0 || clip_duration <= 0.0 {
+        return;
+    }
+
+    let fit_zoom =
+        visible_width / (clip_duration * crate::platform::ui::timeline_window::PIXELS_PER_SECOND);
+    timeline_state.zoom_level = fit_zoom.clamp(0.01, 100.0);
 }
 
 pub fn timeline_apply_selection(
@@ -561,6 +576,9 @@ fn dispatch_clip_instance_select(
                 if let Some((&first_bone_id, _)) = clip.tracks.iter().next() {
                     ts.expand_track(first_bone_id);
                 }
+
+                let duration = clip.duration;
+                timeline_apply_fit_zoom(&mut ts, duration);
             }
         }
     }

@@ -6,8 +6,8 @@ use crate::ecs::World;
 use crate::platform::ImguiData;
 use crate::vulkanr::renderer::onion_skin_buffers::OnionSkinGpuState;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::resource::{GpuBufferRegistry, PipelineStorage};
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub enum LightMoveTarget {

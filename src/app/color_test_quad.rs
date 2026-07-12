@@ -13,13 +13,13 @@ use crate::vulkanr::buffer::{RRIndexBuffer, RRVertexBuffer};
 use crate::vulkanr::command::RRCommandPool;
 use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::data::{Vertex, VertexData};
-use crate::vulkanr::image::{
-    create_image_view, create_texture_image_pixel, create_texture_sampler,
-};
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
-use crate::vulkanr::resource::raytracing_data::RayTracingData;
 use crate::vulkanr::resource::MeshBuffer;
 use crate::vulkanr::vulkan::Instance;
+use thyllore_vulkan_core::resource::image::{
+    create_image_view, create_texture_image_pixel, create_texture_sampler,
+};
+use thyllore_vulkan_core::resource::raytracing_data::RayTracingData;
 
 struct TestColorQuadSpec {
     color: Vec4,
@@ -193,6 +193,7 @@ unsafe fn create_quad_mesh_buffer(
         skeleton_id: None,
         node_index: None,
         base_vertices: Vec::new(),
+        base_colors: None,
     })
 }
 

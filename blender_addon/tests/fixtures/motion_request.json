@@ -1,0 +1,19 @@
+{
+  "bone_mappings": [
+    {
+      "source_joint_index": 0,
+      "target_bone_name": "hips"
+    },
+    {
+      "source_joint_index": 3,
+      "target_bone_name": "spine"
+    }
+  ],
+  "duration_seconds": 3.0,
+  "glb_skeleton_cache_id": "cache_xyz",
+  "glb_skeleton_glb_data_hex": "010203",
+  "internal_use_only": false,
+  "prompt": "walking forward",
+  "skeleton_type": "SMPL_22",
+  "target_fps": 30
+}

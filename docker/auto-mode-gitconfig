@@ -1,0 +1,15 @@
+[user]
+    name = thyllore-auto-mode
+    email = auto-mode@localhost
+
+[core]
+    hooksPath = /home/dev/git-hooks
+
+[push]
+    default = nothing
+
+[commit]
+    gpgsign = false
+
+[safe]
+    directory = *

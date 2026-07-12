@@ -1,0 +1,188 @@
+syntax = "proto3";
+package animation_ml;
+
+service TextToMotionService {
+    rpc GenerateMotion (MotionRequest) returns (MotionResponse);
+    rpc GetServerStatus (StatusRequest) returns (StatusResponse);
+}
+
+message MotionRequest {
+    string prompt = 1;
+    float duration_seconds = 2;
+    int32 target_fps = 3;
+    SkeletonType skeleton_type = 4;
+    repeated BoneMapping bone_mappings = 5;
+    GlbSkeletonSpec glb_skeleton = 6;
+    bool internal_use_only = 7;
+}
+
+message GlbSkeletonSpec {
+    bytes glb_data = 1;
+    string skeleton_cache_id = 2;
+}
+
+enum SkeletonType {
+    SMPL_22 = 0;
+    VRM_HUMANOID = 1;
+}
+
+message BoneMapping {
+    int32 source_joint_index = 1;
+    string target_bone_name = 2;
+}
+
+message MotionResponse {
+    repeated AnimationCurve curves = 1;
+    float generation_time_ms = 2;
+    string model_used = 3;
+}
+
+message AnimationCurve {
+    string bone_name = 1;
+    PropertyType property_type = 2;
+    repeated CurveKeyframe keyframes = 3;
+}
+
+enum PropertyType {
+    TRANSLATION_X = 0;
+    TRANSLATION_Y = 1;
+    TRANSLATION_Z = 2;
+    ROTATION_X = 3;
+    ROTATION_Y = 4;
+    ROTATION_Z = 5;
+}
+
+message CurveKeyframe {
+    float time = 1;
+    float value = 2;
+    float tangent_in_dt = 3;
+    float tangent_in_dv = 4;
+    float tangent_out_dt = 5;
+    float tangent_out_dv = 6;
+    InterpolationType interpolation = 7;
+}
+
+enum InterpolationType {
+    LINEAR = 0;
+    BEZIER = 1;
+}
+
+message StatusRequest {}
+
+message StatusResponse {
+    bool ready = 1;
+    string active_model = 2;
+    int32 gpu_memory_mb = 3;
+}
+
+enum MeshInputMode {
+    TEXT_TO_MESH = 0;
+    IMAGE_TO_MESH = 1;
+    IMAGE_REFINED_TO_MESH = 2;
+}
+
+enum MeshModelType {
+    TRELLIS = 0;
+    HUNYUAN3D = 1;
+    CHARACTER_GEN = 2;
+    STDGEN = 3;
+    ERA3D = 4;
+}
+
+enum TextToImageModelType {
+    T2I_SERVER_DEFAULT = 0;
+    T2I_SDXL = 1;
+    T2I_ANIMAGINE = 2;
+}
+
+service MeshGenerationService {
+    rpc GenerateMesh (MeshRequest) returns (MeshResponse);
+    rpc GetMeshServiceStatus (MeshStatusRequest) returns (MeshStatusResponse);
+}
+
+message MeshRequest {
+    string prompt = 1;
+    MeshGenerationParams params = 2;
+    bytes input_image_png = 3;
+    MeshInputMode input_mode = 4;
+    MeshModelType model_type = 5;
+    TextToImageModelType t2i_model_type = 6;
+}
+
+message MeshGenerationParams {
+    int32 target_faces = 1;
+    int32 seed = 2;
+    int32 image_size = 3;
+    int32 image_inference_steps = 4;
+}
+
+message MeshResponse {
+    bytes glb_data = 1;
+    MeshMetadata metadata = 2;
+}
+
+message MeshMetadata {
+    int32 vertex_count = 1;
+    int32 face_count = 2;
+    float generation_time_ms = 3;
+    bytes intermediate_image_png = 4;
+}
+
+message MeshStatusRequest {}
+
+message MeshStatusResponse {
+    bool ready = 1;
+    string t2i_model = 2;
+    string i2m_model = 3;
+    int32 gpu_memory_mb = 4;
+}
+
+enum RiggingModelType {
+    RIGGING_UNIRIG = 0;
+}
+
+service AutoRiggingService {
+    rpc GenerateRig (RiggingRequest) returns (RiggingResponse);
+    rpc GetRiggingStatus (RiggingStatusRequest) returns (RiggingStatusResponse);
+}
+
+message RiggingRequest {
+    bytes glb_data = 1;
+    RiggingParams params = 2;
+    RiggingModelType model_type = 3;
+}
+
+message RiggingParams {
+    int32 num_sample_points = 1;
+}
+
+message SkeletonJoint {
+    string name = 1;
+    float x = 2;
+    float y = 3;
+    float z = 4;
+    float tail_x = 5;
+    float tail_y = 6;
+    float tail_z = 7;
+    int32 parent_index = 8;
+}
+
+message RiggingResponse {
+    bytes rigged_glb_data = 1;
+    RiggingMetadata metadata = 2;
+    repeated SkeletonJoint skeleton_joints = 3;
+}
+
+message RiggingMetadata {
+    int32 joint_count = 1;
+    int32 bone_count = 2;
+    float generation_time_ms = 3;
+}
+
+message RiggingStatusRequest {}
+
+message RiggingStatusResponse {
+    bool ready = 1;
+    string model_name = 2;
+    int32 gpu_memory_mb = 3;
+}

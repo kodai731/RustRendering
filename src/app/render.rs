@@ -250,6 +250,140 @@ impl App {
         Ok(())
     }
 
+    #[cfg(feature = "auto-rig")]
+    pub unsafe fn load_model_from_glb(&mut self, glb_data: &[u8]) -> Result<()> {
+        log!("Loading generated mesh from GLB ({} bytes)", glb_data.len());
+        self.rrdevice.device.device_wait_idle()?;
+
+        let gltf_result = crate::loader::gltf::load_gltf_from_slice(glb_data)?;
+        let load_result = crate::loader::ModelLoadResult::from_gltf(gltf_result);
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let swapchain = self.resource::<SwapchainState>().swapchain.clone();
+        match crate::app::model_loader::load_model_from_file_system_with_result(
+            &load_result,
+            "Generated Mesh",
+            &self.instance,
+            &self.rrdevice,
+            &command_pool,
+            &swapchain,
+            &mut self.data.graphics_resources,
+            &mut self.data.raytracing,
+            &mut self.data.ecs_world,
+            &mut self.data.ecs_assets,
+            false,
+            None,
+        ) {
+            Ok(parent_entity) => {
+                {
+                    let mut model_state = self
+                        .data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::resource::ModelState>();
+                    model_state.model_path = "Generated Mesh".to_string();
+                    model_state.load_status = "Loaded: Generated Mesh".to_string();
+                }
+                {
+                    let mut timeline = self
+                        .data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::resource::TimelineState>();
+                    timeline.current_time = 0.0;
+                }
+                {
+                    let mut scene_state =
+                        self.data.ecs_world.resource_mut::<crate::ecs::SceneState>();
+                    scene_state.clear();
+                }
+                {
+                    let cache =
+                        crate::ecs::resource::GltfModelCache::from_glb_data(glb_data.to_vec());
+                    self.data.ecs_world.insert_resource(cache);
+                }
+                self.data.ecs_world.insert_component(
+                    parent_entity,
+                    crate::ecs::component::GlbSource::InMemory(glb_data.to_vec()),
+                );
+
+                msg_info!("Generated mesh loaded successfully");
+            }
+            Err(e) => {
+                let mut model_state = self
+                    .data
+                    .ecs_world
+                    .resource_mut::<crate::ecs::resource::ModelState>();
+                model_state.load_status = format!("Error: {}", e);
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub unsafe fn load_model_additive(&mut self, path: &str) -> Result<()> {
+        log!("Additively loading model from: {}", path);
+        self.rrdevice.device.device_wait_idle()?;
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let swapchain = self.resource::<SwapchainState>().swapchain.clone();
+
+        crate::app::model_loader::load_model_additive(
+            path,
+            &self.instance,
+            &self.rrdevice,
+            &command_pool,
+            &swapchain,
+            &mut self.data.graphics_resources,
+            &mut self.data.raytracing,
+            &mut self.data.ecs_world,
+            &mut self.data.ecs_assets,
+        )?;
+
+        msg_info!("Model added: {}", path);
+        Ok(())
+    }
+
+    pub unsafe fn delete_entities(&mut self, entities: &[u64]) -> Result<()> {
+        self.rrdevice.device.device_wait_idle()?;
+
+        for &entity in entities {
+            let mesh_ref = self
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::world::MeshRef>(entity)
+                .cloned();
+
+            if let Some(mesh_ref) = mesh_ref {
+                let graphics_mesh_index = self
+                    .data
+                    .ecs_assets
+                    .get_mesh(mesh_ref.mesh_asset_id)
+                    .map(|m| m.graphics_mesh_index);
+
+                if let Some(idx) = graphics_mesh_index {
+                    if idx < self.data.graphics_resources.meshes.len() {
+                        self.data.graphics_resources.meshes[idx].render_to_gbuffer = false;
+                        self.data.graphics_resources.meshes[idx].destroy(&self.rrdevice);
+                    }
+                }
+            }
+
+            self.data.ecs_world.despawn(entity);
+        }
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        crate::app::model_loader::rebuild_acceleration_structures(
+            &self.instance,
+            &self.rrdevice,
+            &command_pool,
+            &self.data.graphics_resources,
+            &mut self.data.raytracing,
+        )?;
+
+        log!("Deleted {} entities with GPU cleanup", entities.len());
+        Ok(())
+    }
+
     unsafe fn handle_model_loading(&mut self) -> Result<()> {
         Ok(())
     }
@@ -903,6 +1037,10 @@ impl App {
 
         for i in 0..mesh_count {
             let mesh = &self.data.graphics_resources.meshes[i];
+
+            if !mesh.render_to_gbuffer {
+                continue;
+            }
 
             let pipeline = &self.resource::<PipelineState>().model_pipeline;
             self.rrdevice.device.cmd_bind_pipeline(

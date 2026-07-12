@@ -12,9 +12,11 @@ mod panel_splitter;
 mod scene_overlay;
 mod spring_bone_inspector;
 mod status_bar;
-#[cfg(feature = "text-to-motion")]
-mod text_to_motion_dialog;
-mod timeline_window;
+#[cfg(feature = "auto-rig")]
+mod text_to_animation_dialog;
+#[cfg(feature = "auto-rig")]
+mod text_to_mesh_dialog;
+pub(crate) mod timeline_window;
 mod viewport_window;
 
 pub use bottom_panel::*;
@@ -31,7 +33,9 @@ pub use panel_splitter::*;
 pub use scene_overlay::*;
 pub use spring_bone_inspector::*;
 pub use status_bar::*;
-#[cfg(feature = "text-to-motion")]
-pub use text_to_motion_dialog::*;
+#[cfg(feature = "auto-rig")]
+pub use text_to_animation_dialog::*;
+#[cfg(feature = "auto-rig")]
+pub use text_to_mesh_dialog::*;
 pub use timeline_window::*;
 pub use viewport_window::*;

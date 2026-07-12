@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./secrets/**)",
+      "Bash(cat secrets/*)",
+      "Bash(cat ./secrets/*)",
+      "Bash(head secrets/*)",
+      "Bash(tail secrets/*)",
+      "Bash(grep * secrets/*)"
+    ]
+  }
+}
