@@ -3,10 +3,12 @@ use crate::animation::editable::{
     EditableKeyframe, InterpolationType, PropertyCurve, PropertyType,
 };
 use crate::animation::BoneId;
-use crate::ecs::resource::InferenceActorState;
+use crate::ecs::resource::{
+    CurveSuggestionPendingDump, CurveSuggestionState, GhostCurveSuggestion, InferenceActorState,
+};
 use crate::ml::{
-    CurveCopilotMode, CurveSuggestionPendingDump, CurveSuggestionState, FeedbackSenderHandle,
-    GhostCurveSuggestion, InferenceActorId, InferenceRequestKind, InferenceResultKind,
+    CurveCopilotMode, FeedbackSenderHandle, InferenceActorId, InferenceRequestKind,
+    InferenceResultKind,
 };
 use thyllore_ml_core::copilot::v2::dump::{
     dump_v2_curve_copilot_inference, V2CurveCopilotInferenceDump,

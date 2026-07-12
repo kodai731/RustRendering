@@ -15,12 +15,12 @@ use crate::app::FrameContext;
 #[cfg(feature = "ml")]
 use crate::ecs::component::InferenceActorSetup;
 use crate::ecs::context::EcsContext;
-#[cfg(feature = "ml")]
-use crate::ecs::resource::InferenceActorState;
 use crate::ecs::resource::{ClipLibrary, HierarchyState, TimelineState};
+#[cfg(feature = "ml")]
+use crate::ecs::resource::{CurveSuggestionState, InferenceActorState};
 use crate::ecs::world::Animator;
 #[cfg(feature = "ml")]
-use crate::ml::{CurveSuggestionState, FeedbackSenderHandle};
+use crate::ml::FeedbackSenderHandle;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
 pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {

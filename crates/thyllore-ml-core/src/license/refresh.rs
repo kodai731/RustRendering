@@ -1,8 +1,4 @@
-use std::time::Duration;
-
-use crate::feedback::USER_AGENT;
-
-pub const REQUEST_TIMEOUT: Duration = Duration::from_secs(10);
+use crate::feedback::{REQUEST_TIMEOUT, USER_AGENT};
 
 pub struct LicenseSession {
     pub full_token: String,

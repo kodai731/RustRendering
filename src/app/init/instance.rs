@@ -329,7 +329,7 @@ impl App {
             data.ecs_world
                 .insert_resource(crate::ecs::resource::InferenceActorState::default());
             data.ecs_world
-                .insert_resource(crate::ml::CurveSuggestionState::default());
+                .insert_resource(crate::ecs::resource::CurveSuggestionState::default());
         }
 
         #[cfg(feature = "text-to-motion")]
