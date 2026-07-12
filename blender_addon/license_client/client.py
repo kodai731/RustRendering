@@ -5,6 +5,7 @@ the addon-local token cache.
 """
 from __future__ import annotations
 
+from .. import _debuglog
 from .._token_store import TokenStore
 from ..build_config import LICENSE_ENDPOINT
 
@@ -26,6 +27,7 @@ def refresh_license(license_key: str, device_id: str) -> tuple[bool, str]:
     try:
         result = tml.refresh_license(LICENSE_ENDPOINT, license_key, device_id)
     except Exception:  # noqa: BLE001
+        _debuglog.log_exception(f"refresh_license to {LICENSE_ENDPOINT} failed")
         return False, "network_error"
 
     if result.get("ok"):

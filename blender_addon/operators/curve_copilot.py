@@ -127,16 +127,21 @@ class THYLLORE_OT_CurveCopilot(Operator):
         deploy_fps = tml.deploy_fps()
         frame_step = scene_fps / deploy_fps
         playhead = float(context.scene.frame_current_final)
+        full_token = _resolve_full_token()
+        effective_ctx = tml.effective_context_length(full_token)
         if logger is not None:
             logger.info(
                 "curve_copilot run: object=%r selected_fcurves=%d playhead=%.4f "
-                "scene_fps=%.4f deploy_fps=%.4f frame_step=%.4f model=%s",
+                "scene_fps=%.4f deploy_fps=%.4f frame_step=%.4f effective_ctx=%d "
+                "full_token=%s model=%s",
                 context.active_object.name,
                 len(fcurves),
                 playhead,
                 scene_fps,
                 deploy_fps,
                 frame_step,
+                effective_ctx,
+                "present" if full_token else "none",
                 model_path,
             )
 
@@ -150,7 +155,7 @@ class THYLLORE_OT_CurveCopilot(Operator):
                 scene_fps=scene_fps,
                 deploy_fps=deploy_fps,
                 frame_step=frame_step,
-                full_token=_resolve_full_token(),
+                full_token=full_token,
                 record_feedback=record_feedback,
                 model_hash=_model_hash(model_path) if record_feedback else "",
             )

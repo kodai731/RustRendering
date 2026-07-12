@@ -21,7 +21,8 @@ Commands:
         ./run.sh engine full --features auto-rig
   blender [scene.blend] [args...]
       Build + install the debug addon and launch Blender
-      (scripts/run_blender_debug.sh).
+      (scripts/run_blender_debug.sh). Sources .config/curve_copilot_full.env
+      for THYLLORE_FEEDBACK_ENDPOINT / THYLLORE_INGEST_TOKEN.
   auto [args...]
       Launch the Claude auto-mode container (scripts/run_auto_mode.sh).
   worker-smoke [worker-url] [args...]

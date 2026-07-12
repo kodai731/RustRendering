@@ -12,6 +12,7 @@ import uuid
 
 import bpy
 
+from .. import _debuglog
 from .._token_store import TokenStore
 from ..build_config import FEEDBACK_ENDPOINT, INGEST_TOKEN
 
@@ -53,6 +54,7 @@ def send_feedback_batch(records: list[dict]) -> bool:
             FEEDBACK_ENDPOINT, INGEST_TOKEN, anon_id(), records
         )
     except Exception:  # noqa: BLE001
+        _debuglog.log_exception(f"send_feedback_batch to {FEEDBACK_ENDPOINT} failed")
         return False
 
     token = payload.get("full_token")

@@ -7,10 +7,12 @@ the user-written text is sent, always via an explicit button press, and
 from __future__ import annotations
 
 import uuid
+from pathlib import Path
 
 import bpy
 from bpy.types import Operator
 
+from . import _debuglog
 from ._token_store import TokenStore
 from .capabilities import CAPS
 
@@ -35,6 +37,7 @@ def send_message(text: str, addon_version: str) -> bool:
         tml.send_message(FEEDBACK_ENDPOINT, INGEST_TOKEN, anon_id(), text, addon_version)
         return True
     except Exception:  # noqa: BLE001
+        _debuglog.log_exception(f"send_message to {FEEDBACK_ENDPOINT} failed")
         return False
 
 
@@ -45,32 +48,47 @@ class THYLLORE_OT_SendFeedback(Operator):
     bl_options = {"INTERNAL"}
 
     def execute(self, context):
+        try:
+            return self._execute_checked()
+        except Exception:
+            _debuglog.log_exception("send_feedback failed unexpectedly")
+            raise
+
+    def _execute_checked(self) -> set:
         from . import preferences
 
         if not bpy.app.online_access:
-            self.report({"ERROR"}, "Blender's 'Allow Online Access' is disabled")
-            return {"CANCELLED"}
+            return self._cancel("Blender's 'Allow Online Access' is disabled")
 
         prefs = preferences.get_preferences()
         text = prefs.feedback_text.strip()
         if not text:
-            self.report({"ERROR"}, "Feedback text is empty")
-            return {"CANCELLED"}
+            return self._cancel("Feedback text is empty")
 
-        addon_version = ".".join(str(v) for v in _addon_version())
-        if not send_message(text, addon_version):
-            self.report({"ERROR"}, "Failed to send feedback (kept locally, try again later)")
-            return {"CANCELLED"}
+        if not send_message(text, _addon_version()):
+            return self._cancel("Failed to send feedback (kept locally, try again later)")
 
         prefs.feedback_text = ""
         self.report({"INFO"}, "Feedback sent. Thank you!")
         return {"FINISHED"}
 
+    def _cancel(self, reason: str) -> set:
+        _debuglog.log_error(f"send_feedback: {reason}")
+        self.report({"ERROR"}, reason)
+        return {"CANCELLED"}
 
-def _addon_version() -> tuple:
-    from . import bl_info
 
-    return bl_info.get("version", (0, 0, 0))
+def _addon_version() -> str:
+    """Version from blender_manifest.toml — the extension SSoT. Blender's
+    extension loader strips ``bl_info`` from the module, so it cannot be used."""
+    import tomllib
+
+    manifest = Path(__file__).resolve().parent / "blender_manifest.toml"
+    try:
+        with manifest.open("rb") as f:
+            return str(tomllib.load(f).get("version", "0.0.0"))
+    except (OSError, tomllib.TOMLDecodeError):
+        return "0.0.0"
 
 
 _CLASSES = (THYLLORE_OT_SendFeedback,)

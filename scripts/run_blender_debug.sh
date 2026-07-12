@@ -2,6 +2,7 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+FULL_ENV_FILE="$REPO_ROOT/.config/curve_copilot_full.env"
 
 V2_CURVE_COPILOT_MODEL_FILENAME="curve_copilot_20260630_v2_k48opt.onnx"
 
@@ -65,6 +66,22 @@ export THYLLORE_BLENDER_PATH="${THYLLORE_BLENDER_PATH:-/snap/bin/blender}"
 if [[ ! -x "$THYLLORE_BLENDER_PATH" ]]; then
     echo "Blender not found at $THYLLORE_BLENDER_PATH (set THYLLORE_BLENDER_PATH)" >&2
     exit 1
+fi
+
+if [[ -r "$FULL_ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$FULL_ENV_FILE"
+    set +a
+fi
+missing=()
+for var in THYLLORE_FEEDBACK_ENDPOINT THYLLORE_INGEST_TOKEN; do
+    [[ -z "${!var:-}" ]] && missing+=("$var")
+done
+if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "the addon build needs: ${missing[*]}" >&2
+    echo "Fill them in once in $FULL_ENV_FILE (see './run.sh engine --help')." >&2
+    exit 2
 fi
 
 if [[ "$REBUILD_WHEEL" -eq 1 ]]; then
