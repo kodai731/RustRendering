@@ -12,10 +12,10 @@ type = "add-on"
 # legacy add-on installation; only 4.2+ uses this manifest directly.
 blender_version_min = "4.2.0"
 
-# SPDX identifiers — Blender 4.2 extension policy requires GPL-2.0-or-later for
-# code that links to bpy. Bundled wheels and the proprietary thyllore_ml_core
-# .pyd are documented under THIRD_PARTY_LICENSES.md inside the ZIP.
-license = ["SPDX:GPL-2.0-or-later"]
+# SPDX identifiers — extensions.blender.org requires GPL-3.0-or-later for
+# add-ons. Bundled wheels and the proprietary thyllore_ml_core .pyd are
+# documented under THIRD_PARTY_LICENSES.md inside the ZIP.
+license = ["SPDX:GPL-3.0-or-later"]
 
 # Vendored Python wheels. The "PLATFORM" placeholders are substituted by
 # scripts/build_blender_addon.ps1 when producing per-platform ZIPs.

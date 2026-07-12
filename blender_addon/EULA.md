@@ -15,7 +15,7 @@ Thyllore Animation, namely:
   `~/.cache/thyllore/light_t2m/<revision>/` once Text-to-Motion ships.
 
 The Python source files in this distribution (`*.py`) are licensed
-**separately** under GPL-2.0-or-later. See `LICENSE.md` for the GPL terms.
+**separately** under GPL-3.0-or-later. See `LICENSE.md` for the GPL terms.
 The third-party wheels bundled in `wheels/` carry their own upstream
 licenses; see `THIRD_PARTY_LICENSES.md` for attribution.
 
