@@ -4,12 +4,10 @@ Layer responsibility (see Phase4_AddonRegistration.md and Phase4_FourLayerStabil
 - This file performs the L4 -> L3 boundary check (``__abi_marker__``) and
   orchestrates registration of preferences / operators / panels.
 - All actual operator logic lives in ``operators/``; all panel UI in ``panels/``.
-- Tier A operators (text_to_mesh / auto_rig) are registered only when their
-  modules are present in the installed ZIP -- the ``-Variant lite`` MVP build
+- Unshipped operators (text_to_mesh / auto_rig) are registered only when
+  their modules are present in the installed ZIP -- the distribution build
   excludes them, so ``operators.has_tier_a()`` returns False at runtime and
   panels skip their UI.
-- Phase 5.5: license verification removed (MVP is unauthenticated). Phase 6
-  will reintroduce it as an Auth Backend round-trip in a fresh module.
 """
 from __future__ import annotations
 
@@ -90,8 +88,8 @@ if _BPY_AVAILABLE:
         Triggered by ``THYLLORE_FORCE_MOCK_SERVER=1`` for the parity test
         orchestrator. The override lives only in the in-memory
         ``AddonPreferences`` instance for the duration of this Blender process.
-        Skipped silently when the lite Variant strips the gRPC preference
-        fields.
+        Skipped silently when the distribution build strips the gRPC
+        preference fields.
         """
         if os.environ.get(FORCE_MOCK_SERVER_ENV_VAR) != "1":
             return
@@ -112,8 +110,7 @@ if _BPY_AVAILABLE:
         """Verify the thyllore_ml_core wheel's ``__abi_marker__``.
 
         Wheel absence is NOT treated as ABI failure -- the curve_copilot
-        operator will simply gray-out via tml.capabilities() while Tier A
-        operators continue to work in the full Variant.
+        operator will simply gray-out via tml.capabilities().
         """
         try:
             import thyllore_ml_core as tml  # type: ignore

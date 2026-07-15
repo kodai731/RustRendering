@@ -154,12 +154,10 @@ _TIER_A_PANELS = (
 
 
 def _resolve_main_panels() -> tuple[type[Panel], ...]:
-    """Return the panel classes registered for the current Variant.
+    """Return the panel classes whose backing operators are present.
 
     Each panel is only registered when its backing operator was successfully
-    imported. Phase 5.5 lite Variant ships Curve Copilot only until the
-    text_to_motion PyO3 rewrite lands, after which both Tier B panels become
-    available regardless of Tier A inclusion.
+    imported. The distribution ZIP ships Curve Copilot only.
     """
     from .. import operators
 

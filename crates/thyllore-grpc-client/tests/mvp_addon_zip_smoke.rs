@@ -1,31 +1,25 @@
-//! MVP (-Variant lite) addon ZIP structural smoke.
+//! Addon ZIP structural smoke.
 //!
-//! Phase 5.5 Step A: this test runs in CI on all three platforms and proves
-//! that the lite Variant build produces a structurally correct extension ZIP
-//! before any Blender install / Operator execution. The Blender-side pieces
-//! (curve_copilot Operator launch, ABI handshake, FCurve assertion) are added
-//! in Step B once the test_to_motion PyO3 rewrite + light_t2m ONNX land --
-//! at that point the file gains an additional `#[ignore]`-d Blender-driven
-//! test alongside the structural one.
+//! Proves that the build produces a structurally correct extension ZIP
+//! before any Blender install / Operator execution.
 //!
-//! Verifies on a freshly built lite ZIP:
-//!   1. ``scripts/build_blender_addon.ps1 -Variant lite`` succeeds.
+//! Verifies on a freshly built ZIP:
+//!   1. ``scripts/build_blender_addon.ps1`` succeeds.
 //!   2. The resulting ZIP exists at the expected path.
-//!   3. ZIP size is below 50 MB (Blender Market / Gumroad upload-friendly).
+//!   3. ZIP size is below 50 MB (storefront upload-friendly).
 //!   4. ``blender_manifest.toml`` inside the ZIP carries
-//!      ``id = "thyllore_animation_lite"`` and the GPL SPDX.
+//!      ``id = "thyllore_animation"`` and the GPL SPDX.
 //!   5. ``LICENSE.md`` and ``EULA.md`` are present.
-//!   6. Tier A files are absent (operators/auto_rig.py, text_to_mesh.py,
-//!      _grpc_helpers.py, grpc_client/, license/).
-//!   7. text_to_motion.py is absent (gRPC implementation excluded until the
-//!      PyO3 rewrite ships).
-//!   8. wheels/ contains thyllore_ml_core but no grpcio / protobuf / certifi
-//!      wheels (Tier A wheel families dropped).
-//!   9. curve_copilot.py is present (the only Tier B operator currently shipping).
+//!   6. Unshipped gRPC files are absent (operators/auto_rig.py,
+//!      text_to_mesh.py, _grpc_helpers.py, text_to_motion.py, grpc_client/,
+//!      license/).
+//!   7. wheels/ contains thyllore_ml_core but no grpcio / protobuf / certifi
+//!      wheels.
+//!   8. curve_copilot.py is present (the only operator currently shipping).
 //!
 //! Skip semantics mirror ``blender_addon_linux_validate.rs``:
 //! - No ``thyllore_ml_core`` wheel collected -> early skip with a hint to
-//!   run ``scripts/collect_wheels.ps1 -Variant lite``.
+//!   run ``scripts/collect_wheels.ps1``.
 //! - PowerShell missing -> early skip (CI ubuntu/macos provide ``pwsh``).
 //!
 //! Run with::
@@ -91,7 +85,7 @@ fn skip(reason: &str) {
 }
 
 #[test]
-fn mvp_addon_zip_lite_variant_is_structurally_valid() {
+fn addon_zip_is_structurally_valid() {
     let platform = host_platform_tag();
     if platform == "unsupported" {
         skip("target_os not in {windows, linux, macos}");
@@ -109,7 +103,7 @@ fn mvp_addon_zip_lite_variant_is_structurally_valid() {
     if !ml_core_wheel_present() {
         skip(
             "no thyllore_ml_core wheel in blender_addon/wheels/ -- \
-             run `scripts/collect_wheels.ps1 -Variant lite` first",
+             run `scripts/collect_wheels.ps1` first",
         );
         return;
     }
@@ -129,8 +123,6 @@ fn mvp_addon_zip_lite_variant_is_structurally_valid() {
         build_script.to_string_lossy().to_string(),
         "-Platform".into(),
         platform.into(),
-        "-Variant".into(),
-        "lite".into(),
         "-SkipBlenderValidate".into(),
     ];
     if cfg!(unix) {
@@ -153,13 +145,11 @@ fn mvp_addon_zip_lite_variant_is_structurally_valid() {
     if !build_output.status.success() {
         if stderr.contains("Expected at least") {
             skip(&format!(
-                "build_blender_addon.ps1 -Variant lite failed -- wheels missing.\n{stderr}"
+                "build_blender_addon.ps1 failed -- wheels missing.\n{stderr}"
             ));
             return;
         }
-        panic!(
-            "build_blender_addon.ps1 -Variant lite failed:\nstdout:\n{stdout}\nstderr:\n{stderr}"
-        );
+        panic!("build_blender_addon.ps1 failed:\nstdout:\n{stdout}\nstderr:\n{stderr}");
     }
 
     let sentinel = root.join("dist/.last_built_zip");
@@ -181,20 +171,20 @@ fn mvp_addon_zip_lite_variant_is_structurally_valid() {
         .file_name()
         .expect("zip path has no filename")
         .to_string_lossy();
-    let expected_prefix = format!("thyllore_animation_lite-0.0.1-{platform}");
+    let expected_prefix = format!("thyllore_animation_curve_copilot_degraded-0.0.1-{platform}");
     assert!(
         zip_name.starts_with(&expected_prefix) && zip_name.ends_with(".zip"),
-        "lite ZIP filename {zip_name} does not match expected prefix {expected_prefix}*.zip"
+        "ZIP filename {zip_name} does not match expected prefix {expected_prefix}*.zip"
     );
 
     let metadata = fs::metadata(&zip_path).expect("stat ZIP");
     let size_mib = metadata.len() as f64 / (1024.0 * 1024.0);
     assert!(
         metadata.len() < 50 * 1024 * 1024,
-        "lite ZIP exceeds 50 MiB ceiling: {size_mib:.2} MiB at {}",
+        "ZIP exceeds 50 MiB ceiling: {size_mib:.2} MiB at {}",
         zip_path.display()
     );
-    eprintln!("lite ZIP size: {size_mib:.2} MiB");
+    eprintln!("ZIP size: {size_mib:.2} MiB");
 
     let inspection = inspect_zip(&zip_path).expect("read ZIP entries");
     assert_inspection(&inspection);
@@ -389,19 +379,19 @@ fn assert_inspection(insp: &ZipInspection) {
         .as_deref()
         .expect("blender_manifest.toml absent from ZIP");
     assert!(
-        manifest.contains(r#"id = "thyllore_animation_lite""#),
-        "manifest does not declare lite id:\n{manifest}"
+        manifest.contains(r#"id = "thyllore_animation""#),
+        "manifest does not declare the addon id:\n{manifest}"
     );
     assert!(
-        manifest.contains("SPDX:GPL-2.0-or-later"),
-        "manifest does not declare GPL-2.0-or-later:\n{manifest}"
+        manifest.contains("SPDX:GPL-3.0-or-later"),
+        "manifest does not declare GPL-3.0-or-later:\n{manifest}"
     );
 
-    assert!(insp.has_license_md, "LICENSE.md missing from lite ZIP");
-    assert!(insp.has_eula_md, "EULA.md missing from lite ZIP");
+    assert!(insp.has_license_md, "LICENSE.md missing from ZIP");
+    assert!(insp.has_eula_md, "EULA.md missing from ZIP");
     assert!(
         insp.has_curve_copilot,
-        "operators/curve_copilot.py missing from lite ZIP"
+        "operators/curve_copilot.py missing from ZIP"
     );
 
     let forbidden_files = [
@@ -413,7 +403,7 @@ fn assert_inspection(insp: &ZipInspection) {
     for f in &forbidden_files {
         assert!(
             !insp.entry_paths.iter().any(|p| p == f),
-            "lite ZIP must not contain {f} (Step A excludes Tier A + gRPC text_to_motion)"
+            "ZIP must not contain unshipped file {f}"
         );
     }
 
@@ -421,7 +411,7 @@ fn assert_inspection(insp: &ZipInspection) {
     for prefix in &forbidden_prefixes {
         assert!(
             !insp.entry_paths.iter().any(|p| p.starts_with(prefix)),
-            "lite ZIP must not contain anything under {prefix}"
+            "ZIP must not contain anything under {prefix}"
         );
     }
 
@@ -429,16 +419,13 @@ fn assert_inspection(insp: &ZipInspection) {
         insp.wheel_basenames
             .iter()
             .any(|w| w.starts_with("thyllore_ml_core-")),
-        "lite ZIP must contain a thyllore_ml_core wheel; wheels = {:?}",
+        "ZIP must contain a thyllore_ml_core wheel; wheels = {:?}",
         insp.wheel_basenames
     );
     let banned_wheel_prefixes = ["grpcio-", "grpcio_status-", "protobuf-", "certifi-"];
     for w in &insp.wheel_basenames {
         for banned in &banned_wheel_prefixes {
-            assert!(
-                !w.starts_with(banned),
-                "lite ZIP must not bundle Tier A wheel {w}"
-            );
+            assert!(!w.starts_with(banned), "ZIP must not bundle wheel {w}");
         }
     }
 }

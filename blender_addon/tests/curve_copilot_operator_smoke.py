@@ -121,8 +121,6 @@ def enable_addon():
     import addon_utils
 
     candidates = [
-        "bl_ext.user_default.thyllore_animation_lite",
-        "thyllore_animation_lite",
         "bl_ext.user_default.thyllore_animation",
         "thyllore_animation",
     ]

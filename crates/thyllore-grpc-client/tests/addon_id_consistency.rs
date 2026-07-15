@@ -1,23 +1,20 @@
-//! Static SSOT check for the Blender addon module name across manifests and
-//! every Python script under `blender_addon/`.
+//! Static SSOT check for the Blender addon module name across the manifest
+//! and every Python script under `blender_addon/`.
 //!
-//! Phase 5.5 introduced a `lite` Variant whose manifest id is
-//! `thyllore_animation_lite`. Forgotten consumers that hardcode the
-//! `thyllore_animation` (full Variant) id silently lose the addon at runtime
-//! with `Add-on not loaded: "thyllore_animation"`. The CI parity workflows
-//! catch this only after a full ZIP build + Blender install round-trip.
-//! This test catches the same regressions in milliseconds without a Blender
-//! or wheel build.
+//! Consumers that hardcode a stale extension id silently lose the addon at
+//! runtime with `Add-on not loaded: "..."`. The CI parity workflows catch
+//! this only after a full ZIP build + Blender install round-trip. This test
+//! catches the same regressions in milliseconds without a Blender or wheel
+//! build.
 //!
 //! Auto-discovery scope:
 //!   - Walks every `*.py` under `blender_addon/` for a `candidates = [...]`
 //!     literal that references `thyllore_animation*`. Each id mentioned must
-//!     resolve to an existing manifest, in either bare or
-//!     `bl_ext.user_default.<id>` form. Catches typos and dropped Variants.
+//!     resolve to the manifest, in either bare or
+//!     `bl_ext.user_default.<id>` form. Catches typos and stale ids.
 //!   - Smoke-runner explicit gate: `blender_addon/tests/
-//!     curve_copilot_operator_smoke.py` must enumerate EVERY manifest id
-//!     because it is invoked under both Variants (Tier B works with lite +
-//!     full).
+//!     curve_copilot_operator_smoke.py` must enumerate the manifest id in
+//!     both forms so addon_utils.check / addon_enable can resolve it.
 //!
 //! Run::
 //!
@@ -55,10 +52,7 @@ fn extract_toml_id(toml_text: &str) -> Option<String> {
 
 fn collect_manifest_ids() -> Vec<(PathBuf, String)> {
     let root = workspace_root().join("blender_addon");
-    let manifest_paths = [
-        root.join("blender_manifest.toml"),
-        root.join("blender_manifest.lite.toml"),
-    ];
+    let manifest_paths = [root.join("blender_manifest.toml")];
     let mut ids = Vec::new();
     for path in &manifest_paths {
         if !path.exists() {
@@ -132,7 +126,10 @@ fn every_python_addon_id_resolves_to_a_manifest() {
     let mut bad_refs: Vec<String> = Vec::new();
     for path in &python_files {
         let source = read(path);
-        let ids_in_file = extract_thyllore_ids_from_py(&source);
+        let Some(candidates_block) = locate_candidates_list(&source) else {
+            continue;
+        };
+        let ids_in_file = extract_thyllore_ids_from_py(candidates_block);
         for id in &ids_in_file {
             if !valid_ids.contains(id) {
                 bad_refs.push(format!(
@@ -146,7 +143,7 @@ fn every_python_addon_id_resolves_to_a_manifest() {
     assert!(
         bad_refs.is_empty(),
         "unknown thyllore_animation id(s) referenced in Python sources \
-         (typo or dropped Variant?):\n  {}\n\
+         (typo or stale id?):\n  {}\n\
          Valid manifest ids: {}",
         bad_refs.join("\n  "),
         valid_ids.iter().cloned().collect::<Vec<_>>().join(", ")
@@ -154,7 +151,7 @@ fn every_python_addon_id_resolves_to_a_manifest() {
 }
 
 #[test]
-fn smoke_runner_handles_every_addon_variant() {
+fn smoke_runner_handles_the_addon_id() {
     let manifests = collect_manifest_ids();
     let smoke_path = workspace_root().join("blender_addon/tests/curve_copilot_operator_smoke.py");
     let smoke_source = read(&smoke_path);
@@ -181,10 +178,9 @@ fn smoke_runner_handles_every_addon_variant() {
     assert!(
         missing.is_empty(),
         "{} is missing addon id candidates: {}\n\
-         When introducing a new manifest Variant, every id must appear in the \
-         candidates list as both the `bl_ext.user_default.<id>` and `<id>` \
-         forms so addon_utils.check / addon_enable can resolve regardless of \
-         install style.",
+         The manifest id must appear in the candidates list as both the \
+         `bl_ext.user_default.<id>` and `<id>` forms so addon_utils.check / \
+         addon_enable can resolve regardless of install style.",
         smoke_path.display(),
         missing.join(", ")
     );

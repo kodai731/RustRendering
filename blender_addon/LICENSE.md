@@ -5,25 +5,14 @@ The add-on Python source files in this distribution that link to Blender's
 (at the user's option) any later version (**GPL-3.0-or-later**) -- the
 license required by the extensions.blender.org add-on policy.
 
-Compiled binaries (`.pyd` / `.whl`), trained models (`.onnx`), and
-auto-generated gRPC stubs are bundled under separate licenses described in
-`THIRD_PARTY_LICENSES.md`. Their use here falls under the FSF System Library
-exception (https://www.gnu.org/licenses/gpl-faq.html#GPLIncompatibleLibs) and
-the proprietary binaries are governed by the accompanying `EULA.md`.
-
-## Variant scope
-
-This repository builds two ZIP variants. Both ship under the same
-GPL-3.0-or-later terms for their Python sources; the difference is which
-proprietary binaries are bundled.
-
-- **Lite (MVP)** -- `thyllore_animation_lite`: ships only the Tier B
-  in-process ONNX operators (Curve Copilot, and once the rewrite lands,
-  Text-to-Motion). No gRPC client, no license verification, no SaaS
-  authentication. Distributed as a one-time purchase.
-- **Full** -- `thyllore_animation`: adds Tier A gRPC operators (Auto Rig,
-  Text-to-Mesh) and the Phase 6 Auth Backend client. Distributed alongside a
-  Thyllore Cloud subscription.
+Compiled binaries (`.whl`) and the trained model (`.onnx`) are bundled under
+separate licenses described in `THIRD_PARTY_LICENSES.md`. Their use here
+falls under the FSF System Library exception
+(https://www.gnu.org/licenses/gpl-faq.html#GPLIncompatibleLibs).
+The Curve Copilot inference wheel (`thyllore_ml_core`) is licensed under
+**Apache-2.0**, the same license as its public source repository. The
+proprietary Curve Copilot ONNX model is governed by the accompanying
+`EULA.md`.
 
 ## GPL-3.0-or-later notice
 
@@ -41,32 +30,23 @@ A copy of the GPL is available at https://www.gnu.org/licenses/gpl-3.0.html .
 
 ## Files covered by GPL-3.0-or-later
 
-- `__init__.py`
-- `_bootstrap.py`
-- `preferences.py`
-- `operators/*.py`
-- `panels/*.py`
-- `modal/*.py`
+All Python source files (`*.py`) in this distribution.
 
 ## Files covered by other licenses
 
-- `wheels/thyllore_ml_core-*.whl` (proprietary, see `EULA.md` and
-  `THIRD_PARTY_LICENSES.md`)
-- `wheels/grpcio-*.whl`, `wheels/grpcio_status-*.whl`,
-  `wheels/protobuf-*.whl`, `wheels/certifi-*.whl` (Apache-2.0 / BSD / MPL,
-  see `THIRD_PARTY_LICENSES.md`; full Variant only)
-- `assets/curve_copilot.onnx`, lazily-downloaded `light_t2m.onnx`
-  (proprietary, see `EULA.md`)
-- `grpc_client/stubs/*.py` (Apache-2.0, auto-generated from
-  `proto/animation_ml.proto`; full Variant only)
+- `wheels/thyllore_ml_core-*.whl` (**Apache-2.0**, built from the public
+  source repository; see `THIRD_PARTY_LICENSES.md`)
+- `models/curve_copilot.onnx` (proprietary, see `EULA.md`)
+- `lib/` ONNX Runtime shared library (MIT, see `THIRD_PARTY_LICENSES.md`)
 
-The proprietary binaries above are independent works and are not derivative
-works of the GPL-licensed Python sources for the purposes of GPL section 0.
-They are invoked via a documented public ABI (`thyllore-ml-api ABI_MARKER`)
-and may be replaced or removed without affecting the GPL portion.
+The binaries and the model above are independent works and are not
+derivative works of the GPL-licensed Python sources for the purposes of GPL
+section 0. They are invoked via a documented public ABI
+(`thyllore-ml-api ABI_MARKER`) and may be replaced or removed without
+affecting the GPL portion.
 
 See `EULA.md` for the End User License Agreement governing the proprietary
-binaries.
+Curve Copilot ONNX model.
 
 See `THIRD_PARTY_LICENSES.md` for the complete attribution of bundled
 third-party packages.
