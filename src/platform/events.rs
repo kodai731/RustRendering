@@ -739,6 +739,9 @@ fn process_platform_file_events(events: &[UIEvent], app: &mut App) -> Vec<Deferr
             }
             UIEvent::ClipBrowserExportFbx(source_id) => handle_clip_export_fbx(app, *source_id),
             UIEvent::ClipBrowserExportGltf(source_id) => handle_clip_export_gltf(app, *source_id),
+            UIEvent::ClipBrowserExportGltfAnimationOnly(source_id) => {
+                handle_clip_export_gltf_animation_only(app, *source_id)
+            }
             UIEvent::ExportModelGltf => handle_export_model_gltf(app),
             UIEvent::SpringBoneSaveBake => {
                 if let Some(action) = open_spring_bone_save_dialog(app) {
@@ -888,6 +891,38 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
     ) {
         Ok(()) => msg_info!("glTF exported: {:?}", path),
         Err(e) => msg_error!("glTF export failed: {:?}", e),
+    }
+}
+
+fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
+    let clip = app.data.ecs_world.get_resource::<crate::ecs::resource::ClipLibrary>().and_then(|cl| cl.get(source_id).cloned());
+    let skeleton = app.data.ecs_assets.skeletons.values().next();
+
+    let (Some(clip), Some(skeleton)) = (clip, skeleton) else {
+        return;
+    };
+
+    let timeline_state = app.data.ecs_world.resource::<TimelineState>();
+    let fps = timeline_state.snap_settings.frame_rate;
+
+    let default_filename = format!("{}_anim_only.glb", clip.name);
+    let path = rfd::FileDialog::new()
+        .add_filter("glTF Binary", &["glb"])
+        .set_file_name(&default_filename)
+        .save_file();
+
+    let Some(path) = path else {
+        return;
+    };
+
+    match crate::exporter::gltf_exporter::export_animation_gltf(
+        &clip,
+        &skeleton.skeleton,
+        &path,
+        fps,
+    ) {
+        Ok(()) => msg_info!("Animation-only glTF exported: {:?}", path),
+        Err(e) => msg_error!("Animation-only glTF export failed: {:?}", e),
     }
 }
 
