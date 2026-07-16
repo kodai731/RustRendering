@@ -1,13 +1,15 @@
 # Thyllore Animation -- End User License Agreement (EULA)
 
-> **Status: Draft.** This document is a pre-release draft. The final version
-> requires legal review before general availability. Beta participants are
-> bound by this draft until it is superseded.
-
 This EULA applies to the **proprietary ONNX model** (the "Component")
 bundled with Thyllore Animation, namely:
 
 - The bundled Curve Copilot ONNX model `models/curve_copilot.onnx`.
+
+The Component is proprietary software, Copyright © 2026 kodai731, licensed
+(not sold) to you under the terms of this EULA. It was trained solely on
+license-clean data: public motion-capture datasets whose licenses permit
+commercial use, and the anonymized opt-in feedback data described in
+Section 3.
 
 The Python source files in this distribution (`*.py`) are licensed
 **separately** under GPL-3.0-or-later. See `LICENSE.md` for the GPL terms.
@@ -51,46 +53,33 @@ d. Remove, alter, or obscure any copyright notice, license notice, or other
    proprietary marking included with the Component.
 e. Sublicense, rent, lease, or lend the Component to a third party.
 
-## 3. Updates
+## 3. Data Transmission
 
-Patch and minor updates (`0.x.y` -> `0.x.(y+1)` or `0.x.y` -> `0.(x+1).0`)
-are provided free of charge to existing licensees for at least 12 months
-from the date of purchase. Major updates may be distributed as a paid
-upgrade; existing licensees retain the right to continue using their
-current major version indefinitely.
+a. Only if Licensee enables it in the add-on preferences, the add-on
+   transmits **anonymized usage data** (the inputs to a feature, the
+   feature's output, and Licensee's subsequent corrections, together with
+   the add-on version and a random anonymous client id) to Licensor's
+   endpoint. Transmitted data contains no object names, file paths, or
+   other personal information, and is transformed so that the original
+   work cannot be identified.
+b. Transmission additionally requires Blender's "Allow Online Access"
+   setting. Disabling either setting immediately stops all transmission.
+   The add-on's core functionality remains available while transmission
+   is disabled.
+c. The optional "Send Feedback" button transmits only the free-form text
+   Licensee enters, the add-on version, and the same anonymous client id.
+d. Licensor uses the transmitted data solely to improve the A.I. model and
+   the add-on, and does not sell, rent, or share it with any third party.
 
-## 4. Data Transmission
+## 4. Personal Information
 
-a. **Default (ctx32)**: By default, Curve Copilot runs fully offline with
-   the standard prediction context (ctx32). No data is transmitted and no
-   telemetry is performed.
-b. **High-accuracy prediction (ctx64)**: You may opt in to the
-   high-accuracy prediction context (ctx64) in the add-on preferences. In
-   exchange, the add-on transmits **anonymized Curve Copilot correction
-   data** to Licensor's feedback endpoint: the model input context, the
-   model prediction, and the values you subsequently edited, together with
-   the add-on version and a random anonymous client id. Records contain no
-   object names, bone names, file paths, or personal information; curve
-   values are origin-relative, amplitude-normalized, and quantized, and
-   timestamps are reduced to day granularity, so your original animation
-   cannot be reconstructed.
-c. Transmission additionally requires Blender's "Allow Online Access"
-   setting. Disabling the opt-in or online access reverts prediction to
-   ctx32 immediately and stops all transmission.
-d. The optional "Send Feedback" button transmits only the free-form text
-   you enter, the add-on version, and the same anonymous client id.
-e. Licensor uses the transmitted data solely to improve the Curve Copilot
-   model and the add-on, and does not sell, rent, or share it with any
-   third party.
+Licensor does not collect any personal information. Personal data provided
+at the time of purchase (such as your email address) is collected and
+processed by the storefront under its own privacy policy. License
+activation transmits only your license key and an auto-generated Device ID,
+which contain no personal information.
 
-## 5. Personal Information
-
-Licensor collects only the email address provided to the payment processor
-at the time of purchase. This address is used solely for delivering the
-addon ZIP and update notifications. Licensor does not sell, rent, or
-otherwise share email addresses with any third party.
-
-## 6. Warranty Disclaimer
+## 5. Warranty Disclaimer
 
 THE COMPONENT IS PROVIDED **"AS IS"**, WITHOUT WARRANTY OF ANY KIND,
 EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
@@ -98,7 +87,7 @@ MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
 LICENSOR DOES NOT WARRANT THAT THE COMPONENT WILL OPERATE UNINTERRUPTED OR
 ERROR-FREE, OR THAT THE OUTPUT WILL MEET ANY PARTICULAR QUALITY THRESHOLD.
 
-## 7. Limitation of Liability
+## 6. Limitation of Liability
 
 TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
 LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR
@@ -112,33 +101,33 @@ THE COMPONENT SHALL NOT EXCEED THE AMOUNT YOU ACTUALLY PAID FOR THE
 COMPONENT IN THE 12 MONTHS PRECEDING THE EVENT GIVING RISE TO THE
 LIABILITY.
 
-## 8. Governing Law and Forum
+## 7. Governing Law and Forum
 
 This EULA is governed by the laws of Japan, without reference to its
 conflict-of-laws principles. Any dispute arising from this EULA shall be
 subject to the exclusive jurisdiction of the Tokyo District Court as the
 court of first instance.
 
-## 9. Termination
+## 8. Termination
 
-Licensor may terminate this EULA upon written notice if you materially
+This EULA terminates automatically, without notice, if you materially
 breach Section 2 (Restrictions). Upon termination, you must cease using
 the Component and remove it from all machines under your control. The
-restrictions in Section 2, the disclaimers in Sections 6-7, and Section 8
+restrictions in Section 2, the disclaimers in Sections 5-6, and Section 7
 survive termination.
 
-## 10. Refunds
+## 9. Refunds
 
 Refund eligibility is determined by the storefront through which you
 purchased. Licensor honours the storefront's published refund policy and
 does not impose additional restrictions.
 
-## 11. Support
+## 10. Support
 
 Best-effort support is provided through the Thyllore Animation public
 issue tracker. No service-level agreement applies.
 
-## 12. Entire Agreement and Severability
+## 11. Entire Agreement and Severability
 
 This EULA, together with `LICENSE.md` (covering the GPL portion) and
 `THIRD_PARTY_LICENSES.md` (covering bundled third-party packages),
@@ -149,11 +138,10 @@ regarding the same subject matter.
 If any provision of this EULA is found unenforceable, the remainder shall
 continue in full force and effect.
 
-## 13. Contact
+## 12. Contact
 
 kodai731 <kodai731@gmail.com>
 
 ---
 
-*Last updated: 2026-07-16. This is a pre-release draft. The launch version
-will be reviewed by qualified counsel before general availability.*
+*Last updated: 2026-07-17.*
