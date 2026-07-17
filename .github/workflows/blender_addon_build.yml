@@ -12,13 +12,6 @@ on:
           - linux_x86_64
           - macosx_arm64
         default: all
-      variant:
-        description: "Build variant (lite excludes Tier A)"
-        type: choice
-        options:
-          - lite
-          - full
-        default: lite
       build_mode:
         description: "Distribution build mode(s): all builds A+B+C"
         type: choice
@@ -73,9 +66,9 @@ jobs:
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
           platforms = [
-              {"platform": "win_amd64", "os": "windows-latest", "wheel_platform": "win_amd64"},
-              {"platform": "linux_x86_64", "os": "ubuntu-latest", "wheel_platform": "manylinux2014_x86_64"},
-              {"platform": "macosx_arm64", "os": "macos-latest", "wheel_platform": "macosx_11_0_arm64"},
+              {"platform": "win_amd64", "os": "windows-latest"},
+              {"platform": "linux_x86_64", "os": "ubuntu-latest"},
+              {"platform": "macosx_arm64", "os": "macos-latest"},
           ]
           selected_platform = os.environ["SELECTED_PLATFORM"]
           selected_mode = os.environ["SELECTED_MODE"]
@@ -128,9 +121,7 @@ jobs:
       - name: Collect vendored wheels
         shell: pwsh
         run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1 `
-              -Platforms ${{ matrix.wheel_platform }} `
-              -Variant ${{ inputs.variant || 'lite' }}
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1
 
       - name: Download curve_copilot ONNX (dummy all-zero weights from HF -- CI test build only, never production weights)
         id: model
@@ -155,7 +146,6 @@ jobs:
         run: |
           $buildArgs = @(
               '-Platform', '${{ matrix.platform }}',
-              '-Variant', '${{ inputs.variant || 'lite' }}',
               '-BuildMode', '${{ matrix.build_mode }}',
               '-Version', '${{ inputs.version || '0.0.1' }}',
               '-SkipBlenderValidate'
@@ -212,8 +202,8 @@ jobs:
           python -m pip install --upgrade pip
           pip install "maturin>=1.5" "pytest>=8.0"
 
-      - name: Collect vendored wheels (lite)
-        run: bash scripts/collect_wheels.sh --variant lite
+      - name: Collect vendored wheels
+        run: bash scripts/collect_wheels.sh
 
       - name: Layer 1 - capability derivation from BUILD_MODE
         run: python -m pytest blender_addon/tests/test_capabilities.py -v
@@ -259,8 +249,8 @@ jobs:
           tar -xzf "$ORT_DIR/ort.tgz" -C "$ORT_DIR"
           rm -f "$ORT_DIR/ort.tgz"
 
-      - name: Collect vendored wheels (lite)
-        run: bash scripts/collect_wheels.sh --variant lite
+      - name: Collect vendored wheels
+        run: bash scripts/collect_wheels.sh
 
       - name: Install Blender 4.2 LTS
         run: |
@@ -274,7 +264,7 @@ jobs:
           set -euo pipefail
           for mode in A B C; do
               bash scripts/build_blender_addon.sh \
-                  --platform linux_x86_64 --variant lite --build-mode "$mode" \
+                  --platform linux_x86_64 --build-mode "$mode" \
                   --output-dir build/ci_boundary --skip-blender-validate
           done
           for zip in build/ci_boundary/*.zip; do

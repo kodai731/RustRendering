@@ -55,7 +55,6 @@ jobs:
               {
                   "platform": "win_amd64",
                   "os": "windows-latest",
-                  "wheel_platform": "win_amd64",
                   "ort_archive": "onnxruntime-win-x64",
                   "ort_ext": "zip",
                   "ort_lib": "lib/onnxruntime.dll",
@@ -63,7 +62,6 @@ jobs:
               {
                   "platform": "linux_x86_64",
                   "os": "ubuntu-latest",
-                  "wheel_platform": "manylinux2014_x86_64",
                   "ort_archive": "onnxruntime-linux-x64",
                   "ort_ext": "tgz",
                   "ort_lib": "lib/libonnxruntime.so",
@@ -71,7 +69,6 @@ jobs:
               {
                   "platform": "macosx_arm64",
                   "os": "macos-latest",
-                  "wheel_platform": "macosx_11_0_arm64",
                   "ort_archive": "onnxruntime-osx-arm64",
                   "ort_ext": "tgz",
                   "ort_lib": "lib/libonnxruntime.dylib",
@@ -144,9 +141,7 @@ jobs:
       - name: Collect vendored wheels
         shell: pwsh
         run: |
-          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1 `
-              -Platforms ${{ matrix.wheel_platform }} `
-              -Variant lite
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/collect_wheels.ps1
 
       - name: Download ONNX Runtime ${{ env.ORT_VERSION }}
         id: ort
@@ -185,7 +180,6 @@ jobs:
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/build_blender_addon.ps1 `
               -Platform ${{ matrix.platform }} `
-              -Variant lite `
               -BuildMode ${{ inputs.build_mode }} `
               -EndpointEnv prod `
               -Version '${{ inputs.version }}' `

@@ -4,7 +4,6 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PLATFORM=""
-VARIANT="lite"
 BUILD_MODE="A"
 VERSION="0.0.1"
 OUTPUT_DIR="dist"
@@ -20,13 +19,12 @@ usage() {
 Usage: $0 --platform PLATFORM [options]
 
 Linux/macOS port of scripts/build_blender_addon.ps1. Builds the Blender
-extension ZIP for the requested platform/variant.
+extension ZIP for the requested platform.
 
 Required:
   --platform PLATFORM            One of: win_amd64, linux_x86_64, macosx_arm64
 
 Options:
-  --variant lite|full            "lite" excludes Tier A (default: lite)
   --build-mode A|B|C             Distribution build mode (default: A).
                                  SSoT (behaviour, required env vars):
                                  crates/thyllore-ml-core/src/mode.rs
@@ -51,13 +49,6 @@ EOF
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --platform)               PLATFORM="$2"; shift 2 ;;
-        --variant)
-            case "$2" in
-                lite|full) VARIANT="$2" ;;
-                *) echo "invalid variant: $2 (expected lite or full)" >&2; exit 2 ;;
-            esac
-            shift 2
-            ;;
         --build-mode)
             case "$2" in
                 A|B|C) BUILD_MODE="$2" ;;
@@ -161,9 +152,9 @@ if [[ "$BUILD_MODE" != "A" ]]; then
     echo "[build_blender_addon] Feedback endpoint (${ENDPOINT_ENV:-explicit}): $FEEDBACK_ENDPOINT"
 fi
 
-echo "[build_blender_addon] Platform: $PLATFORM -> Blender: $BLENDER_NAME, variant: $VARIANT, build mode: $BUILD_MODE"
+echo "[build_blender_addon] Platform: $PLATFORM -> Blender: $BLENDER_NAME, build mode: $BUILD_MODE"
 
-STAGE_DIR="$REPO_ROOT/build/blender_addon_stage_${PLATFORM}_${VARIANT}_${BUILD_MODE}"
+STAGE_DIR="$REPO_ROOT/build/blender_addon_stage_${PLATFORM}_${BUILD_MODE}"
 SOURCE_DIR="$REPO_ROOT/blender_addon"
 
 rm -rf "$STAGE_DIR"
@@ -184,26 +175,21 @@ else
     find "$STAGE_DIR" -type f -name "*.pyc" -delete
 fi
 
-LITE_EXCLUDE_REL_PATHS=(
+UNSHIPPED_REL_PATHS=(
     "operators/auto_rig.py"
     "operators/text_to_mesh.py"
     "operators/_grpc_helpers.py"
-    "grpc_client"
-    "blender_manifest.toml"
     "operators/text_to_motion.py"
+    "grpc_client"
 )
 
-if [[ "$VARIANT" == "lite" ]]; then
-    for rel in "${LITE_EXCLUDE_REL_PATHS[@]}"; do
-        abs="$STAGE_DIR/$rel"
-        if [[ -e "$abs" ]]; then
-            rm -rf "$abs"
-            echo "[build_blender_addon] (lite) excluded: $rel"
-        fi
-    done
-else
-    rm -f "$STAGE_DIR/blender_manifest.lite.toml"
-fi
+for rel in "${UNSHIPPED_REL_PATHS[@]}"; do
+    abs="$STAGE_DIR/$rel"
+    if [[ -e "$abs" ]]; then
+        rm -rf "$abs"
+        echo "[build_blender_addon] excluded: $rel"
+    fi
+done
 
 if [[ "$BUILD_MODE" != "B" && -e "$STAGE_DIR/telemetry" ]]; then
     rm -rf "$STAGE_DIR/telemetry"
@@ -224,7 +210,7 @@ if [[ ! -d "$WHEELS_DIR" ]]; then
     exit 1
 fi
 
-LITE_ALLOWED_WHEEL_PREFIXES=("thyllore_ml_core")
+ALLOWED_WHEEL_PREFIXES=("thyllore_ml_core")
 
 wheel_matches_platform() {
     local name="$1"
@@ -239,9 +225,9 @@ wheel_matches_platform() {
     return 1
 }
 
-wheel_allowed_for_lite() {
+wheel_allowed() {
     local name="$1"
-    for prefix in "${LITE_ALLOWED_WHEEL_PREFIXES[@]}"; do
+    for prefix in "${ALLOWED_WHEEL_PREFIXES[@]}"; do
         if [[ "$name" == "${prefix}"* ]]; then
             return 0
         fi
@@ -254,7 +240,7 @@ shopt -s nullglob
 for wheel_path in "$WHEELS_DIR"/*.whl; do
     name="$(basename "$wheel_path")"
 
-    if [[ "$VARIANT" == "lite" ]] && ! wheel_allowed_for_lite "$name"; then
+    if ! wheel_allowed "$name"; then
         rm -f "$wheel_path"
         continue
     fi
@@ -269,27 +255,17 @@ shopt -u nullglob
 
 rm -f "$WHEELS_DIR/HASHES.txt" "$WHEELS_DIR/README.md"
 
-MIN_WHEELS=4
-[[ "$VARIANT" == "lite" ]] && MIN_WHEELS=1
-if [[ ${#KEPT_WHEELS[@]} -lt $MIN_WHEELS ]]; then
-    echo "Expected at least $MIN_WHEELS wheels for $PLATFORM/$VARIANT, got ${#KEPT_WHEELS[@]} (found: ${KEPT_WHEELS[*]:-none})" >&2
+if [[ ${#KEPT_WHEELS[@]} -lt 1 ]]; then
+    echo "Expected at least 1 wheel for $PLATFORM, got ${#KEPT_WHEELS[@]} (found: ${KEPT_WHEELS[*]:-none})" >&2
     exit 1
 fi
-echo "[build_blender_addon] Kept ${#KEPT_WHEELS[@]} wheels for $PLATFORM/$VARIANT"
+echo "[build_blender_addon] Kept ${#KEPT_WHEELS[@]} wheels for $PLATFORM"
 
-CANONICAL_MANIFEST="$STAGE_DIR/blender_manifest.toml"
-LITE_MANIFEST="$STAGE_DIR/blender_manifest.lite.toml"
-
-if [[ "$VARIANT" == "lite" ]]; then
-    if [[ ! -f "$LITE_MANIFEST" ]]; then
-        echo "blender_manifest.lite.toml missing from stage; expected at $LITE_MANIFEST" >&2
-        exit 1
-    fi
-    rm -f "$CANONICAL_MANIFEST"
-    mv "$LITE_MANIFEST" "$CANONICAL_MANIFEST"
+MANIFEST_PATH="$STAGE_DIR/blender_manifest.toml"
+if [[ ! -f "$MANIFEST_PATH" ]]; then
+    echo "blender_manifest.toml missing from stage; expected at $MANIFEST_PATH" >&2
+    exit 1
 fi
-
-MANIFEST_PATH="$CANONICAL_MANIFEST"
 
 PYTHON_BIN="${PYTHON:-python3}"
 if ! command -v "$PYTHON_BIN" >/dev/null 2>&1; then
@@ -454,11 +430,7 @@ fi
 ABS_OUT_DIR="$REPO_ROOT/$OUTPUT_DIR"
 mkdir -p "$ABS_OUT_DIR"
 
-if [[ "$VARIANT" == "lite" ]]; then
-    ZIP_BASENAME="thyllore_animation_curve_copilot"
-else
-    ZIP_BASENAME="thyllore_animation_addon"
-fi
+ZIP_BASENAME="thyllore_animation_curve_copilot"
 case "$BUILD_MODE" in
     A) ZIP_BASENAME="${ZIP_BASENAME}_degraded" ;;
     B) ZIP_BASENAME="${ZIP_BASENAME}_full" ;;

@@ -104,12 +104,12 @@ if [[ ${#missing[@]} -gt 0 ]]; then
 fi
 
 if [[ "$REBUILD_WHEEL" -eq 1 ]]; then
-    bash "$REPO_ROOT/scripts/collect_wheels.sh" --skip-pip-download --variant lite --debug-log
+    bash "$REPO_ROOT/scripts/collect_wheels.sh" --debug-log
 fi
 
 echo "[run_blender_debug] mode=$MODE (build mode $BUILD_MODE)"
 bash "$REPO_ROOT/scripts/build_blender_addon.sh" \
-    --platform "$PLATFORM" --variant lite --debug --build-mode "$BUILD_MODE" \
+    --platform "$PLATFORM" --debug --build-mode "$BUILD_MODE" \
     --env test --include-onnx-model --onnx-source-path "$MODEL"
 
 rm -rf "$HOME"/.config/blender/*/extensions/.local/lib/python*/site-packages/thyllore_ml_core*

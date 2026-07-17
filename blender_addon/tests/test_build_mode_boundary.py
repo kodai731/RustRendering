@@ -60,8 +60,6 @@ def _run_build(mode: str, extra_env: dict) -> subprocess.CompletedProcess:
             str(BUILD_SCRIPT),
             "--platform",
             "linux_x86_64",
-            "--variant",
-            "lite",
             "--build-mode",
             mode,
             "--output-dir",

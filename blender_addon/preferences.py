@@ -1,13 +1,9 @@
 """Addon preferences UI and accessor.
 
-Phase 5.5 MVP variant: the lite ZIP excludes Tier A operators and the
-``grpc_client`` package, so the gRPC / license fields below are present in the
-preference data model but their UI is gated on
-``operators.has_tier_a()`` -- they only appear when the full Variant bundles
-the Tier A operators that consume them. This keeps the same
-``AddonPreferences`` class binary-compatible across Variants and lets Phase 6
-(Auth Backend reintroduction) repopulate the existing fields without a
-migration step.
+The distribution ZIP excludes the unshipped gRPC operators and the
+``grpc_client`` package, so the gRPC fields below are present in the
+preference data model but their UI is gated on ``operators.has_tier_a()`` --
+they only appear when a build bundles the operators that consume them.
 """
 from __future__ import annotations
 
@@ -33,8 +29,8 @@ except ImportError:
 DISCORD_INVITE_URL = "https://discord.gg/HZNRAENX8"
 
 # Resolve the addon's package name so AddonPreferences.bl_idname matches the
-# top-level extension id (legacy install: "blender_addon"; lite extension:
-# "thyllore_animation_lite"; full extension: "thyllore_animation").
+# top-level extension id (legacy install: "blender_addon"; extension:
+# "thyllore_animation").
 ADDON_PACKAGE = __package__ or "blender_addon"
 
 
@@ -44,7 +40,7 @@ class ThylloreAnimationPreferences(AddonPreferences):
     server_host: StringProperty(  # type: ignore[valid-type]
         name="Server Host",
         default="127.0.0.1",
-        description="gRPC server hostname or IP (full Variant only)",
+        description="gRPC server hostname or IP (unshipped operators only)",
     )
     server_port: IntProperty(  # type: ignore[valid-type]
         name="Server Port",
