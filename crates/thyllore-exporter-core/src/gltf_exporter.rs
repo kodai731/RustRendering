@@ -70,6 +70,140 @@ pub fn export_gltf_animation_from_bytes(
     Ok(())
 }
 
+pub fn export_animation_gltf(
+    clip: &EditableAnimationClip,
+    skeleton: &Skeleton,
+    output_path: &Path,
+    fps: f32,
+) -> anyhow::Result<()> {
+    let baked_clip = clip_to_animation(clip);
+    let mut root = build_minimal_gltf_json(skeleton)?;
+    let mut bin = Vec::new();
+
+    write_animation_channels(&mut root, &mut bin, &baked_clip, skeleton, fps)?;
+
+    let json_bytes = root
+        .to_vec()
+        .map_err(|e| anyhow!("Failed to serialize glTF JSON: {:?}", e))?;
+
+    let output_glb = Glb {
+        header: gltf::binary::Header {
+            magic: *b"glTF",
+            version: 2,
+            length: 0,
+        },
+        json: Cow::Owned(json_bytes),
+        bin: if bin.is_empty() {
+            None
+        } else {
+            Some(Cow::Owned(bin))
+        },
+    };
+
+    let file = fs::File::create(output_path)?;
+    let writer = BufWriter::new(file);
+    output_glb
+        .to_writer(writer)
+        .map_err(|e| anyhow!("Failed to write GLB: {:?}", e))?;
+
+    log!("Animation-only glTF exported to {:?}", output_path);
+    Ok(())
+}
+
+fn build_minimal_gltf_json(skeleton: &Skeleton) -> Result<json::Root> {
+    let mut root = json::Root::default();
+
+    for bone in &skeleton.bones {
+        let node = json::scene::Node {
+            name: Some(bone.name.clone()),
+            ..Default::default()
+        };
+        root.push(node);
+    }
+
+    Ok(root)
+}
+
+fn write_animation_channels(
+    root: &mut json::Root,
+    bin: &mut Vec<u8>,
+    clip: &AnimationClip,
+    skeleton: &Skeleton,
+    _fps: f32,
+) -> Result<()> {
+    let bone_to_node = build_bone_to_node_map(skeleton, &root.nodes);
+    if bone_to_node.is_empty() {
+        return Err(anyhow!(
+            "No bone-to-node mapping found. Skeleton bone names may not match glTF node names."
+        ));
+    }
+
+    let buffer_index = Index::<json::Buffer>::new(0);
+    let mut channels = Vec::new();
+    let mut samplers = Vec::new();
+
+    for (&bone_id, channel) in &clip.channels {
+        let Some(&node_index) = bone_to_node.get(&bone_id) else {
+            continue;
+        };
+        let node_idx = Index::new(node_index);
+
+        append_translation_channel(
+            root,
+            bin,
+            buffer_index,
+            channel,
+            node_idx,
+            &mut channels,
+            &mut samplers,
+        );
+
+        append_rotation_channel(
+            root,
+            bin,
+            buffer_index,
+            channel,
+            node_idx,
+            &mut channels,
+            &mut samplers,
+        );
+
+        append_scale_channel(
+            root,
+            bin,
+            buffer_index,
+            channel,
+            node_idx,
+            &mut channels,
+            &mut samplers,
+        );
+    }
+
+    if root.buffers.is_empty() {
+        root.buffers.push(json::Buffer {
+            byte_length: USize64::from(bin.len() as u64),
+            name: None,
+            uri: None,
+            extensions: None,
+            extras: Default::default(),
+        });
+    } else {
+        root.buffers[0].byte_length = USize64::from(bin.len() as u64);
+    }
+
+    if !channels.is_empty() {
+        root.animations.push(json::Animation {
+            extensions: None,
+            extras: Default::default(),
+            channels,
+            name: Some(clip.name.clone()),
+            samplers,
+        });
+    }
+
+    Ok(())
+}
+
 fn replace_animations(
     root: &mut json::Root,
     bin: &mut Vec<u8>,
@@ -481,6 +615,7 @@ fn compute_min_max_vec4(data: &[f32]) -> ([f32; 4], [f32; 4]) {
 mod tests {
     use super::*;
     use cgmath::Quaternion;
+    use thyllore_anim_core::editable::{curve_add_keyframe, PropertyType};
     use thyllore_anim_core::Skeleton;
 
     fn create_test_skeleton() -> Skeleton {
@@ -596,5 +731,73 @@ mod tests {
         let mut bin2 = vec![0u8; 8];
         pad_to_4byte_alignment(&mut bin2);
         assert_eq!(bin2.len(), 8);
+    }
+
+    #[test]
+    fn test_export_animation_gltf_creates_file() {
+        let skeleton = create_test_skeleton();
+        let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
+        let track = clip.add_track(0, "Hips".to_string());
+        let curve = track.get_curve_mut(PropertyType::TranslationX);
+        curve_add_keyframe(curve, 0.0, 0.0);
+        curve_add_keyframe(curve, 1.0, 1.0);
+        clip.duration = 1.0;
+
+        let output_path = std::env::temp_dir().join("test_export_animation_gltf.glb");
+        export_animation_gltf(&clip, &skeleton, &output_path, 30.0).unwrap();
+
+        assert!(output_path.exists(), "GLB file was not created at the specified path");
+        let bytes = fs::read(&output_path).unwrap();
+        assert!(!bytes.is_empty(), "GLB file is empty");
+        drop(bytes);
+        fs::remove_file(output_path).ok();
+    }
+
+    #[test]
+    fn test_export_animation_gltf_node_count_matches_bone_count() {
+        let skeleton = create_test_skeleton();
+        let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
+        let track = clip.add_track(0, "Hips".to_string());
+        let curve = track.get_curve_mut(PropertyType::TranslationX);
+        curve_add_keyframe(curve, 0.0, 0.0);
+        curve_add_keyframe(curve, 1.0, 1.0);
+        clip.duration = 1.0;
+
+        let output_path = std::env::temp_dir().join("test_node_count.glb");
+        export_animation_gltf(&clip, &skeleton, &output_path, 30.0).unwrap();
+
+        let bytes = fs::read(&output_path).unwrap();
+        let glb = Glb::from_slice(&bytes).unwrap();
+        let root: json::Root = json::Root::from_slice(&glb.json).unwrap();
+
+        assert_eq!(
+            root.nodes.len(),
+            skeleton.bones.len(),
+            "Number of nodes should equal number of bones in the skeleton"
+        );
+        fs::remove_file(output_path).ok();
+    }
+
+    #[test]
+    fn test_export_animation_gltf_has_animation_channels() {
+        let skeleton = create_test_skeleton();
+        let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
+        let track = clip.add_track(0, "Hips".to_string());
+        let curve = track.get_curve_mut(PropertyType::TranslationX);
+        curve_add_keyframe(curve, 0.0, 0.0);
+        curve_add_keyframe(curve, 1.0, 1.0);
+        clip.duration = 1.0;
+
+        let output_path = std::env::temp_dir().join("test_channels.glb");
+        export_animation_gltf(&clip, &skeleton, &output_path, 30.0).unwrap();
+
+        let bytes = fs::read(&output_path).unwrap();
+        let glb = Glb::from_slice(&bytes).unwrap();
+        let root: json::Root = json::Root::from_slice(&glb.json).unwrap();
+
+        assert!(!root.animations.is_empty(), "No animations found in GLB");
+        let anim = &root.animations[0];
+        assert!(!anim.channels.is_empty(), "No animation channels found");
+        fs::remove_file(output_path).ok();
     }
 }

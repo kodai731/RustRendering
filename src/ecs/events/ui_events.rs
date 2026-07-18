@@ -241,6 +241,7 @@ pub enum UIEvent {
     ClipBrowserSaveToFile(SourceClipId),
     ClipBrowserExportFbx(SourceClipId),
     ClipBrowserExportGltf(SourceClipId),
+    ClipBrowserExportGltfAnimationOnly(SourceClipId),
 
     SaveScene,
 
