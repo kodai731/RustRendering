@@ -5,6 +5,7 @@ use std::io::BufWriter;
 use std::path::Path;
 
 use anyhow::{anyhow, Result};
+use cgmath::SquareMatrix;
 use gltf::binary::Glb;
 use gltf::json::accessor::{ComponentType, GenericComponentType, Type};
 use gltf::json::animation::{Interpolation, Property};
@@ -42,46 +43,30 @@ pub fn export_gltf_animation_from_bytes(
 
     replace_animations(&mut root, &mut bin, &baked_clip, skeleton)?;
 
-    let json_bytes = root
-        .to_vec()
-        .map_err(|e| anyhow!("Failed to serialize glTF JSON: {:?}", e))?;
-
-    let output_glb = Glb {
-        header: gltf::binary::Header {
-            magic: *b"glTF",
-            version: 2,
-            length: 0,
-        },
-        json: Cow::Owned(json_bytes),
-        bin: if bin.is_empty() {
-            None
-        } else {
-            Some(Cow::Owned(bin))
-        },
-    };
-
-    let file = fs::File::create(output_path)?;
-    let writer = BufWriter::new(file);
-    output_glb
-        .to_writer(writer)
-        .map_err(|e| anyhow!("Failed to write GLB: {:?}", e))?;
+    write_glb(&root, bin, output_path)?;
 
     log!("glTF animation exported to {:?}", output_path);
     Ok(())
 }
 
-pub fn export_animation_gltf(
+pub fn export_gltf_animation_only(
     clip: &EditableAnimationClip,
     skeleton: &Skeleton,
     output_path: &Path,
-    fps: f32,
 ) -> anyhow::Result<()> {
     let baked_clip = clip_to_animation(clip);
     let mut root = build_minimal_gltf_json(skeleton)?;
     let mut bin = Vec::new();
 
-    write_animation_channels(&mut root, &mut bin, &baked_clip, skeleton, fps)?;
+    write_animation_channels(&mut root, &mut bin, &baked_clip, skeleton)?;
 
+    write_glb(&root, bin, output_path)?;
+
+    log!("Animation-only glTF exported to {:?}", output_path);
+    Ok(())
+}
+
+fn write_glb(root: &json::Root, bin: Vec<u8>, output_path: &Path) -> Result<()> {
     let json_bytes = root
         .to_vec()
         .map_err(|e| anyhow!("Failed to serialize glTF JSON: {:?}", e))?;
@@ -106,19 +91,70 @@ pub fn export_animation_gltf(
         .to_writer(writer)
         .map_err(|e| anyhow!("Failed to write GLB: {:?}", e))?;
 
-    log!("Animation-only glTF exported to {:?}", output_path);
     Ok(())
 }
 
 fn build_minimal_gltf_json(skeleton: &Skeleton) -> Result<json::Root> {
     let mut root = json::Root::default();
 
-    for bone in &skeleton.bones {
+    // Build a map from BoneId to node index (the position in skeleton.bones)
+    let bone_id_to_node_index: HashMap<BoneId, usize> = skeleton
+        .bones
+        .iter()
+        .enumerate()
+        .map(|(idx, bone)| (bone.id, idx))
+        .collect();
+
+    // Build nodes for each bone with children and matrix
+    for (i, bone) in skeleton.bones.iter().enumerate() {
+        // Convert BoneId children to node indices via the HashMap
+        let children: Vec<Index<json::Node>> = bone
+            .children
+            .iter()
+            .filter_map(|&child_id| bone_id_to_node_index.get(&child_id).map(|&idx| Index::new(idx as u32)))
+            .collect();
+
+        // Convert local_transform (cgmath::Matrix4<f32>) to flat array of 16 f32 values
+        // in column-major order (same as glTF)
+        let mut matrix: Option<[f32; 16]> = None;
+        if bone.local_transform != cgmath::Matrix4::identity() {
+            let cols: [[f32; 4]; 4] = bone.local_transform.into();
+            let flat: [f32; 16] = [
+                cols[0][0], cols[0][1], cols[0][2], cols[0][3],
+                cols[1][0], cols[1][1], cols[1][2], cols[1][3],
+                cols[2][0], cols[2][1], cols[2][2], cols[2][3],
+                cols[3][0], cols[3][1], cols[3][2], cols[3][3],
+            ];
+            matrix = Some(flat);
+        }
+
         let node = json::scene::Node {
             name: Some(bone.name.clone()),
+            children: if children.is_empty() {
+                None
+            } else {
+                Some(children)
+            },
+            matrix,
             ..Default::default()
         };
         root.push(node);
+    }
+
+    // Create a scene containing all root bones
+    let scene_nodes: Vec<Index<json::Node>> = skeleton
+        .root_bone_ids
+        .iter()
+        .filter_map(|&id| bone_id_to_node_index.get(&id).map(|&idx| Index::new(idx as u32)))
+        .collect();
+    if !scene_nodes.is_empty() {
+        root.scenes.push(json::Scene {
+            extensions: None,
+            extras: Default::default(),
+            name: None,
+            nodes: scene_nodes,
+        });
+        root.scene = Some(Index::<json::Scene>::new(0));
     }
 
     Ok(root)
@@ -129,7 +165,6 @@ fn write_animation_channels(
     bin: &mut Vec<u8>,
     clip: &AnimationClip,
     skeleton: &Skeleton,
-    _fps: f32,
 ) -> Result<()> {
     let bone_to_node = build_bone_to_node_map(skeleton, &root.nodes);
     if bone_to_node.is_empty() {
@@ -734,7 +769,7 @@ mod tests {
     }
 
     #[test]
-    fn test_export_animation_gltf_creates_file() {
+    fn test_export_gltf_animation_only_creates_file() {
         let skeleton = create_test_skeleton();
         let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
         let track = clip.add_track(0, "Hips".to_string());
@@ -743,8 +778,8 @@ mod tests {
         curve_add_keyframe(curve, 1.0, 1.0);
         clip.duration = 1.0;
 
-        let output_path = std::env::temp_dir().join("test_export_animation_gltf.glb");
-        export_animation_gltf(&clip, &skeleton, &output_path, 30.0).unwrap();
+        let output_path = std::env::temp_dir().join("test_export_gltf_animation_only.glb");
+        export_gltf_animation_only(&clip, &skeleton, &output_path).unwrap();
 
         assert!(output_path.exists(), "GLB file was not created at the specified path");
         let bytes = fs::read(&output_path).unwrap();
@@ -754,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn test_export_animation_gltf_node_count_matches_bone_count() {
+    fn test_export_gltf_animation_only_node_count_matches_bone_count() {
         let skeleton = create_test_skeleton();
         let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
         let track = clip.add_track(0, "Hips".to_string());
@@ -764,7 +799,7 @@ mod tests {
         clip.duration = 1.0;
 
         let output_path = std::env::temp_dir().join("test_node_count.glb");
-        export_animation_gltf(&clip, &skeleton, &output_path, 30.0).unwrap();
+        export_gltf_animation_only(&clip, &skeleton, &output_path).unwrap();
 
         let bytes = fs::read(&output_path).unwrap();
         let glb = Glb::from_slice(&bytes).unwrap();
@@ -779,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn test_export_animation_gltf_has_animation_channels() {
+    fn test_export_gltf_animation_only_has_animation_channels() {
         let skeleton = create_test_skeleton();
         let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
         let track = clip.add_track(0, "Hips".to_string());
@@ -789,15 +824,88 @@ mod tests {
         clip.duration = 1.0;
 
         let output_path = std::env::temp_dir().join("test_channels.glb");
-        export_animation_gltf(&clip, &skeleton, &output_path, 30.0).unwrap();
+        export_gltf_animation_only(&clip, &skeleton, &output_path).unwrap();
 
-        let bytes = fs::read(&output_path).unwrap();
+       let bytes = fs::read(&output_path).unwrap();
         let glb = Glb::from_slice(&bytes).unwrap();
         let root: json::Root = json::Root::from_slice(&glb.json).unwrap();
 
         assert!(!root.animations.is_empty(), "No animations found in GLB");
         let anim = &root.animations[0];
         assert!(!anim.channels.is_empty(), "No animation channels found");
+        fs::remove_file(output_path).ok();
+    }
+
+    #[test]
+    fn test_export_gltf_animation_only_node_hierarchy_matches_skeleton() {
+        // Create a skeleton with parent-child relationships:
+        // Hips (0) -> Spine (1) -> Head (2)
+        let skeleton = create_test_skeleton();
+        let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
+        let track = clip.add_track(0, "Hips".to_string());
+        let curve = track.get_curve_mut(PropertyType::TranslationX);
+        curve_add_keyframe(curve, 0.0, 0.0);
+        curve_add_keyframe(curve, 1.0, 1.0);
+        clip.duration = 1.0;
+
+        let output_path = std::env::temp_dir().join("test_hierarchy.glb");
+        export_gltf_animation_only(&clip, &skeleton, &output_path).unwrap();
+
+        let bytes = fs::read(&output_path).unwrap();
+        let glb = Glb::from_slice(&bytes).unwrap();
+        let root: json::Root = json::Root::from_slice(&glb.json).unwrap();
+
+        // Verify that the parent node's children indices match the skeleton's parent-child relationships
+        // Hips (bone 0) should have Spine (bone 1) as child
+        let hips_node = &root.nodes[0];
+        assert!(hips_node.children.is_some(), "Hips node should have children");
+        let hips_children = hips_node.children.as_ref().unwrap();
+        assert!(hips_children.contains(&Index::new(1)), "Hips should have Spine (index 1) as child");
+
+        // Spine (bone 1) should have Head (bone 2) as child
+        let spine_node = &root.nodes[1];
+        assert!(spine_node.children.is_some(), "Spine node should have children");
+        let spine_children = spine_node.children.as_ref().unwrap();
+        assert!(spine_children.contains(&Index::new(2)), "Spine should have Head (index 2) as child");
+
+        // Head (bone 2) should have no children
+        let head_node = &root.nodes[2];
+        assert!(head_node.children.is_none() || head_node.children.as_ref().unwrap().is_empty(), "Head node should have no children");
+
+        fs::remove_file(output_path).ok();
+    }
+
+    #[test]
+    fn test_export_gltf_animation_only_scene_contains_root_bones() {
+        // Create a skeleton with root bones
+        let skeleton = create_test_skeleton();
+        let mut clip = EditableAnimationClip::new(1, "test_anim".to_string());
+        let track = clip.add_track(0, "Hips".to_string());
+        let curve = track.get_curve_mut(PropertyType::TranslationX);
+        curve_add_keyframe(curve, 0.0, 0.0);
+        curve_add_keyframe(curve, 1.0, 1.0);
+        clip.duration = 1.0;
+
+        let output_path = std::env::temp_dir().join("test_scene.glb");
+        export_gltf_animation_only(&clip, &skeleton, &output_path).unwrap();
+
+        let bytes = fs::read(&output_path).unwrap();
+        let glb = Glb::from_slice(&bytes).unwrap();
+        let root: json::Root = json::Root::from_slice(&glb.json).unwrap();
+
+        // Verify that a scene exists and contains nodes matching root bone indices
+        assert!(root.scene.is_some(), "GLB should have a default scene");
+        let scene_index = root.scene.unwrap().value();
+        let scene = &root.scenes[scene_index as usize];
+
+        // The skeleton has one root bone (Hips, id 0), so the scene should contain node 0
+        assert!(scene.nodes.contains(&Index::new(0)), "Scene should contain root bone node (Hips, index 0)");
+
+        // Verify that the scene nodes match all root bone IDs from the skeleton
+        for &root_bone_id in &skeleton.root_bone_ids {
+            assert!(scene.nodes.contains(&Index::new(root_bone_id)), "Scene should contain root bone node with id {}", root_bone_id);
+        }
+
         fs::remove_file(output_path).ok();
     }
 }

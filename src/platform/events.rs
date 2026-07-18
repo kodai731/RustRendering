@@ -901,10 +901,6 @@ fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
     let (Some(clip), Some(skeleton)) = (clip, skeleton) else {
         return;
     };
-
-    let timeline_state = app.data.ecs_world.resource::<TimelineState>();
-    let fps = timeline_state.snap_settings.frame_rate;
-
     let default_filename = format!("{}_anim_only.glb", clip.name);
     let path = rfd::FileDialog::new()
         .add_filter("glTF Binary", &["glb"])
@@ -915,11 +911,10 @@ fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
         return;
     };
 
-    match crate::exporter::gltf_exporter::export_animation_gltf(
+  match crate::exporter::gltf_exporter::export_gltf_animation_only(
         &clip,
         &skeleton.skeleton,
         &path,
-        fps,
     ) {
         Ok(()) => msg_info!("Animation-only glTF exported: {:?}", path),
         Err(e) => msg_error!("Animation-only glTF export failed: {:?}", e),
