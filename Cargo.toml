@@ -19,6 +19,7 @@ path = "src/main.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+thyllore-log-core = { path = "crates/thyllore-log-core" }
 thyllore-math-core = { path = "crates/thyllore-math-core" }
 thyllore-model-core = { path = "crates/thyllore-model-core" }
 thyllore-anim-core = { path = "crates/thyllore-anim-core" }

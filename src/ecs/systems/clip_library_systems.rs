@@ -12,7 +12,7 @@ use crate::animation::editable::{
 use crate::animation::{AnimationClip, BoneId};
 use crate::asset::{AnimationClipAsset, AssetStorage};
 use crate::ecs::resource::ClipLibrary;
-use crate::scene::AnimationClipFile;
+use crate::scene::{AnimationClipFile, ANIMATION_FORMAT_VERSION};
 
 pub fn clip_library_register_and_activate(
     lib: &mut ClipLibrary,
@@ -93,14 +93,7 @@ pub fn clip_library_update_save_metadata(
 pub fn clip_library_save_to_file(lib: &ClipLibrary, id: SourceClipId, path: &Path) -> Result<()> {
     let source = lib.source_clips.get(&id).context("Clip not found")?;
 
-    let clip_file = AnimationClipFile::new(source.editable_clip.clone());
-
-    let file =
-        fs::File::create(path).with_context(|| format!("Failed to create file: {:?}", path))?;
-    let writer = BufWriter::new(file);
-
-    ron::ser::to_writer_pretty(writer, &clip_file, ron::ser::PrettyConfig::default())
-        .with_context(|| format!("Failed to serialize clip to: {:?}", path))?;
+    thyllore_exporter_core::systems::ron::export_ron_clip(&source.editable_clip, path)?;
 
     log!(
         "Saved animation clip '{}' to {:?}",

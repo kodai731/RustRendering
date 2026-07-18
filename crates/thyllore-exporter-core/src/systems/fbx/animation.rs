@@ -157,7 +157,7 @@ pub(crate) fn decompose_matrix_to_trs(m: &Matrix4<f32>) -> ([f64; 3], [f64; 3], 
     let r00 = m[0][0] as f64 / sx_safe;
     let r01 = m[0][1] as f64 / sx_safe;
     let r02 = m[0][2] as f64 / sx_safe;
-    let r10 = m[1][0] as f64 / sy_safe;
+    let _r10 = m[1][0] as f64 / sy_safe;
     let r11 = m[1][1] as f64 / sy_safe;
     let r12 = m[1][2] as f64 / sy_safe;
     let _r20 = m[2][0] as f64 / sz_safe;

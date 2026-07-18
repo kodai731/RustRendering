@@ -11,6 +11,7 @@ repository = "https://github.com/kodai731/Thyllore-Animation"
 thyllore-math-core = { path = "../thyllore-math-core" }
 thyllore-model-core = { path = "../thyllore-model-core" }
 thyllore-anim-core = { path = "../thyllore-anim-core" }
+thyllore-log-core = { path = "../thyllore-log-core" }
 anyhow = "1"
 cgmath = "0.18"
 serde = { version = "1", features = ["derive"] }

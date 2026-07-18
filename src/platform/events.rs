@@ -883,7 +883,7 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         return;
     };
 
-    match crate::exporter::gltf_exporter::export_gltf_animation_from_bytes(
+    match crate::exporter::gltf::export_gltf_animation_from_bytes(
         &source_bytes,
         &clip,
         &skeleton,
@@ -911,7 +911,7 @@ fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
         return;
     };
 
-  match crate::exporter::gltf_exporter::export_gltf_animation_only(
+    match crate::exporter::gltf::export_gltf_animation_only(
         &clip,
         &skeleton.skeleton,
         &path,
