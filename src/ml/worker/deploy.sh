@@ -6,7 +6,9 @@ set -euo pipefail
 # single source of truth; secrets come from the environment and are never
 # printed or written to disk unencrypted.
 #
-# Required environment:
+# Required environment (loaded automatically from the gitignored
+# <repo>/.config/curve_copilot_full.env when it exists, else from the caller's
+# environment):
 #   CF_API_TOKEN            Cloudflare API token (scopes: Workers Scripts:Edit,
 #                           Workers R2 Storage:Edit, Account Settings:Read)
 #   CF_ACCOUNT_ID           Cloudflare account id
@@ -17,8 +19,26 @@ set -euo pipefail
 #   (scripts/gen_license_keypair.sh writes secrets/private_key_pkcs8.b64)
 
 WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$WORKER_DIR/../../.." && pwd)"
 WRANGLER_TOML="$WORKER_DIR/wrangler.toml"
 API_BASE="https://api.cloudflare.com/client/v4"
+
+SECRETS_ENV_FILE="$REPO_ROOT/.config/curve_copilot_full.env"
+if [[ -f "$SECRETS_ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SECRETS_ENV_FILE"
+    set +a
+    echo "[deploy] Loaded secrets from .config/curve_copilot_full.env"
+fi
+
+DEFAULT_PRIVATE_KEY_FILE="$REPO_ROOT/secrets/private_key_pkcs8.b64"
+if [[ -z "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE:-}" \
+    && -z "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64:-}" \
+    && -f "$DEFAULT_PRIVATE_KEY_FILE" ]]; then
+    THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE="$DEFAULT_PRIVATE_KEY_FILE"
+    echo "[deploy] Using signing key from secrets/private_key_pkcs8.b64"
+fi
 
 SKIP_BUCKET=0
 DRY_RUN=0
@@ -235,7 +255,20 @@ upload_worker() {
 
 echo "[deploy] Uploading worker script..."
 upload_response="$(upload_worker "$METADATA")"
-fail_on_api_error "$upload_response" "worker upload"
+if [[ "$(jq -r '.success' <<<"$upload_response")" != "true" ]]; then
+    # Workers that once shipped the retired mode C licensing still have the
+    # LicenseSeats Durable Object class registered (migration tag v1); removing
+    # the class requires an explicit deleted_classes migration. Mode C was
+    # never released, so the object holds no data and deletion is safe.
+    echo "[deploy] Plain upload failed (expected once per worker after the mode C retirement):" >&2
+    jq -r '.errors // [] | .[] | "  [\(.code)] \(.message)"' <<<"$upload_response" >&2
+    echo "[deploy] Retrying with LicenseSeats deletion migration (v1 -> v2)..."
+    metadata_with_migrations="$(jq -c \
+        '. + {migrations: {old_tag: "v1", new_tag: "v2", deleted_classes: ["LicenseSeats"]}}' \
+        <<<"$METADATA")"
+    upload_response="$(upload_worker "$metadata_with_migrations")"
+    fail_on_api_error "$upload_response" "worker upload (with deletion migration)"
+fi
 echo "[deploy] Worker uploaded."
 
 echo "[deploy] Enabling workers.dev route..."
