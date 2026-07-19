@@ -121,7 +121,6 @@ esac
 FEEDBACK_ENDPOINT="${!FEEDBACK_ENDPOINT_VAR:-}"
 INGEST_TOKEN="${THYLLORE_INGEST_TOKEN:-}"
 FULL_TOKEN_PUBKEY="${THYLLORE_FULL_TOKEN_PUBKEY_B64:-}"
-LICENSE_ENDPOINT="${THYLLORE_LICENSE_ENDPOINT:-}"
 
 require_build_mode_env() {
     local name="$1" value="$2"
@@ -132,7 +131,7 @@ require_build_mode_env() {
 }
 
 case "$BUILD_MODE" in
-    A)
+    A|C)
         FEEDBACK_ENDPOINT=""
         INGEST_TOKEN=""
         ;;
@@ -141,14 +140,8 @@ case "$BUILD_MODE" in
         require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
         require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
         ;;
-    C)
-        require_build_mode_env "$FEEDBACK_ENDPOINT_VAR" "$FEEDBACK_ENDPOINT"
-        require_build_mode_env THYLLORE_INGEST_TOKEN "$INGEST_TOKEN"
-        require_build_mode_env THYLLORE_LICENSE_ENDPOINT "$LICENSE_ENDPOINT"
-        require_build_mode_env THYLLORE_FULL_TOKEN_PUBKEY_B64 "$FULL_TOKEN_PUBKEY"
-        ;;
 esac
-if [[ "$BUILD_MODE" != "A" ]]; then
+if [[ "$BUILD_MODE" == "B" ]]; then
     echo "[build_blender_addon] Feedback endpoint (${ENDPOINT_ENV:-explicit}): $FEEDBACK_ENDPOINT"
 fi
 
@@ -195,11 +188,7 @@ if [[ "$BUILD_MODE" != "B" && -e "$STAGE_DIR/telemetry" ]]; then
     rm -rf "$STAGE_DIR/telemetry"
     echo "[build_blender_addon] (mode $BUILD_MODE) excluded: telemetry"
 fi
-if [[ "$BUILD_MODE" != "C" && -e "$STAGE_DIR/license_client" ]]; then
-    rm -rf "$STAGE_DIR/license_client"
-    echo "[build_blender_addon] (mode $BUILD_MODE) excluded: license_client"
-fi
-if [[ "$BUILD_MODE" == "A" && -e "$STAGE_DIR/feedback_message.py" ]]; then
+if [[ "$BUILD_MODE" != "B" && -e "$STAGE_DIR/feedback_message.py" ]]; then
     rm -f "$STAGE_DIR/feedback_message.py"
     echo "[build_blender_addon] (mode $BUILD_MODE) excluded: feedback_message.py"
 fi
@@ -305,7 +294,7 @@ text = re.sub(
 network_permission_by_mode = {
     "A": None,
     "B": "Send opt-in anonymized FCurve feedback (unlocks full context)",
-    "C": "Online license check to unlock the purchased full context",
+    "C": None,
 }
 network_permission = network_permission_by_mode[build_mode]
 if network_permission is None:
@@ -380,13 +369,10 @@ fi
 BUILD_CONFIG_PATH="$STAGE_DIR/build_config.py"
 {
     echo "BUILD_MODE = \"$BUILD_MODE\""
-    if [[ "$BUILD_MODE" == "B" || "$BUILD_MODE" == "C" ]]; then
+    if [[ "$BUILD_MODE" == "B" ]]; then
         echo "FEEDBACK_ENDPOINT = \"$FEEDBACK_ENDPOINT\""
         echo "INGEST_TOKEN = \"$INGEST_TOKEN\""
         echo "FULL_TOKEN_PUBKEY = \"$FULL_TOKEN_PUBKEY\""
-    fi
-    if [[ "$BUILD_MODE" == "C" ]]; then
-        echo "LICENSE_ENDPOINT = \"$LICENSE_ENDPOINT\""
     fi
 } >"$BUILD_CONFIG_PATH"
 echo "[build_blender_addon] Generated build_config.py (mode $BUILD_MODE)"

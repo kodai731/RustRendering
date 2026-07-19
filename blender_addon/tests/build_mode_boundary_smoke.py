@@ -5,12 +5,17 @@ this script runs inside Blender and asserts the boundary matrix from
 ``boundary-tests.md`` against the *installed* addon:
 
 - common: addon enables, ``build_config.BUILD_MODE`` matches, Discord hook
-  present, ``effective_ctx`` defaults to 32 (wheel-decided, no cached token)
+  present, license_client is bundled in no mode
 - A: telemetry not importable, feedback_message not bundled,
-  ``thyllore.send_feedback`` unregistered
-- B/C: ``thyllore.send_feedback`` registered
-- B: telemetry bundled, ``should_send`` follows opt-in x online access
-- C: telemetry not importable
+  ``thyllore.send_feedback`` unregistered, ``effective_ctx`` == 32
+- B: telemetry bundled, ``thyllore.send_feedback`` registered,
+  ``effective_ctx`` defaults to 32 (wheel-decided, no cached token)
+- C (private): telemetry and feedback_message not bundled, no endpoints baked
+  into ``build_config``, ``effective_ctx`` == 64 unconditionally, and the
+  whole check runs under a socket guard proving the addon performs **zero
+  network traffic** (nothing is ever sent to Cloudflare). With ``--onnx`` the
+  curve_copilot operator additionally runs a real ctx64 inference under the
+  same guard.
 
 With ``--live-send`` (mode B builds pointed at the *test* Worker) it also
 exercises the real data path end to end: run the curve_copilot operator so a
@@ -18,16 +23,10 @@ prediction is recorded, save the file to trigger the batch send, then assert
 the Worker's full token flips ``effective_ctx`` to 64 and ``/v1/message``
 accepts a free-text feedback message.
 
-With ``--live-license`` + ``--license-key`` (mode C builds pointed at the
-*test* Worker, key provisioned by the caller with max_seats=1) it exercises
-the seat licensing path: activate -> ctx64, re-activate on the registered
-device -> ctx64, switch device_id (a copied key) -> refused -> ctx32.
-
 Invocation::
 
     blender --background --factory-startup --python <this script> -- \\
-        --result result.json --expect-mode B [--onnx <path> --live-send] \\
-        [--live-license --license-key <key>]
+        --result result.json --expect-mode B [--onnx <path> --live-send]
 """
 from __future__ import annotations
 
@@ -35,6 +34,7 @@ import argparse
 import importlib
 import importlib.util
 import json
+import socket
 import sys
 import tempfile
 import time
@@ -44,9 +44,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import curve_copilot_operator_smoke as operator_smoke
 
 MODE_EXPECTATIONS = {
-    "A": {"telemetry": False, "license_client": False, "message": False},
-    "B": {"telemetry": True, "license_client": False, "message": True},
-    "C": {"telemetry": False, "license_client": True, "message": True},
+    "A": {"telemetry": False, "message": False, "default_ctx": 32},
+    "B": {"telemetry": True, "message": True, "default_ctx": 32},
+    "C": {"telemetry": False, "message": False, "default_ctx": 64},
 }
 DEGRADED_CTX = 32
 FULL_CTX = 64
@@ -59,6 +59,29 @@ def check(name: str, ok: bool, detail: str = "") -> None:
     checks.append({"name": name, "ok": bool(ok), "detail": detail})
 
 
+class NetworkGuard:
+    """Blocks and records every Python-level outbound connection attempt."""
+
+    def __init__(self):
+        self.attempts: list[str] = []
+        self._original_connect = None
+
+    def __enter__(self) -> "NetworkGuard":
+        self._original_connect = socket.socket.connect
+        guard = self
+
+        def blocked_connect(sock, address, *args, **kwargs):
+            guard.attempts.append(repr(address))
+            raise OSError(f"network blocked by boundary smoke: {address}")
+
+        socket.socket.connect = blocked_connect
+        return self
+
+    def __exit__(self, *_exc) -> bool:
+        socket.socket.connect = self._original_connect
+        return False
+
+
 def parse_args():
     argv = sys.argv
     argv = argv[argv.index("--") + 1:] if "--" in argv else []
@@ -67,8 +90,6 @@ def parse_args():
     parser.add_argument("--expect-mode", required=True, choices=sorted(MODE_EXPECTATIONS))
     parser.add_argument("--onnx", default="")
     parser.add_argument("--live-send", action="store_true")
-    parser.add_argument("--live-license", action="store_true")
-    parser.add_argument("--license-key", default="")
     return parser.parse_args(argv)
 
 
@@ -106,23 +127,19 @@ def run_common_checks(addon_pkg: str, expect_mode: str) -> None:
         capabilities.CAPS.telemetry_available == expected["telemetry"],
     )
     check(
-        "capabilities.license_activation",
-        capabilities.CAPS.license_activation == expected["license_client"],
-    )
-    check(
         "telemetry bundled iff mode B",
         module_bundled(addon_pkg, "telemetry") == expected["telemetry"],
     )
     check(
-        "license_client bundled iff mode C",
-        module_bundled(addon_pkg, "license_client") == expected["license_client"],
+        "license_client bundled in no mode",
+        not module_bundled(addon_pkg, "license_client"),
     )
     check(
-        "feedback_message bundled iff mode B/C",
+        "feedback_message bundled iff mode B",
         module_bundled(addon_pkg, "feedback_message") == expected["message"],
     )
     check(
-        "send_feedback operator registered iff mode B/C",
+        "send_feedback operator registered iff mode B",
         send_operator_registered() == expected["message"],
     )
     check(
@@ -135,13 +152,50 @@ def run_common_checks(addon_pkg: str, expect_mode: str) -> None:
 
     if expected["telemetry"]:
         importlib.import_module(f"{addon_pkg}.telemetry").discard_full_token()
-    if expected["license_client"]:
-        importlib.import_module(f"{addon_pkg}.license_client").discard_full_token()
     ctx = effective_ctx(addon_pkg)
     check(
-        "effective_ctx defaults to degraded",
-        ctx == DEGRADED_CTX,
-        f"got {ctx}, expected {DEGRADED_CTX}",
+        "effective_ctx matches mode default",
+        ctx == expected["default_ctx"],
+        f"got {ctx}, expected {expected['default_ctx']}",
+    )
+
+
+def run_operator_inference(addon_pkg: str, onnx_path: str) -> None:
+    import bpy
+
+    bpy.ops.object.select_all(action="SELECT")
+    bpy.ops.object.delete(use_global=False)
+    armature_object = operator_smoke.build_minimal_armature()
+    operator_smoke.insert_initial_keyframes(armature_object)
+    operator_smoke.select_first_location_x_fcurve(armature_object)
+    operator_smoke.configure_preferences(addon_pkg, onnx_path)
+
+    operator_status = bpy.ops.thyllore.curve_copilot("EXEC_DEFAULT")
+    check("curve_copilot operator finished (ctx64)", "FINISHED" in operator_status)
+
+
+def run_private_offline_checks(addon_pkg: str, onnx_path: str) -> None:
+    """Mode C: everything must work with zero network traffic."""
+    build_config = importlib.import_module(f"{addon_pkg}.build_config")
+    baked_endpoints = [
+        name
+        for name in ("FEEDBACK_ENDPOINT", "INGEST_TOKEN", "LICENSE_ENDPOINT")
+        if hasattr(build_config, name)
+    ]
+    check(
+        "no endpoints baked into private build_config",
+        not baked_endpoints,
+        f"found {baked_endpoints}" if baked_endpoints else "",
+    )
+
+    with NetworkGuard() as guard:
+        run_common_checks(addon_pkg, "C")
+        if onnx_path:
+            run_operator_inference(addon_pkg, onnx_path)
+    check(
+        "zero network traffic in private mode",
+        not guard.attempts,
+        f"attempted connections: {guard.attempts}" if guard.attempts else "",
     )
 
 
@@ -204,54 +258,20 @@ def run_live_send_checks(addon_pkg: str, onnx_path: str) -> None:
     check("opt-out reverts to degraded ctx", effective_ctx(addon_pkg) == DEGRADED_CTX)
 
 
-def run_live_license_checks(addon_pkg: str, license_key: str) -> None:
-    import bpy
-
-    preferences = importlib.import_module(f"{addon_pkg}.preferences")
-    prefs = preferences.get_preferences()
-    bpy.context.preferences.system.use_online_access = True
-    original_device_id = prefs.device_id
-
-    prefs.license_key = license_key
-    status = bpy.ops.thyllore.refresh_license()
-    check("license activation finished", "FINISHED" in status)
-    ctx = effective_ctx(addon_pkg)
-    check("effective_ctx raised by license", ctx == FULL_CTX, f"got {ctx}")
-
-    status = bpy.ops.thyllore.refresh_license()
-    check("registered device re-activates", "FINISHED" in status)
-
-    prefs.device_id = "smoke-copied-device"
-    try:
-        status = bpy.ops.thyllore.refresh_license()
-        refused = "CANCELLED" in status
-    except RuntimeError as error:
-        refused = "seats" in str(error)
-    check("copied key (new device, 1 seat) refused", refused)
-    ctx = effective_ctx(addon_pkg)
-    check("refusal reverts to degraded ctx", ctx == DEGRADED_CTX, f"got {ctx}")
-
-    prefs.device_id = original_device_id
-    prefs.license_key = ""
-    check("clearing key discards token", effective_ctx(addon_pkg) == DEGRADED_CTX)
-
-
 def main() -> None:
     args = parse_args()
 
     addon_pkg = operator_smoke.enable_addon()
+    onnx_path = str(Path(args.onnx).resolve()) if args.onnx and Path(args.onnx).exists() else ""
+
     if args.live_send and args.expect_mode == "B":
-        if not args.onnx or not Path(args.onnx).exists():
+        if not onnx_path:
             check("onnx model available for live send", False, args.onnx or "<missing>")
         else:
             run_common_checks(addon_pkg, args.expect_mode)
-            run_live_send_checks(addon_pkg, str(Path(args.onnx).resolve()))
-    elif args.live_license and args.expect_mode == "C":
-        if not args.license_key:
-            check("license key provided for live license", False, "<missing>")
-        else:
-            run_common_checks(addon_pkg, args.expect_mode)
-            run_live_license_checks(addon_pkg, args.license_key)
+            run_live_send_checks(addon_pkg, onnx_path)
+    elif args.expect_mode == "C":
+        run_private_offline_checks(addon_pkg, onnx_path)
     else:
         run_common_checks(addon_pkg, args.expect_mode)
 

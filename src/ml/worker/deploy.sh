@@ -6,20 +6,39 @@ set -euo pipefail
 # single source of truth; secrets come from the environment and are never
 # printed or written to disk unencrypted.
 #
-# Required environment:
+# Required environment (loaded automatically from the gitignored
+# <repo>/.config/curve_copilot_full.env when it exists, else from the caller's
+# environment):
 #   CF_API_TOKEN            Cloudflare API token (scopes: Workers Scripts:Edit,
 #                           Workers R2 Storage:Edit, Account Settings:Read)
 #   CF_ACCOUNT_ID           Cloudflare account id
 #   THYLLORE_INGEST_TOKEN   shared bearer token baked into mode B addon builds
-#   THYLLORE_ADMIN_TOKEN    bearer token guarding /v1/license/provision
 #   Ed25519 private key (PKCS8 DER, base64), via EITHER:
 #     THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE   path to the b64 file
 #     THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64         the b64 value itself
 #   (scripts/gen_license_keypair.sh writes secrets/private_key_pkcs8.b64)
 
 WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$WORKER_DIR/../../.." && pwd)"
 WRANGLER_TOML="$WORKER_DIR/wrangler.toml"
 API_BASE="https://api.cloudflare.com/client/v4"
+
+SECRETS_ENV_FILE="$REPO_ROOT/.config/curve_copilot_full.env"
+if [[ -f "$SECRETS_ENV_FILE" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    source "$SECRETS_ENV_FILE"
+    set +a
+    echo "[deploy] Loaded secrets from .config/curve_copilot_full.env"
+fi
+
+DEFAULT_PRIVATE_KEY_FILE="$REPO_ROOT/secrets/private_key_pkcs8.b64"
+if [[ -z "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE:-}" \
+    && -z "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64:-}" \
+    && -f "$DEFAULT_PRIVATE_KEY_FILE" ]]; then
+    THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE="$DEFAULT_PRIVATE_KEY_FILE"
+    echo "[deploy] Using signing key from secrets/private_key_pkcs8.b64"
+fi
 
 SKIP_BUCKET=0
 DRY_RUN=0
@@ -75,7 +94,6 @@ require_env() {
 require_env CF_API_TOKEN
 require_env CF_ACCOUNT_ID
 require_env THYLLORE_INGEST_TOKEN
-require_env THYLLORE_ADMIN_TOKEN
 
 resolve_private_key() {
     if [[ -n "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE:-}" ]]; then
@@ -108,15 +126,6 @@ toml_r2_field() {
     ' "$WRANGLER_TOML"
 }
 
-toml_section_field() {
-    local section="$1" field="$2"
-    awk -F'"' -v section="$section" -v field="$field" '
-        index($0, "[[" section "]]") == 1 { in_block = 1; next }
-        /^\[/ { in_block = 0 }
-        in_block && $0 ~ ("^" field "[[:space:]]*=") { print $2; exit }
-    ' "$WRANGLER_TOML"
-}
-
 build_var_bindings() {
     local vars_array="[]"
     local in_vars=0 line key value
@@ -139,15 +148,10 @@ SCRIPT_NAME="$(toml_scalar name)"
 COMPAT_DATE="$(toml_scalar compatibility_date)"
 R2_BINDING="$(toml_r2_field binding)"
 BUCKET_NAME="$(toml_r2_field bucket_name)"
-DO_BINDING="$(toml_section_field "durable_objects.bindings" name)"
-DO_CLASS="$(toml_section_field "durable_objects.bindings" class_name)"
-MIGRATION_TAG="$(toml_section_field migrations tag)"
-MIGRATION_SQLITE_CLASS="$(toml_section_field migrations new_sqlite_classes)"
 MODULE_NAME="index.mjs"
 SCRIPT_PATH="$WORKER_DIR/src/$MODULE_NAME"
 
-for value in SCRIPT_NAME COMPAT_DATE R2_BINDING BUCKET_NAME DO_BINDING DO_CLASS \
-    MIGRATION_TAG MIGRATION_SQLITE_CLASS; do
+for value in SCRIPT_NAME COMPAT_DATE R2_BINDING BUCKET_NAME; do
     if [[ -z "${!value}" ]]; then
         echo "failed to read $value from $WRANGLER_TOML" >&2
         exit 1
@@ -192,24 +196,17 @@ METADATA="$(jq -nc \
     --arg compat "$COMPAT_DATE" \
     --arg r2name "$R2_BINDING" \
     --arg bucket "$BUCKET_NAME" \
-    --arg doname "$DO_BINDING" \
-    --arg doclass "$DO_CLASS" \
     --arg ingest "$THYLLORE_INGEST_TOKEN" \
-    --arg admin "$THYLLORE_ADMIN_TOKEN" \
     --arg privkey "$PRIVATE_KEY_B64" \
     --argjson vars "$VAR_BINDINGS" \
     '{
         main_module: $main,
         compatibility_date: $compat,
         bindings: (
-            [
-                {type: "r2_bucket", name: $r2name, bucket_name: $bucket},
-                {type: "durable_object_namespace", name: $doname, class_name: $doclass}
-            ]
+            [{type: "r2_bucket", name: $r2name, bucket_name: $bucket}]
             + $vars
             + [
                 {type: "secret_text", name: "INGEST_TOKEN", text: $ingest},
-                {type: "secret_text", name: "ADMIN_TOKEN", text: $admin},
                 {type: "secret_text", name: "FULL_TOKEN_PRIVATE_KEY_PKCS8_B64", text: $privkey}
             ]
         )
@@ -259,15 +256,18 @@ upload_worker() {
 echo "[deploy] Uploading worker script..."
 upload_response="$(upload_worker "$METADATA")"
 if [[ "$(jq -r '.success' <<<"$upload_response")" != "true" ]]; then
-    echo "[deploy] Plain upload failed (expected on first deploy of a new DO class):" >&2
+    # Workers that once shipped the retired mode C licensing still have the
+    # LicenseSeats Durable Object class registered (migration tag v1); removing
+    # the class requires an explicit deleted_classes migration. Mode C was
+    # never released, so the object holds no data and deletion is safe.
+    echo "[deploy] Plain upload failed (expected once per worker after the mode C retirement):" >&2
     jq -r '.errors // [] | .[] | "  [\(.code)] \(.message)"' <<<"$upload_response" >&2
-    echo "[deploy] Retrying with DO migration '$MIGRATION_TAG' ($MIGRATION_SQLITE_CLASS)..."
+    echo "[deploy] Retrying with LicenseSeats deletion migration (v1 -> v2)..."
     metadata_with_migrations="$(jq -c \
-        --arg tag "$MIGRATION_TAG" \
-        --arg class "$MIGRATION_SQLITE_CLASS" \
-        '. + {migrations: {new_tag: $tag, new_sqlite_classes: [$class]}}' <<<"$METADATA")"
+        '. + {migrations: {old_tag: "v1", new_tag: "v2", deleted_classes: ["LicenseSeats"]}}' \
+        <<<"$METADATA")"
     upload_response="$(upload_worker "$metadata_with_migrations")"
-    fail_on_api_error "$upload_response" "worker upload (with migrations)"
+    fail_on_api_error "$upload_response" "worker upload (with deletion migration)"
 fi
 echo "[deploy] Worker uploaded."
 
@@ -283,6 +283,6 @@ SUBDOMAIN="$(jq -r '.result.subdomain' <<<"$account_subdomain")"
 
 echo
 echo "[deploy] Deployed: https://$SCRIPT_NAME.$SUBDOMAIN.workers.dev"
-echo "[deploy] Endpoints: POST /v1/feedback  /v1/message  /v1/license/refresh  /v1/license/provision"
+echo "[deploy] Endpoints: POST /v1/feedback  /v1/message"
 echo "[deploy] Bake THYLLORE_FEEDBACK_ENDPOINT into mode B builds:"
 echo "           https://$SCRIPT_NAME.$SUBDOMAIN.workers.dev/v1/feedback"

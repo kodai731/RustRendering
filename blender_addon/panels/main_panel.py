@@ -89,7 +89,7 @@ def _draw_prediction_mode(layout, context) -> None:
         return
 
     layout.label(text=f"Prediction: ctx {effective_ctx} (degraded)", icon="INFO")
-    if not (CAPS.telemetry_available or CAPS.license_activation):
+    if not CAPS.telemetry_available:
         return
 
     if not bpy.app.online_access:

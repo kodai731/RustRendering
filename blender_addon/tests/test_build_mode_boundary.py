@@ -3,8 +3,8 @@
 Runs scripts/build_blender_addon.sh with --build-mode A/B/C and asserts the
 boundary matrix (boundary-tests.md): telemetry bundled only in B, secret keys
 present per mode (key presence only -- values are never asserted or logged),
-mode A builds with no environment variables and ships no network code, and
-modes B/C fail fast without the message-channel environment variables.
+modes A and C build with no environment variables and ship no network code,
+and mode B fails fast without the message-channel environment variables.
 """
 from __future__ import annotations
 
@@ -21,21 +21,14 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 BUILD_SCRIPT = REPO_ROOT / "scripts" / "build_blender_addon.sh"
 OUTPUT_REL_DIR = "build/test_dist_build_mode_boundary"
 
-MESSAGE_ENV = {
-    "THYLLORE_FEEDBACK_ENDPOINT": "https://example.invalid/v1/feedback",
-    "THYLLORE_INGEST_TOKEN": "dummy-ingest-token",
-}
 MODE_ENV = {
     "A": {},
     "B": {
-        **MESSAGE_ENV,
+        "THYLLORE_FEEDBACK_ENDPOINT": "https://example.invalid/v1/feedback",
+        "THYLLORE_INGEST_TOKEN": "dummy-ingest-token",
         "THYLLORE_FULL_TOKEN_PUBKEY_B64": "ZHVtbXktcHVia2V5",
     },
-    "C": {
-        **MESSAGE_ENV,
-        "THYLLORE_LICENSE_ENDPOINT": "https://example.invalid/v1/license/refresh",
-        "THYLLORE_FULL_TOKEN_PUBKEY_B64": "ZHVtbXktcHVia2V5",
-    },
+    "C": {},
 }
 
 pytestmark = pytest.mark.skipif(
@@ -50,7 +43,6 @@ def _run_build(mode: str, extra_env: dict) -> subprocess.CompletedProcess:
         "THYLLORE_FEEDBACK_ENDPOINT",
         "THYLLORE_INGEST_TOKEN",
         "THYLLORE_FULL_TOKEN_PUBKEY_B64",
-        "THYLLORE_LICENSE_ENDPOINT",
     ):
         env.pop(key, None)
     env.update(extra_env)
@@ -104,6 +96,11 @@ def _build_config_keys(zip_path: Path) -> set[str]:
     return {line.split("=", 1)[0].strip() for line in text.splitlines() if "=" in line}
 
 
+def _manifest_text(zip_path: Path) -> str:
+    with zipfile.ZipFile(zip_path) as archive:
+        return archive.read("blender_manifest.toml").decode("utf-8")
+
+
 @pytest.mark.parametrize(
     ("mode", "telemetry_bundled"),
     [("A", False), ("B", True), ("C", False)],
@@ -118,44 +115,39 @@ def test_telemetry_bundled_only_in_mode_b(built_zips, mode, telemetry_bundled):
     [
         ("A", {"BUILD_MODE"}),
         ("B", {"BUILD_MODE", "FEEDBACK_ENDPOINT", "INGEST_TOKEN", "FULL_TOKEN_PUBKEY"}),
-        (
-            "C",
-            {
-                "BUILD_MODE",
-                "FEEDBACK_ENDPOINT",
-                "INGEST_TOKEN",
-                "FULL_TOKEN_PUBKEY",
-                "LICENSE_ENDPOINT",
-            },
-        ),
+        ("C", {"BUILD_MODE"}),
     ],
 )
 def test_build_config_has_exactly_the_mode_fields(built_zips, mode, expected_keys):
     assert _build_config_keys(built_zips[mode]) == expected_keys
 
 
-@pytest.mark.parametrize(
-    ("mode", "license_client_bundled"),
-    [("A", False), ("B", False), ("C", True)],
-)
-def test_license_client_bundled_only_in_mode_c(built_zips, mode, license_client_bundled):
-    has_license_client = any(
+@pytest.mark.parametrize("mode", ["A", "B", "C"])
+def test_license_client_bundled_in_no_mode(built_zips, mode):
+    assert not any(
         name.startswith("license_client/") for name in _zip_names(built_zips[mode])
     )
-    assert has_license_client is license_client_bundled
 
 
-@pytest.mark.parametrize("mode", ["B", "C"])
-def test_network_modes_fail_fast_without_message_env(mode):
-    result = _run_build(mode, {})
+def test_mode_b_fails_fast_without_message_env():
+    result = _run_build("B", {})
     assert result.returncode != 0
     assert "THYLLORE_FEEDBACK_ENDPOINT" in result.stderr
 
 
 @pytest.mark.parametrize(
     ("mode", "feedback_message_bundled"),
-    [("A", False), ("B", True), ("C", True)],
+    [("A", False), ("B", True), ("C", False)],
 )
-def test_feedback_message_excluded_from_mode_a(built_zips, mode, feedback_message_bundled):
+def test_feedback_message_bundled_only_in_mode_b(built_zips, mode, feedback_message_bundled):
     bundled = "feedback_message.py" in _zip_names(built_zips[mode])
     assert bundled is feedback_message_bundled
+
+
+@pytest.mark.parametrize(
+    ("mode", "network_permission"),
+    [("A", False), ("B", True), ("C", False)],
+)
+def test_network_permission_only_in_mode_b(built_zips, mode, network_permission):
+    has_network = "network = " in _manifest_text(built_zips[mode])
+    assert has_network is network_permission

@@ -21,11 +21,6 @@ try:
 except ImportError:
     telemetry = None
 
-try:
-    from . import license_client
-except ImportError:
-    license_client = None
-
 DISCORD_INVITE_URL = "https://discord.gg/HZNRAENX8"
 
 # Resolve the addon's package name so AddonPreferences.bl_idname matches the
@@ -60,16 +55,11 @@ class ThylloreAnimationPreferences(AddonPreferences):
         max=600.0,
     )
 
-    def _on_license_key_changed(self, context):
-        if license_client is not None and not self.license_key.strip():
-            license_client.discard_full_token()
-
     license_key: StringProperty(  # type: ignore[valid-type]
         name="License Key",
         default="",
         subtype="PASSWORD",
-        update=_on_license_key_changed,
-        description="License key from your purchase (activates ctx64 prediction)",
+        description="Bearer token for the gRPC server (unshipped operators only)",
     )
     device_id: StringProperty(  # type: ignore[valid-type]
         name="Device ID",
@@ -144,8 +134,6 @@ class ThylloreAnimationPreferences(AddonPreferences):
 
         if CAPS.telemetry_available:
             self._draw_telemetry_box(layout)
-        if CAPS.license_activation:
-            self._draw_license_box(layout)
         if CAPS.message_available:
             self._draw_message_box(layout)
         if DISCORD_INVITE_URL:
@@ -194,20 +182,6 @@ class ThylloreAnimationPreferences(AddonPreferences):
         row.prop(self, "feedback_text", text="")
         row.operator("thyllore.send_feedback", text="Send Feedback")
 
-    def _draw_license_box(self, layout):
-        box = layout.box()
-        box.label(text="Curve Copilot License (enables ctx64)", icon="LOCKED")
-        box.prop(self, "license_key")
-
-        row = box.row()
-        row.label(text=f"Device: {self.device_id or '(not set)'}")
-        row.operator("thyllore.refresh_license", text="Activate License")
-
-        col = box.column()
-        col.scale_y = 0.8
-        col.label(text="Activation verifies your seat online; no feedback data is sent.")
-        col.label(text="Requires 'Allow Online Access'. Re-activation runs weekly per device.")
-
 
 class THYLLORE_OT_RegenerateDeviceID(Operator):
     bl_idname = "thyllore.regenerate_device_id"
@@ -250,7 +224,11 @@ def effective_context_length() -> int | None:
         return None
 
     try:
-        return int(tml.effective_context_length(_full_token.resolve_full_token()))
+        return int(
+            tml.effective_context_length(
+                _full_token.resolve_full_token(), CAPS.curve_copilot_mode
+            )
+        )
     except AttributeError:
         return None
 

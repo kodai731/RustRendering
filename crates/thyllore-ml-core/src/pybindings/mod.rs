@@ -4,7 +4,6 @@ use pyo3::prelude::*;
 mod debuglog;
 mod error;
 mod feedback;
-mod license;
 mod v2_curve_copilot;
 
 pub use v2_curve_copilot::PyV2CurveCopilotSession;
@@ -38,7 +37,6 @@ fn thyllore_ml_core(_py: Python, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(feedback::build_feedback_record, m)?)?;
     m.add_function(wrap_pyfunction!(feedback::send_feedback_batch, m)?)?;
     m.add_function(wrap_pyfunction!(feedback::send_message, m)?)?;
-    m.add_function(wrap_pyfunction!(license::refresh_license, m)?)?;
 
     #[cfg(feature = "debug-log")]
     {
