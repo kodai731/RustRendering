@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       build_mode:
-        description: "B: full (GitHub Pages deploy) / A: degraded (artifact for extensions.blender.org) / C: Blender Market paid"
+        description: "B: full (GitHub Pages deploy) / A: degraded (not distributed) / C: private (BOOTH paid, offline)"
         type: choice
         options:
           - B
