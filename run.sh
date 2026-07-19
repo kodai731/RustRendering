@@ -26,6 +26,12 @@ Commands:
       .config/curve_copilot_full.env for THYLLORE_FEEDBACK_TEST_ENDPOINT /
       THYLLORE_INGEST_TOKEN (dev builds always bake the test endpoint).
         ./run.sh blender --mode full
+  blender-verify [--mode degrade|full|private] [--zip PATH] [args...]
+      Launch a pristine Blender GUI in Docker with NO addon installed
+      (blender/docker/run_gui.sh --no-install). The ZIP is mounted at
+      /zips for manual verification via Edit > Preferences > Add-ons >
+      Install from Disk. Nothing persists between runs.
+        ./run.sh blender-verify --mode private --zip dist/release_download/release-zip-linux_x86_64/thyllore_animation_curve_copilot_private-0.0.1-linux_x86_64.zip
   auto [args...]
       Launch the Claude auto-mode container (scripts/run_auto_mode.sh).
   worker-smoke [worker-url] [args...]
@@ -46,6 +52,9 @@ case "$command" in
         ;;
     blender)
         exec bash "$REPO_ROOT/scripts/run_blender_debug.sh" "$@"
+        ;;
+    blender-verify)
+        exec bash "$REPO_ROOT/blender/docker/run_gui.sh" --no-install "$@"
         ;;
     auto)
         exec bash "$REPO_ROOT/scripts/run_auto_mode.sh" "$@"
