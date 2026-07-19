@@ -143,15 +143,18 @@ including the exact behaviour and required build environment variables, is
 
 | Mode | Addon build | Prediction context | Data sending |
 |---|---|---|---|
-| **degrade** | A (official repo) | ctx32 (reduced accuracy) | none |
+| **degrade** | A (not distributed) | ctx32 (reduced accuracy) | none |
 | **full** | B (self-hosted repo) | ctx64 after opt-in | anonymized feedback records, opt-in only |
-| **private** | C (Blender Market) | ctx64 via license activation | none |
+| **private** | C (sold on BOOTH) | ctx64 always, no license, no activation | none |
 
-In **full** and **private** modes the Preferences panel offers a **free-text feedback
-box** (sent only when you press the button); the **degrade** build ships no network
-code at all, so it has neither the feedback box nor any data sending. All modes link
-to the community Discord. Feedback records — the learning pairs described below —
-exist only in **full** mode and only after explicit opt-in.
+None of the modes use the official Blender Extensions Platform
+(extensions.blender.org): its AI policy does not accept AI-powered addons, so
+mode A is not distributed at all and mode C is sold on BOOTH (pixiv). Only the
+**full** build ships network code — the Preferences panel offers a **free-text
+feedback box** (sent only when you press the button) and the opt-in feedback
+records described below. The **degrade** and **private** builds ship no network
+code at all and request no network permission. All modes link to the community
+Discord.
 
 ### Model performance: ctx64 vs ctx32
 
@@ -185,9 +188,10 @@ never used for training):
 | 24 | 0.4850 | 0.3426 | −0.1423 | −29.4% |
 | 64 | 0.3243 | 0.2225 | −0.1017 | −31.4% |
 
-In short: unlocking ctx64 (via **full** opt-in or a **private** license) improves the
-short-horizon match by roughly 20–29% relative over the free ctx32 tier, and the gap
-widens on longer horizons and out-of-distribution motion (up to ~34%).
+In short: ctx64 (via **full** opt-in, or always-on in the **private** edition)
+improves the short-horizon match by roughly 20–29% relative over the free ctx32
+tier, and the gap widens on longer horizons and out-of-distribution motion (up
+to ~34%).
 
 ## Data collection and training policy
 

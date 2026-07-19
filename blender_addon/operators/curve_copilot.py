@@ -19,6 +19,7 @@ import bpy
 from bpy.types import Operator
 
 from .. import _debuglog, _ghost_overlay
+from ..capabilities import CAPS
 
 try:
     import thyllore_ml_core as tml  # type: ignore
@@ -44,6 +45,7 @@ class _ForecastRun:
     deploy_fps: float
     frame_step: float
     full_token: str | None
+    mode: str
     record_feedback: bool
     model_hash: str
 
@@ -128,7 +130,7 @@ class THYLLORE_OT_CurveCopilot(Operator):
         frame_step = scene_fps / deploy_fps
         playhead = float(context.scene.frame_current_final)
         full_token = _resolve_full_token()
-        effective_ctx = tml.effective_context_length(full_token)
+        effective_ctx = tml.effective_context_length(full_token, CAPS.curve_copilot_mode)
         if logger is not None:
             logger.info(
                 "curve_copilot run: object=%r selected_fcurves=%d playhead=%.4f "
@@ -156,6 +158,7 @@ class THYLLORE_OT_CurveCopilot(Operator):
                 deploy_fps=deploy_fps,
                 frame_step=frame_step,
                 full_token=full_token,
+                mode=CAPS.curve_copilot_mode,
                 record_feedback=record_feedback,
                 model_hash=_model_hash(model_path) if record_feedback else "",
             )
@@ -340,7 +343,7 @@ def _forecast_direct_ghost(fcurve, run: _ForecastRun, origin_frame: float):
     origin_value = float(fcurve.evaluate(origin_frame))
     ghost = run.session.build_forecast_preview(
         context, run.deploy_fps, float(origin_frame), origin_value, run.frame_step,
-        run.full_token,
+        run.full_token, run.mode,
     )
 
     if run.record_feedback and telemetry is not None:
@@ -417,6 +420,7 @@ def _forecast_quaternion_ghost(fcurve, all_fcurves, run: _ForecastRun, origin_fr
                 eulers[-1][axis],
                 run.frame_step,
                 run.full_token,
+                run.mode,
             )
         )
 

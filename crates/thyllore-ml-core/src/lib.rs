@@ -3,7 +3,6 @@ pub mod copilot;
 pub mod debug_log;
 pub mod degrade;
 pub mod feedback;
-pub mod license;
 pub mod mode;
 pub mod model_path;
 

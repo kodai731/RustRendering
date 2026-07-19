@@ -22,17 +22,17 @@ def test_source_tree_defaults_to_official_mode():
 
 
 @pytest.mark.parametrize(
-    ("mode", "telemetry_available", "license_activation"),
+    ("mode", "telemetry_available", "curve_copilot_mode"),
     [
-        ("A", False, False),
-        ("B", True, False),
-        ("C", False, True),
+        ("A", False, "degrade"),
+        ("B", True, "full"),
+        ("C", False, "private"),
     ],
 )
-def test_derivation_matrix(mode, telemetry_available, license_activation):
+def test_derivation_matrix(mode, telemetry_available, curve_copilot_mode):
     caps = Capabilities(BuildMode(mode))
     assert caps.telemetry_available is telemetry_available
-    assert caps.license_activation is license_activation
+    assert caps.curve_copilot_mode == curve_copilot_mode
 
 
 def test_invalid_build_mode_is_rejected():
@@ -58,9 +58,9 @@ def test_generated_build_config_overrides_default(monkeypatch):
 
 @pytest.mark.parametrize(
     ("mode", "message_available"),
-    [("A", False), ("B", True), ("C", True)],
+    [("A", False), ("B", True), ("C", False)],
 )
-def test_message_available_only_outside_official_mode(monkeypatch, mode, message_available):
+def test_message_available_only_in_mode_b(monkeypatch, mode, message_available):
     build_config = types.ModuleType("blender_addon.build_config")
     build_config.BUILD_MODE = mode
     build_config.FEEDBACK_ENDPOINT = "https://example.invalid/v1/feedback"

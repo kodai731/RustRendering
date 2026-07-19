@@ -6,16 +6,16 @@ use crate::degrade::DEGRADED_CONTEXT_LENGTH;
 /// (`scripts/build_blender_addon.{sh,ps1} --build-mode A|B|C`) select the
 /// same three paths:
 ///
-/// | Mode    | Addon build          | Behaviour                     | Extra build env                                           |
-/// |---------|----------------------|-------------------------------|-----------------------------------------------------------|
-/// | Degrade | A (official repo)    | ctx32 fixed, no network code  | (none)                                                    |
-/// | Full    | B (self-hosted repo) | ctx64, sends feedback records | `THYLLORE_FULL_TOKEN_PUBKEY_B64`                              |
-/// | Private | C (Blender Market)   | ctx64 via license, no records | `THYLLORE_LICENSE_ENDPOINT`, `THYLLORE_FULL_TOKEN_PUBKEY_B64` |
+/// | Mode    | Addon build          | Behaviour                          | Extra build env                  |
+/// |---------|----------------------|------------------------------------|----------------------------------|
+/// | Degrade | A (not distributed)  | ctx32 fixed, no network code       | (none)                           |
+/// | Full    | B (self-hosted repo) | ctx64, sends feedback records      | `THYLLORE_FULL_TOKEN_PUBKEY_B64` |
+/// | Private | C (BOOTH)            | ctx64 always, zero network traffic | (none)                           |
 ///
-/// Build modes B and C additionally require `THYLLORE_FEEDBACK_ENDPOINT` and
+/// Build mode B additionally requires `THYLLORE_FEEDBACK_ENDPOINT` and
 /// `THYLLORE_INGEST_TOKEN` for the free-text message channel (`/v1/message`).
-/// Mode A ships without any network code (no message channel) and needs no
-/// environment variables.
+/// Modes A and C ship without any network permission and need no environment
+/// variables.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum CurveCopilotMode {
     Full,

@@ -75,9 +75,8 @@ d. Licensor uses the transmitted data solely to improve the A.I. model and
 
 Licensor does not collect any personal information. Personal data provided
 at the time of purchase (such as your email address) is collected and
-processed by the storefront under its own privacy policy. License
-activation transmits only your license key and an auto-generated Device ID,
-which contain no personal information.
+processed by the storefront under its own privacy policy. The private
+edition performs no online activation and transmits nothing.
 
 ## 5. Warranty Disclaimer
 

@@ -44,7 +44,6 @@ $FeedbackEndpointVar = switch ($EndpointEnv) {
 $FeedbackEndpoint = [Environment]::GetEnvironmentVariable($FeedbackEndpointVar)
 $IngestToken = $env:THYLLORE_INGEST_TOKEN
 $FullTokenPubkey = $env:THYLLORE_FULL_TOKEN_PUBKEY_B64
-$LicenseEndpoint = $env:THYLLORE_LICENSE_ENDPOINT
 
 function Assert-BuildModeEnv([string]$Name, [string]$Value) {
     if ([string]::IsNullOrEmpty($Value)) {
@@ -63,13 +62,11 @@ switch ($BuildMode) {
         Assert-BuildModeEnv "THYLLORE_FULL_TOKEN_PUBKEY_B64" $FullTokenPubkey
     }
     "C" {
-        Assert-BuildModeEnv $FeedbackEndpointVar $FeedbackEndpoint
-        Assert-BuildModeEnv "THYLLORE_INGEST_TOKEN" $IngestToken
-        Assert-BuildModeEnv "THYLLORE_LICENSE_ENDPOINT" $LicenseEndpoint
-        Assert-BuildModeEnv "THYLLORE_FULL_TOKEN_PUBKEY_B64" $FullTokenPubkey
+        $FeedbackEndpoint = ""
+        $IngestToken = ""
     }
 }
-if ($BuildMode -ne "A") {
+if ($BuildMode -eq "B") {
     Write-Host "[build_blender_addon] Feedback endpoint ($(if ($EndpointEnv) { $EndpointEnv } else { 'explicit' })): $FeedbackEndpoint"
 }
 
@@ -165,13 +162,8 @@ if ($BuildMode -ne "B" -and (Test-Path $TelemetryStage)) {
     Remove-Item -Recurse -Force $TelemetryStage
     Write-Host "[build_blender_addon] (mode $BuildMode) excluded: telemetry" -ForegroundColor DarkYellow
 }
-$LicenseClientStage = Join-Path $StageDir "license_client"
-if ($BuildMode -ne "C" -and (Test-Path $LicenseClientStage)) {
-    Remove-Item -Recurse -Force $LicenseClientStage
-    Write-Host "[build_blender_addon] (mode $BuildMode) excluded: license_client" -ForegroundColor DarkYellow
-}
 $FeedbackMessageStage = Join-Path $StageDir "feedback_message.py"
-if ($BuildMode -eq "A" -and (Test-Path $FeedbackMessageStage)) {
+if ($BuildMode -ne "B" -and (Test-Path $FeedbackMessageStage)) {
     Remove-Item -Force $FeedbackMessageStage
     Write-Host "[build_blender_addon] (mode $BuildMode) excluded: feedback_message.py" -ForegroundColor DarkYellow
 }
@@ -244,7 +236,7 @@ $ManifestContent = $ManifestContent -replace '(?ms)wheels = \[.*?\]', "wheels = 
 $NetworkPermission = switch ($BuildMode) {
     "A" { $null }
     "B" { "Send opt-in anonymized FCurve feedback (unlocks full context)" }
-    "C" { "Online license check to unlock the purchased full context" }
+    "C" { $null }
 }
 if ($null -eq $NetworkPermission) {
     $ManifestContent = $ManifestContent -replace "`nnetwork = `"NETWORK_PERMISSION`"", ""
@@ -312,13 +304,10 @@ if ($OnnxruntimeLib -and (Test-Path $OnnxruntimeLib)) {
 # Generate build_config.py (BUILD_MODE single source of truth)
 
 $BuildConfigLines = @("BUILD_MODE = `"$BuildMode`"")
-if ($BuildMode -eq "B" -or $BuildMode -eq "C") {
+if ($BuildMode -eq "B") {
     $BuildConfigLines += "FEEDBACK_ENDPOINT = `"$FeedbackEndpoint`""
     $BuildConfigLines += "INGEST_TOKEN = `"$IngestToken`""
     $BuildConfigLines += "FULL_TOKEN_PUBKEY = `"$FullTokenPubkey`""
-}
-if ($BuildMode -eq "C") {
-    $BuildConfigLines += "LICENSE_ENDPOINT = `"$LicenseEndpoint`""
 }
 $Utf8NoBomConfig = New-Object System.Text.UTF8Encoding($false)
 [System.IO.File]::WriteAllText(

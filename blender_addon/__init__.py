@@ -30,7 +30,7 @@ _bootstrap.insert_wheels_to_sys_path()
 
 # Expected ABI marker -- must match crates/thyllore-ml-api/src/lib.rs::ABI_MARKER.
 # Bump in lockstep with that constant when the L2 trait has breaking changes.
-EXPECTED_ABI_MARKER: int = 3
+EXPECTED_ABI_MARKER: int = 4
 
 
 # Skip importing bpy-dependent modules during pure-package consumption (e.g.,
@@ -52,7 +52,7 @@ if _BPY_AVAILABLE:
     from . import panels  # noqa: E402
     from . import preferences  # noqa: E402
 
-    # The message channel ships only in mode B/C builds; A ZIPs exclude it.
+    # The message channel ships only in mode B builds; A/C ZIPs exclude it.
     try:
         from . import feedback_message  # noqa: E402
 
@@ -67,14 +67,6 @@ if _BPY_AVAILABLE:
         _TELEMETRY_AVAILABLE = True
     except ImportError:
         _TELEMETRY_AVAILABLE = False
-
-    # License activation ships only in mode C builds; A/B ZIPs exclude it.
-    try:
-        from . import license_client  # noqa: E402
-
-        _LICENSE_CLIENT_AVAILABLE = True
-    except ImportError:
-        _LICENSE_CLIENT_AVAILABLE = False
 
     _REGISTERED_ABI_FAILURE: bool = False
 
@@ -145,8 +137,6 @@ if _BPY_AVAILABLE:
             feedback_message.register()
         if _TELEMETRY_AVAILABLE:
             telemetry.register()
-        if _LICENSE_CLIENT_AVAILABLE:
-            license_client.register()
         _apply_mock_server_pin_if_requested()
         _REGISTERED_ABI_FAILURE = False
         print("[Thyllore] Addon registered successfully")
@@ -154,8 +144,6 @@ if _BPY_AVAILABLE:
     def unregister() -> None:
         global _REGISTERED_ABI_FAILURE
 
-        if _LICENSE_CLIENT_AVAILABLE and not _REGISTERED_ABI_FAILURE:
-            license_client.unregister()
         if _TELEMETRY_AVAILABLE and not _REGISTERED_ABI_FAILURE:
             telemetry.unregister()
         if _FEEDBACK_MESSAGE_AVAILABLE and not _REGISTERED_ABI_FAILURE:
