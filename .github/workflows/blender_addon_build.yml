@@ -90,7 +90,6 @@ jobs:
       THYLLORE_FEEDBACK_ENDPOINT: ${{ secrets.THYLLORE_FEEDBACK_ENDPOINT || 'https://feedback.example.invalid/v1/feedback' }}
       THYLLORE_INGEST_TOKEN: ${{ secrets.THYLLORE_INGEST_TOKEN || 'ci-dummy-ingest-token' }}
       THYLLORE_FULL_TOKEN_PUBKEY_B64: ${{ secrets.THYLLORE_FULL_TOKEN_PUBKEY_B64 || 'ZHVtbXktcHVia2V5' }}
-      THYLLORE_LICENSE_ENDPOINT: ${{ secrets.THYLLORE_LICENSE_ENDPOINT || 'https://license.example.invalid/v1/license/refresh' }}
 
     steps:
       - uses: actions/checkout@v4
@@ -110,13 +109,6 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install "cryptography>=42" "maturin>=1.5"
-
-      # Phase 5.5 MVP removes the license module; keypair step kept commented
-      # for one-line reactivation when Phase 6 ships the Auth Backend.
-      # - name: Generate dev keypair (CI only — not committed)
-      #   shell: pwsh
-      #   run: |
-      #     pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/gen_license_keypair.ps1
 
       - name: Collect vendored wheels
         shell: pwsh
@@ -218,7 +210,6 @@ jobs:
       THYLLORE_FEEDBACK_ENDPOINT: https://feedback.example.invalid/v1/feedback
       THYLLORE_INGEST_TOKEN: ci-dummy-ingest-token
       THYLLORE_FULL_TOKEN_PUBKEY_B64: ZHVtbXktcHVia2V5
-      THYLLORE_LICENSE_ENDPOINT: https://license.example.invalid/v1/license/refresh
     steps:
       - uses: actions/checkout@v4
 
@@ -252,6 +243,24 @@ jobs:
       - name: Collect vendored wheels
         run: bash scripts/collect_wheels.sh
 
+      - name: Download curve_copilot ONNX (dummy all-zero weights -- enables the ctx64 operator check)
+        id: model
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          if [ -z "$HF_TOKEN" ]; then
+              echo "::warning::HF_TOKEN not set - boundary smoke runs without the operator inference check"
+              echo "include=0" >> "$GITHUB_OUTPUT"
+              exit 0
+          fi
+          dest="$RUNNER_TEMP/curve_copilot.onnx"
+          curl -L --fail --retry 3 \
+              -H "Authorization: Bearer $HF_TOKEN" \
+              -o "$dest" \
+              "https://huggingface.co/kodai731/thyllore-curve-copilot/resolve/main/curve_copilot_dummy.onnx"
+          echo "include=1" >> "$GITHUB_OUTPUT"
+          echo "path=$dest" >> "$GITHUB_OUTPUT"
+
       - name: Install Blender 4.2 LTS
         run: |
           wget -q -O blender.tar.xz https://download.blender.org/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz
@@ -278,8 +287,12 @@ jobs:
               export HOME="$RUNNER_TEMP/blender_home_$mode"
               mkdir -p "$HOME"
               /opt/blender/blender --command extension install-file -r user_default --enable "$zip"
+              smoke_args=(--result "$RUNNER_TEMP/result_$mode.json" --expect-mode "$mode")
+              if [ "${{ steps.model.outputs.include }}" = "1" ]; then
+                  smoke_args+=(--onnx "${{ steps.model.outputs.path }}")
+              fi
               /opt/blender/blender --background \
                   --python blender_addon/tests/build_mode_boundary_smoke.py -- \
-                  --result "$RUNNER_TEMP/result_$mode.json" --expect-mode "$mode"
+                  "${smoke_args[@]}"
               echo "::endgroup::"
           done

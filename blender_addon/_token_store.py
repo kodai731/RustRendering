@@ -1,5 +1,4 @@
-"""Cached full-token state shared by telemetry (mode B) and license_client
-(mode C).
+"""Cached full-token state for telemetry (mode B).
 
 One JSON file per channel under Blender's user CONFIG directory. The wheel
 re-verifies the Ed25519 signature and expiry itself; this store only caches

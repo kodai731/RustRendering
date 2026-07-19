@@ -11,7 +11,6 @@ set -euo pipefail
 #                           Workers R2 Storage:Edit, Account Settings:Read)
 #   CF_ACCOUNT_ID           Cloudflare account id
 #   THYLLORE_INGEST_TOKEN   shared bearer token baked into mode B addon builds
-#   THYLLORE_ADMIN_TOKEN    bearer token guarding /v1/license/provision
 #   Ed25519 private key (PKCS8 DER, base64), via EITHER:
 #     THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE   path to the b64 file
 #     THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64         the b64 value itself
@@ -75,7 +74,6 @@ require_env() {
 require_env CF_API_TOKEN
 require_env CF_ACCOUNT_ID
 require_env THYLLORE_INGEST_TOKEN
-require_env THYLLORE_ADMIN_TOKEN
 
 resolve_private_key() {
     if [[ -n "${THYLLORE_FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE:-}" ]]; then
@@ -108,15 +106,6 @@ toml_r2_field() {
     ' "$WRANGLER_TOML"
 }
 
-toml_section_field() {
-    local section="$1" field="$2"
-    awk -F'"' -v section="$section" -v field="$field" '
-        index($0, "[[" section "]]") == 1 { in_block = 1; next }
-        /^\[/ { in_block = 0 }
-        in_block && $0 ~ ("^" field "[[:space:]]*=") { print $2; exit }
-    ' "$WRANGLER_TOML"
-}
-
 build_var_bindings() {
     local vars_array="[]"
     local in_vars=0 line key value
@@ -139,15 +128,10 @@ SCRIPT_NAME="$(toml_scalar name)"
 COMPAT_DATE="$(toml_scalar compatibility_date)"
 R2_BINDING="$(toml_r2_field binding)"
 BUCKET_NAME="$(toml_r2_field bucket_name)"
-DO_BINDING="$(toml_section_field "durable_objects.bindings" name)"
-DO_CLASS="$(toml_section_field "durable_objects.bindings" class_name)"
-MIGRATION_TAG="$(toml_section_field migrations tag)"
-MIGRATION_SQLITE_CLASS="$(toml_section_field migrations new_sqlite_classes)"
 MODULE_NAME="index.mjs"
 SCRIPT_PATH="$WORKER_DIR/src/$MODULE_NAME"
 
-for value in SCRIPT_NAME COMPAT_DATE R2_BINDING BUCKET_NAME DO_BINDING DO_CLASS \
-    MIGRATION_TAG MIGRATION_SQLITE_CLASS; do
+for value in SCRIPT_NAME COMPAT_DATE R2_BINDING BUCKET_NAME; do
     if [[ -z "${!value}" ]]; then
         echo "failed to read $value from $WRANGLER_TOML" >&2
         exit 1
@@ -192,24 +176,17 @@ METADATA="$(jq -nc \
     --arg compat "$COMPAT_DATE" \
     --arg r2name "$R2_BINDING" \
     --arg bucket "$BUCKET_NAME" \
-    --arg doname "$DO_BINDING" \
-    --arg doclass "$DO_CLASS" \
     --arg ingest "$THYLLORE_INGEST_TOKEN" \
-    --arg admin "$THYLLORE_ADMIN_TOKEN" \
     --arg privkey "$PRIVATE_KEY_B64" \
     --argjson vars "$VAR_BINDINGS" \
     '{
         main_module: $main,
         compatibility_date: $compat,
         bindings: (
-            [
-                {type: "r2_bucket", name: $r2name, bucket_name: $bucket},
-                {type: "durable_object_namespace", name: $doname, class_name: $doclass}
-            ]
+            [{type: "r2_bucket", name: $r2name, bucket_name: $bucket}]
             + $vars
             + [
                 {type: "secret_text", name: "INGEST_TOKEN", text: $ingest},
-                {type: "secret_text", name: "ADMIN_TOKEN", text: $admin},
                 {type: "secret_text", name: "FULL_TOKEN_PRIVATE_KEY_PKCS8_B64", text: $privkey}
             ]
         )
@@ -258,17 +235,7 @@ upload_worker() {
 
 echo "[deploy] Uploading worker script..."
 upload_response="$(upload_worker "$METADATA")"
-if [[ "$(jq -r '.success' <<<"$upload_response")" != "true" ]]; then
-    echo "[deploy] Plain upload failed (expected on first deploy of a new DO class):" >&2
-    jq -r '.errors // [] | .[] | "  [\(.code)] \(.message)"' <<<"$upload_response" >&2
-    echo "[deploy] Retrying with DO migration '$MIGRATION_TAG' ($MIGRATION_SQLITE_CLASS)..."
-    metadata_with_migrations="$(jq -c \
-        --arg tag "$MIGRATION_TAG" \
-        --arg class "$MIGRATION_SQLITE_CLASS" \
-        '. + {migrations: {new_tag: $tag, new_sqlite_classes: [$class]}}' <<<"$METADATA")"
-    upload_response="$(upload_worker "$metadata_with_migrations")"
-    fail_on_api_error "$upload_response" "worker upload (with migrations)"
-fi
+fail_on_api_error "$upload_response" "worker upload"
 echo "[deploy] Worker uploaded."
 
 echo "[deploy] Enabling workers.dev route..."
@@ -283,6 +250,6 @@ SUBDOMAIN="$(jq -r '.result.subdomain' <<<"$account_subdomain")"
 
 echo
 echo "[deploy] Deployed: https://$SCRIPT_NAME.$SUBDOMAIN.workers.dev"
-echo "[deploy] Endpoints: POST /v1/feedback  /v1/message  /v1/license/refresh  /v1/license/provision"
+echo "[deploy] Endpoints: POST /v1/feedback  /v1/message"
 echo "[deploy] Bake THYLLORE_FEEDBACK_ENDPOINT into mode B builds:"
 echo "           https://$SCRIPT_NAME.$SUBDOMAIN.workers.dev/v1/feedback"

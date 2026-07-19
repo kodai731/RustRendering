@@ -90,7 +90,6 @@ jobs:
     env:
       THYLLORE_FEEDBACK_PROD_ENDPOINT: ${{ secrets.THYLLORE_FEEDBACK_PROD_ENDPOINT }}
       THYLLORE_INGEST_TOKEN: ${{ secrets.THYLLORE_INGEST_TOKEN }}
-      THYLLORE_LICENSE_ENDPOINT: ${{ secrets.THYLLORE_LICENSE_ENDPOINT }}
       THYLLORE_FULL_TOKEN_PUBKEY_B64: ${{ secrets.THYLLORE_FULL_TOKEN_PUBKEY_B64 }}
     steps:
       - name: Require release secrets (no dummy fallback for distribution builds)
@@ -105,13 +104,6 @@ jobs:
                   'THYLLORE_FEEDBACK_PROD_ENDPOINT',
                   'THYLLORE_INGEST_TOKEN',
                   'THYLLORE_FULL_TOKEN_PUBKEY_B64'
-              )
-          } elseif ($env:BUILD_MODE -eq 'C') {
-              $required += @(
-                  'THYLLORE_LICENSE_ENDPOINT',
-                  'THYLLORE_FULL_TOKEN_PUBKEY_B64',
-                  'THYLLORE_FEEDBACK_PROD_ENDPOINT',
-                  'THYLLORE_INGEST_TOKEN'
               )
           }
           $missing = @($required | Where-Object { -not [Environment]::GetEnvironmentVariable($_) })

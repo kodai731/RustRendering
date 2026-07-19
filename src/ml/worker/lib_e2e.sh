@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Shared helpers for the local npm-free e2e scripts (test_local_e2e.sh,
-# test_license_seat_e2e.sh). Sourced, not executed. Callers must set:
-#   REPO_ROOT, WORKER_DIR, LOCAL_DIR, PORT, INGEST_TOKEN, ADMIN_TOKEN
+# Shared helpers for the local npm-free e2e scripts (test_local_e2e.sh).
+# Sourced, not executed. Callers must set:
+#   REPO_ROOT, WORKER_DIR, LOCAL_DIR, PORT, INGEST_TOKEN
 #
 # One Ed25519 keypair is shared between both sides: the wheel is built with the
 # public key baked in, the local workerd signs full tokens with the private
@@ -74,7 +74,7 @@ e2e_build_and_install_wheel() {
 e2e_start_worker() {
     echo "[e2e] Starting local workerd on port $PORT..."
     FULL_TOKEN_PRIVATE_KEY_PKCS8_B64_FILE="$PRIV_PKCS8_FILE" \
-        INGEST_TOKEN="$INGEST_TOKEN" ADMIN_TOKEN="$ADMIN_TOKEN" \
+        INGEST_TOKEN="$INGEST_TOKEN" \
         bash "$WORKER_DIR/run_local.sh" --port "$PORT" >"$LOCAL_DIR/workerd.log" 2>&1 &
     E2E_WORKERD_PID=$!
     trap 'kill "$E2E_WORKERD_PID" 2>/dev/null || true' EXIT

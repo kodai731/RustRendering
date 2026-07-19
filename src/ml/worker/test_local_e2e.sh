@@ -7,8 +7,8 @@ set -euo pipefail
 #
 # Requires: curl, jq, gzip, and maturin (from .venv-collect-wheels) + python3.
 # R2 writes are out of scope here (see run_local.sh); they are covered by the
-# -test bucket via deploy.sh --env test. Seat licensing (mode C) is covered by
-# test_license_seat_e2e.sh.
+# -test bucket via deploy.sh --env test. Mode C (private) never contacts the
+# worker, so there is no mode C e2e.
 
 WORKER_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$WORKER_DIR/../../.." && pwd)"
@@ -16,8 +16,7 @@ LOCAL_DIR="$WORKER_DIR/.local"
 PORT="8788"
 
 INGEST_TOKEN="local-e2e-ingest-token"
-ADMIN_TOKEN="local-e2e-admin-token"
-export INGEST_TOKEN ADMIN_TOKEN
+export INGEST_TOKEN
 
 source "$WORKER_DIR/lib_e2e.sh"
 
