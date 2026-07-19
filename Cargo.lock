@@ -3691,6 +3691,7 @@ dependencies = [
  "once_cell",
  "ort",
  "png 0.17.16",
+ "rand 0.8.6",
  "raw-window-handle",
  "rfd",
  "ron",
