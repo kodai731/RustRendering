@@ -139,10 +139,26 @@ impl EditableClipManager {
             fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))?;
 
         let mut clip: EditableAnimationClip =
-            if let Ok(clip_file) = ron::from_str::<crate::editable::AnimationClipFile>(&content) {
-                clip_file.clip
-            } else {
-                ron::from_str(&content)?
+            match ron::from_str::<crate::editable::AnimationClipFile>(&content) {
+                Ok(clip_file) => {
+                    if clip_file.version != crate::editable::ANIMATION_FORMAT_VERSION {
+                        anyhow::bail!(
+                            "Unsupported animation clip format version {} (expected {}): {:?}",
+                            clip_file.version,
+                            crate::editable::ANIMATION_FORMAT_VERSION,
+                            path
+                        );
+                    }
+                    clip_file.clip
+                }
+                Err(file_err) => ron::from_str(&content).map_err(|legacy_err| {
+                    anyhow::anyhow!(
+                        "Failed to parse {:?} as AnimationClipFile ({}) or as legacy EditableAnimationClip ({})",
+                        path,
+                        file_err,
+                        legacy_err
+                    )
+                })?,
             };
 
         let id = self.next_clip_id;

@@ -10,7 +10,6 @@ pub(crate) fn build_minimal_gltf_json(
     skeleton: &thyllore_anim_core::Skeleton,
 ) -> Result<json::Root> {
     let mut root = json::Root::default();
-    // Build a map from BoneId to node index (the position in skeleton.bones)
     let bone_id_to_node_index: HashMap<BoneId, usize> = skeleton
         .bones
         .iter()
@@ -18,9 +17,7 @@ pub(crate) fn build_minimal_gltf_json(
         .map(|(idx, bone)| (bone.id, idx))
         .collect();
 
-    // Build nodes for each bone with children and matrix
-    for (_i, bone) in skeleton.bones.iter().enumerate() {
-        // Convert BoneId children to node indices via the HashMap
+    for bone in &skeleton.bones {
         let children: Vec<Index<json::Node>> = bone
             .children
             .iter()
@@ -31,8 +28,6 @@ pub(crate) fn build_minimal_gltf_json(
             })
             .collect();
 
-        // Convert local_transform (cgmath::Matrix4<f32>) to flat array of 16 f32 values
-        // in column-major order (same as glTF)
         let mut matrix: Option<[f32; 16]> = None;
         if bone.local_transform != cgmath::Matrix4::identity() {
             let cols: [[f32; 4]; 4] = bone.local_transform.into();

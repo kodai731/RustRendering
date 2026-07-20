@@ -1,18 +1,16 @@
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufReader, BufWriter};
 use std::path::Path;
 
 use anyhow::{Context, Result};
 
 use crate::animation::editable::{
-    clip_from_animation, clip_remap_bone_ids, clip_to_animation, EditableAnimationClip, SourceClip,
-    SourceClipId,
+    clip_remap_bone_ids, clip_to_animation, EditableAnimationClip, SourceClip, SourceClipId,
 };
 use crate::animation::{AnimationClip, BoneId};
 use crate::asset::{AnimationClipAsset, AssetStorage};
 use crate::ecs::resource::ClipLibrary;
-use crate::scene::{AnimationClipFile, ANIMATION_FORMAT_VERSION};
+use crate::scene::AnimationClipFile;
 
 pub fn clip_library_register_and_activate(
     lib: &mut ClipLibrary,

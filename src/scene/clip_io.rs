@@ -7,8 +7,7 @@ use super::error::{SceneError, SceneResult};
 use super::format::{AnimationClipFile, ANIMATION_FORMAT_VERSION};
 
 pub fn save_animation_clip(path: &Path, clip: &EditableAnimationClip) -> SceneResult<()> {
-    thyllore_exporter_core::systems::ron::export_ron_clip(clip, path)
-        .map_err(|e| SceneError::Io(std::io::Error::new(std::io::ErrorKind::Other, e)))
+    thyllore_exporter_core::systems::ron::export_ron_clip(clip, path).map_err(SceneError::Export)
 }
 
 pub fn load_animation_clip(path: &Path) -> SceneResult<EditableAnimationClip> {

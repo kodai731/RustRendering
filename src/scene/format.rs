@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::animation::editable::EditableAnimationClip;
-
 pub const SCENE_FORMAT_VERSION: u32 = 4;
 
 pub use thyllore_anim_core::editable::{AnimationClipFile, ANIMATION_FORMAT_VERSION};

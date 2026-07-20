@@ -5,12 +5,6 @@
     clippy::unnecessary_wraps
 )]
 
-#[macro_use]
-extern crate thyllore_log_core;
-
-#[macro_use]
-extern crate thyllore_animation;
-
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
 use thyllore_animation::platform;

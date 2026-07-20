@@ -96,78 +96,7 @@ pub(crate) fn replace_animations(
     skeleton: &Skeleton,
 ) -> Result<()> {
     root.animations.clear();
-
-    let bone_to_node = build_bone_to_node_map(skeleton, &root.nodes);
-    if bone_to_node.is_empty() {
-        return Err(anyhow!(
-            "No bone-to-node mapping found. Skeleton bone names may not match glTF node names."
-        ));
-    }
-
-    let buffer_index = Index::<json::Buffer>::new(0);
-    let mut channels = Vec::new();
-    let mut samplers = Vec::new();
-
-    for (&bone_id, channel) in &clip.channels {
-        let Some(&node_index) = bone_to_node.get(&bone_id) else {
-            continue;
-        };
-        let node_idx = Index::new(node_index);
-
-        append_translation_channel(
-            root,
-            bin,
-            buffer_index,
-            channel,
-            node_idx,
-            &mut channels,
-            &mut samplers,
-        );
-
-        append_rotation_channel(
-            root,
-            bin,
-            buffer_index,
-            channel,
-            node_idx,
-            &mut channels,
-            &mut samplers,
-        );
-
-        append_scale_channel(
-            root,
-            bin,
-            buffer_index,
-            channel,
-            node_idx,
-            &mut channels,
-            &mut samplers,
-        );
-    }
-
-    if root.buffers.is_empty() {
-        root.buffers.push(json::Buffer {
-            byte_length: USize64::from(bin.len() as u64),
-            name: None,
-            uri: None,
-            extensions: None,
-            extras: Default::default(),
-        });
-    } else {
-        root.buffers[0].byte_length = USize64::from(bin.len() as u64);
-    }
-
-    if !channels.is_empty() {
-        root.animations.push(json::Animation {
-            extensions: None,
-            extras: Default::default(),
-            channels,
-            name: Some(clip.name.clone()),
-            samplers,
-        });
-    }
-
-    Ok(())
+    write_animation_channels(root, bin, clip, skeleton)
 }
 
 pub(crate) fn append_translation_channel(

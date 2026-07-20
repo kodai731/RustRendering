@@ -72,7 +72,7 @@ mod tests {
     use super::*;
     use crate::systems::gltf::accessors::{
         append_f32_data, build_bone_to_node_map, compute_min_max_scalar, compute_min_max_vec3,
-        compute_min_max_vec4, pad_to_4byte_alignment, quaternion_to_gltf_array,
+        pad_to_4byte_alignment, quaternion_to_gltf_array,
     };
     use cgmath::Quaternion;
     use gltf::json::Index;
