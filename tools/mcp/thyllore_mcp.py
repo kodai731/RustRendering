@@ -80,7 +80,13 @@ def _run_batch(args: list[str]) -> str:
 
 
 @mcp.tool()
-def screenshot(output: str = "", frames: int = 120, flame_mode: str = "", flame_steps: int = 0) -> str:
+def screenshot(
+    output: str = "",
+    frames: int = 120,
+    flame_mode: str = "",
+    flame_steps: int = 0,
+    camera: str = "",
+) -> str:
     """Launch Thyllore, render `frames` frames, save a viewport PNG, and exit.
 
     Returns one JSON object: {"ok": true, "path": "<absolute png path>"} or
@@ -89,7 +95,8 @@ def screenshot(output: str = "", frames: int = 120, flame_mode: str = "", flame_
     under the system tmp directory so reboots reclaim the disk space.
     `flame_mode` optionally overrides the flame integrator
     (analytic|raymarch|thickness|noise); `flame_steps` > 0 overrides the
-    raymarch step count. Each call pays a full engine startup (seconds)."""
+    raymarch step count; `camera` = "yaw_deg,pitch_deg,distance" orbits the
+    camera around the origin. Each call pays a full engine startup (seconds)."""
     default_dir = Path(tempfile.gettempdir()) / "thyllore_screenshots"
     default_dir.mkdir(parents=True, exist_ok=True)
     out = output or str(default_dir / f"screenshot_batch_{int(time.time())}.png")
@@ -98,6 +105,8 @@ def screenshot(output: str = "", frames: int = 120, flame_mode: str = "", flame_
         args += ["--batch-flame-mode", flame_mode]
     if flame_steps > 0:
         args += ["--batch-flame-steps", str(flame_steps)]
+    if camera:
+        args += ["--batch-camera", camera]
     return _run_batch(args)
 
 

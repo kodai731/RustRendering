@@ -37,6 +37,7 @@ pub fn build_scene_overlay(
     ui.window("Scene Overlay")
         .position([pos_x, pos_y], Condition::Always)
         .size_constraints([OVERLAY_WIDTH, 0.0], [OVERLAY_WIDTH, f32::MAX])
+        .always_auto_resize(true)
         .no_decoration()
         .bg_alpha(0.7)
         .no_nav()

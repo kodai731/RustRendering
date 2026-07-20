@@ -7,7 +7,7 @@
 
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
-use thyllore_animation::ecs::resource::{BatchRun, FlameRenderSettings};
+use thyllore_animation::ecs::resource::{BatchRun, Camera, FlameRenderSettings};
 use thyllore_animation::ecs::systems::{batch_run_report, resolve_engine_cli_overrides};
 use thyllore_animation::platform;
 
@@ -56,6 +56,12 @@ fn main() -> Result<()> {
         let mut settings = app.data.ecs_world.resource_mut::<FlameRenderSettings>();
         settings.reference_step_count = step_count;
         settings.noise_step_count = step_count;
+    }
+    if let Some(pose) = overrides.camera_pose {
+        let mut camera = app.data.ecs_world.resource_mut::<Camera>();
+        camera.yaw = pose.yaw_degrees.to_radians();
+        camera.pitch = pose.pitch_degrees.to_radians();
+        camera.distance = pose.distance;
     }
 
     unsafe {

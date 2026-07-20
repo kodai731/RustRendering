@@ -159,7 +159,7 @@ void main() {
     float deltaT = max(accum.y, 0.0);
 
     if (push.mode == 2) {
-        outColor = vec4(vec3(deltaT), 1.0);
+        outColor = vec4(max(accum.z, 0.0), deltaT, max(-accum.z, 0.0), 1.0);
         return;
     }
 

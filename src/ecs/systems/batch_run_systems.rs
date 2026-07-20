@@ -10,12 +10,21 @@ const BATCH_SCREENSHOT_FLAG: &str = "--batch-screenshot";
 const BATCH_FRAMES_FLAG: &str = "--batch-frames";
 const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
+const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct BatchCameraPose {
+    pub yaw_degrees: f32,
+    pub pitch_degrees: f32,
+    pub distance: f32,
+}
 
 pub struct EngineCliOverrides {
     pub batch_run: Option<BatchRun>,
     pub flame_mode: Option<FlameShadingMode>,
     pub flame_steps: Option<u32>,
+    pub camera_pose: Option<BatchCameraPose>,
 }
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
@@ -23,7 +32,36 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         batch_run: batch_run_resolve_from_args(args)?,
         flame_mode: flame_mode_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
+        camera_pose: camera_pose_resolve_from_args(args)?,
     })
+}
+
+pub fn camera_pose_resolve_from_args(args: &[String]) -> Result<Option<BatchCameraPose>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_CAMERA_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_CAMERA_FLAG} requires <yaw_deg>,<pitch_deg>,<distance>");
+    };
+
+    let parts: Vec<&str> = value.split(',').collect();
+    if parts.len() != 3 {
+        bail!("{BATCH_CAMERA_FLAG} expects 3 comma-separated values, got '{value}'");
+    }
+    let numbers: Vec<f32> = parts
+        .iter()
+        .map(|part| part.trim().parse::<f32>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| anyhow::anyhow!("invalid {BATCH_CAMERA_FLAG} value '{value}'"))?;
+    if !numbers.iter().all(|n| n.is_finite()) || numbers[2] <= 0.0 {
+        bail!("{BATCH_CAMERA_FLAG} distance must be > 0 and all values finite: '{value}'");
+    }
+
+    Ok(Some(BatchCameraPose {
+        yaw_degrees: numbers[0],
+        pitch_degrees: numbers[1],
+        distance: numbers[2],
+    }))
 }
 
 pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> {
@@ -279,6 +317,34 @@ mod tests {
         assert!(
             flame_steps_resolve_from_args(&args(&["bin", "--batch-flame-steps", "abc"])).is_err()
         );
+    }
+
+    #[test]
+    fn resolve_camera_pose() {
+        let pose = camera_pose_resolve_from_args(&args(&["bin", "--batch-camera", "30,5,4"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            pose,
+            BatchCameraPose {
+                yaw_degrees: 30.0,
+                pitch_degrees: 5.0,
+                distance: 4.0
+            }
+        );
+        assert!(camera_pose_resolve_from_args(&args(&["bin"]))
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn resolve_rejects_invalid_camera_pose() {
+        for value in ["30,5", "a,b,c", "30,5,0", "30,5,-1"] {
+            assert!(
+                camera_pose_resolve_from_args(&args(&["bin", "--batch-camera", value])).is_err(),
+                "expected error for '{value}'"
+            );
+        }
     }
 
     #[test]
