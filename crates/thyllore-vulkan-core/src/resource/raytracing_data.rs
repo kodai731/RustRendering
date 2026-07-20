@@ -22,7 +22,6 @@ use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::{BloomChain, OnionSkinPassResources, RRGBuffer};
-use crate::{log, log_warn};
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {

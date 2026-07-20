@@ -7,23 +7,7 @@ use super::error::{SceneError, SceneResult};
 use super::format::{AnimationClipFile, ANIMATION_FORMAT_VERSION};
 
 pub fn save_animation_clip(path: &Path, clip: &EditableAnimationClip) -> SceneResult<()> {
-    let clip_file = AnimationClipFile::new(clip.clone());
-
-    let config = ron::ser::PrettyConfig::new()
-        .depth_limit(10)
-        .separate_tuple_members(true)
-        .enumerate_arrays(false);
-
-    let content = ron::ser::to_string_pretty(&clip_file, config)?;
-
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)?;
-    }
-
-    fs::write(path, content)?;
-    log!("Saved animation clip to: {}", path.display());
-
-    Ok(())
+    thyllore_exporter_core::systems::ron::export_ron_clip(clip, path).map_err(SceneError::Export)
 }
 
 pub fn load_animation_clip(path: &Path) -> SceneResult<EditableAnimationClip> {

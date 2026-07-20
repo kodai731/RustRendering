@@ -90,6 +90,17 @@ fn build_toolbar(
     }
 
     ui.same_line();
+    if has_selection {
+        if ui.small_button("glTF (anim only)") {
+            if let Some(id) = browser_state.selected_clip_id {
+                ui_events.send(UIEvent::ClipBrowserExportGltfAnimationOnly(id));
+            }
+        }
+    } else {
+        ui.text_disabled("glTF (anim only)");
+    }
+
+    ui.same_line();
     let can_duplicate = has_selection;
     if can_duplicate {
         if ui.small_button("Dup") {

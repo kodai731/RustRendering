@@ -1,9 +1,7 @@
+use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::io::{BufReader, BufWriter};
 use std::path::Path;
-
-use anyhow::{Context, Result};
 
 use crate::{AnimationClip, AnimationClipId, BoneId};
 
@@ -136,26 +134,32 @@ impl EditableClipManager {
             .collect()
     }
 
-    pub fn save_to_file(&self, id: SourceClipId, path: &Path) -> Result<()> {
-        let clip = self.clips.get(&id).context("Clip not found")?;
-
-        let file =
-            fs::File::create(path).with_context(|| format!("Failed to create file: {:?}", path))?;
-        let writer = BufWriter::new(file);
-
-        ron::ser::to_writer_pretty(writer, clip, ron::ser::PrettyConfig::default())
-            .with_context(|| format!("Failed to serialize clip to: {:?}", path))?;
-
-        Ok(())
-    }
-
     pub fn load_from_file(&mut self, path: &Path) -> Result<SourceClipId> {
-        let file =
-            fs::File::open(path).with_context(|| format!("Failed to open file: {:?}", path))?;
-        let reader = BufReader::new(file);
+        let content =
+            fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))?;
 
-        let mut clip: EditableAnimationClip = ron::de::from_reader(reader)
-            .with_context(|| format!("Failed to deserialize clip from: {:?}", path))?;
+        let mut clip: EditableAnimationClip =
+            match ron::from_str::<crate::editable::AnimationClipFile>(&content) {
+                Ok(clip_file) => {
+                    if clip_file.version != crate::editable::ANIMATION_FORMAT_VERSION {
+                        anyhow::bail!(
+                            "Unsupported animation clip format version {} (expected {}): {:?}",
+                            clip_file.version,
+                            crate::editable::ANIMATION_FORMAT_VERSION,
+                            path
+                        );
+                    }
+                    clip_file.clip
+                }
+                Err(file_err) => ron::from_str(&content).map_err(|legacy_err| {
+                    anyhow::anyhow!(
+                        "Failed to parse {:?} as AnimationClipFile ({}) or as legacy EditableAnimationClip ({})",
+                        path,
+                        file_err,
+                        legacy_err
+                    )
+                })?,
+            };
 
         let id = self.next_clip_id;
         self.next_clip_id += 1;

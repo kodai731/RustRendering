@@ -157,7 +157,7 @@ pub(crate) fn decompose_matrix_to_trs(m: &Matrix4<f32>) -> ([f64; 3], [f64; 3], 
     let r00 = m[0][0] as f64 / sx_safe;
     let r01 = m[0][1] as f64 / sx_safe;
     let r02 = m[0][2] as f64 / sx_safe;
-    let r10 = m[1][0] as f64 / sy_safe;
+    let _r10 = m[1][0] as f64 / sy_safe;
     let r11 = m[1][1] as f64 / sy_safe;
     let r12 = m[1][2] as f64 / sy_safe;
     let _r20 = m[2][0] as f64 / sz_safe;
@@ -248,6 +248,48 @@ pub(crate) fn build_bone_export_list(
 
     resolve_bone_parent_uids(&mut bones, skeleton, &skeleton_idx_to_export_idx);
     bones
+}
+
+fn attach_root_transform_node(
+    bones: &mut Vec<FbxBoneExport>,
+    skeleton: &Skeleton,
+    uid_alloc: &mut UidAllocator,
+    inv_unit_scale: f32,
+) {
+    use cgmath::SquareMatrix;
+
+    if skeleton.root_transform == Matrix4::identity() {
+        return;
+    }
+
+    let (mut translation, rotation, scaling) = decompose_matrix_to_trs(&skeleton.root_transform);
+    let scale = inv_unit_scale as f64;
+    translation[0] *= scale;
+    translation[1] *= scale;
+    translation[2] *= scale;
+
+    let mut name = String::from("Armature");
+    while bones.iter().any(|b| b.name == name) {
+        name.push('_');
+    }
+
+    let root_uid = uid_alloc.allocate();
+    for bone in bones.iter_mut() {
+        if bone.parent_model_uid.is_none() {
+            bone.parent_model_uid = Some(root_uid);
+        }
+    }
+
+    bones.push(FbxBoneExport {
+        model_uid: root_uid,
+        name,
+        is_root: true,
+        parent_model_uid: None,
+        translation,
+        rotation,
+        scaling,
+        node_attribute_uid: None,
+    });
 }
 
 fn resolve_bone_parent_uids(
@@ -512,13 +554,14 @@ fn build_export_data(
 
     let mut uid_alloc = UidAllocator::new();
     let empty_set = std::collections::HashSet::new();
-    let bones = build_bone_export_list(
+    let mut bones = build_bone_export_list(
         skeleton,
         &mut uid_alloc,
         &empty_set,
         inv_unit_scale,
         needs_coord_conversion,
     );
+    attach_root_transform_node(&mut bones, skeleton, &mut uid_alloc, inv_unit_scale);
 
     let stack_uid = uid_alloc.allocate();
     let layer_uid = uid_alloc.allocate();

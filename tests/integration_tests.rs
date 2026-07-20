@@ -86,7 +86,7 @@ fn test_src_directory_structure() {
         "src/app",
         "src/vulkanr",
         "src/loader",
-        "src/renderer",
+        "src/render",
         "src/scene",
         "src/platform",
         "src/debugview",

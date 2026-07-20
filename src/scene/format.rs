@@ -1,10 +1,8 @@
 use serde::{Deserialize, Serialize};
 
-use crate::animation::editable::EditableAnimationClip;
-
 pub const SCENE_FORMAT_VERSION: u32 = 4;
-pub const ANIMATION_FORMAT_VERSION: u32 = 1;
 
+pub use thyllore_anim_core::editable::{AnimationClipFile, ANIMATION_FORMAT_VERSION};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SceneFile {
     pub version: u32,
@@ -98,21 +96,6 @@ impl AnimationClipRef {
     pub fn new(path: &str) -> Self {
         Self {
             path: path.to_string(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AnimationClipFile {
-    pub version: u32,
-    pub clip: EditableAnimationClip,
-}
-
-impl AnimationClipFile {
-    pub fn new(clip: EditableAnimationClip) -> Self {
-        Self {
-            version: ANIMATION_FORMAT_VERSION,
-            clip,
         }
     }
 }

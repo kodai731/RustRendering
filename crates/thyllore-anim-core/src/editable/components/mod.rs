@@ -1,5 +1,6 @@
 pub mod blend;
 pub mod clip;
+pub mod clip_file;
 pub mod clip_group;
 pub mod clip_instance;
 pub mod curve;

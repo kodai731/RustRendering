@@ -1,6 +1,6 @@
 #[macro_use]
-mod logger_compat;
+extern crate thyllore_log_core;
 
-pub mod fbx_animation;
-pub mod fbx_exporter;
-pub mod gltf_exporter;
+pub mod components;
+pub(crate) use crate::systems::fbx::animation as fbx_animation;
+pub mod systems;

@@ -1,5 +1,5 @@
 use anyhow::Result;
-use cgmath::{Matrix4, Quaternion, SquareMatrix, Vector3, Vector4};
+use cgmath::{Matrix4, SquareMatrix, Vector3, Vector4};
 use std::collections::HashMap;
 use thyllore_anim_core::{
     AnimationClip, AnimationSystem, Keyframe, Skeleton, SkinData, TransformChannel,

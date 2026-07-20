@@ -19,6 +19,7 @@ path = "src/main.rs"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+thyllore-log-core = { path = "crates/thyllore-log-core" }
 thyllore-math-core = { path = "crates/thyllore-math-core" }
 thyllore-model-core = { path = "crates/thyllore-model-core" }
 thyllore-anim-core = { path = "crates/thyllore-anim-core" }
@@ -60,6 +61,9 @@ auto-rig = ["text-to-motion", "thyllore-grpc-client/auto-rig", "thyllore-importe
 [dependencies.gltf]
 version = "1.4"
 features = ["extras", "names", "extensions"]
+
+[dev-dependencies]
+rand = "0.8"
 
 [profile.release]
 opt-level = 3

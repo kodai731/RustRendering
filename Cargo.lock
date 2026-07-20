@@ -3691,6 +3691,7 @@ dependencies = [
  "once_cell",
  "ort",
  "png 0.17.16",
+ "rand 0.8.6",
  "raw-window-handle",
  "rfd",
  "ron",
@@ -3701,6 +3702,7 @@ dependencies = [
  "thyllore-exporter-core",
  "thyllore-grpc-client",
  "thyllore-importer-core",
+ "thyllore-log-core",
  "thyllore-math-core",
  "thyllore-ml-core",
  "thyllore-model-core",
@@ -3719,9 +3721,11 @@ dependencies = [
  "cgmath",
  "fbxcel",
  "gltf",
+ "ron",
  "serde_json",
  "thyllore-anim-core",
  "thyllore-importer-core",
+ "thyllore-log-core",
  "thyllore-math-core",
  "thyllore-model-core",
  "ufbx",
@@ -3738,6 +3742,7 @@ dependencies = [
  "sha2",
  "tempfile",
  "thyllore-anim-core",
+ "thyllore-log-core",
  "thyllore-model-core",
  "tokio",
  "tokio-stream",
@@ -3757,9 +3762,18 @@ dependencies = [
  "serde",
  "serde_json",
  "thyllore-anim-core",
+ "thyllore-log-core",
  "thyllore-math-core",
  "thyllore-model-core",
  "ufbx",
+]
+
+[[package]]
+name = "thyllore-log-core"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "once_cell",
 ]
 
 [[package]]
@@ -3829,6 +3843,7 @@ dependencies = [
  "log",
  "png 0.17.16",
  "thiserror 1.0.69",
+ "thyllore-log-core",
  "thyllore-math-core",
  "thyllore-model-core",
  "thyllore-render-core",

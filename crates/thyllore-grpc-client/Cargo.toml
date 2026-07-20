@@ -11,6 +11,7 @@ build = "build.rs"
 [dependencies]
 thyllore-model-core = { path = "../thyllore-model-core" }
 thyllore-anim-core = { path = "../thyllore-anim-core" }
+thyllore-log-core = { path = "../thyllore-log-core" }
 tonic = { version = "0.12", optional = true }
 prost = { version = "0.13", optional = true }
 tokio = { version = "1", features = ["rt"], optional = true }

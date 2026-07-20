@@ -1652,8 +1652,9 @@ fn identify_key_frame_index_step(key_frames: &[f32], time: f32) -> usize {
         return 0;
     }
     let time = time.rem_euclid(period);
-    let idx = key_frames.partition_point(|&kf| kf <= time);
-    idx.min(key_frames.len() - 1)
+    key_frames
+        .partition_point(|&kf| kf <= time)
+        .saturating_sub(1)
 }
 
 fn convert_node_animations_to_clip(

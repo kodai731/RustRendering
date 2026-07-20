@@ -739,6 +739,9 @@ fn process_platform_file_events(events: &[UIEvent], app: &mut App) -> Vec<Deferr
             }
             UIEvent::ClipBrowserExportFbx(source_id) => handle_clip_export_fbx(app, *source_id),
             UIEvent::ClipBrowserExportGltf(source_id) => handle_clip_export_gltf(app, *source_id),
+            UIEvent::ClipBrowserExportGltfAnimationOnly(source_id) => {
+                handle_clip_export_gltf_animation_only(app, *source_id)
+            }
             UIEvent::ExportModelGltf => handle_export_model_gltf(app),
             UIEvent::SpringBoneSaveBake => {
                 if let Some(action) = open_spring_bone_save_dialog(app) {
@@ -880,7 +883,7 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
         return;
     };
 
-    match crate::exporter::gltf_exporter::export_gltf_animation_from_bytes(
+    match crate::exporter::gltf::export_gltf_animation_from_bytes(
         &source_bytes,
         &clip,
         &skeleton,
@@ -888,6 +891,32 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
     ) {
         Ok(()) => msg_info!("glTF exported: {:?}", path),
         Err(e) => msg_error!("glTF export failed: {:?}", e),
+    }
+}
+
+fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
+    let clip = {
+        let lib = app.data.ecs_world.resource::<ClipLibrary>();
+        lib.get(source_id).cloned()
+    };
+    let skeleton = app.data.ecs_assets.skeletons.values().next();
+
+    let (Some(clip), Some(skeleton)) = (clip, skeleton) else {
+        return;
+    };
+    let default_filename = format!("{}_anim_only.glb", clip.name);
+    let path = rfd::FileDialog::new()
+        .add_filter("glTF Binary", &["glb"])
+        .set_file_name(&default_filename)
+        .save_file();
+
+    let Some(path) = path else {
+        return;
+    };
+
+    match crate::exporter::gltf::export_gltf_animation_only(&clip, &skeleton.skeleton, &path) {
+        Ok(()) => msg_info!("Animation-only glTF exported: {:?}", path),
+        Err(e) => msg_error!("Animation-only glTF export failed: {:?}", e),
     }
 }
 

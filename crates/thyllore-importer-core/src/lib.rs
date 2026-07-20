@@ -1,5 +1,5 @@
 #[macro_use]
-mod logger_compat;
+extern crate thyllore_log_core;
 
 pub mod fbx;
 pub mod gltf;
