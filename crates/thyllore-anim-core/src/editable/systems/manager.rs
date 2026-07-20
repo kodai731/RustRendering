@@ -1,7 +1,7 @@
+use anyhow::{Context, Result};
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::Path;
-use anyhow::{Context, Result};
 
 use crate::{AnimationClip, AnimationClipId, BoneId};
 
@@ -138,13 +138,12 @@ impl EditableClipManager {
         let content =
             fs::read_to_string(path).with_context(|| format!("Failed to read file: {:?}", path))?;
 
-        let mut clip: EditableAnimationClip = if let Ok(clip_file) =
-            ron::from_str::<crate::editable::AnimationClipFile>(&content)
-        {
-            clip_file.clip
-        } else {
-            ron::from_str(&content)?
-        };
+        let mut clip: EditableAnimationClip =
+            if let Ok(clip_file) = ron::from_str::<crate::editable::AnimationClipFile>(&content) {
+                clip_file.clip
+            } else {
+                ron::from_str(&content)?
+            };
 
         let id = self.next_clip_id;
         self.next_clip_id += 1;

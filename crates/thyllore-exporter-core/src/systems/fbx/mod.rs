@@ -1,11 +1,11 @@
 pub mod animation;
-pub(crate) mod writer;
 pub(crate) mod build;
+pub(crate) mod connections;
 pub(crate) mod curves;
 pub(crate) mod geometry;
 pub(crate) mod mesh_material;
 pub(crate) mod skin;
-pub(crate) mod connections;
+pub(crate) mod writer;
 
 use std::path::Path;
 
@@ -40,11 +40,13 @@ pub fn export_full_fbx(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
-    use cgmath::Matrix4;
-    use thyllore_importer_core::fbx::fbx::FbxData;
-    use crate::systems::fbx::geometry::{convert_positions_to_fbx, convert_uvs_to_fbx, encode_triangle_polygon_indices};
+    use crate::systems::fbx::geometry::{
+        convert_positions_to_fbx, convert_uvs_to_fbx, encode_triangle_polygon_indices,
+    };
     use crate::systems::fbx::skin::matrix4_to_flat_f64_scaled;
+    use cgmath::Matrix4;
+    use std::path::PathBuf;
+    use thyllore_importer_core::fbx::fbx::FbxData;
 
     #[test]
     fn test_encode_triangle_polygon_indices() {

@@ -6,8 +6,8 @@ use gltf::json::{self, Index};
 use thyllore_anim_core::{AnimationClip, Skeleton, TransformChannel};
 
 use super::accessors::{
-    append_scalar_accessor, append_vec3_accessor, append_vec4_accessor,
-    build_bone_to_node_map, quaternion_to_gltf_array,
+    append_scalar_accessor, append_vec3_accessor, append_vec4_accessor, build_bone_to_node_map,
+    quaternion_to_gltf_array,
 };
 
 pub(crate) fn write_animation_channels(

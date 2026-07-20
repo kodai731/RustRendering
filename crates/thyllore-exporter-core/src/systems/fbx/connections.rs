@@ -1,7 +1,10 @@
 use crate::components::fbx::*;
 use crate::fbx_animation::{FbxBoneExport, FbxConnection, FbxCurveNodeExport};
 
-pub(crate) fn generate_bone_connections(bones: &[FbxBoneExport], connections: &mut Vec<FbxConnection>) {
+pub(crate) fn generate_bone_connections(
+    bones: &[FbxBoneExport],
+    connections: &mut Vec<FbxConnection>,
+) {
     for bone in bones {
         let parent_uid = bone.parent_model_uid.unwrap_or(0);
         connections.push(FbxConnection::OO {

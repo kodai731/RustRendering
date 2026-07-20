@@ -1,4 +1,3 @@
-
 use crate::fbx_animation::FbxExportData;
 
 pub(crate) struct FbxGeometryExport {

@@ -1,7 +1,7 @@
-pub(crate) mod glb;
 pub(crate) mod accessors;
-pub(crate) mod minimal_json;
 pub(crate) mod channels;
+pub(crate) mod glb;
+pub(crate) mod minimal_json;
 use std::fs;
 use std::path::Path;
 
@@ -12,9 +12,7 @@ use gltf::json::{self};
 use thyllore_anim_core::editable::{clip_to_animation, EditableAnimationClip};
 use thyllore_anim_core::Skeleton;
 
-use crate::systems::gltf::channels::{
-    replace_animations, write_animation_channels,
-};
+use crate::systems::gltf::channels::{replace_animations, write_animation_channels};
 use crate::systems::gltf::glb::write_glb;
 use crate::systems::gltf::minimal_json::build_minimal_gltf_json;
 
@@ -72,9 +70,12 @@ pub fn export_gltf_animation_only(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use gltf::json::Index;
-    use crate::systems::gltf::accessors::{build_bone_to_node_map, quaternion_to_gltf_array, pad_to_4byte_alignment, append_f32_data, compute_min_max_scalar, compute_min_max_vec3, compute_min_max_vec4};
+    use crate::systems::gltf::accessors::{
+        append_f32_data, build_bone_to_node_map, compute_min_max_scalar, compute_min_max_vec3,
+        compute_min_max_vec4, pad_to_4byte_alignment, quaternion_to_gltf_array,
+    };
     use cgmath::Quaternion;
+    use gltf::json::Index;
     use thyllore_anim_core::editable::{curve_add_keyframe, PropertyType};
     use thyllore_anim_core::Skeleton;
 
@@ -206,7 +207,10 @@ mod tests {
         let output_path = std::env::temp_dir().join("test_export_gltf_animation_only.glb");
         export_gltf_animation_only(&clip, &skeleton, &output_path).unwrap();
 
-        assert!(output_path.exists(), "GLB file was not created at the specified path");
+        assert!(
+            output_path.exists(),
+            "GLB file was not created at the specified path"
+        );
         let bytes = fs::read(&output_path).unwrap();
         assert!(!bytes.is_empty(), "GLB file is empty");
         drop(bytes);
@@ -283,19 +287,34 @@ mod tests {
         // Verify that the parent node's children indices match the skeleton's parent-child relationships
         // Hips (bone 0) should have Spine (bone 1) as child
         let hips_node = &root.nodes[0];
-        assert!(hips_node.children.is_some(), "Hips node should have children");
+        assert!(
+            hips_node.children.is_some(),
+            "Hips node should have children"
+        );
         let hips_children = hips_node.children.as_ref().unwrap();
-        assert!(hips_children.contains(&Index::new(1)), "Hips should have Spine (index 1) as child");
+        assert!(
+            hips_children.contains(&Index::new(1)),
+            "Hips should have Spine (index 1) as child"
+        );
 
         // Spine (bone 1) should have Head (bone 2) as child
         let spine_node = &root.nodes[1];
-        assert!(spine_node.children.is_some(), "Spine node should have children");
+        assert!(
+            spine_node.children.is_some(),
+            "Spine node should have children"
+        );
         let spine_children = spine_node.children.as_ref().unwrap();
-        assert!(spine_children.contains(&Index::new(2)), "Spine should have Head (index 2) as child");
+        assert!(
+            spine_children.contains(&Index::new(2)),
+            "Spine should have Head (index 2) as child"
+        );
 
         // Head (bone 2) should have no children
         let head_node = &root.nodes[2];
-        assert!(head_node.children.is_none() || head_node.children.as_ref().unwrap().is_empty(), "Head node should have no children");
+        assert!(
+            head_node.children.is_none() || head_node.children.as_ref().unwrap().is_empty(),
+            "Head node should have no children"
+        );
 
         fs::remove_file(output_path).ok();
     }
@@ -324,11 +343,18 @@ mod tests {
         let scene = &root.scenes[scene_index as usize];
 
         // The skeleton has one root bone (Hips, id 0), so the scene should contain node 0
-        assert!(scene.nodes.contains(&Index::new(0)), "Scene should contain root bone node (Hips, index 0)");
+        assert!(
+            scene.nodes.contains(&Index::new(0)),
+            "Scene should contain root bone node (Hips, index 0)"
+        );
 
         // Verify that the scene nodes match all root bone IDs from the skeleton
         for &root_bone_id in &skeleton.root_bone_ids {
-            assert!(scene.nodes.contains(&Index::new(root_bone_id)), "Scene should contain root bone node with id {}", root_bone_id);
+            assert!(
+                scene.nodes.contains(&Index::new(root_bone_id)),
+                "Scene should contain root bone node with id {}",
+                root_bone_id
+            );
         }
 
         fs::remove_file(output_path).ok();

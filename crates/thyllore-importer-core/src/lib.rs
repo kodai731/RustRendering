@@ -1,4 +1,5 @@
-#[macro_use] extern crate thyllore_log_core;
+#[macro_use]
+extern crate thyllore_log_core;
 
 pub mod fbx;
 pub mod gltf;

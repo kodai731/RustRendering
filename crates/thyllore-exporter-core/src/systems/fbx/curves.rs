@@ -1,8 +1,7 @@
 use thyllore_anim_core::editable::EditableAnimationClip;
 
 use crate::fbx_animation::{
-    build_channel_exports, FbxChannel, FbxCurveExport,
-    FbxCurveNodeExport, UidAllocator,
+    build_channel_exports, FbxChannel, FbxCurveExport, FbxCurveNodeExport, UidAllocator,
 };
 
 pub(crate) fn build_animation_curves(

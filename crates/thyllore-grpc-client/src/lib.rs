@@ -1,4 +1,5 @@
-#[macro_use] extern crate thyllore_log_core;
+#[macro_use]
+extern crate thyllore_log_core;
 
 #[cfg(feature = "text-to-motion")]
 mod grpc_thread;

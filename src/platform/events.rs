@@ -895,7 +895,11 @@ fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
 }
 
 fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
-    let clip = app.data.ecs_world.get_resource::<crate::ecs::resource::ClipLibrary>().and_then(|cl| cl.get(source_id).cloned());
+    let clip = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::ClipLibrary>()
+        .and_then(|cl| cl.get(source_id).cloned());
     let skeleton = app.data.ecs_assets.skeletons.values().next();
 
     let (Some(clip), Some(skeleton)) = (clip, skeleton) else {
@@ -911,11 +915,7 @@ fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
         return;
     };
 
-    match crate::exporter::gltf::export_gltf_animation_only(
-        &clip,
-        &skeleton.skeleton,
-        &path,
-    ) {
+    match crate::exporter::gltf::export_gltf_animation_only(&clip, &skeleton.skeleton, &path) {
         Ok(()) => msg_info!("Animation-only glTF exported: {:?}", path),
         Err(e) => msg_error!("Animation-only glTF export failed: {:?}", e),
     }

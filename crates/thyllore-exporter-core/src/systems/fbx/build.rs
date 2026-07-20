@@ -4,16 +4,20 @@ use thyllore_anim_core::editable::EditableAnimationClip;
 use thyllore_anim_core::Skeleton;
 use thyllore_importer_core::fbx::fbx::FbxModel;
 
-use crate::components::fbx::*;
-use super::mesh_material::{build_mesh_model_exports, build_material_exports, build_texture_exports};
-use super::skin::build_skin_exports;
-use super::connections::{generate_bone_connections, generate_mesh_connections, generate_animation_connections};
-use crate::fbx_animation::{
-    build_bone_export_list, seconds_to_ktime, FbxBoneExport, FbxConnection,
-    FbxCurveNodeExport, FbxExportData, UidAllocator,
+use super::connections::{
+    generate_animation_connections, generate_bone_connections, generate_mesh_connections,
 };
 use super::curves::build_animation_curves;
 use super::geometry::build_geometry_exports;
+use super::mesh_material::{
+    build_material_exports, build_mesh_model_exports, build_texture_exports,
+};
+use super::skin::build_skin_exports;
+use crate::components::fbx::*;
+use crate::fbx_animation::{
+    build_bone_export_list, seconds_to_ktime, FbxBoneExport, FbxConnection, FbxCurveNodeExport,
+    FbxExportData, UidAllocator,
+};
 pub(crate) fn build_full_export_data(
     fbx_model: &FbxModel,
     clip: Option<&EditableAnimationClip>,
