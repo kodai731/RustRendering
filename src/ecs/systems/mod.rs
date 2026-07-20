@@ -2,6 +2,7 @@ pub mod animation;
 pub mod animation_debug_dump;
 #[cfg(feature = "auto-rig")]
 mod auto_rig_systems;
+mod batch_run_systems;
 mod billboard_systems;
 mod bone_gizmo_systems;
 mod bone_pose_override_systems;
@@ -58,6 +59,7 @@ mod weight_heatmap_systems;
 pub use animation::*;
 #[cfg(feature = "auto-rig")]
 pub use auto_rig_systems::*;
+pub use batch_run_systems::*;
 pub use billboard_systems::*;
 pub use bone_gizmo_systems::*;
 pub use bone_pose_override_systems::*;

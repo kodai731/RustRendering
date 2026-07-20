@@ -1,6 +1,7 @@
 use anyhow::Result;
 use cgmath::Vector3;
 
+use super::batch_run_systems::batch_run_tick;
 #[cfg(feature = "ml")]
 use super::curve_copilot::curve_suggestion_poll_results;
 #[cfg(feature = "ml")]
@@ -24,6 +25,8 @@ use crate::ml::FeedbackSenderHandle;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
 pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
+    batch_run_tick(ctx.world);
+
     let mesh_positions = collect_mesh_positions(ctx.graphics);
 
     {

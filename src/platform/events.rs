@@ -160,6 +160,10 @@ fn dispatch_window_event(
                 #[cfg(feature = "auto-rig")]
                 text_to_animation_dialog,
             );
+
+            if crate::ecs::systems::batch_run_is_completed(&app.data.ecs_world) {
+                window_target.exit();
+            }
         }
 
         _ => {}
@@ -587,10 +591,15 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
         DeferredAction::TakeScreenshot => {
             log!("Taking screenshot...");
             let image_index = app.frame % crate::app::init::MAX_FRAMES_IN_FLIGHT;
-            match app.save_screenshot(image_index) {
+            let save_result = app.save_screenshot(image_index);
+            match &save_result {
                 Ok(path) => msg_info!("Screenshot saved: {}", path),
                 Err(e) => log_error!("Screenshot failed: {:?}", e),
             }
+            crate::ecs::systems::batch_run_record_screenshot(
+                &app.data.ecs_world,
+                save_result.map_err(|e| format!("{e:?}")),
+            );
         }
 
         #[cfg(debug_assertions)]
