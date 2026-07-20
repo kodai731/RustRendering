@@ -41,6 +41,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
 
     update_frame_and_scene_uniforms(ctx, view, proj, screen_size, aspect, camera_position)?;
     crate::ecs::systems::flame_time_advance(ctx);
+    crate::ecs::systems::flame_temporal_accumulate(ctx);
 
     let render_data_vec = collect_gizmo_render_data(ctx, camera_position);
     let render_data_refs: Vec<_> = render_data_vec.iter().collect();

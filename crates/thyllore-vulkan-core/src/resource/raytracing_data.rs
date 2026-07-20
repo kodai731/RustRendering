@@ -411,6 +411,7 @@ impl RayTracingData {
             position_sampler,
             flame_buffer.accum_image_view,
             flame_buffer.interval_image_view,
+            flame_buffer.history_image_views[0],
             flame_buffer.sampler,
         )?;
 

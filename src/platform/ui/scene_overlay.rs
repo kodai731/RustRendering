@@ -500,6 +500,18 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                 .display_format("%.2f")
                 .build(&mut effect_copy.sigma_t);
 
+            ui.checkbox("Use Blackbody", &mut effect_copy.use_blackbody);
+
+            let mut temp_base = effect_copy.temperature_base_k as i32;
+            ui.slider_config("Base Temp (K)", 800, 3000)
+                .build(&mut temp_base);
+            effect_copy.temperature_base_k = temp_base as f32;
+
+            let mut temp_tip = effect_copy.temperature_tip_k as i32;
+            ui.slider_config("Tip Temp (K)", 800, 3000)
+                .build(&mut temp_tip);
+            effect_copy.temperature_tip_k = temp_tip as f32;
+
             ui.color_edit3("Base Color", &mut effect_copy.color_base);
             ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
 

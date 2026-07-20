@@ -29,6 +29,28 @@ pub fn default_radial_falloff(radius01: f64) -> f64 {
     (-4.0 * radius01 * radius01).exp()
 }
 
+/// Approximate blackbody (Planckian locus) color for a given temperature in Kelvin.
+/// Uses a polynomial approximation valid for 800K-3000K, returning clamped linear RGB [0,1].
+pub fn blackbody_rgb(kelvin: f32) -> [f32; 3] {
+    let t = (kelvin - 800.0) / (3000.0 - 800.0); // normalize to [0, 1]
+    let t2 = t * t;
+    let t3 = t2 * t;
+
+    // Polynomial approximation of Planckian locus for 800K-3000K
+    // R: starts near 1.0 (hot), stays high
+    // G: increases from ~0.1 to ~0.7
+    // B: increases from ~0.0 to ~0.4
+    let r = 1.0 - 0.3 * t + 0.2 * t2;
+    let g = 0.1 + 0.6 * t - 0.15 * t2 + 0.1 * t3;
+    let b = 0.0 + 0.4 * t - 0.2 * t2 + 0.15 * t3;
+
+    [
+        r.clamp(0.0, 1.0),
+        g.clamp(0.0, 1.0),
+        b.clamp(0.0, 1.0),
+    ]
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlameCoefficients {
     pub height_primitive: [[f32; 4]; 3],
@@ -142,11 +164,16 @@ pub struct FlameEffect {
     pub intensity: f32,
     pub color_base: [f32; 3],
     pub color_tip: [f32; 3],
+    pub temperature_base_k: f32,
+    pub temperature_tip_k: f32,
+    pub use_blackbody: bool,
     pub noise_amplitude: f32,
     pub noise_frequency: f32,
     pub noise_scroll_speed: f32,
     pub time: f32,
     pub coefficients: FlameCoefficients,
+    pub temporal_weight: f32,
+    pub frame_index: u64,
 }
 
 impl Default for FlameEffect {
@@ -160,11 +187,16 @@ impl Default for FlameEffect {
             intensity: 1.0,
             color_base: [1.0, 0.45, 0.1],
             color_tip: [1.0, 0.1, 0.02],
+            temperature_base_k: 1900.0,
+            temperature_tip_k: 1100.0,
+            use_blackbody: true,
             noise_amplitude: 1.2,
             noise_frequency: 6.0,
             noise_scroll_speed: 1.0,
             time: 0.0,
             coefficients: fit_flame_coefficients(&profile),
+            temporal_weight: 0.0,
+            frame_index: 0,
         }
     }
 }
@@ -190,6 +222,23 @@ pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
 }
 
 pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
+    let (color_base, color_mid, color_tip) = if effect.use_blackbody {
+        let base = blackbody_rgb(effect.temperature_base_k);
+        let tip = blackbody_rgb(effect.temperature_tip_k);
+        let mid_temp = (effect.temperature_base_k + effect.temperature_tip_k) / 2.0;
+        let mid = blackbody_rgb(mid_temp);
+        (base, mid, tip)
+    } else {
+        let base = effect.color_base;
+        let tip = effect.color_tip;
+        let mid = [
+            (base[0] + tip[0]) / 2.0,
+            (base[1] + tip[1]) / 2.0,
+            (base[2] + tip[2]) / 2.0,
+        ];
+        (base, mid, tip)
+    };
+
     FlameUBO {
         model: build_flame_model_matrix(effect),
         inverse_model: build_flame_inverse_model_matrix(effect),
@@ -204,18 +253,10 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         noise_frequency: effect.noise_frequency,
         noise_scroll_speed: effect.noise_scroll_speed,
         _padding: 0.0,
-        color_base: Vector4::new(
-            effect.color_base[0],
-            effect.color_base[1],
-            effect.color_base[2],
-            1.0,
-        ),
-        color_tip: Vector4::new(
-            effect.color_tip[0],
-            effect.color_tip[1],
-            effect.color_tip[2],
-            1.0,
-        ),
+        color_base: Vector4::new(color_base[0], color_base[1], color_base[2], 1.0),
+        color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
+        color_tip: Vector4::new(color_tip[0], color_tip[1], color_tip[2], 1.0),
+        temporal_data: Vector4::new(effect.temporal_weight, effect.frame_index as f32, 0.0, 0.0),
     }
 }
 
@@ -245,7 +286,9 @@ pub struct FlameUBO {
     pub noise_scroll_speed: f32,
     pub _padding: f32,
     pub color_base: Vector4<f32>,
+    pub color_mid: Vector4<f32>,
     pub color_tip: Vector4<f32>,
+    pub temporal_data: Vector4<f32>,
 }
 
 impl Default for FlameUBO {
@@ -415,7 +458,32 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 304);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 336);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
+    }
+
+    #[test]
+    fn test_blackbody_rgb_clamped_to_unit() {
+        for kelvin in [800.0, 1100.0, 1500.0, 2000.0, 2500.0, 3000.0] {
+            let rgb = blackbody_rgb(kelvin);
+            for &c in &rgb {
+                assert!(c >= 0.0 && c <= 1.0, "kelvin={}, channel={}", kelvin, c);
+            }
+        }
+    }
+
+    #[test]
+    fn test_blackbody_rgb_1100k_is_red_dominant() {
+        let rgb = blackbody_rgb(1100.0);
+        assert!(rgb[0] > rgb[1], "R > G at 1100K: {} > {}", rgb[0], rgb[1]);
+        assert!(rgb[1] > rgb[2], "G > B at 1100K: {} > {}", rgb[1], rgb[2]);
+    }
+
+    #[test]
+    fn test_blackbody_rgb_2500k_is_whiter_than_1100k() {
+        let cold = blackbody_rgb(1100.0);
+        let hot = blackbody_rgb(2500.0);
+        assert!(hot[1] > cold[1], "G at 2500K > G at 1100K: {} > {}", hot[1], cold[1]);
+        assert!(hot[2] > cold[2], "B at 2500K > B at 1100K: {} > {}", hot[2], cold[2]);
     }
 }

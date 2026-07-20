@@ -34,15 +34,19 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     float noiseScrollSpeed;
     float paddingReserved;
     vec4 colorBase;
+    vec4 colorMid;
     vec4 colorTip;
+    vec4 temporalData;
 } flame;
 
 layout(set = 1, binding = 2) uniform sampler2D flameAccumSampler;
 layout(set = 1, binding = 3) uniform sampler2D flameIntervalSampler;
+layout(set = 1, binding = 4) uniform sampler2D flameHistorySampler;
 
 layout(location = 0) in vec2 fragTexCoord;
 
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outHistory;
 
 layout(push_constant) uniform FlamePush {
     int mode;
@@ -128,7 +132,7 @@ float integrateEmissionNoiseRaymarch(FlameRaySegment segment, int stepCount) {
     if (dt <= 0.0) {
         return 0.0;
     }
-    float jitter = interleavedGradientNoise(gl_FragCoord.xy);
+    float jitter = interleavedGradientNoise(gl_FragCoord.xy + vec2(flame.temporalData.y * 5.588238));
     float sum = 0.0;
     for (int i = 0; i < stepCount; ++i) {
         float t = segment.tNear + (float(i) + jitter) * dt;
@@ -144,10 +148,15 @@ vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
         evaluateHeightAlongRay(
             0.5 * (segment.tNear + segment.tFar), segment.localOrigin.y, segment.localDir.y),
         0.0, 1.0);
-    vec3 rampColor = mix(flame.colorBase.rgb, flame.colorTip.rgb, heightMid);
+    vec3 rampColor;
+    if (heightMid < 0.5) {
+        rampColor = mix(flame.colorBase.rgb, flame.colorMid.rgb, heightMid * 2.0);
+    } else {
+        rampColor = mix(flame.colorMid.rgb, flame.colorTip.rgb, (heightMid - 0.5) * 2.0);
+    }
 
     vec3 radiance = rampColor * flame.intensity * emission;
-    float alpha = 1.0 - exp(-flame.sigmaT * deltaT);
+    float alpha = 1.0 - exp(-flame.sigmaT * emission);
     return vec4(radiance, alpha);
 }
 
@@ -178,5 +187,8 @@ void main() {
         emission = integrateEmissionAnalytic(segment);
     }
 
-    outColor = shadeEmission(segment, emission, deltaT);
+    vec4 shaded = shadeEmission(segment, emission, deltaT);
+    vec4 blended = mix(shaded, texture(flameHistorySampler, fragTexCoord), flame.temporalData.x);
+    outColor = blended;
+    outHistory = blended;
 }

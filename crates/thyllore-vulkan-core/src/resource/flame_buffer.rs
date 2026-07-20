@@ -9,6 +9,8 @@ pub const FLAME_ACCUM_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
 pub const FLAME_INTERVAL_FORMAT: vk::Format = vk::Format::R32G32_SFLOAT;
 pub const FLAME_INTERVAL_CLEAR: f32 = 3.4e38;
 
+pub const FLAME_HISTORY_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
+
 #[derive(Clone, Debug, Default)]
 pub struct FlameBuffer {
     pub accum_image: vk::Image,
@@ -17,6 +19,9 @@ pub struct FlameBuffer {
     pub interval_image: vk::Image,
     pub interval_image_memory: vk::DeviceMemory,
     pub interval_image_view: vk::ImageView,
+    pub history_images: [vk::Image; 2],
+    pub history_image_memories: [vk::DeviceMemory; 2],
+    pub history_image_views: [vk::ImageView; 2],
     pub sampler: vk::Sampler,
     pub thickness_render_pass: vk::RenderPass,
     pub thickness_framebuffer: vk::Framebuffer,
@@ -54,7 +59,7 @@ impl FlameBuffer {
             1,
         )?;
 
-        let thickness_render_pass = Self::create_thickness_render_pass(rrdevice)?;
+      let thickness_render_pass = Self::create_thickness_render_pass(rrdevice)?;
 
         let attachments = [accum_image_view, interval_image_view];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
@@ -67,9 +72,27 @@ impl FlameBuffer {
             .device
             .create_framebuffer(&framebuffer_info, None)?;
 
+        // Create two history images for ping-pong temporal accumulation
+        let mut history_images = [vk::Image::null(); 2];
+        let mut history_image_memories = [vk::DeviceMemory::null(); 2];
+        let mut history_image_views = [vk::ImageView::null(); 2];
+        for i in 0..2 {
+            let (img, mem) = Self::create_target_image(instance, rrdevice, width, height, FLAME_HISTORY_FORMAT)?;
+            history_images[i] = img;
+            history_image_memories[i] = mem;
+            history_image_views[i] = create_image_view(
+                rrdevice,
+                img,
+                FLAME_HISTORY_FORMAT,
+                vk::ImageAspectFlags::COLOR,
+                1,
+            )?;
+        }
+
         let shading_render_pass = Self::create_shading_render_pass(rrdevice)?;
 
-        let shading_attachments = [hdr_image_view];
+        // F2 render pass: A0 = HDR (LOAD + premultiplied blend), A1 = history (CLEAR/DONT_CARE + no blend)
+        let shading_attachments = [hdr_image_view, history_image_views[0]];
         let shading_framebuffer_info = vk::FramebufferCreateInfo::builder()
             .render_pass(shading_render_pass)
             .attachments(&shading_attachments)
@@ -97,6 +120,9 @@ impl FlameBuffer {
             interval_image,
             interval_image_memory,
             interval_image_view,
+            history_images,
+            history_image_memories,
+            history_image_views,
             sampler,
             thickness_render_pass,
             thickness_framebuffer,
@@ -197,6 +223,7 @@ impl FlameBuffer {
     }
 
     unsafe fn create_shading_render_pass(rrdevice: &RRDevice) -> Result<vk::RenderPass> {
+        // A0 = HDR (LOAD + premultiplied blend, existing behavior)
         let color_attachment = vk::AttachmentDescription::builder()
             .format(HDR_FORMAT)
             .samples(vk::SampleCountFlags::_1)
@@ -208,12 +235,29 @@ impl FlameBuffer {
             .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .build();
 
+        // A1 = history (CLEAR/DONT_CARE + no blend)
+        let history_attachment = vk::AttachmentDescription::builder()
+            .format(FLAME_HISTORY_FORMAT)
+            .samples(vk::SampleCountFlags::_1)
+            .load_op(vk::AttachmentLoadOp::CLEAR)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .initial_layout(vk::ImageLayout::UNDEFINED)
+            .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+
         let color_attachment_ref = vk::AttachmentReference::builder()
             .attachment(0)
             .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
             .build();
 
-        let color_attachments = [color_attachment_ref];
+        let history_attachment_ref = vk::AttachmentReference::builder()
+            .attachment(1)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .build();
+
+        let color_attachments = [color_attachment_ref, history_attachment_ref];
 
         let subpass = vk::SubpassDescription::builder()
             .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
@@ -239,7 +283,7 @@ impl FlameBuffer {
             .dst_access_mask(vk::AccessFlags::SHADER_READ)
             .build();
 
-        let attachments = [color_attachment];
+        let attachments = [color_attachment, history_attachment];
         let subpasses = [subpass];
         let dependencies = [dependency_in, dependency_out];
 
@@ -329,6 +373,22 @@ impl FlameBuffer {
             if *memory != vk::DeviceMemory::null() {
                 device.free_memory(*memory, None);
                 *memory = vk::DeviceMemory::null();
+            }
+        }
+
+        // Destroy history images (ping-pong temporal accumulation)
+        for i in 0..2 {
+            if self.history_image_views[i] != vk::ImageView::null() {
+                device.destroy_image_view(self.history_image_views[i], None);
+                self.history_image_views[i] = vk::ImageView::null();
+            }
+            if self.history_images[i] != vk::Image::null() {
+                device.destroy_image(self.history_images[i], None);
+                self.history_images[i] = vk::Image::null();
+            }
+            if self.history_image_memories[i] != vk::DeviceMemory::null() {
+                device.free_memory(self.history_image_memories[i], None);
+                self.history_image_memories[i] = vk::DeviceMemory::null();
             }
         }
 

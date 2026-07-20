@@ -38,11 +38,19 @@ impl RRFlameDescriptorSet {
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
 
+        let history_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(4)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .build();
+
         let bindings = [
             flame_ubo_binding,
             position_sampler_binding,
             accum_sampler_binding,
             interval_sampler_binding,
+            history_sampler_binding,
         ];
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
@@ -51,7 +59,7 @@ impl RRFlameDescriptorSet {
     pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {
         let sampler_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(3);
+            .descriptor_count(4);
 
         let ubo_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::UNIFORM_BUFFER)
@@ -74,6 +82,7 @@ impl RRFlameDescriptorSet {
         position_sampler: vk::Sampler,
         accum_image_view: vk::ImageView,
         interval_image_view: vk::ImageView,
+        history_image_view: vk::ImageView,
         flame_sampler: vk::Sampler,
     ) -> Result<()> {
         let layouts = [self.descriptor_set_layout];
@@ -91,6 +100,7 @@ impl RRFlameDescriptorSet {
             position_sampler,
             accum_image_view,
             interval_image_view,
+            history_image_view,
             flame_sampler,
         );
 
@@ -129,6 +139,7 @@ impl RRFlameDescriptorSet {
         position_sampler: vk::Sampler,
         accum_image_view: vk::ImageView,
         interval_image_view: vk::ImageView,
+        history_image_view: vk::ImageView,
         flame_sampler: vk::Sampler,
     ) {
         let position_info = vk::DescriptorImageInfo::builder()
@@ -145,6 +156,12 @@ impl RRFlameDescriptorSet {
 
         let interval_info = vk::DescriptorImageInfo::builder()
             .image_view(interval_image_view)
+            .sampler(flame_sampler)
+            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+
+        let history_info = vk::DescriptorImageInfo::builder()
+            .image_view(history_image_view)
             .sampler(flame_sampler)
             .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
             .build();
@@ -170,6 +187,13 @@ impl RRFlameDescriptorSet {
                 .dst_array_element(0)
                 .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                 .image_info(std::slice::from_ref(&interval_info))
+                .build(),
+            vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_set)
+                .dst_binding(4)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                .image_info(std::slice::from_ref(&history_info))
                 .build(),
         ];
 

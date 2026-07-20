@@ -146,11 +146,24 @@ pub unsafe fn record_flame_shading_pass(
         .offset(vk::Offset2D::default())
         .extent(flame_buffer.extent());
 
+    let clear_values = [
+        vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 0.0],
+            },
+        },
+        vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 0.0],
+            },
+        },
+    ];
+
     let render_pass_info = vk::RenderPassBeginInfo::builder()
         .render_pass(flame_buffer.shading_render_pass)
         .framebuffer(flame_buffer.shading_framebuffer)
         .render_area(render_area)
-        .clear_values(&[]);
+        .clear_values(&clear_values);
 
     device.cmd_begin_render_pass(cmd, &render_pass_info, vk::SubpassContents::INLINE);
 

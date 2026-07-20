@@ -1142,6 +1142,7 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameEffect>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);
     }
 
     #[cfg(feature = "ml")]
