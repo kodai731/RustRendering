@@ -7,8 +7,10 @@
 
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
-use thyllore_animation::ecs::resource::BatchRun;
-use thyllore_animation::ecs::systems::{batch_run_report, batch_run_resolve_from_args};
+use thyllore_animation::ecs::resource::{BatchRun, FlameRenderSettings};
+use thyllore_animation::ecs::systems::{
+    batch_run_report, batch_run_resolve_from_args, flame_mode_resolve_from_args,
+};
 use thyllore_animation::platform;
 
 use anyhow::Result;
@@ -19,8 +21,10 @@ fn main() -> Result<()> {
     cleanup_old_screenshots()?;
 
     let args: Vec<String> = std::env::args().collect();
-    let batch_run = match batch_run_resolve_from_args(&args) {
-        Ok(batch_run) => batch_run,
+    let (batch_run, flame_mode) = match batch_run_resolve_from_args(&args).and_then(|batch_run| {
+        flame_mode_resolve_from_args(&args).map(|flame_mode| (batch_run, flame_mode))
+    }) {
+        Ok(resolved) => resolved,
         Err(e) => {
             println!(
                 "{}",
@@ -45,6 +49,12 @@ fn main() -> Result<()> {
 
     if let Some(batch_run) = batch_run {
         app.data.ecs_world.insert_resource(batch_run);
+    }
+    if let Some(shading_mode) = flame_mode {
+        app.data
+            .ecs_world
+            .resource_mut::<FlameRenderSettings>()
+            .shading_mode = shading_mode;
     }
 
     unsafe {

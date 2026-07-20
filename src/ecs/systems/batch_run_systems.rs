@@ -3,11 +3,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Result};
 
 use crate::ecs::events::{UIEvent, UIEventQueue};
-use crate::ecs::resource::{BatchRun, BatchRunState};
+use crate::ecs::resource::{BatchRun, BatchRunState, FlameShadingMode};
 use crate::ecs::world::World;
 
 const BATCH_SCREENSHOT_FLAG: &str = "--batch-screenshot";
 const BATCH_FRAMES_FLAG: &str = "--batch-frames";
+const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
 
 pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> {
@@ -40,6 +41,19 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
     };
 
     Ok(Some(BatchRun::new(output, screenshot_frame)))
+}
+
+pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadingMode>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_MODE_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_FLAME_MODE_FLAG} requires a value: analytic|raymarch|thickness");
+    };
+    let mode = FlameShadingMode::parse(value).ok_or_else(|| {
+        anyhow::anyhow!("invalid flame mode '{value}': expected analytic|raymarch|thickness")
+    })?;
+    Ok(Some(mode))
 }
 
 fn resolve_absolute_output(output: &Path) -> Result<PathBuf> {

@@ -76,6 +76,15 @@ impl FlameShadingMode {
             FlameShadingMode::DebugThickness => 2,
         }
     }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "analytic" => Some(FlameShadingMode::Analytic),
+            "raymarch" => Some(FlameShadingMode::ReferenceRaymarch),
+            "thickness" => Some(FlameShadingMode::DebugThickness),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

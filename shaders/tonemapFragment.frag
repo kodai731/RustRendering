@@ -45,6 +45,16 @@ vec3 reinhard(vec3 x) {
     return x / (x + vec3(1.0));
 }
 
+vec3 applyToneMapOperator(vec3 x) {
+    if (pc.toneMapOperator == 1) {
+        return acesFilmic(x);
+    }
+    if (pc.toneMapOperator == 2) {
+        return reinhard(x);
+    }
+    return clamp(x, 0.0, 1.0);
+}
+
 const vec3 BACKGROUND_LINEAR = vec3(0.051);
 
 vec3 sampleWithChromaticAberration(vec2 uv, float intensity) {
@@ -73,25 +83,23 @@ void main() {
 
     bool isBackground = positionData.w < 0.5;
 
+    // Background pixels still carry volumetric effects (flame) blended into
+    // the HDR buffer as premultiplied (radiance, coverage): attenuate the
+    // background by the coverage and add the tonemapped radiance on top.
     if (isBackground) {
-        vec3 bg = BACKGROUND_LINEAR;
+        vec4 volumetric = texture(hdrSampler, fragTexCoord);
+        float volumetricOpacity = clamp(volumetric.a, 0.0, 1.0);
+        vec3 volumetricGlow = applyToneMapOperator(volumetric.rgb * pc.exposureValue);
+        volumetricGlow = pow(volumetricGlow, vec3(1.0 / pc.gamma));
+
+        vec3 bg = BACKGROUND_LINEAR * (1.0 - volumetricOpacity);
+        bg = pow(bg, vec3(1.0 / pc.gamma)) + volumetricGlow;
 
         if (pc.bloomIntensity > 0.0) {
             vec3 bloomColor = texture(bloomSampler, fragTexCoord).rgb;
             vec3 bloomGlow = bloomColor * pc.bloomIntensity * pc.exposureValue;
-
-            if (pc.toneMapOperator == 1) {
-                bloomGlow = acesFilmic(bloomGlow);
-            } else if (pc.toneMapOperator == 2) {
-                bloomGlow = reinhard(bloomGlow);
-            } else {
-                bloomGlow = clamp(bloomGlow, 0.0, 1.0);
-            }
-
-            bloomGlow = pow(bloomGlow, vec3(1.0 / pc.gamma));
-            bg = pow(bg, vec3(1.0 / pc.gamma)) + bloomGlow;
-        } else {
-            bg = pow(bg, vec3(1.0 / pc.gamma));
+            bloomGlow = applyToneMapOperator(bloomGlow);
+            bg += pow(bloomGlow, vec3(1.0 / pc.gamma));
         }
 
         outColor = vec4(bg, 1.0);
@@ -112,15 +120,7 @@ void main() {
 
     hdrColor *= pc.exposureValue;
 
-    vec3 mapped;
-    if (pc.toneMapOperator == 1) {
-        mapped = acesFilmic(hdrColor);
-    } else if (pc.toneMapOperator == 2) {
-        mapped = reinhard(hdrColor);
-    } else {
-        mapped = clamp(hdrColor, 0.0, 1.0);
-    }
-
+    vec3 mapped = applyToneMapOperator(hdrColor);
     mapped = pow(mapped, vec3(1.0 / pc.gamma));
 
     if (pc.vignetteIntensity > 0.0) {

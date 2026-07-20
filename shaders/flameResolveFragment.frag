@@ -82,6 +82,11 @@ void main() {
     float deltaT = max(accum.y, 0.0);
     float heightIntegral = accum.z;
 
+    if (push.mode == 2) {
+        outColor = vec4(vec3(deltaT), 1.0);
+        return;
+    }
+
     if (coverage == 0.0 && deltaT <= 0.0) {
         discard;
     }
@@ -102,11 +107,6 @@ void main() {
         float missingCount = round(coverage);
         heightIntegral -= missingCount * evaluateHeightPrimitive(clamp(hOrigin, 0.0, 1.0)) / hDir;
         tNear = 0.0;
-    }
-
-    if (push.mode == 2) {
-        outColor = vec4(vec3(deltaT), 1.0);
-        return;
     }
 
     float emission;

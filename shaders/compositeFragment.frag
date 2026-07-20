@@ -87,8 +87,11 @@ void main() {
         gl_FragDepth = worldToClipDepth(worldPosition, sceneData.view, sceneData.proj);
     }
 
+    // Alpha 0 marks "no opaque surface": volumetric passes (flame) blend
+    // premultiplied coverage into it, which tonemap composites over the
+    // background color.
     if (isBackground) {
-        outColor = vec4(0.0, 0.0, 0.0, 1.0);
+        outColor = vec4(0.0, 0.0, 0.0, 0.0);
         return;
     }
 
