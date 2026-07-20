@@ -33,10 +33,10 @@ fn compile_shaders() {
 
         let path = entry.path();
 
-        // .vert、.frag、または.compファイルのみ処理
+        // .vert、.frag、.geom、または.compファイルのみ処理
         if let Some(extension) = path.extension() {
             let ext_str = extension.to_str().unwrap_or("");
-            if ext_str != "vert" && ext_str != "frag" && ext_str != "comp" {
+            if ext_str != "vert" && ext_str != "frag" && ext_str != "geom" && ext_str != "comp" {
                 continue;
             }
 
@@ -44,16 +44,20 @@ fn compile_shaders() {
             let file_stem = path.file_stem().unwrap().to_str().unwrap();
 
             // 出力ファイル名を生成
-            // ルール: ファイル名から"Vertex"/"vertex"または"Fragment"/"fragment"を削除し、
-            // 拡張子に応じて"Vert.spv"または"Frag.spv"を追加
+            // ルール: ファイル名から"Vertex"/"vertex"、"Fragment"/"fragment"、
+            // または"Geometry"/"geometry"を削除し、
+            // 拡張子に応じて"Vert.spv"、"Frag.spv"、または"Geom.spv"を追加
             // 例: vertex.vert -> vert.spv (vertexを削除)
             //     gridVertex.vert -> gridVert.spv (末尾のVertexを削除)
             //     imguiFragment.frag -> imguiFrag.spv (末尾のFragmentを削除)
+            //     flameShellGeometry.geom -> flameShellGeom.spv (末尾のGeometryを削除)
             let base_name = file_stem
                 .trim_end_matches("Vertex")
                 .trim_end_matches("vertex")
                 .trim_end_matches("Fragment")
-                .trim_end_matches("fragment");
+                .trim_end_matches("fragment")
+                .trim_end_matches("Geometry")
+                .trim_end_matches("geometry");
 
             let out_name = if file_name.ends_with(".vert") {
                 if base_name.is_empty() {
@@ -66,6 +70,12 @@ fn compile_shaders() {
                     "frag.spv".to_string()
                 } else {
                     format!("{}Frag.spv", base_name)
+                }
+            } else if file_name.ends_with(".geom") {
+                if base_name.is_empty() {
+                    "geom.spv".to_string()
+                } else {
+                    format!("{}Geom.spv", base_name)
                 }
             } else if file_name.ends_with(".comp") {
                 // コンピュートシェーダーは単純に{file_stem}.spvとする
