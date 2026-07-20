@@ -88,6 +88,23 @@ impl App {
             composite_pipeline.destroy(&self.rrdevice.device);
         }
 
+        if let Some(mut flame_descriptor) = self.data.raytracing.flame_descriptor.take() {
+            flame_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(flame_pipeline) = self.data.raytracing.flame_pipeline.take() {
+            flame_pipeline.destroy(&self.rrdevice.device);
+        }
+
+        if let (Some(buffer), Some(memory)) = (
+            self.data.raytracing.flame_uniform_buffer.take(),
+            self.data.raytracing.flame_uniform_buffer_memory.take(),
+        ) {
+            self.rrdevice.device.destroy_buffer(buffer, None);
+            self.rrdevice.device.free_memory(memory, None);
+            log!("Destroyed flame uniform buffer");
+        }
+
         if let (Some(buffer), Some(memory)) = (
             self.data.raytracing.scene_uniform_buffer,
             self.data.raytracing.scene_uniform_buffer_memory,

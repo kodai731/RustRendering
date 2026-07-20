@@ -3830,6 +3830,7 @@ dependencies = [
  "anyhow",
  "cgmath",
  "thyllore-anim-core",
+ "thyllore-math-core",
  "thyllore-model-core",
 ]
 

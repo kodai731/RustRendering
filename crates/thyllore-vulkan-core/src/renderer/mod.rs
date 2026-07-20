@@ -2,6 +2,7 @@ pub mod auto_exposure;
 pub mod bloom;
 pub mod composite;
 pub mod dof;
+pub mod flame;
 pub mod gbuffer;
 pub mod line_mesh_draw;
 pub mod onion_skin;
@@ -17,6 +18,7 @@ pub use composite::{
     record_composite_to_hdr_pass,
 };
 pub use dof::record_dof_pass;
+pub use flame::record_flame_thickness_pass;
 pub use gbuffer::record_gbuffer_pass;
 pub use line_mesh_draw::{
     push_fragment_alpha_constant, record_line_mesh_draw, LineMeshDrawOptions,

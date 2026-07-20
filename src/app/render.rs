@@ -462,8 +462,35 @@ impl App {
             object_id_view,
         )?;
         self.recreate_onion_skin_on_resize()?;
+        self.recreate_flame_on_resize()?;
 
         log!("G-Buffer resized to: {}x{}", new_width, new_height);
+        Ok(())
+    }
+
+    unsafe fn recreate_flame_on_resize(&mut self) -> Result<()> {
+        let (Some(ref flame_buffer), Some(ref flame_descriptor)) = (
+            &self.data.viewport.flame_buffer,
+            &self.data.raytracing.flame_descriptor,
+        ) else {
+            return Ok(());
+        };
+        let Some(ref gbuffer) = self.data.raytracing.gbuffer else {
+            return Ok(());
+        };
+        let Some(position_sampler) = self.data.raytracing.gbuffer_sampler else {
+            return Ok(());
+        };
+
+        flame_descriptor.update_image_views(
+            &self.rrdevice,
+            gbuffer.position_image_view,
+            position_sampler,
+            flame_buffer.accum_image_view,
+            flame_buffer.interval_image_view,
+            flame_buffer.sampler,
+        );
+
         Ok(())
     }
 

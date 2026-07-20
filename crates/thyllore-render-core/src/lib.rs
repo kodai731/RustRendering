@@ -1,6 +1,8 @@
 pub mod backend;
 mod billboard;
 mod buffer_handle;
+mod flame;
+mod flame_shell;
 mod gizmo;
 mod gizmo_data;
 mod mesh;
@@ -12,6 +14,15 @@ mod ubo;
 pub use backend::RenderBackend;
 pub use billboard::{BillboardMesh, BillboardTransform, BillboardVertex};
 pub use buffer_handle::{BufferHandle, IndexBufferHandle, VertexBufferHandle};
+pub use flame::{
+    default_height_falloff, default_radial_falloff, fit_flame_coefficients,
+    integrate_emission_segment, FlameCoefficients, FlameProfile, FlameUBO,
+    HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
+};
+pub use flame_shell::{
+    generate_flame_shell_triangles, FLAME_SHELL_RING_SEGMENTS, FLAME_SHELL_STACKS,
+    FLAME_SHELL_TAPER_TIP_SCALE,
+};
 pub use gizmo::{
     BoneDisplayStyle, ColorVertex, GizmoAxis, GizmoDraggable, GizmoPosition, GizmoSelectable,
     TransformGizmoHandle,

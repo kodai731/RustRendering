@@ -11,4 +11,5 @@ repository = "https://github.com/kodai731/Thyllore-Animation"
 anyhow = "1"
 cgmath = "0.18"
 thyllore-anim-core = { path = "../thyllore-anim-core" }
+thyllore-math-core = { path = "../thyllore-math-core" }
 thyllore-model-core = { path = "../thyllore-model-core" }

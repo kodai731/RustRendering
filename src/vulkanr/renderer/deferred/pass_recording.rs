@@ -508,6 +508,31 @@ pub unsafe fn record_onion_skin_composite(
     Ok(())
 }
 
+pub unsafe fn record_flame_thickness_pass(
+    app: &App,
+    command_buffer: vk::CommandBuffer,
+    image_index: usize,
+) -> Result<()> {
+    let (Some(flame_buffer), Some(pipeline), Some(descriptor)) = (
+        app.data.viewport.flame_buffer.as_ref(),
+        app.data.raytracing.flame_pipeline.as_ref(),
+        app.data.raytracing.flame_descriptor.as_ref(),
+    ) else {
+        return Ok(());
+    };
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
+
+    thyllore_vulkan_core::renderer::record_flame_thickness_pass(
+        &ctx,
+        flame_buffer,
+        pipeline,
+        descriptor,
+        image_index,
+        command_buffer,
+    )
+}
+
 pub unsafe fn record_tonemap_to_offscreen(
     app: &App,
     command_buffer: vk::CommandBuffer,
