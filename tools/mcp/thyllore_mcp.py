@@ -79,16 +79,22 @@ def _run_batch(args: list[str]) -> str:
 
 
 @mcp.tool()
-def screenshot(output: str = "", frames: int = 120) -> str:
+def screenshot(output: str = "", frames: int = 120, flame_mode: str = "", flame_steps: int = 0) -> str:
     """Launch Thyllore, render `frames` frames, save a viewport PNG, and exit.
 
     Returns one JSON object: {"ok": true, "path": "<absolute png path>"} or
     {"ok": false, "error": "..."}. Read the PNG at `path` to inspect the
     rendering. `output` must be an absolute .png path; empty picks a default
-    under the repo log/ directory. Each call pays a full engine startup
-    (several seconds)."""
+    under the repo log/ directory. `flame_mode` optionally overrides the flame
+    integrator (analytic|raymarch|thickness); `flame_steps` > 0 overrides the
+    raymarch step count. Each call pays a full engine startup (seconds)."""
     out = output or str(_repo_root() / "log" / f"screenshot_batch_{int(time.time())}.png")
-    return _run_batch(["--batch-screenshot", out, "--batch-frames", str(frames)])
+    args = ["--batch-screenshot", out, "--batch-frames", str(frames)]
+    if flame_mode:
+        args += ["--batch-flame-mode", flame_mode]
+    if flame_steps > 0:
+        args += ["--batch-flame-steps", str(flame_steps)]
+    return _run_batch(args)
 
 
 @mcp.tool()

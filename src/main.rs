@@ -8,9 +8,7 @@
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
 use thyllore_animation::ecs::resource::{BatchRun, FlameRenderSettings};
-use thyllore_animation::ecs::systems::{
-    batch_run_report, batch_run_resolve_from_args, flame_mode_resolve_from_args,
-};
+use thyllore_animation::ecs::systems::{batch_run_report, resolve_engine_cli_overrides};
 use thyllore_animation::platform;
 
 use anyhow::Result;
@@ -21,10 +19,8 @@ fn main() -> Result<()> {
     cleanup_old_screenshots()?;
 
     let args: Vec<String> = std::env::args().collect();
-    let (batch_run, flame_mode) = match batch_run_resolve_from_args(&args).and_then(|batch_run| {
-        flame_mode_resolve_from_args(&args).map(|flame_mode| (batch_run, flame_mode))
-    }) {
-        Ok(resolved) => resolved,
+    let overrides = match resolve_engine_cli_overrides(&args) {
+        Ok(overrides) => overrides,
         Err(e) => {
             println!(
                 "{}",
@@ -33,7 +29,7 @@ fn main() -> Result<()> {
             std::process::exit(1);
         }
     };
-    let is_batch_mode = batch_run.is_some();
+    let is_batch_mode = overrides.batch_run.is_some();
 
     #[cfg(feature = "ml")]
     let curve_copilot_mode =
@@ -47,14 +43,20 @@ fn main() -> Result<()> {
     #[cfg(not(feature = "ml"))]
     let mut app = unsafe { App::create(&system.window)? };
 
-    if let Some(batch_run) = batch_run {
+    if let Some(batch_run) = overrides.batch_run {
         app.data.ecs_world.insert_resource(batch_run);
     }
-    if let Some(shading_mode) = flame_mode {
+    if let Some(shading_mode) = overrides.flame_mode {
         app.data
             .ecs_world
             .resource_mut::<FlameRenderSettings>()
             .shading_mode = shading_mode;
+    }
+    if let Some(step_count) = overrides.flame_steps {
+        app.data
+            .ecs_world
+            .resource_mut::<FlameRenderSettings>()
+            .reference_step_count = step_count;
     }
 
     unsafe {

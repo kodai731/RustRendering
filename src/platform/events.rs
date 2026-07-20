@@ -476,23 +476,31 @@ fn build_timeline_and_fixed_overlays(
         );
     }
 
-    let delta_time = (app.start.elapsed().as_secs_f32() - app.last_update_time).max(0.001);
-    let timeline_state = app.data.ecs_world.resource::<TimelineState>();
-    let clip_duration = timeline_state
-        .current_clip_id
-        .and_then(|id| {
-            let lib = app.data.ecs_world.resource::<ClipLibrary>();
-            lib.get(id).map(|c| c.duration)
-        })
-        .unwrap_or(0.0);
-    draw_status_bar(
-        ui,
-        status_bar_state,
-        delta_time,
-        viewport_info,
-        &*timeline_state,
-        clip_duration,
-    );
+    // Batch captures are diffed pixel-by-pixel; the status bar shows wall-clock
+    // values (FPS, memory) that would break determinism, so skip it there.
+    let is_batch_capture = app
+        .data
+        .ecs_world
+        .contains_resource::<crate::ecs::resource::BatchRun>();
+    if !is_batch_capture {
+        let delta_time = (app.start.elapsed().as_secs_f32() - app.last_update_time).max(0.001);
+        let timeline_state = app.data.ecs_world.resource::<TimelineState>();
+        let clip_duration = timeline_state
+            .current_clip_id
+            .and_then(|id| {
+                let lib = app.data.ecs_world.resource::<ClipLibrary>();
+                lib.get(id).map(|c| c.duration)
+            })
+            .unwrap_or(0.0);
+        draw_status_bar(
+            ui,
+            status_bar_state,
+            delta_time,
+            viewport_info,
+            &*timeline_state,
+            clip_duration,
+        );
+    }
 
     let mut panel_layout = app.data.ecs_world.resource_mut::<PanelLayout>();
     handle_splitters(ui, &mut panel_layout, layout_snapshot);

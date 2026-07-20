@@ -1,8 +1,11 @@
 #version 450
 
-// F2 shading pass: reads F1 boundary integrals and composites premultiplied
-// emission into the HDR buffer. push.mode: 0 = analytic height integral,
-// 1 = reference raymarch (regression check for F1's z channel), 2 = delta-t debug view.
+// F2 shading pass. push.mode swaps HOW emission is integrated and nothing else:
+// ray/interval decoding, camera-inside correction, color ramp and alpha live in
+// the shared FlameRaySegment path, so analytic vs raymarch comparisons isolate
+// the integration method alone regardless of mesh, colors, or future noise.
+// push.mode: 0 = analytic boundary integral, 1 = reference raymarch,
+// 2 = delta-t debug view.
 
 #include "include/chebyshev.glsl"
 #include "include/flame_ray.glsl"
@@ -60,18 +63,65 @@ float evaluateHeightPrimitive(float height01) {
         height01);
 }
 
-float integrateHeightByRaymarch(float tNear, float tFar, float hOrigin, float hDir) {
-    float dt = (tFar - tNear) / float(push.stepCount);
+struct FlameRaySegment {
+    float tNear;
+    float tFar;
+    float hOrigin;
+    float hDir;
+    float boundaryHeightIntegral;
+};
+
+FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 interval) {
+    mat4 invViewProj = inverse(frame.proj * frame.view);
+    vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
+
+    FlameRaySegment segment;
+    segment.hOrigin = (flame.inverseModel * vec4(frame.camera_pos.xyz, 1.0)).y;
+    segment.hDir = (flame.inverseModel * vec4(rayDir, 0.0)).y;
+    segment.tNear = interval.x > INTERVAL_CLEAR_THRESHOLD ? 0.0 : interval.x;
+    float tFar = interval.y > INTERVAL_CLEAR_THRESHOLD ? segment.tNear : -interval.y;
+    segment.tFar = max(tFar, segment.tNear);
+    segment.boundaryHeightIntegral = heightIntegral;
+
+    // Camera inside the shell: front boundary terms at t = 0 were never
+    // rasterized, so coverage = +N and the missing (-1) * H1(h_o) / h_d
+    // terms are restored here (their t and delta-t contributions are zero).
+    if (coverage > 0.5 && abs(segment.hDir) > H_DIR_EPSILON) {
+        float missingCount = round(coverage);
+        segment.boundaryHeightIntegral -= missingCount
+            * evaluateHeightPrimitive(clamp(segment.hOrigin, 0.0, 1.0)) / segment.hDir;
+        segment.tNear = 0.0;
+    }
+    return segment;
+}
+
+float integrateEmissionAnalytic(FlameRaySegment segment) {
+    return max(segment.boundaryHeightIntegral, 0.0);
+}
+
+float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
+    float dt = (segment.tFar - segment.tNear) / float(stepCount);
     if (dt <= 0.0) {
         return 0.0;
     }
     float sum = 0.0;
-    for (int i = 0; i < push.stepCount; ++i) {
-        float t = tNear + (float(i) + 0.5) * dt;
-        float h = clamp(evaluateHeightAlongRay(t, hOrigin, hDir), 0.0, 1.0);
+    for (int i = 0; i < stepCount; ++i) {
+        float t = segment.tNear + (float(i) + 0.5) * dt;
+        float h = clamp(evaluateHeightAlongRay(t, segment.hOrigin, segment.hDir), 0.0, 1.0);
         sum += evaluateHeightFalloff(h);
     }
     return sum * dt;
+}
+
+vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
+    float heightMid = clamp(
+        evaluateHeightAlongRay(0.5 * (segment.tNear + segment.tFar), segment.hOrigin, segment.hDir),
+        0.0, 1.0);
+    vec3 rampColor = mix(flame.colorBase.rgb, flame.colorTip.rgb, heightMid);
+
+    vec3 radiance = rampColor * flame.intensity * emission;
+    float alpha = 1.0 - exp(-flame.sigmaT * deltaT);
+    return vec4(radiance, alpha);
 }
 
 void main() {
@@ -80,7 +130,6 @@ void main() {
 
     float coverage = accum.x;
     float deltaT = max(accum.y, 0.0);
-    float heightIntegral = accum.z;
 
     if (push.mode == 2) {
         outColor = vec4(vec3(deltaT), 1.0);
@@ -91,35 +140,11 @@ void main() {
         discard;
     }
 
-    mat4 invViewProj = inverse(frame.proj * frame.view);
-    vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
-    float hOrigin = (flame.inverseModel * vec4(frame.camera_pos.xyz, 1.0)).y;
-    float hDir = (flame.inverseModel * vec4(rayDir, 0.0)).y;
+    FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
 
-    float tNear = interval.x > INTERVAL_CLEAR_THRESHOLD ? 0.0 : interval.x;
-    float tFar = interval.y > INTERVAL_CLEAR_THRESHOLD ? tNear : -interval.y;
-    tFar = max(tFar, tNear);
+    float emission = push.mode == 1
+        ? integrateEmissionRaymarch(segment, push.stepCount)
+        : integrateEmissionAnalytic(segment);
 
-    // Camera inside the shell: front boundary terms at t = 0 were never
-    // rasterized, so coverage = +N and the missing (-1) * H1(h_o) / h_d
-    // terms are restored here (their t and delta-t contributions are zero).
-    if (coverage > 0.5 && abs(hDir) > H_DIR_EPSILON) {
-        float missingCount = round(coverage);
-        heightIntegral -= missingCount * evaluateHeightPrimitive(clamp(hOrigin, 0.0, 1.0)) / hDir;
-        tNear = 0.0;
-    }
-
-    float emission;
-    if (push.mode == 1) {
-        emission = integrateHeightByRaymarch(tNear, tFar, hOrigin, hDir);
-    } else {
-        emission = max(heightIntegral, 0.0);
-    }
-
-    float heightMid = clamp(evaluateHeightAlongRay(0.5 * (tNear + tFar), hOrigin, hDir), 0.0, 1.0);
-    vec3 rampColor = mix(flame.colorBase.rgb, flame.colorTip.rgb, heightMid);
-
-    vec3 radiance = rampColor * flame.intensity * emission;
-    float alpha = 1.0 - exp(-flame.sigmaT * deltaT);
-    outColor = vec4(radiance, alpha);
+    outColor = shadeEmission(segment, emission, deltaT);
 }

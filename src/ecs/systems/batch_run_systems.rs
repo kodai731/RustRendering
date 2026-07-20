@@ -9,7 +9,22 @@ use crate::ecs::world::World;
 const BATCH_SCREENSHOT_FLAG: &str = "--batch-screenshot";
 const BATCH_FRAMES_FLAG: &str = "--batch-frames";
 const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
+const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
+
+pub struct EngineCliOverrides {
+    pub batch_run: Option<BatchRun>,
+    pub flame_mode: Option<FlameShadingMode>,
+    pub flame_steps: Option<u32>,
+}
+
+pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
+    Ok(EngineCliOverrides {
+        batch_run: batch_run_resolve_from_args(args)?,
+        flame_mode: flame_mode_resolve_from_args(args)?,
+        flame_steps: flame_steps_resolve_from_args(args)?,
+    })
+}
 
 pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> {
     let Some(position) = args.iter().position(|arg| arg == BATCH_SCREENSHOT_FLAG) else {
@@ -54,6 +69,22 @@ pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadi
         anyhow::anyhow!("invalid flame mode '{value}': expected analytic|raymarch|thickness")
     })?;
     Ok(Some(mode))
+}
+
+pub fn flame_steps_resolve_from_args(args: &[String]) -> Result<Option<u32>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_STEPS_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_FLAME_STEPS_FLAG} requires a step count");
+    };
+    let steps: u32 = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid step count '{value}': expected integer"))?;
+    if steps == 0 {
+        bail!("{BATCH_FLAME_STEPS_FLAG} must be >= 1");
+    }
+    Ok(Some(steps))
 }
 
 fn resolve_absolute_output(output: &Path) -> Result<PathBuf> {
@@ -216,6 +247,35 @@ mod tests {
     #[test]
     fn resolve_rejects_frames_without_screenshot() {
         assert!(batch_run_resolve_from_args(&args(&["bin", "--batch-frames", "30"])).is_err());
+    }
+
+    #[test]
+    fn resolve_flame_mode_and_steps() {
+        let overrides = resolve_engine_cli_overrides(&args(&[
+            "bin",
+            "--batch-flame-mode",
+            "raymarch",
+            "--batch-flame-steps",
+            "512",
+        ]))
+        .unwrap();
+        assert!(overrides.batch_run.is_none());
+        assert_eq!(
+            overrides.flame_mode,
+            Some(FlameShadingMode::ReferenceRaymarch)
+        );
+        assert_eq!(overrides.flame_steps, Some(512));
+    }
+
+    #[test]
+    fn resolve_rejects_invalid_flame_overrides() {
+        assert!(flame_mode_resolve_from_args(&args(&["bin", "--batch-flame-mode", "x"])).is_err());
+        assert!(
+            flame_steps_resolve_from_args(&args(&["bin", "--batch-flame-steps", "0"])).is_err()
+        );
+        assert!(
+            flame_steps_resolve_from_args(&args(&["bin", "--batch-flame-steps", "abc"])).is_err()
+        );
     }
 
     #[test]
