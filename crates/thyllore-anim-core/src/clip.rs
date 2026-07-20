@@ -103,6 +103,9 @@ impl TransformChannel {
         if time >= last_kf.time {
             if let Some(dur) = duration {
                 if dur > last_kf.time && time < dur {
+                    if last_kf.interpolation == Interpolation::Step {
+                        return Some(last_kf.value);
+                    }
                     let first_kf = &keyframes[0];
                     let wrap_duration = dur - last_kf.time + first_kf.time;
                     if wrap_duration > 0.0001 {
@@ -120,7 +123,7 @@ impl TransformChannel {
         let t = (time - k0.time) / (k1.time - k0.time);
 
         match k0.interpolation {
-            Interpolation::Step => Some(k1.value),
+            Interpolation::Step => Some(k0.value),
             Interpolation::Linear => Some(k0.value + (k1.value - k0.value) * t),
             Interpolation::CubicSpline => Some(hermite_vec3(k0, k1, t)),
         }
@@ -148,6 +151,9 @@ impl TransformChannel {
         if time >= last_kf.time {
             if let Some(dur) = duration {
                 if dur > last_kf.time && time < dur {
+                    if last_kf.interpolation == Interpolation::Step {
+                        return Some(last_kf.value);
+                    }
                     let first_kf = &keyframes[0];
                     let wrap_duration = dur - last_kf.time + first_kf.time;
                     if wrap_duration > 0.0001 {
@@ -165,7 +171,7 @@ impl TransformChannel {
         let t = (time - k0.time) / (k1.time - k0.time);
 
         match k0.interpolation {
-            Interpolation::Step => Some(k1.value),
+            Interpolation::Step => Some(k0.value),
             Interpolation::Linear => Some(slerp(k0.value, k1.value, t)),
             Interpolation::CubicSpline => Some(normalize_quat(hermite_quat(k0, k1, t))),
         }
@@ -474,7 +480,10 @@ mod tests {
             ..Default::default()
         };
         let v = ch.sample_translation(0.5).unwrap();
-        assert!((v.x - 10.0).abs() < 0.01);
+        assert!((v.x - 0.0).abs() < 0.01);
+
+        let v_at_next_key = ch.sample_translation(1.0).unwrap();
+        assert!((v_at_next_key.x - 10.0).abs() < 0.01);
     }
 
     #[test]
