@@ -58,6 +58,8 @@ pub fn build_scene_overlay(
             build_auto_exposure_section(ui, ui_events, ecs_world);
 
             build_onion_skinning_section(ui, ui_events, ecs_world);
+
+            build_flame_section(ui, ui_events, ecs_world);
         });
 }
 
@@ -425,6 +427,91 @@ fn build_onion_skinning_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ec
             ));
 
             ui_events.send(UIEvent::UpdateOnionSkinning(config_copy));
+        }
+    }
+}
+
+fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: &World) {
+    use crate::ecs::resource::{FlameEffect, FlameRenderSettings, FlameShadingMode};
+
+    if ui.collapsing_header("Flame", imgui::TreeNodeFlags::empty()) {
+        if let Some(settings) = ecs_world.get_resource::<FlameRenderSettings>() {
+            let mut settings_copy = *settings;
+            drop(settings);
+
+            if let Some(_token) = ui.begin_combo("Shading Mode", settings_copy.shading_mode.label())
+            {
+                for mode in FlameShadingMode::ALL {
+                    let selected = mode == settings_copy.shading_mode;
+                    if ui
+                        .selectable_config(mode.label())
+                        .selected(selected)
+                        .build()
+                    {
+                        settings_copy.shading_mode = mode;
+                    }
+                }
+            }
+
+            match settings_copy.shading_mode {
+                FlameShadingMode::ReferenceRaymarch => {
+                    let mut steps = settings_copy.reference_step_count as i32;
+                    ui.slider_config("Reference Steps", 8, 512)
+                        .build(&mut steps);
+                    settings_copy.reference_step_count = steps.max(1) as u32;
+                }
+                FlameShadingMode::NoiseRaymarch => {
+                    let mut steps = settings_copy.noise_step_count as i32;
+                    ui.slider_config("Noise Steps", 4, 64).build(&mut steps);
+                    settings_copy.noise_step_count = steps.max(1) as u32;
+                }
+                FlameShadingMode::Analytic | FlameShadingMode::DebugThickness => {}
+            }
+
+            ui_events.send(UIEvent::UpdateFlameRenderSettings(settings_copy));
+        }
+
+        if let Some(effect) = ecs_world.get_resource::<FlameEffect>() {
+            let mut effect_copy = effect.clone();
+            drop(effect);
+
+            let mut position = [
+                effect_copy.position.x,
+                effect_copy.position.y,
+                effect_copy.position.z,
+            ];
+            if ui.input_float3("Position", &mut position).build() {
+                effect_copy.position = cgmath::Vector3::new(position[0], position[1], position[2]);
+            }
+
+            ui.slider_config("Height", 0.05, 10.0)
+                .display_format("%.2f")
+                .build(&mut effect_copy.height);
+
+            ui.slider_config("Radius", 0.05, 10.0)
+                .display_format("%.2f")
+                .build(&mut effect_copy.radius);
+
+            ui.slider_config("Intensity", 0.0, 10.0)
+                .build(&mut effect_copy.intensity);
+
+            ui.slider_config("Sigma T", 0.01, 10.0)
+                .display_format("%.2f")
+                .build(&mut effect_copy.sigma_t);
+
+            ui.color_edit3("Base Color", &mut effect_copy.color_base);
+            ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
+
+            ui.slider_config("Noise Amplitude", 0.0, 3.0)
+                .build(&mut effect_copy.noise_amplitude);
+
+            ui.slider_config("Noise Frequency", 0.5, 32.0)
+                .build(&mut effect_copy.noise_frequency);
+
+            ui.slider_config("Noise Scroll Speed", 0.0, 10.0)
+                .build(&mut effect_copy.noise_scroll_speed);
+
+            ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
         }
     }
 }

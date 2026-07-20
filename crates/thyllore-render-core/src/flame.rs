@@ -1,4 +1,4 @@
-use cgmath::{Matrix4, SquareMatrix, Vector4};
+use cgmath::{Matrix4, Vector3, Vector4};
 use thyllore_math_core::{fit_chebyshev, integrate_chebyshev, pack_coefficients_vec4};
 
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
@@ -70,6 +70,22 @@ pub enum FlameShadingMode {
 }
 
 impl FlameShadingMode {
+    pub const ALL: [FlameShadingMode; 4] = [
+        FlameShadingMode::Analytic,
+        FlameShadingMode::ReferenceRaymarch,
+        FlameShadingMode::NoiseRaymarch,
+        FlameShadingMode::DebugThickness,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FlameShadingMode::Analytic => "Analytic",
+            FlameShadingMode::ReferenceRaymarch => "Reference Raymarch",
+            FlameShadingMode::DebugThickness => "Debug Thickness",
+            FlameShadingMode::NoiseRaymarch => "Noise Raymarch",
+        }
+    }
+
     pub fn as_shader_value(self) -> i32 {
         match self {
             FlameShadingMode::Analytic => 0,
@@ -117,6 +133,92 @@ impl FlameRenderSettings {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub struct FlameEffect {
+    pub position: Vector3<f32>,
+    pub height: f32,
+    pub radius: f32,
+    pub sigma_t: f32,
+    pub intensity: f32,
+    pub color_base: [f32; 3],
+    pub color_tip: [f32; 3],
+    pub noise_amplitude: f32,
+    pub noise_frequency: f32,
+    pub noise_scroll_speed: f32,
+    pub time: f32,
+    pub coefficients: FlameCoefficients,
+}
+
+impl Default for FlameEffect {
+    fn default() -> Self {
+        let profile = FlameProfile::default();
+        Self {
+            position: Vector3::new(0.0, 0.0, 0.0),
+            height: 1.0,
+            radius: 1.0,
+            sigma_t: profile.sigma_t,
+            intensity: 1.0,
+            color_base: [1.0, 0.45, 0.1],
+            color_tip: [1.0, 0.1, 0.02],
+            noise_amplitude: 1.2,
+            noise_frequency: 6.0,
+            noise_scroll_speed: 1.0,
+            time: 0.0,
+            coefficients: fit_flame_coefficients(&profile),
+        }
+    }
+}
+
+const MIN_FLAME_EXTENT: f32 = 1e-3;
+
+pub fn advance_flame_time(effect: &mut FlameEffect, delta_time: f32) {
+    effect.time += delta_time.max(0.0);
+}
+
+pub fn build_flame_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
+    let radius = effect.radius.max(MIN_FLAME_EXTENT);
+    let height = effect.height.max(MIN_FLAME_EXTENT);
+    Matrix4::from_translation(effect.position)
+        * Matrix4::from_nonuniform_scale(radius, height, radius)
+}
+
+pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
+    let radius = effect.radius.max(MIN_FLAME_EXTENT);
+    let height = effect.height.max(MIN_FLAME_EXTENT);
+    Matrix4::from_nonuniform_scale(1.0 / radius, 1.0 / height, 1.0 / radius)
+        * Matrix4::from_translation(-effect.position)
+}
+
+pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
+    FlameUBO {
+        model: build_flame_model_matrix(effect),
+        inverse_model: build_flame_inverse_model_matrix(effect),
+        height_primitive_coefficients: effect.coefficients.height_primitive,
+        radial_coefficients: effect.coefficients.radial,
+        height_coefficients: effect.coefficients.height,
+        time: effect.time,
+        sigma_t: effect.sigma_t,
+        intensity: effect.intensity,
+        height_axis_scale: 1.0,
+        noise_amplitude: effect.noise_amplitude,
+        noise_frequency: effect.noise_frequency,
+        noise_scroll_speed: effect.noise_scroll_speed,
+        _padding: 0.0,
+        color_base: Vector4::new(
+            effect.color_base[0],
+            effect.color_base[1],
+            effect.color_base[2],
+            1.0,
+        ),
+        color_tip: Vector4::new(
+            effect.color_tip[0],
+            effect.color_tip[1],
+            effect.color_tip[2],
+            1.0,
+        ),
+    }
+}
+
 pub fn integrate_emission_segment(source: f32, sigma_t: f32, dt: f32) -> f32 {
     let x = sigma_t * dt;
     if x < 1e-3 {
@@ -148,23 +250,7 @@ pub struct FlameUBO {
 
 impl Default for FlameUBO {
     fn default() -> Self {
-        Self {
-            model: Matrix4::identity(),
-            inverse_model: Matrix4::identity(),
-            height_primitive_coefficients: [[0.0; 4]; 3],
-            radial_coefficients: [[0.0; 4]; 2],
-            height_coefficients: [[0.0; 4]; 2],
-            time: 0.0,
-            sigma_t: 1.0,
-            intensity: 1.0,
-            height_axis_scale: 1.0,
-            noise_amplitude: 1.2,
-            noise_frequency: 6.0,
-            noise_scroll_speed: 1.0,
-            _padding: 0.0,
-            color_base: Vector4::new(1.0, 0.45, 0.1, 1.0),
-            color_tip: Vector4::new(1.0, 0.1, 0.02, 1.0),
-        }
+        build_flame_ubo(&FlameEffect::default())
     }
 }
 
@@ -272,6 +358,59 @@ mod tests {
 
         settings.noise_step_count = 0;
         assert_eq!(settings.resolved_step_count(), 1);
+    }
+
+    #[test]
+    fn test_build_flame_model_and_inverse_are_consistent() {
+        let effect = FlameEffect {
+            position: Vector3::new(1.5, -0.25, 3.0),
+            height: 2.0,
+            radius: 0.5,
+            ..FlameEffect::default()
+        };
+        let product = build_flame_model_matrix(&effect) * build_flame_inverse_model_matrix(&effect);
+        let identity = Matrix4::<f32>::from_scale(1.0);
+        for column in 0..4 {
+            for row in 0..4 {
+                assert!(
+                    (product[column][row] - identity[column][row]).abs() < 1e-5,
+                    "model * inverse_model differs from identity at [{column}][{row}]"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn test_build_flame_ubo_clamps_degenerate_extent() {
+        let effect = FlameEffect {
+            height: 0.0,
+            radius: -1.0,
+            ..FlameEffect::default()
+        };
+        let ubo = build_flame_ubo(&effect);
+        assert!(ubo.model[0][0] > 0.0);
+        assert!(ubo.inverse_model[1][1].is_finite());
+    }
+
+    #[test]
+    fn test_advance_flame_time_accumulates_and_ignores_negative() {
+        let mut effect = FlameEffect::default();
+        advance_flame_time(&mut effect, 0.5);
+        advance_flame_time(&mut effect, 0.25);
+        advance_flame_time(&mut effect, -1.0);
+        assert!((effect.time - 0.75).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_flame_ubo_default_matches_effect_default() {
+        let ubo = FlameUBO::default();
+        let effect = FlameEffect::default();
+        assert_eq!(ubo.sigma_t, effect.sigma_t);
+        assert_eq!(ubo.noise_amplitude, effect.noise_amplitude);
+        assert_eq!(
+            ubo.height_primitive_coefficients,
+            effect.coefficients.height_primitive
+        );
     }
 
     #[test]

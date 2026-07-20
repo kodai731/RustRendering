@@ -20,6 +20,7 @@ pub use composite::{
 pub use dof::record_dof_pass;
 pub use flame::record_flame_shading_pass;
 pub use flame::record_flame_thickness_pass;
+pub use flame::record_flame_ubo_update;
 pub use gbuffer::record_gbuffer_pass;
 pub use line_mesh_draw::{
     push_fragment_alpha_constant, record_line_mesh_draw, LineMeshDrawOptions,

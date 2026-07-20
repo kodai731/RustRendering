@@ -1,8 +1,9 @@
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
-    AutoExposure, DepthOfField, GridMeshData, HierarchyState, MessageLog, OnionSkinningConfig,
-    PhysicalCameraParameters, TransformGizmoState, WeightHeatmapState,
+    AutoExposure, DepthOfField, FlameEffect, FlameRenderSettings, GridMeshData, HierarchyState,
+    MessageLog, OnionSkinningConfig, PhysicalCameraParameters, TransformGizmoState,
+    WeightHeatmapState,
 };
 use crate::ecs::world::{Animator, World};
 
@@ -58,6 +59,18 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
                 if let Some(mut config) = world.get_resource_mut::<OnionSkinningConfig>() {
                     *config = new_config.clone();
+                }
+            }
+            UIEvent::UpdateFlameEffect(new_effect) => {
+                if let Some(mut effect) = world.get_resource_mut::<FlameEffect>() {
+                    let engine_time = effect.time;
+                    *effect = *new_effect.clone();
+                    effect.time = engine_time;
+                }
+            }
+            UIEvent::UpdateFlameRenderSettings(new_settings) => {
+                if let Some(mut settings) = world.get_resource_mut::<FlameRenderSettings>() {
+                    *settings = *new_settings;
                 }
             }
             UIEvent::SetGridShowYAxis(show) => {

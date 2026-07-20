@@ -15,8 +15,9 @@ pub use backend::RenderBackend;
 pub use billboard::{BillboardMesh, BillboardTransform, BillboardVertex};
 pub use buffer_handle::{BufferHandle, IndexBufferHandle, VertexBufferHandle};
 pub use flame::{
-    default_height_falloff, default_radial_falloff, fit_flame_coefficients,
-    integrate_emission_segment, FlameCoefficients, FlameProfile, FlameRenderSettings,
+    advance_flame_time, build_flame_inverse_model_matrix, build_flame_model_matrix,
+    build_flame_ubo, default_height_falloff, default_radial_falloff, fit_flame_coefficients,
+    integrate_emission_segment, FlameCoefficients, FlameEffect, FlameProfile, FlameRenderSettings,
     FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
 };
 pub use flame_shell::{

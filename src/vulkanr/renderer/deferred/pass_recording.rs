@@ -523,6 +523,21 @@ pub unsafe fn record_flame_thickness_pass(
 
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
+    if let (Some(effect), Some(ubo_buffer)) = (
+        app.data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameEffect>(),
+        app.data.raytracing.flame_uniform_buffer,
+    ) {
+        let ubo = thyllore_render_core::build_flame_ubo(&effect);
+        thyllore_vulkan_core::renderer::record_flame_ubo_update(
+            &ctx,
+            &ubo,
+            ubo_buffer,
+            command_buffer,
+        );
+    }
+
     thyllore_vulkan_core::renderer::record_flame_thickness_pass(
         &ctx,
         flame_buffer,

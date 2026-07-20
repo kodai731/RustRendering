@@ -22,7 +22,7 @@ use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
-use thyllore_render_core::{fit_flame_coefficients, FlameProfile, FlameUBO};
+use thyllore_render_core::FlameUBO;
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
@@ -393,7 +393,7 @@ impl RayTracingData {
             instance,
             rrdevice,
             flame_ubo_size,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
+            vk::BufferUsageFlags::UNIFORM_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
         self.write_initial_flame_ubo(rrdevice, flame_ubo_memory, flame_ubo_size)?;
@@ -502,15 +502,7 @@ impl RayTracingData {
         flame_ubo_memory: vk::DeviceMemory,
         flame_ubo_size: vk::DeviceSize,
     ) -> Result<()> {
-        let profile = FlameProfile::default();
-        let coefficients = fit_flame_coefficients(&profile);
-        let initial_ubo = FlameUBO {
-            height_primitive_coefficients: coefficients.height_primitive,
-            radial_coefficients: coefficients.radial,
-            height_coefficients: coefficients.height,
-            sigma_t: profile.sigma_t,
-            ..FlameUBO::default()
-        };
+        let initial_ubo = FlameUBO::default();
 
         let mapped = rrdevice.device.map_memory(
             flame_ubo_memory,
