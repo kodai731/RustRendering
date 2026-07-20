@@ -60,6 +60,39 @@ pub fn fit_flame_coefficients(profile: &FlameProfile) -> FlameCoefficients {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FlameShadingMode {
+    #[default]
+    Analytic,
+    ReferenceRaymarch,
+    DebugThickness,
+}
+
+impl FlameShadingMode {
+    pub fn as_shader_value(self) -> i32 {
+        match self {
+            FlameShadingMode::Analytic => 0,
+            FlameShadingMode::ReferenceRaymarch => 1,
+            FlameShadingMode::DebugThickness => 2,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameRenderSettings {
+    pub shading_mode: FlameShadingMode,
+    pub reference_step_count: u32,
+}
+
+impl Default for FlameRenderSettings {
+    fn default() -> Self {
+        Self {
+            shading_mode: FlameShadingMode::Analytic,
+            reference_step_count: 128,
+        }
+    }
+}
+
 pub fn integrate_emission_segment(source: f32, sigma_t: f32, dt: f32) -> f32 {
     let x = sigma_t * dt;
     if x < 1e-3 {

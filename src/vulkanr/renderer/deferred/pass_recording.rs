@@ -515,7 +515,7 @@ pub unsafe fn record_flame_thickness_pass(
 ) -> Result<()> {
     let (Some(flame_buffer), Some(pipeline), Some(descriptor)) = (
         app.data.viewport.flame_buffer.as_ref(),
-        app.data.raytracing.flame_pipeline.as_ref(),
+        app.data.raytracing.flame_thickness_pipeline.as_ref(),
         app.data.raytracing.flame_descriptor.as_ref(),
     ) else {
         return Ok(());
@@ -531,6 +531,106 @@ pub unsafe fn record_flame_thickness_pass(
         image_index,
         command_buffer,
     )
+}
+
+pub unsafe fn record_flame_shading_pass(
+    app: &App,
+    command_buffer: vk::CommandBuffer,
+    image_index: usize,
+) -> Result<()> {
+    let (Some(flame_buffer), Some(pipeline), Some(descriptor)) = (
+        app.data.viewport.flame_buffer.as_ref(),
+        app.data.raytracing.flame_shading_pipeline.as_ref(),
+        app.data.raytracing.flame_descriptor.as_ref(),
+    ) else {
+        return Ok(());
+    };
+
+    let Some(scissor) = compute_flame_scissor(app, flame_buffer.extent()) else {
+        return Ok(());
+    };
+
+    let settings = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::FlameRenderSettings>()
+        .map(|settings| *settings)
+        .unwrap_or_default();
+    let push_constants = thyllore_vulkan_core::renderer::FlamePushConstants::new(
+        settings.shading_mode.as_shader_value(),
+        settings.reference_step_count.max(1) as i32,
+    );
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
+
+    thyllore_vulkan_core::renderer::record_flame_shading_pass(
+        &ctx,
+        flame_buffer,
+        pipeline,
+        descriptor,
+        scissor,
+        push_constants,
+        image_index,
+        command_buffer,
+    )
+}
+
+fn compute_flame_scissor(app: &App, extent: vk::Extent2D) -> Option<vk::Rect2D> {
+    use crate::ecs::resource::ProjectionData;
+    const SCISSOR_MARGIN_PX: f32 = 2.0;
+
+    let Some(projection) = app.data.ecs_world.get_resource::<ProjectionData>() else {
+        return Some(full_extent_scissor(extent));
+    };
+    let view_proj = projection.proj * projection.view;
+
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    for corner_index in 0..8 {
+        let x = if corner_index & 1 == 0 { -0.5 } else { 0.5 };
+        let y = if corner_index & 2 == 0 { 0.0 } else { 1.0 };
+        let z = if corner_index & 4 == 0 { -0.5 } else { 0.5 };
+        let clip = view_proj * cgmath::vec4(x, y, z, 1.0);
+        if clip.w <= 0.0 {
+            return Some(full_extent_scissor(extent));
+        }
+        let screen_x = (clip.x / clip.w + 1.0) * 0.5 * extent.width as f32;
+        let screen_y = (clip.y / clip.w + 1.0) * 0.5 * extent.height as f32;
+        min_x = min_x.min(screen_x);
+        min_y = min_y.min(screen_y);
+        max_x = max_x.max(screen_x);
+        max_y = max_y.max(screen_y);
+    }
+
+    let min_x = (min_x - SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
+    let min_y = (min_y - SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
+    let max_x = (max_x + SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
+    let max_y = (max_y + SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
+    if max_x - min_x < 1.0 || max_y - min_y < 1.0 {
+        return None;
+    }
+
+    Some(
+        vk::Rect2D::builder()
+            .offset(vk::Offset2D {
+                x: min_x as i32,
+                y: min_y as i32,
+            })
+            .extent(vk::Extent2D {
+                width: (max_x - min_x).ceil() as u32,
+                height: (max_y - min_y).ceil() as u32,
+            })
+            .build(),
+    )
+}
+
+fn full_extent_scissor(extent: vk::Extent2D) -> vk::Rect2D {
+    vk::Rect2D::builder()
+        .offset(vk::Offset2D { x: 0, y: 0 })
+        .extent(extent)
+        .build()
 }
 
 pub unsafe fn record_tonemap_to_offscreen(

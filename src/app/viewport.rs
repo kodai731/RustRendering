@@ -51,7 +51,13 @@ impl ViewportState {
 
         let auto_exposure_buffers = AutoExposureBuffers::new(instance, rrdevice, width, height)?;
 
-        let flame_buffer = FlameBuffer::new(instance, rrdevice, width, height)?;
+        let flame_buffer = FlameBuffer::new(
+            instance,
+            rrdevice,
+            width,
+            height,
+            hdr_buffer.color_image_view,
+        )?;
 
         let (descriptor_pool, descriptor_set_layout, descriptor_set) =
             Self::create_imgui_descriptor(rrdevice, &offscreen)?;
@@ -181,8 +187,16 @@ impl ViewportState {
             ae_buffers.resize(instance, rrdevice, new_width, new_height)?;
         }
 
-        if let Some(ref mut flame_buffer) = self.flame_buffer {
-            flame_buffer.resize(instance, rrdevice, new_width, new_height)?;
+        if let (Some(ref mut flame_buffer), Some(ref hdr_buffer)) =
+            (&mut self.flame_buffer, &self.hdr_buffer)
+        {
+            flame_buffer.resize(
+                instance,
+                rrdevice,
+                new_width,
+                new_height,
+                hdr_buffer.color_image_view,
+            )?;
         }
 
         self.width = new_width;

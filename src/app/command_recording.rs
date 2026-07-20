@@ -47,6 +47,7 @@ impl App {
                 deferred::record_composite_to_hdr(self, command_buffer)?;
                 deferred::record_onion_skin_pass(self, command_buffer, image_index)?;
                 deferred::record_flame_thickness_pass(self, command_buffer, image_index)?;
+                deferred::record_flame_shading_pass(self, command_buffer, image_index)?;
                 deferred::record_bloom(self, command_buffer)?;
                 deferred::record_dof(self, command_buffer)?;
                 deferred::record_auto_exposure(self, command_buffer)?;

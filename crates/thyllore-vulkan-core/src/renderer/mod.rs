@@ -18,6 +18,7 @@ pub use composite::{
     record_composite_to_hdr_pass,
 };
 pub use dof::record_dof_pass;
+pub use flame::record_flame_shading_pass;
 pub use flame::record_flame_thickness_pass;
 pub use gbuffer::record_gbuffer_pass;
 pub use line_mesh_draw::{
@@ -25,6 +26,6 @@ pub use line_mesh_draw::{
 };
 pub use onion_skin::{record_onion_skin_composite_pass, record_onion_skin_ghost_pass};
 pub use onion_skin_buffers::{OnionSkinGhostBuffer, OnionSkinGpuState};
-pub use push_constants::{GBufferPushConstants, OnionSkinPushConstants};
+pub use push_constants::{FlamePushConstants, GBufferPushConstants, OnionSkinPushConstants};
 pub use rayquery::record_ray_query_pass;
 pub use tonemap::{begin_tonemap_render_pass, end_tonemap_render_pass, record_tonemap_draw};

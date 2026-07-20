@@ -2,6 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::RRDevice;
+use crate::resource::hdr_buffer::HDR_FORMAT;
 use crate::resource::image::{create_image, create_image_view};
 
 pub const FLAME_ACCUM_FORMAT: vk::Format = vk::Format::R32G32B32A32_SFLOAT;
@@ -19,6 +20,8 @@ pub struct FlameBuffer {
     pub sampler: vk::Sampler,
     pub thickness_render_pass: vk::RenderPass,
     pub thickness_framebuffer: vk::Framebuffer,
+    pub shading_render_pass: vk::RenderPass,
+    pub shading_framebuffer: vk::Framebuffer,
     pub width: u32,
     pub height: u32,
 }
@@ -29,6 +32,7 @@ impl FlameBuffer {
         rrdevice: &RRDevice,
         width: u32,
         height: u32,
+        hdr_image_view: vk::ImageView,
     ) -> Result<Self> {
         let (accum_image, accum_image_memory) =
             Self::create_target_image(instance, rrdevice, width, height, FLAME_ACCUM_FORMAT)?;
@@ -63,6 +67,19 @@ impl FlameBuffer {
             .device
             .create_framebuffer(&framebuffer_info, None)?;
 
+        let shading_render_pass = Self::create_shading_render_pass(rrdevice)?;
+
+        let shading_attachments = [hdr_image_view];
+        let shading_framebuffer_info = vk::FramebufferCreateInfo::builder()
+            .render_pass(shading_render_pass)
+            .attachments(&shading_attachments)
+            .width(width)
+            .height(height)
+            .layers(1);
+        let shading_framebuffer = rrdevice
+            .device
+            .create_framebuffer(&shading_framebuffer_info, None)?;
+
         let sampler = Self::create_sampler(&rrdevice.device)?;
 
         log!(
@@ -83,6 +100,8 @@ impl FlameBuffer {
             sampler,
             thickness_render_pass,
             thickness_framebuffer,
+            shading_render_pass,
+            shading_framebuffer,
             width,
             height,
         })
@@ -177,6 +196,61 @@ impl FlameBuffer {
         Ok(rrdevice.device.create_render_pass(&info, None)?)
     }
 
+    unsafe fn create_shading_render_pass(rrdevice: &RRDevice) -> Result<vk::RenderPass> {
+        let color_attachment = vk::AttachmentDescription::builder()
+            .format(HDR_FORMAT)
+            .samples(vk::SampleCountFlags::_1)
+            .load_op(vk::AttachmentLoadOp::LOAD)
+            .store_op(vk::AttachmentStoreOp::STORE)
+            .stencil_load_op(vk::AttachmentLoadOp::DONT_CARE)
+            .stencil_store_op(vk::AttachmentStoreOp::DONT_CARE)
+            .initial_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .final_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+            .build();
+
+        let color_attachment_ref = vk::AttachmentReference::builder()
+            .attachment(0)
+            .layout(vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL)
+            .build();
+
+        let color_attachments = [color_attachment_ref];
+
+        let subpass = vk::SubpassDescription::builder()
+            .pipeline_bind_point(vk::PipelineBindPoint::GRAPHICS)
+            .color_attachments(&color_attachments);
+
+        let dependency_in = vk::SubpassDependency::builder()
+            .src_subpass(vk::SUBPASS_EXTERNAL)
+            .dst_subpass(0)
+            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .dst_access_mask(
+                vk::AccessFlags::COLOR_ATTACHMENT_READ | vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            )
+            .build();
+
+        let dependency_out = vk::SubpassDependency::builder()
+            .src_subpass(0)
+            .dst_subpass(vk::SUBPASS_EXTERNAL)
+            .src_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
+            .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE)
+            .dst_stage_mask(vk::PipelineStageFlags::FRAGMENT_SHADER)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ)
+            .build();
+
+        let attachments = [color_attachment];
+        let subpasses = [subpass];
+        let dependencies = [dependency_in, dependency_out];
+
+        let info = vk::RenderPassCreateInfo::builder()
+            .attachments(&attachments)
+            .subpasses(&subpasses)
+            .dependencies(&dependencies);
+
+        Ok(rrdevice.device.create_render_pass(&info, None)?)
+    }
+
     unsafe fn create_sampler(device: &vulkanalia::Device) -> Result<vk::Sampler> {
         let sampler_info = vk::SamplerCreateInfo::builder()
             .mag_filter(vk::Filter::NEAREST)
@@ -202,13 +276,10 @@ impl FlameBuffer {
         rrdevice: &RRDevice,
         new_width: u32,
         new_height: u32,
+        hdr_image_view: vk::ImageView,
     ) -> Result<()> {
-        if new_width == self.width && new_height == self.height {
-            return Ok(());
-        }
-
         self.destroy(&rrdevice.device);
-        *self = Self::new(instance, rrdevice, new_width, new_height)?;
+        *self = Self::new(instance, rrdevice, new_width, new_height, hdr_image_view)?;
 
         log!("Resized flame buffer to: {}x{}", new_width, new_height);
         Ok(())
@@ -226,6 +297,14 @@ impl FlameBuffer {
         if self.thickness_render_pass != vk::RenderPass::null() {
             device.destroy_render_pass(self.thickness_render_pass, None);
             self.thickness_render_pass = vk::RenderPass::null();
+        }
+        if self.shading_framebuffer != vk::Framebuffer::null() {
+            device.destroy_framebuffer(self.shading_framebuffer, None);
+            self.shading_framebuffer = vk::Framebuffer::null();
+        }
+        if self.shading_render_pass != vk::RenderPass::null() {
+            device.destroy_render_pass(self.shading_render_pass, None);
+            self.shading_render_pass = vk::RenderPass::null();
         }
         for (image, memory, view) in [
             (

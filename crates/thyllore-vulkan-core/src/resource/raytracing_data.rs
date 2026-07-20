@@ -56,7 +56,8 @@ pub struct RayTracingData {
 
     pub onion_skin_pass: Option<OnionSkinPassResources>,
 
-    pub flame_pipeline: Option<RRPipeline>,
+    pub flame_thickness_pipeline: Option<RRPipeline>,
+    pub flame_shading_pipeline: Option<RRPipeline>,
     pub flame_descriptor: Option<RRFlameDescriptorSet>,
     pub flame_uniform_buffer: Option<vk::Buffer>,
     pub flame_uniform_buffer_memory: Option<vk::DeviceMemory>,
@@ -428,7 +429,7 @@ impl RayTracingData {
             ..additive_blend
         };
 
-        let flame_pipeline = PipelineBuilder::new(
+        let flame_thickness_pipeline = PipelineBuilder::new(
             "assets/shaders/flameShellVert.spv",
             "assets/shaders/flameShellFrag.spv",
         )
@@ -452,12 +453,46 @@ impl RayTracingData {
         ])
         .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
 
-        self.flame_pipeline = Some(flame_pipeline);
+        let flame_shading_pipeline = PipelineBuilder::new(
+            "assets/shaders/tonemapVert.spv",
+            "assets/shaders/flameResolveFrag.spv",
+        )
+        .vertex_input(VertexInputConfig::Custom {
+            bindings: vec![],
+            attributes: vec![],
+        })
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .no_depth_test()
+        .custom_render_pass(flame_buffer.shading_render_pass)
+        .msaa_samples(vk::SampleCountFlags::_1)
+        .blend(BlendConfig {
+            enable: true,
+            src_color_factor: vk::BlendFactor::ONE,
+            dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            color_op: vk::BlendOp::ADD,
+            src_alpha_factor: vk::BlendFactor::ONE,
+            dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            alpha_op: vk::BlendOp::ADD,
+        })
+        .push_constants(PushConstantConfig {
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            offset: 0,
+            size: std::mem::size_of::<crate::renderer::FlamePushConstants>() as u32,
+        })
+        .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
+        .descriptor_layouts(vec![
+            graphics_resources.frame_set.layout,
+            flame_descriptor.descriptor_set_layout,
+        ])
+        .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
+
+        self.flame_thickness_pipeline = Some(flame_thickness_pipeline);
+        self.flame_shading_pipeline = Some(flame_shading_pipeline);
         self.flame_descriptor = Some(flame_descriptor);
         self.flame_uniform_buffer = Some(flame_ubo_buffer);
         self.flame_uniform_buffer_memory = Some(flame_ubo_memory);
 
-        log!("Created flame pipeline");
+        log!("Created flame pipelines");
         Ok(())
     }
 
