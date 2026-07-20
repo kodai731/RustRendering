@@ -5,10 +5,11 @@
 // the shared FlameRaySegment path, so analytic vs raymarch comparisons isolate
 // the integration method alone regardless of mesh, colors, or future noise.
 // push.mode: 0 = analytic boundary integral, 1 = reference raymarch,
-// 2 = delta-t debug view.
+// 2 = delta-t debug view, 3 = styled raymarch (IGN jitter + noise erosion).
 
 #include "include/chebyshev.glsl"
 #include "include/flame_ray.glsl"
+#include "include/flame_noise.glsl"
 
 layout(set = 0, binding = 0) uniform FrameUBO {
     mat4 view;
@@ -66,8 +67,8 @@ float evaluateHeightPrimitive(float height01) {
 struct FlameRaySegment {
     float tNear;
     float tFar;
-    float hOrigin;
-    float hDir;
+    vec3 localOrigin;
+    vec3 localDir;
     float boundaryHeightIntegral;
 };
 
@@ -76,8 +77,8 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
 
     FlameRaySegment segment;
-    segment.hOrigin = (flame.inverseModel * vec4(frame.camera_pos.xyz, 1.0)).y;
-    segment.hDir = (flame.inverseModel * vec4(rayDir, 0.0)).y;
+    segment.localOrigin = (flame.inverseModel * vec4(frame.camera_pos.xyz, 1.0)).xyz;
+    segment.localDir = (flame.inverseModel * vec4(rayDir, 0.0)).xyz;
     segment.tNear = interval.x > INTERVAL_CLEAR_THRESHOLD ? 0.0 : interval.x;
     float tFar = interval.y > INTERVAL_CLEAR_THRESHOLD ? segment.tNear : -interval.y;
     segment.tFar = max(tFar, segment.tNear);
@@ -86,10 +87,10 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
     // Camera inside the shell: front boundary terms at t = 0 were never
     // rasterized, so coverage = +N and the missing (-1) * H1(h_o) / h_d
     // terms are restored here (their t and delta-t contributions are zero).
-    if (coverage > 0.5 && abs(segment.hDir) > H_DIR_EPSILON) {
+    if (coverage > 0.5 && abs(segment.localDir.y) > H_DIR_EPSILON) {
         float missingCount = round(coverage);
         segment.boundaryHeightIntegral -= missingCount
-            * evaluateHeightPrimitive(clamp(segment.hOrigin, 0.0, 1.0)) / segment.hDir;
+            * evaluateHeightPrimitive(clamp(segment.localOrigin.y, 0.0, 1.0)) / segment.localDir.y;
         segment.tNear = 0.0;
     }
     return segment;
@@ -107,15 +108,41 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
     float sum = 0.0;
     for (int i = 0; i < stepCount; ++i) {
         float t = segment.tNear + (float(i) + 0.5) * dt;
-        float h = clamp(evaluateHeightAlongRay(t, segment.hOrigin, segment.hDir), 0.0, 1.0);
+        float h = clamp(
+            evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         sum += evaluateHeightFalloff(h);
+    }
+    return sum * dt;
+}
+
+float sampleNoiseErodedDensity(vec3 localPos, float height01) {
+    vec3 samplePos = localPos * flame.noiseFrequency
+        - vec3(0.0, flame.time * flame.noiseScrollSpeed, 0.0);
+    float turbulence = fbm3(samplePos);
+    float erosion = flame.noiseAmplitude * mix(0.2, 1.0, height01) * turbulence;
+    return max(evaluateHeightFalloff(height01) - erosion, 0.0);
+}
+
+float integrateEmissionNoiseRaymarch(FlameRaySegment segment, int stepCount) {
+    float dt = (segment.tFar - segment.tNear) / float(stepCount);
+    if (dt <= 0.0) {
+        return 0.0;
+    }
+    float jitter = interleavedGradientNoise(gl_FragCoord.xy);
+    float sum = 0.0;
+    for (int i = 0; i < stepCount; ++i) {
+        float t = segment.tNear + (float(i) + jitter) * dt;
+        vec3 localPos = segment.localOrigin + t * segment.localDir;
+        float h = clamp(localPos.y, 0.0, 1.0);
+        sum += sampleNoiseErodedDensity(localPos, h);
     }
     return sum * dt;
 }
 
 vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
     float heightMid = clamp(
-        evaluateHeightAlongRay(0.5 * (segment.tNear + segment.tFar), segment.hOrigin, segment.hDir),
+        evaluateHeightAlongRay(
+            0.5 * (segment.tNear + segment.tFar), segment.localOrigin.y, segment.localDir.y),
         0.0, 1.0);
     vec3 rampColor = mix(flame.colorBase.rgb, flame.colorTip.rgb, heightMid);
 
@@ -142,9 +169,14 @@ void main() {
 
     FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
 
-    float emission = push.mode == 1
-        ? integrateEmissionRaymarch(segment, push.stepCount)
-        : integrateEmissionAnalytic(segment);
+    float emission;
+    if (push.mode == 3) {
+        emission = integrateEmissionNoiseRaymarch(segment, push.stepCount);
+    } else if (push.mode == 1) {
+        emission = integrateEmissionRaymarch(segment, push.stepCount);
+    } else {
+        emission = integrateEmissionAnalytic(segment);
+    }
 
     outColor = shadeEmission(segment, emission, deltaT);
 }

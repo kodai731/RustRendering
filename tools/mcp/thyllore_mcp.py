@@ -12,6 +12,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 
@@ -85,10 +86,13 @@ def screenshot(output: str = "", frames: int = 120, flame_mode: str = "", flame_
     Returns one JSON object: {"ok": true, "path": "<absolute png path>"} or
     {"ok": false, "error": "..."}. Read the PNG at `path` to inspect the
     rendering. `output` must be an absolute .png path; empty picks a default
-    under the repo log/ directory. `flame_mode` optionally overrides the flame
-    integrator (analytic|raymarch|thickness); `flame_steps` > 0 overrides the
+    under the system tmp directory so reboots reclaim the disk space.
+    `flame_mode` optionally overrides the flame integrator
+    (analytic|raymarch|thickness|noise); `flame_steps` > 0 overrides the
     raymarch step count. Each call pays a full engine startup (seconds)."""
-    out = output or str(_repo_root() / "log" / f"screenshot_batch_{int(time.time())}.png")
+    default_dir = Path(tempfile.gettempdir()) / "thyllore_screenshots"
+    default_dir.mkdir(parents=True, exist_ok=True)
+    out = output or str(default_dir / f"screenshot_batch_{int(time.time())}.png")
     args = ["--batch-screenshot", out, "--batch-frames", str(frames)]
     if flame_mode:
         args += ["--batch-flame-mode", flame_mode]

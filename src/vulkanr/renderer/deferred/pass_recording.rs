@@ -558,7 +558,7 @@ pub unsafe fn record_flame_shading_pass(
         .unwrap_or_default();
     let push_constants = thyllore_vulkan_core::renderer::FlamePushConstants::new(
         settings.shading_mode.as_shader_value(),
-        settings.reference_step_count.max(1) as i32,
+        settings.resolved_step_count() as i32,
     );
 
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);

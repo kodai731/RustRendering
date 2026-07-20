@@ -63,10 +63,10 @@ pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadi
         return Ok(None);
     };
     let Some(value) = args.get(position + 1) else {
-        bail!("{BATCH_FLAME_MODE_FLAG} requires a value: analytic|raymarch|thickness");
+        bail!("{BATCH_FLAME_MODE_FLAG} requires a value: analytic|raymarch|thickness|noise");
     };
     let mode = FlameShadingMode::parse(value).ok_or_else(|| {
-        anyhow::anyhow!("invalid flame mode '{value}': expected analytic|raymarch|thickness")
+        anyhow::anyhow!("invalid flame mode '{value}': expected analytic|raymarch|thickness|noise")
     })?;
     Ok(Some(mode))
 }
@@ -128,17 +128,20 @@ pub fn batch_run_record_screenshot(world: &World, save_result: Result<String, St
         return;
     }
 
-    let result = save_result.and_then(|saved| copy_screenshot_to_output(&saved, &batch.output));
+    let result = save_result.and_then(|saved| move_screenshot_to_output(&saved, &batch.output));
     batch.state = BatchRunState::Completed { result };
 }
 
-fn copy_screenshot_to_output(saved: &str, output: &Path) -> Result<String, String> {
+fn move_screenshot_to_output(saved: &str, output: &Path) -> Result<String, String> {
     if let Some(parent) = output.parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
     std::fs::copy(saved, output)
         .map_err(|e| format!("failed to copy {saved} to {}: {e}", output.display()))?;
+    if let Err(e) = std::fs::remove_file(saved) {
+        log_warn!("failed to remove intermediate screenshot {saved}: {e}");
+    }
     Ok(output.to_string_lossy().to_string())
 }
 

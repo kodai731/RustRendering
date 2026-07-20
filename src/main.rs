@@ -53,10 +53,9 @@ fn main() -> Result<()> {
             .shading_mode = shading_mode;
     }
     if let Some(step_count) = overrides.flame_steps {
-        app.data
-            .ecs_world
-            .resource_mut::<FlameRenderSettings>()
-            .reference_step_count = step_count;
+        let mut settings = app.data.ecs_world.resource_mut::<FlameRenderSettings>();
+        settings.reference_step_count = step_count;
+        settings.noise_step_count = step_count;
     }
 
     unsafe {

@@ -66,6 +66,7 @@ pub enum FlameShadingMode {
     Analytic,
     ReferenceRaymarch,
     DebugThickness,
+    NoiseRaymarch,
 }
 
 impl FlameShadingMode {
@@ -74,6 +75,7 @@ impl FlameShadingMode {
             FlameShadingMode::Analytic => 0,
             FlameShadingMode::ReferenceRaymarch => 1,
             FlameShadingMode::DebugThickness => 2,
+            FlameShadingMode::NoiseRaymarch => 3,
         }
     }
 
@@ -82,6 +84,7 @@ impl FlameShadingMode {
             "analytic" => Some(FlameShadingMode::Analytic),
             "raymarch" => Some(FlameShadingMode::ReferenceRaymarch),
             "thickness" => Some(FlameShadingMode::DebugThickness),
+            "noise" => Some(FlameShadingMode::NoiseRaymarch),
             _ => None,
         }
     }
@@ -91,6 +94,7 @@ impl FlameShadingMode {
 pub struct FlameRenderSettings {
     pub shading_mode: FlameShadingMode,
     pub reference_step_count: u32,
+    pub noise_step_count: u32,
 }
 
 impl Default for FlameRenderSettings {
@@ -98,6 +102,17 @@ impl Default for FlameRenderSettings {
         Self {
             shading_mode: FlameShadingMode::Analytic,
             reference_step_count: 128,
+            noise_step_count: 8,
+        }
+    }
+}
+
+impl FlameRenderSettings {
+    pub fn resolved_step_count(&self) -> u32 {
+        match self.shading_mode {
+            FlameShadingMode::Analytic | FlameShadingMode::DebugThickness => 1,
+            FlameShadingMode::ReferenceRaymarch => self.reference_step_count.max(1),
+            FlameShadingMode::NoiseRaymarch => self.noise_step_count.max(1),
         }
     }
 }
@@ -143,8 +158,8 @@ impl Default for FlameUBO {
             sigma_t: 1.0,
             intensity: 1.0,
             height_axis_scale: 1.0,
-            noise_amplitude: 0.5,
-            noise_frequency: 4.0,
+            noise_amplitude: 1.2,
+            noise_frequency: 6.0,
             noise_scroll_speed: 1.0,
             _padding: 0.0,
             color_base: Vector4::new(1.0, 0.45, 0.1, 1.0),
@@ -227,6 +242,36 @@ mod tests {
             let actual = integrate_emission_segment(1.0, sigma_t, dt) as f64;
             assert!((actual - exact).abs() < 1e-6);
         }
+    }
+
+    #[test]
+    fn test_flame_shading_mode_parse_matches_shader_values() {
+        let cases = [
+            ("analytic", FlameShadingMode::Analytic, 0),
+            ("raymarch", FlameShadingMode::ReferenceRaymarch, 1),
+            ("thickness", FlameShadingMode::DebugThickness, 2),
+            ("noise", FlameShadingMode::NoiseRaymarch, 3),
+        ];
+        for (name, mode, shader_value) in cases {
+            assert_eq!(FlameShadingMode::parse(name), Some(mode));
+            assert_eq!(mode.as_shader_value(), shader_value);
+        }
+        assert_eq!(FlameShadingMode::parse("unknown"), None);
+    }
+
+    #[test]
+    fn test_resolved_step_count_selects_per_mode_count() {
+        let mut settings = FlameRenderSettings::default();
+        assert_eq!(settings.resolved_step_count(), 1);
+
+        settings.shading_mode = FlameShadingMode::ReferenceRaymarch;
+        assert_eq!(settings.resolved_step_count(), 128);
+
+        settings.shading_mode = FlameShadingMode::NoiseRaymarch;
+        assert_eq!(settings.resolved_step_count(), 8);
+
+        settings.noise_step_count = 0;
+        assert_eq!(settings.resolved_step_count(), 1);
     }
 
     #[test]

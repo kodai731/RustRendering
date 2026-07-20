@@ -7,7 +7,7 @@ engine loads because only --batch-flame-mode differs between runs.
 
 Usage:
     uv run --with pillow --with numpy python3 tools/flame_compare.py \
-        [--frames 60] [--steps 128] [--out-dir log/flame_compare]
+        [--frames 60] [--steps 128] [--out-dir /tmp/thyllore_screenshots/flame_compare]
 
 Exit code 0 = comparison ran (verdict is in the JSON line on stdout).
 """
@@ -19,6 +19,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -75,7 +76,11 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--frames", type=int, default=60)
     parser.add_argument("--steps", type=int, default=128)
-    parser.add_argument("--out-dir", type=Path, default=repo_root() / "log" / "flame_compare")
+    parser.add_argument(
+        "--out-dir",
+        type=Path,
+        default=Path(tempfile.gettempdir()) / "thyllore_screenshots" / "flame_compare",
+    )
     args = parser.parse_args()
 
     out = args.out_dir
