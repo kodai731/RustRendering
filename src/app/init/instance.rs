@@ -1141,7 +1141,13 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::AutoExposure>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
-        Self::insert_default_if_missing::<crate::ecs::resource::FlameEffect>(data);
+        // Spawn an entity with FlameEffect component if none exists
+        let has_flame = data.ecs_world.query_flames().len() > 0;
+        if !has_flame {
+            let entity = data.ecs_world.spawn();
+            data.ecs_world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+            data.ecs_world.insert_component(entity, crate::ecs::world::Name("Flame".to_string()));
+        }
         Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);
     }
 

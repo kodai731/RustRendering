@@ -15,6 +15,7 @@ pub unsafe fn record_flame_ubo_update(
     ctx: &FrameRenderContext,
     ubo: &FlameUBO,
     buffer: vk::Buffer,
+    offset: vk::DeviceSize,
     cmd: vk::CommandBuffer,
 ) {
     let device = &ctx.device.device;
@@ -25,7 +26,7 @@ pub unsafe fn record_flame_ubo_update(
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .buffer(buffer)
-        .offset(0)
+        .offset(offset)
         .size(std::mem::size_of::<FlameUBO>() as vk::DeviceSize)
         .build();
     device.cmd_pipeline_barrier(
@@ -42,7 +43,7 @@ pub unsafe fn record_flame_ubo_update(
         ubo as *const FlameUBO as *const u8,
         std::mem::size_of::<FlameUBO>(),
     );
-    device.cmd_update_buffer(cmd, buffer, 0, bytes);
+    device.cmd_update_buffer(cmd, buffer, offset, bytes);
 
     let after_write = vk::BufferMemoryBarrier::builder()
         .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
@@ -50,7 +51,7 @@ pub unsafe fn record_flame_ubo_update(
         .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .buffer(buffer)
-        .offset(0)
+        .offset(offset)
         .size(std::mem::size_of::<FlameUBO>() as vk::DeviceSize)
         .build();
     device.cmd_pipeline_barrier(
@@ -69,6 +70,8 @@ pub unsafe fn record_flame_thickness_pass(
     flame_buffer: &FlameBuffer,
     pipeline: &RRPipeline,
     descriptor: &RRFlameDescriptorSet,
+    history_index: usize,
+    ubo_dynamic_offset: u32,
     image_index: usize,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
@@ -120,8 +123,8 @@ pub unsafe fn record_flame_thickness_pass(
         vk::PipelineBindPoint::GRAPHICS,
         pipeline.pipeline_layout,
         0,
-        &[frame_set, descriptor.descriptor_set],
-        &[],
+        &[frame_set, descriptor.descriptor_sets[history_index]],
+        &[ubo_dynamic_offset],
     );
 
     device.cmd_draw(cmd, 4, 1, 0, 0);
@@ -135,6 +138,8 @@ pub unsafe fn record_flame_shading_pass(
     flame_buffer: &FlameBuffer,
     pipeline: &RRPipeline,
     descriptor: &RRFlameDescriptorSet,
+    history_index: usize,
+    ubo_dynamic_offset: u32,
     scissor: vk::Rect2D,
     push_constants: FlamePushConstants,
     image_index: usize,
@@ -161,7 +166,7 @@ pub unsafe fn record_flame_shading_pass(
 
     let render_pass_info = vk::RenderPassBeginInfo::builder()
         .render_pass(flame_buffer.shading_render_pass)
-        .framebuffer(flame_buffer.shading_framebuffer)
+        .framebuffer(flame_buffer.shading_framebuffers[history_index])
         .render_area(render_area)
         .clear_values(&clear_values);
 
@@ -185,8 +190,8 @@ pub unsafe fn record_flame_shading_pass(
         vk::PipelineBindPoint::GRAPHICS,
         pipeline.pipeline_layout,
         0,
-        &[frame_set, descriptor.descriptor_set],
-        &[],
+        &[frame_set, descriptor.descriptor_sets[history_index]],
+        &[ubo_dynamic_offset],
     );
 
     device.cmd_push_constants(

@@ -30,7 +30,10 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     float noiseScrollSpeed;
     float paddingReserved;
     vec4 colorBase;
+    vec4 colorMid;
     vec4 colorTip;
+    vec4 temporalData;
+    vec4 lightData;
 } flame;
 
 layout(location = 0) in vec3 geomLocalCorner[];

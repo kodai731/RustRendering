@@ -41,6 +41,16 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
 
     update_frame_and_scene_uniforms(ctx, view, proj, screen_size, aspect, camera_position)?;
     crate::ecs::systems::flame_time_advance(ctx);
+    if let (Some(mut sink), Some(temporal)) = (
+        ctx.world.get_resource_mut::<crate::ecs::resource::FlameDumpSink>(),
+        ctx.world.get_resource::<crate::ecs::resource::FlameTemporalState>(),
+    ) {
+        let effects: Vec<crate::ecs::resource::FlameEffect> = ctx.world.query_flames()
+            .iter()
+            .filter_map(|e| ctx.world.get_component::<crate::ecs::resource::FlameEffect>(*e).cloned())
+            .collect();
+        crate::ecs::systems::flame_dump_system(&mut sink, &*temporal, &effects);
+    }
     crate::ecs::systems::flame_temporal_accumulate(ctx);
 
     let render_data_vec = collect_gizmo_render_data(ctx, camera_position);

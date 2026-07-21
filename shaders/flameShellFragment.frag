@@ -29,7 +29,10 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     float noiseScrollSpeed;
     float paddingReserved;
     vec4 colorBase;
+    vec4 colorMid;
     vec4 colorTip;
+    vec4 temporalData;
+    vec4 lightData;
 } flame;
 
 layout(set = 1, binding = 1) uniform sampler2D gbufferPositionSampler;

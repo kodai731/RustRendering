@@ -1,0 +1,155 @@
+use std::io::Write;
+
+use serde_json::{json, Value};
+
+use crate::ecs::resource::{FlameDumpSink, FlameTemporalState};
+use thyllore_render_core::{build_flame_ubo, FlameEffect, FlameUBO};
+
+pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
+    json!({
+        "frame_index": effect.frame_index,
+        "time": effect.time,
+        "position": [effect.position.x, effect.position.y, effect.position.z],
+        "height": effect.height,
+        "radius": effect.radius,
+        "sigma_t": effect.sigma_t,
+        "intensity": effect.intensity,
+        "color_base": [effect.color_base[0], effect.color_base[1], effect.color_base[2]],
+        "color_tip": [effect.color_tip[0], effect.color_tip[1], effect.color_tip[2]],
+        "temperature_base_k": effect.temperature_base_k,
+        "temperature_tip_k": effect.temperature_tip_k,
+        "use_blackbody": effect.use_blackbody,
+        "noise_amplitude": effect.noise_amplitude,
+        "noise_frequency": effect.noise_frequency,
+        "noise_scroll_speed": effect.noise_scroll_speed,
+        "coefficients": {
+            "height_primitive": effect.coefficients.height_primitive,
+            "radial": effect.coefficients.radial,
+            "height": effect.coefficients.height
+        },
+        "temporal_weight": effect.temporal_weight,
+        "light_position_world": [effect.light_position_world.x, effect.light_position_world.y, effect.light_position_world.z],
+        "self_shadow_strength": effect.self_shadow_strength
+    })
+}
+
+fn matrix4_to_array(m: &cgmath::Matrix4<f32>) -> [f32; 16] {
+    [
+        m[0][0], m[0][1], m[0][2], m[0][3],
+        m[1][0], m[1][1], m[1][2], m[1][3],
+        m[2][0], m[2][1], m[2][2], m[2][3],
+        m[3][0], m[3][1], m[3][2], m[3][3],
+    ]
+}
+
+pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
+    json!({
+        "model": matrix4_to_array(&ubo.model),
+        "inverse_model": matrix4_to_array(&ubo.inverse_model),
+        "height_primitive_coefficients": ubo.height_primitive_coefficients,
+        "radial_coefficients": ubo.radial_coefficients,
+        "height_coefficients": ubo.height_coefficients,
+        "sigma_t": ubo.sigma_t,
+        "intensity": ubo.intensity,
+        "height_axis_scale": ubo.height_axis_scale,
+        "noise_amplitude": ubo.noise_amplitude,
+        "noise_frequency": ubo.noise_frequency,
+        "noise_scroll_speed": ubo.noise_scroll_speed,
+        "color_base": [ubo.color_base.x, ubo.color_base.y, ubo.color_base.z, ubo.color_base.w],
+        "color_mid": [ubo.color_mid.x, ubo.color_mid.y, ubo.color_mid.z, ubo.color_mid.w],
+        "color_tip": [ubo.color_tip.x, ubo.color_tip.y, ubo.color_tip.z, ubo.color_tip.w],
+        "light_data": [ubo.light_data.x, ubo.light_data.y, ubo.light_data.z, ubo.light_data.w]
+    })
+}
+
+pub fn build_temporal_json(state: &FlameTemporalState) -> serde_json::Value {
+    let has_previous = state.previous.is_some();
+    let previous = state.previous.as_ref().map(|snap| {
+        json!({
+            "view": matrix4_to_array(&snap.view),
+            "appearance": build_effect_json(&snap.appearance),
+            "settings": {
+                "mode": snap.settings.shading_mode.as_shader_value(),
+                "reference_step_count": snap.settings.reference_step_count,
+                "noise_step_count": snap.settings.noise_step_count
+            }
+        })
+    });
+    json!({
+        "has_previous": has_previous,
+        "previous": previous
+    })
+}
+
+pub fn build_flame_dump_record(
+    effect: &FlameEffect,
+    temporal: &FlameTemporalState,
+    instance_index: usize,
+) -> Value {
+    let ubo = build_flame_ubo(effect);
+    let mut record = build_effect_json(effect).as_object().unwrap().clone();
+    for (k, v) in build_ubo_json(&ubo).as_object().unwrap() {
+        record.insert(k.clone(), v.clone());
+    }
+    record.insert("temporal_data".to_string(), build_temporal_json(temporal));
+    record.insert("instance_index".to_string(), Value::Number(instance_index.into()));
+    Value::Object(record)
+}
+
+pub fn flame_dump_system(
+    sink: &mut FlameDumpSink,
+    temporal: &FlameTemporalState,
+    effects: &[FlameEffect],
+) {
+    for (i, effect) in effects.iter().enumerate() {
+        let record = build_flame_dump_record(effect, temporal, i);
+        let line = serde_json::to_string(&record).expect("failed to serialize flame dump record");
+        writeln!(sink.writer, "{}", line).expect("failed to write flame dump line");
+    }
+    sink.writer.flush().expect("failed to flush flame dump writer");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cgmath::{Vector3, Vector4};
+    use thyllore_render_core::FlameCoefficients;
+
+    fn sample_effect() -> FlameEffect {
+        FlameEffect {
+            position: Vector3::new(1.0, 2.0, 3.0),
+            height: 1.0,
+            radius: 0.5,
+            sigma_t: 0.1,
+            intensity: 1.0,
+            color_base: [1.0, 0.0, 0.0],
+            color_tip: [0.0, 1.0, 0.0],
+            temperature_base_k: 1000.0,
+            temperature_tip_k: 500.0,
+            use_blackbody: false,
+            noise_amplitude: 0.0,
+            noise_frequency: 0.0,
+            noise_scroll_speed: 0.0,
+            time: 0.0,
+            coefficients: thyllore_render_core::fit_flame_coefficients(&thyllore_render_core::FlameProfile::default()),
+            temporal_weight: 0.5,
+            frame_index: 42,
+            light_position_world: Vector3::new(2.0, 3.0, 2.0),
+            self_shadow_strength: 0.5,
+        }
+    }
+
+    fn sample_temporal() -> FlameTemporalState {
+        FlameTemporalState { previous: None }
+    }
+
+    #[test]
+    fn build_flame_dump_record_produces_valid_json() {
+        let effect = sample_effect();
+        let temporal = sample_temporal();
+        let record = build_flame_dump_record(&effect, &temporal, 0);
+        assert_eq!(record["frame_index"], 42);
+        assert_eq!(record["time"], 0.0);
+        assert_eq!(record["position"], json!([1.0, 2.0, 3.0]));
+    }
+}

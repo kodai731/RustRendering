@@ -472,59 +472,68 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
             ui_events.send(UIEvent::UpdateFlameRenderSettings(settings_copy));
         }
 
-        if let Some(effect) = ecs_world.get_resource::<FlameEffect>() {
-            let mut effect_copy = effect.clone();
-            drop(effect);
+        if let Some(first_flame) = ecs_world.query_flames().first() {
+            if let Some(effect) = ecs_world.get_component::<FlameEffect>(*first_flame) {
+                let mut effect_copy = effect.clone();
+                drop(effect);
 
-            let mut position = [
-                effect_copy.position.x,
-                effect_copy.position.y,
-                effect_copy.position.z,
-            ];
-            if ui.input_float3("Position", &mut position).build() {
-                effect_copy.position = cgmath::Vector3::new(position[0], position[1], position[2]);
+                let mut position = [
+                    effect_copy.position.x,
+                    effect_copy.position.y,
+                    effect_copy.position.z,
+                ];
+                if ui.input_float3("Position", &mut position).build() {
+                    effect_copy.position = cgmath::Vector3::new(position[0], position[1], position[2]);
+                }
+
+                ui.slider_config("Height", 0.05, 10.0)
+                    .display_format("%.2f")
+                    .build(&mut effect_copy.height);
+
+                ui.slider_config("Radius", 0.05, 10.0)
+                    .display_format("%.2f")
+                    .build(&mut effect_copy.radius);
+
+                ui.slider_config("Intensity", 0.0, 10.0)
+                    .build(&mut effect_copy.intensity);
+
+                ui.slider_config("Sigma T", 0.01, 10.0)
+                    .display_format("%.2f")
+                    .build(&mut effect_copy.sigma_t);
+
+                ui.checkbox("Use Blackbody", &mut effect_copy.use_blackbody);
+
+                let mut temp_base = effect_copy.temperature_base_k as i32;
+                ui.slider_config("Base Temp (K)", 800, 3000)
+                    .build(&mut temp_base);
+                effect_copy.temperature_base_k = temp_base as f32;
+
+                let mut temp_tip = effect_copy.temperature_tip_k as i32;
+                ui.slider_config("Tip Temp (K)", 800, 3000)
+                    .build(&mut temp_tip);
+                effect_copy.temperature_tip_k = temp_tip as f32;
+
+                ui.color_edit3("Base Color", &mut effect_copy.color_base);
+                ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
+
+                ui.slider_config("Noise Amplitude", 0.0, 3.0)
+                    .build(&mut effect_copy.noise_amplitude);
+
+                ui.slider_config("Noise Frequency", 0.5, 32.0)
+                    .build(&mut effect_copy.noise_frequency);
+
+                ui.slider_config("Noise Scroll Speed", 0.0, 10.0)
+                    .build(&mut effect_copy.noise_scroll_speed);
+
+                ui.slider_config("Self Shadow", 0.0, 1.0)
+                    .build(&mut effect_copy.self_shadow_strength);
+
+                if ui.button("Add Flame") {
+                    ui_events.send(UIEvent::AddFlame);
+                }
+
+                ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
             }
-
-            ui.slider_config("Height", 0.05, 10.0)
-                .display_format("%.2f")
-                .build(&mut effect_copy.height);
-
-            ui.slider_config("Radius", 0.05, 10.0)
-                .display_format("%.2f")
-                .build(&mut effect_copy.radius);
-
-            ui.slider_config("Intensity", 0.0, 10.0)
-                .build(&mut effect_copy.intensity);
-
-            ui.slider_config("Sigma T", 0.01, 10.0)
-                .display_format("%.2f")
-                .build(&mut effect_copy.sigma_t);
-
-            ui.checkbox("Use Blackbody", &mut effect_copy.use_blackbody);
-
-            let mut temp_base = effect_copy.temperature_base_k as i32;
-            ui.slider_config("Base Temp (K)", 800, 3000)
-                .build(&mut temp_base);
-            effect_copy.temperature_base_k = temp_base as f32;
-
-            let mut temp_tip = effect_copy.temperature_tip_k as i32;
-            ui.slider_config("Tip Temp (K)", 800, 3000)
-                .build(&mut temp_tip);
-            effect_copy.temperature_tip_k = temp_tip as f32;
-
-            ui.color_edit3("Base Color", &mut effect_copy.color_base);
-            ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
-
-            ui.slider_config("Noise Amplitude", 0.0, 3.0)
-                .build(&mut effect_copy.noise_amplitude);
-
-            ui.slider_config("Noise Frequency", 0.5, 32.0)
-                .build(&mut effect_copy.noise_frequency);
-
-            ui.slider_config("Noise Scroll Speed", 0.0, 10.0)
-                .build(&mut effect_copy.noise_scroll_speed);
-
-            ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
         }
     }
 }

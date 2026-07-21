@@ -1,6 +1,7 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
+use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
 use crate::resource::image::{create_image, create_image_view};
@@ -26,7 +27,7 @@ pub struct FlameBuffer {
     pub thickness_render_pass: vk::RenderPass,
     pub thickness_framebuffer: vk::Framebuffer,
     pub shading_render_pass: vk::RenderPass,
-    pub shading_framebuffer: vk::Framebuffer,
+    pub shading_framebuffers: [vk::Framebuffer; 2],
     pub width: u32,
     pub height: u32,
 }
@@ -35,6 +36,7 @@ impl FlameBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
+        command_pool: vk::CommandPool,
         width: u32,
         height: u32,
         hdr_image_view: vk::ImageView,
@@ -59,7 +61,7 @@ impl FlameBuffer {
             1,
         )?;
 
-      let thickness_render_pass = Self::create_thickness_render_pass(rrdevice)?;
+        let thickness_render_pass = Self::create_thickness_render_pass(rrdevice)?;
 
         let attachments = [accum_image_view, interval_image_view];
         let framebuffer_info = vk::FramebufferCreateInfo::builder()
@@ -77,7 +79,18 @@ impl FlameBuffer {
         let mut history_image_memories = [vk::DeviceMemory::null(); 2];
         let mut history_image_views = [vk::ImageView::null(); 2];
         for i in 0..2 {
-            let (img, mem) = Self::create_target_image(instance, rrdevice, width, height, FLAME_HISTORY_FORMAT)?;
+            let (img, mem) = create_image(
+                instance,
+                rrdevice,
+                width,
+                height,
+                1,
+                vk::SampleCountFlags::_1,
+                FLAME_HISTORY_FORMAT,
+                vk::ImageTiling::OPTIMAL,
+                vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            )?;
             history_images[i] = img;
             history_image_memories[i] = mem;
             history_image_views[i] = create_image_view(
@@ -89,19 +102,94 @@ impl FlameBuffer {
             )?;
         }
 
+        // Clear both history images to zero using a single-time command buffer
+        let cmd = begin_single_time_commands(rrdevice, command_pool)?;
+        for i in 0..2 {
+          // Barrier: UNDEFINED -> TRANSFER_DST_OPTIMAL
+            let barrier = vk::ImageMemoryBarrier::builder()
+                .image(history_images[i])
+                .old_layout(vk::ImageLayout::UNDEFINED)
+                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .build();
+            rrdevice.device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[] as &[vk::MemoryBarrier],
+                &[] as &[vk::BufferMemoryBarrier],
+                &[barrier],
+            );
+            // Clear with float32 [0,0,0,0]
+            let clear_value = vk::ClearColorValue {
+                float32: [0.0f32; 4],
+            };
+            rrdevice.device.cmd_clear_color_image(
+                cmd,
+                history_images[i],
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &clear_value,
+                &[vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                }],
+            );
+            // Barrier: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
+            let barrier = vk::ImageMemoryBarrier::builder()
+                .image(history_images[i])
+                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .subresource_range(vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                   base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .build();
+            rrdevice.device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::empty(),
+                &[] as &[vk::MemoryBarrier],
+                &[] as &[vk::BufferMemoryBarrier],
+                &[barrier],
+            );
+        }
+        end_single_time_commands(rrdevice, rrdevice.graphics_queue, command_pool, cmd)?;
+
         let shading_render_pass = Self::create_shading_render_pass(rrdevice)?;
 
         // F2 render pass: A0 = HDR (LOAD + premultiplied blend), A1 = history (CLEAR/DONT_CARE + no blend)
-        let shading_attachments = [hdr_image_view, history_image_views[0]];
-        let shading_framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(shading_render_pass)
-            .attachments(&shading_attachments)
-            .width(width)
-            .height(height)
-            .layers(1);
-        let shading_framebuffer = rrdevice
-            .device
-            .create_framebuffer(&shading_framebuffer_info, None)?;
+        // Create two framebuffers for ping-pong swap: framebuffer i writes to history[i], reads from history[1-i]
+        let mut shading_framebuffers = [vk::Framebuffer::null(); 2];
+        for i in 0..2 {
+            let shading_attachments = [hdr_image_view, history_image_views[i]];
+            let shading_framebuffer_info = vk::FramebufferCreateInfo::builder()
+                .render_pass(shading_render_pass)
+                .attachments(&shading_attachments)
+                .width(width)
+                .height(height)
+                .layers(1);
+            shading_framebuffers[i] = rrdevice
+                .device
+                .create_framebuffer(&shading_framebuffer_info, None)?;
+        }
 
         let sampler = Self::create_sampler(&rrdevice.device)?;
 
@@ -127,7 +215,7 @@ impl FlameBuffer {
             thickness_render_pass,
             thickness_framebuffer,
             shading_render_pass,
-            shading_framebuffer,
+            shading_framebuffers,
             width,
             height,
         })
@@ -318,12 +406,13 @@ impl FlameBuffer {
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
+        command_pool: vk::CommandPool,
         new_width: u32,
         new_height: u32,
         hdr_image_view: vk::ImageView,
     ) -> Result<()> {
         self.destroy(&rrdevice.device);
-        *self = Self::new(instance, rrdevice, new_width, new_height, hdr_image_view)?;
+        *self = Self::new(instance, rrdevice, command_pool, new_width, new_height, hdr_image_view)?;
 
         log!("Resized flame buffer to: {}x{}", new_width, new_height);
         Ok(())
@@ -342,9 +431,11 @@ impl FlameBuffer {
             device.destroy_render_pass(self.thickness_render_pass, None);
             self.thickness_render_pass = vk::RenderPass::null();
         }
-        if self.shading_framebuffer != vk::Framebuffer::null() {
-            device.destroy_framebuffer(self.shading_framebuffer, None);
-            self.shading_framebuffer = vk::Framebuffer::null();
+        for i in 0..2 {
+            if self.shading_framebuffers[i] != vk::Framebuffer::null() {
+                device.destroy_framebuffer(self.shading_framebuffers[i], None);
+                self.shading_framebuffers[i] = vk::Framebuffer::null();
+            }
         }
         if self.shading_render_pass != vk::RenderPass::null() {
             device.destroy_render_pass(self.shading_render_pass, None);

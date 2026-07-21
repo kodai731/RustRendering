@@ -463,6 +463,15 @@ impl World {
             .collect()
     }
 
+    pub fn query_flames(&self) -> Vec<Entity> {
+        let mut entities: Vec<Entity> = self
+            .iter_components::<crate::ecs::resource::FlameEffect>()
+            .map(|(e, _)| e)
+            .collect();
+        entities.sort();
+        entities
+    }
+
     pub fn query_with_parent(&self) -> Vec<Entity> {
         self.iter_components::<Parent>().map(|(e, _)| e).collect()
     }

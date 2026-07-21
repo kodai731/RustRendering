@@ -508,89 +508,112 @@ pub unsafe fn record_onion_skin_composite(
     Ok(())
 }
 
-pub unsafe fn record_flame_thickness_pass(
+pub unsafe fn record_flame_passes(
     app: &App,
     command_buffer: vk::CommandBuffer,
     image_index: usize,
 ) -> Result<()> {
-    let (Some(flame_buffer), Some(pipeline), Some(descriptor)) = (
+    let (Some(flame_buffer), Some(thickness_pipeline), Some(shading_pipeline), Some(descriptor)) = (
         app.data.viewport.flame_buffer.as_ref(),
         app.data.raytracing.flame_thickness_pipeline.as_ref(),
-        app.data.raytracing.flame_descriptor.as_ref(),
-    ) else {
-        return Ok(());
-    };
-
-    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
-
-    if let (Some(effect), Some(ubo_buffer)) = (
-        app.data
-            .ecs_world
-            .get_resource::<crate::ecs::resource::FlameEffect>(),
-        app.data.raytracing.flame_uniform_buffer,
-    ) {
-        let ubo = thyllore_render_core::build_flame_ubo(&effect);
-        thyllore_vulkan_core::renderer::record_flame_ubo_update(
-            &ctx,
-            &ubo,
-            ubo_buffer,
-            command_buffer,
-        );
-    }
-
-    thyllore_vulkan_core::renderer::record_flame_thickness_pass(
-        &ctx,
-        flame_buffer,
-        pipeline,
-        descriptor,
-        image_index,
-        command_buffer,
-    )
-}
-
-pub unsafe fn record_flame_shading_pass(
-    app: &App,
-    command_buffer: vk::CommandBuffer,
-    image_index: usize,
-) -> Result<()> {
-    let (Some(flame_buffer), Some(pipeline), Some(descriptor)) = (
-        app.data.viewport.flame_buffer.as_ref(),
         app.data.raytracing.flame_shading_pipeline.as_ref(),
         app.data.raytracing.flame_descriptor.as_ref(),
     ) else {
         return Ok(());
     };
 
-    let Some(scissor) = compute_flame_scissor(app, flame_buffer.extent()) else {
-        return Ok(());
-    };
-
-    let settings = app
-        .data
-        .ecs_world
-        .get_resource::<crate::ecs::resource::FlameRenderSettings>()
-        .map(|settings| *settings)
-        .unwrap_or_default();
-    let push_constants = thyllore_vulkan_core::renderer::FlamePushConstants::new(
-        settings.shading_mode.as_shader_value(),
-        settings.resolved_step_count() as i32,
-    );
-
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
-    thyllore_vulkan_core::renderer::record_flame_shading_pass(
-        &ctx,
-        flame_buffer,
-        pipeline,
-        descriptor,
-        scissor,
-        push_constants,
-        image_index,
-        command_buffer,
-    )
+    let flames = app.data.ecs_world.query_flames();
+    let instance_count = flames.len().min(thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES);
+
+    if instance_count == 0 {
+        return Ok(());
+    }
+
+    // Calculate history_index from the first flame's frame_index (shared by all instances)
+    let history_index = if let Some(first) = flames.first() {
+        if let Some(effect) = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(*first) {
+            (effect.frame_index as usize) & 1
+        } else {
+            0
+        }
+    } else {
+        0
+    };
+
+    // Process each instance sequentially: F1_i -> F2_i before moving to i+1
+    for i in 0..instance_count {
+        let flame = flames[i];
+        let effect = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(flame)
+            .ok_or_else(|| anyhow::anyhow!("Missing FlameEffect for instance {}", i))?;
+
+        // Build UBO for this instance
+        let ubo = thyllore_render_core::build_flame_ubo(effect);
+
+        // Calculate offset for this instance
+        let offset_i = i as vk::DeviceSize * app.data.raytracing.flame_ubo_slot_size;
+
+        // Update UBO buffer for this instance
+        if let Some(ubo_buffer) = app.data.raytracing.flame_uniform_buffer {
+            thyllore_vulkan_core::renderer::record_flame_ubo_update(
+                &ctx,
+                &ubo,
+                ubo_buffer,
+                offset_i,
+                command_buffer,
+            );
+        }
+
+        // Build per-instance model matrix
+        let model_matrix = thyllore_render_core::build_flame_model_matrix(effect);
+
+        // Compute per-instance scissor using the model matrix
+        let Some(scissor) = compute_flame_scissor(app, flame_buffer.extent(), &model_matrix) else { continue; };
+
+        // Get render settings for push constants
+        let settings = app
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameRenderSettings>()
+            .map(|settings| *settings)
+            .unwrap_or_default();
+        let push_constants = thyllore_vulkan_core::renderer::FlamePushConstants::new(
+            settings.shading_mode.as_shader_value(),
+            settings.resolved_step_count() as i32,
+        );
+
+        // Record thickness pass for this instance
+        thyllore_vulkan_core::renderer::record_flame_thickness_pass(
+            &ctx,
+            flame_buffer,
+            thickness_pipeline,
+            descriptor,
+            history_index,
+            offset_i as u32,
+            image_index,
+            command_buffer,
+        )?;
+
+        // Record shading pass for this instance (F1_i -> F2_i completed before next instance)
+        thyllore_vulkan_core::renderer::record_flame_shading_pass(
+            &ctx,
+            flame_buffer,
+            shading_pipeline,
+            descriptor,
+            history_index,
+            offset_i as u32,
+            scissor,
+            push_constants,
+            image_index,
+            command_buffer,
+        )?;
+    }
+
+    Ok(())
 }
 
-fn compute_flame_scissor(app: &App, extent: vk::Extent2D) -> Option<vk::Rect2D> {
+fn compute_flame_scissor(app: &App, extent: vk::Extent2D, model: &cgmath::Matrix4<f32>) -> Option<vk::Rect2D> {
     use crate::ecs::resource::ProjectionData;
     const SCISSOR_MARGIN_PX: f32 = 2.0;
 
@@ -607,7 +630,7 @@ fn compute_flame_scissor(app: &App, extent: vk::Extent2D) -> Option<vk::Rect2D> 
         let x = if corner_index & 1 == 0 { -0.5 } else { 0.5 };
         let y = if corner_index & 2 == 0 { 0.0 } else { 1.0 };
         let z = if corner_index & 4 == 0 { -0.5 } else { 0.5 };
-        let clip = view_proj * cgmath::vec4(x, y, z, 1.0);
+        let clip = view_proj * model * cgmath::vec4(x, y, z, 1.0);
         if clip.w <= 0.0 {
             return Some(full_extent_scissor(extent));
         }

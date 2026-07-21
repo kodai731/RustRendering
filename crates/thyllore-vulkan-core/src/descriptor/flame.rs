@@ -5,14 +5,14 @@ use crate::vulkan::*;
 pub struct RRFlameDescriptorSet {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
-    pub descriptor_set: vk::DescriptorSet,
+    pub descriptor_sets: [vk::DescriptorSet; 2],
 }
 
 impl RRFlameDescriptorSet {
     pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
         let flame_ubo_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
             .descriptor_count(1)
             .stage_flags(vk::ShaderStageFlags::GEOMETRY | vk::ShaderStageFlags::FRAGMENT)
             .build();
@@ -59,16 +59,16 @@ impl RRFlameDescriptorSet {
     pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {
         let sampler_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(4);
+            .descriptor_count(8);
 
         let ubo_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1);
+            .type_(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+            .descriptor_count(2);
 
         let pool_sizes = [sampler_size, ubo_size];
         let info = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(&pool_sizes)
-            .max_sets(1);
+            .max_sets(2);
 
         Ok(rrdevice.device.create_descriptor_pool(&info, None)?)
     }
@@ -82,27 +82,99 @@ impl RRFlameDescriptorSet {
         position_sampler: vk::Sampler,
         accum_image_view: vk::ImageView,
         interval_image_view: vk::ImageView,
-        history_image_view: vk::ImageView,
+        history_image_views: [vk::ImageView; 2],
         flame_sampler: vk::Sampler,
     ) -> Result<()> {
-        let layouts = [self.descriptor_set_layout];
+        let layouts = [self.descriptor_set_layout; 2];
         let alloc_info = vk::DescriptorSetAllocateInfo::builder()
             .descriptor_pool(self.descriptor_pool)
             .set_layouts(&layouts);
 
         let descriptor_sets = rrdevice.device.allocate_descriptor_sets(&alloc_info)?;
-        self.descriptor_set = descriptor_sets[0];
+        self.descriptor_sets = [descriptor_sets[0], descriptor_sets[1]];
 
-        self.update_flame_ubo(rrdevice, flame_ubo_buffer, flame_ubo_size);
-        self.update_image_views(
-            rrdevice,
-            position_image_view,
-            position_sampler,
-            accum_image_view,
-            interval_image_view,
-            history_image_view,
-            flame_sampler,
-        );
+        // Write UBO to both sets
+        for i in 0..2 {
+            let buffer_info = vk::DescriptorBufferInfo::builder()
+                .buffer(flame_ubo_buffer)
+                .offset(0)
+                .range(flame_ubo_size)
+                .build();
+
+            let write = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[i])
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
+                .buffer_info(std::slice::from_ref(&buffer_info))
+                .build();
+
+            rrdevice
+                .device
+                .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
+        }
+
+        // Write bindings 1-3 to both sets, binding 4 with ping-pong (set i gets history_image_views[1-i])
+        for i in 0..2 {
+            let position_info = vk::DescriptorImageInfo::builder()
+                .image_view(position_image_view)
+                .sampler(position_sampler)
+                .image_layout(vk::ImageLayout::GENERAL)
+                .build();
+
+            let accum_info = vk::DescriptorImageInfo::builder()
+                .image_view(accum_image_view)
+                .sampler(flame_sampler)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .build();
+
+            let interval_info = vk::DescriptorImageInfo::builder()
+                .image_view(interval_image_view)
+                .sampler(flame_sampler)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .build();
+
+            let history_info = vk::DescriptorImageInfo::builder()
+                .image_view(history_image_views[1 - i])
+                .sampler(flame_sampler)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .build();
+
+            let writes = [
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(1)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&position_info))
+                    .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(2)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&accum_info))
+                    .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(3)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&interval_info))
+                    .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(4)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&history_info))
+                    .build(),
+            ];
+
+            rrdevice
+                .device
+                .update_descriptor_sets(&writes, &[] as &[vk::CopyDescriptorSet]);
+        }
 
         Ok(())
     }
@@ -119,17 +191,20 @@ impl RRFlameDescriptorSet {
             .range(flame_ubo_size)
             .build();
 
-        let write = vk::WriteDescriptorSet::builder()
-            .dst_set(self.descriptor_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .buffer_info(std::slice::from_ref(&buffer_info))
-            .build();
+        // Write to both descriptor sets
+        for i in 0..2 {
+            let write = vk::WriteDescriptorSet::builder()
+                .dst_set(self.descriptor_sets[i])
+                .dst_binding(0)
+                .dst_array_element(0)
+                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
+                .buffer_info(std::slice::from_ref(&buffer_info))
+                .build();
 
-        rrdevice
-            .device
-            .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
+            rrdevice
+                .device
+                .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
+        }
     }
 
     pub unsafe fn update_image_views(
@@ -139,67 +214,70 @@ impl RRFlameDescriptorSet {
         position_sampler: vk::Sampler,
         accum_image_view: vk::ImageView,
         interval_image_view: vk::ImageView,
-        history_image_view: vk::ImageView,
+        history_image_views: [vk::ImageView; 2],
         flame_sampler: vk::Sampler,
     ) {
-        let position_info = vk::DescriptorImageInfo::builder()
-            .image_view(position_image_view)
-            .sampler(position_sampler)
-            .image_layout(vk::ImageLayout::GENERAL)
-            .build();
+        // Update both descriptor sets with ping-pong history views
+        for i in 0..2 {
+            let position_info = vk::DescriptorImageInfo::builder()
+                .image_view(position_image_view)
+                .sampler(position_sampler)
+                .image_layout(vk::ImageLayout::GENERAL)
+                .build();
 
-        let accum_info = vk::DescriptorImageInfo::builder()
-            .image_view(accum_image_view)
-            .sampler(flame_sampler)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build();
+            let accum_info = vk::DescriptorImageInfo::builder()
+                .image_view(accum_image_view)
+                .sampler(flame_sampler)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .build();
 
-        let interval_info = vk::DescriptorImageInfo::builder()
-            .image_view(interval_image_view)
-            .sampler(flame_sampler)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build();
+            let interval_info = vk::DescriptorImageInfo::builder()
+                .image_view(interval_image_view)
+                .sampler(flame_sampler)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .build();
 
-        let history_info = vk::DescriptorImageInfo::builder()
-            .image_view(history_image_view)
-            .sampler(flame_sampler)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build();
+            let history_info = vk::DescriptorImageInfo::builder()
+                .image_view(history_image_views[1 - i])
+                .sampler(flame_sampler)
+                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .build();
 
-        let writes = [
-            vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_set)
-                .dst_binding(1)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(std::slice::from_ref(&position_info))
-                .build(),
-            vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_set)
-                .dst_binding(2)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(std::slice::from_ref(&accum_info))
-                .build(),
-            vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_set)
-                .dst_binding(3)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(std::slice::from_ref(&interval_info))
-                .build(),
-            vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_set)
-                .dst_binding(4)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                .image_info(std::slice::from_ref(&history_info))
-                .build(),
-        ];
+            let writes = [
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(1)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&position_info))
+                    .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(2)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&accum_info))
+                    .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(3)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&interval_info))
+                    .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(4)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&history_info))
+                    .build(),
+            ];
 
-        rrdevice
-            .device
-            .update_descriptor_sets(&writes, &[] as &[vk::CopyDescriptorSet]);
+            rrdevice
+                .device
+                .update_descriptor_sets(&writes, &[] as &[vk::CopyDescriptorSet]);
+        }
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {

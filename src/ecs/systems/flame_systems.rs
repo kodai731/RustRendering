@@ -1,8 +1,9 @@
 use crate::app::FrameContext;
 use crate::ecs::resource::{
     BatchRun, FlameEffect, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState,
-    ProjectionData,
+    LightState, ProjectionData,
 };
+use crate::ecs::world::Entity;
 use thyllore_render_core::advance_flame_time;
 
 // Batch runs use a fixed timestep so noise-mode screenshots stay bit-deterministic.
@@ -17,8 +18,29 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
         ctx.delta_time
     };
 
-    if let Some(mut effect) = ctx.world.get_resource_mut::<FlameEffect>() {
-        advance_flame_time(&mut effect, delta_time);
+    let light_position = ctx.world.get_resource::<LightState>().map(|ls| ls.light_position);
+
+    // Collect translations from Transform components to avoid borrow conflicts
+    let flame_entities = ctx.world.query_flames();
+    let transforms: Vec<(Entity, crate::ecs::world::Transform)> = flame_entities
+        .iter()
+        .filter_map(|&e| {
+            ctx.world.get_component::<crate::ecs::world::Transform>(e)
+                .map(|t| (e, t.clone()))
+        })
+        .collect();
+
+    for &entity in &flame_entities {
+        if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {
+            advance_flame_time(&mut effect, delta_time);
+            if let Some(lp) = light_position {
+                effect.light_position_world = lp;
+            }
+            // Sync position from Transform if present
+            if let Some((_e, transform)) = transforms.iter().find(|(e, _)| *e == entity) {
+                effect.position = transform.translation;
+            }
+        }
     }
 }
 
@@ -26,27 +48,60 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
 /// parameters hold still. Batch runs never reuse history so a single-frame screenshot
 /// stays deterministic.
 pub fn flame_temporal_accumulate(ctx: &mut FrameContext) {
-    let Some(mut effect) = ctx.world.get_resource_mut::<FlameEffect>() else {
+    let flame_entities = ctx.world.query_flames();
+    let count = flame_entities.len();
+
+    if count == 0 {
+        return;
+    }
+
+   // If there are 2 or more instances, only increment temporal_weight for all
+    if count >= 2 {
+        for &entity in &flame_entities {
+            if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {
+                effect.temporal_weight = 0.0;
+                effect.frame_index = effect.frame_index.wrapping_add(1);
+            }
+        }
+        return;
+    }
+
+    // Single instance: perform original snapshot comparison logic
+    let entity = flame_entities[0];
+    // Collect data first to avoid borrow conflicts
+    let view = ctx.world.resource::<ProjectionData>().view;
+    let settings = *ctx.world.resource::<FlameRenderSettings>();
+    let has_batch_run = ctx.world.contains_resource::<BatchRun>();
+    let old_effect = ctx.world.get_component::<FlameEffect>(entity).cloned();
+    let Some(old_effect) = old_effect else {
         return;
     };
 
     let snapshot = FlameTemporalSnapshot {
-        view: ctx.world.resource::<ProjectionData>().view,
-        appearance: strip_per_frame_state(&effect),
-        settings: *ctx.world.resource::<FlameRenderSettings>(),
+        view,
+        appearance: strip_per_frame_state(&old_effect),
+        settings,
     };
 
-    let mut state = ctx.world.resource_mut::<FlameTemporalState>();
+    // Get matches_previous_frame before taking mutable borrow
+    let state = ctx.world.resource::<FlameTemporalState>();
     let matches_previous_frame = state.previous.as_ref() == Some(&snapshot);
-    state.previous = Some(snapshot);
+    drop(state);
 
-    effect.frame_index = effect.frame_index.wrapping_add(1);
-    effect.temporal_weight = if matches_previous_frame && !ctx.world.contains_resource::<BatchRun>()
-    {
-        STABLE_FRAME_HISTORY_WEIGHT
-    } else {
-        0.0
-    };
+    // Update the temporal state
+    let mut state = ctx.world.resource_mut::<FlameTemporalState>();
+    state.previous = Some(snapshot);
+    drop(state);
+
+    // Now apply the changes to the component
+    if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {
+        effect.frame_index = old_effect.frame_index.wrapping_add(1);
+        effect.temporal_weight = if matches_previous_frame && !has_batch_run {
+            STABLE_FRAME_HISTORY_WEIGHT
+        } else {
+            0.0
+        };
+    }
 }
 
 /// Fields that advance on their own every frame must be excluded, otherwise the snapshot

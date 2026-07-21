@@ -24,6 +24,8 @@ use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
 use thyllore_render_core::FlameUBO;
 
+pub const MAX_FLAME_INSTANCES: usize = 4;
+
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
     pub gbuffer: Option<RRGBuffer>,
@@ -61,6 +63,7 @@ pub struct RayTracingData {
     pub flame_descriptor: Option<RRFlameDescriptorSet>,
     pub flame_uniform_buffer: Option<vk::Buffer>,
     pub flame_uniform_buffer_memory: Option<vk::DeviceMemory>,
+    pub flame_ubo_slot_size: vk::DeviceSize,
 
     pub scene_uniform_buffer: Option<vk::Buffer>,
     pub scene_uniform_buffer_memory: Option<vk::DeviceMemory>,
@@ -388,30 +391,32 @@ impl RayTracingData {
         position_image_view: vk::ImageView,
         position_sampler: vk::Sampler,
     ) -> Result<()> {
-        let flame_ubo_size = std::mem::size_of::<FlameUBO>() as vk::DeviceSize;
+        let min_alignment = rrdevice.min_uniform_buffer_offset_alignment;
+        let slot_size = (std::mem::size_of::<FlameUBO>() as vk::DeviceSize + min_alignment - 1) & !(min_alignment - 1);
+        let total_size = slot_size * MAX_FLAME_INSTANCES as vk::DeviceSize;
         let (flame_ubo_buffer, flame_ubo_memory) = create_buffer(
             instance,
             rrdevice,
-            flame_ubo_size,
+            total_size,
             vk::BufferUsageFlags::UNIFORM_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
-        self.write_initial_flame_ubo(rrdevice, flame_ubo_memory, flame_ubo_size)?;
+        self.write_initial_flame_ubo(rrdevice, flame_ubo_memory)?;
 
         let mut flame_descriptor = RRFlameDescriptorSet {
             descriptor_set_layout: RRFlameDescriptorSet::create_layout(rrdevice)?,
             descriptor_pool: RRFlameDescriptorSet::create_pool(rrdevice)?,
-            descriptor_set: vk::DescriptorSet::null(),
+            descriptor_sets: [vk::DescriptorSet::null(); 2],
         };
         flame_descriptor.allocate_and_update(
             rrdevice,
             flame_ubo_buffer,
-            flame_ubo_size,
+            slot_size,
             position_image_view,
             position_sampler,
             flame_buffer.accum_image_view,
             flame_buffer.interval_image_view,
-            flame_buffer.history_image_views[0],
+            flame_buffer.history_image_views,
             flame_buffer.sampler,
         )?;
 
@@ -466,6 +471,7 @@ impl RayTracingData {
         .no_depth_test()
         .custom_render_pass(flame_buffer.shading_render_pass)
         .msaa_samples(vk::SampleCountFlags::_1)
+        .mrt_attachments(2)
         .blend(BlendConfig {
             enable: true,
             src_color_factor: vk::BlendFactor::ONE,
@@ -473,6 +479,15 @@ impl RayTracingData {
             color_op: vk::BlendOp::ADD,
             src_alpha_factor: vk::BlendFactor::ONE,
             dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            alpha_op: vk::BlendOp::ADD,
+        })
+        .attachment_blend(1, BlendConfig {
+            enable: false,
+            src_color_factor: vk::BlendFactor::ONE,
+            dst_color_factor: vk::BlendFactor::ZERO,
+            color_op: vk::BlendOp::ADD,
+            src_alpha_factor: vk::BlendFactor::ONE,
+            dst_alpha_factor: vk::BlendFactor::ZERO,
             alpha_op: vk::BlendOp::ADD,
         })
         .push_constants(PushConstantConfig {
@@ -492,6 +507,7 @@ impl RayTracingData {
         self.flame_descriptor = Some(flame_descriptor);
         self.flame_uniform_buffer = Some(flame_ubo_buffer);
         self.flame_uniform_buffer_memory = Some(flame_ubo_memory);
+        self.flame_ubo_slot_size = slot_size;
 
         log!("Created flame pipelines");
         Ok(())
@@ -501,20 +517,19 @@ impl RayTracingData {
         &self,
         rrdevice: &RRDevice,
         flame_ubo_memory: vk::DeviceMemory,
-        flame_ubo_size: vk::DeviceSize,
     ) -> Result<()> {
         let initial_ubo = FlameUBO::default();
 
         let mapped = rrdevice.device.map_memory(
             flame_ubo_memory,
             0,
-            flame_ubo_size,
+            std::mem::size_of::<FlameUBO>() as vk::DeviceSize,
             vk::MemoryMapFlags::empty(),
         )?;
         std::ptr::copy_nonoverlapping(
             &initial_ubo as *const FlameUBO as *const u8,
             mapped.cast(),
-            flame_ubo_size as usize,
+            std::mem::size_of::<FlameUBO>(),
         );
         rrdevice.device.unmap_memory(flame_ubo_memory);
         Ok(())

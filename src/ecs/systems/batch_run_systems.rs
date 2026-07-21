@@ -11,6 +11,8 @@ const BATCH_FRAMES_FLAG: &str = "--batch-frames";
 const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
+const FLAME_DUMP_FLAG: &str = "--flame-dump";
+const BATCH_FLAME_COUNT_FLAG: &str = "--batch-flame-count";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -25,6 +27,8 @@ pub struct EngineCliOverrides {
     pub flame_mode: Option<FlameShadingMode>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
+    pub flame_dump_path: Option<String>,
+    pub flame_count: Option<usize>,
 }
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
@@ -33,6 +37,8 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         flame_mode: flame_mode_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
         camera_pose: camera_pose_resolve_from_args(args)?,
+        flame_dump_path: flame_dump_path_resolve_from_args(args)?,
+        flame_count: flame_count_resolve_from_args(args)?,
     })
 }
 
@@ -125,12 +131,35 @@ pub fn flame_steps_resolve_from_args(args: &[String]) -> Result<Option<u32>> {
     Ok(Some(steps))
 }
 
+pub fn flame_dump_path_resolve_from_args(args: &[String]) -> Result<Option<String>> {
+    let Some(position) = args.iter().position(|arg| arg == FLAME_DUMP_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{FLAME_DUMP_FLAG} requires a path");
+    };
+    Ok(Some(value.clone()))
+}
+
+pub fn flame_count_resolve_from_args(args: &[String]) -> Result<Option<usize>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_COUNT_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_FLAME_COUNT_FLAG} requires a count");
+    };
+    let count: usize = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid flame count '{value}': expected integer"))?;
+    if !(1..=4).contains(&count) {
+        bail!("{BATCH_FLAME_COUNT_FLAG} must be in range 1..=4, got {}", count);
+    }
+    Ok(Some(count))
+}
+
 fn resolve_absolute_output(output: &Path) -> Result<PathBuf> {
     if output.extension().and_then(|e| e.to_str()) != Some("png") {
-        bail!(
-            "batch screenshot output must end with .png: {}",
-            output.display()
-        );
+        bail!("batch screenshot output must end with .png: {}", output.display());
     }
     if output.is_absolute() {
         return Ok(output.to_path_buf());

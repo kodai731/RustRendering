@@ -54,6 +54,7 @@ impl ViewportState {
         let flame_buffer = FlameBuffer::new(
             instance,
             rrdevice,
+            command_pool,
             width,
             height,
             hdr_buffer.color_image_view,
@@ -193,6 +194,7 @@ impl ViewportState {
             flame_buffer.resize(
                 instance,
                 rrdevice,
+                command_pool,
                 new_width,
                 new_height,
                 hdr_buffer.color_image_view,

@@ -488,9 +488,13 @@ impl App {
             position_sampler,
             flame_buffer.accum_image_view,
             flame_buffer.interval_image_view,
-            flame_buffer.history_image_views[0],
+            flame_buffer.history_image_views,
             flame_buffer.sampler,
         );
+
+        if let Some(mut state) = self.data.ecs_world.get_resource_mut::<crate::ecs::resource::FlameTemporalState>() {
+            state.previous = None;
+        }
 
         Ok(())
     }

@@ -30,4 +30,4 @@ pub use mesh_buffer::*;
 pub use offscreen::OffscreenFramebuffer;
 pub use onion_skin_pass::OnionSkinPassResources;
 pub use pipeline_storage::PipelineStorage;
-pub use raytracing_data::RayTracingData;
+pub use raytracing_data::{RayTracingData, MAX_FLAME_INSTANCES};

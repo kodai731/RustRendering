@@ -62,10 +62,23 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
             }
             UIEvent::UpdateFlameEffect(new_effect) => {
-                if let Some(mut effect) = world.get_resource_mut::<FlameEffect>() {
-                    let engine_time = effect.time;
-                    *effect = *new_effect.clone();
-                    effect.time = engine_time;
+                if let Some(first_flame) = world.query_flames().first() {
+                    if let Some(mut effect) = world.get_component_mut::<FlameEffect>(*first_flame) {
+                        let engine_time = effect.time;
+                        *effect = *new_effect.clone();
+                        effect.time = engine_time;
+                    }
+                }
+            }
+            UIEvent::AddFlame => {
+                let flames = world.query_flames();
+                if flames.len() < thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES {
+                    let e = world.spawn();
+                    world.insert_component(e, FlameEffect {
+                        position: cgmath::Vector3::new(1.5 * flames.len() as f32, 0.0, 0.0),
+                        ..FlameEffect::default()
+                    });
+                    world.insert_component(e, crate::ecs::world::Name(format!("Flame {}", flames.len() + 1)));
                 }
             }
             UIEvent::UpdateFlameRenderSettings(new_settings) => {

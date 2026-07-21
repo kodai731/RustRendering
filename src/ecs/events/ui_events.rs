@@ -404,6 +404,7 @@ pub enum UIEvent {
     UpdateAutoExposure(AutoExposure),
     UpdateOnionSkinning(OnionSkinningConfig),
     UpdateFlameEffect(Box<FlameEffect>),
+    AddFlame,
     UpdateFlameRenderSettings(FlameRenderSettings),
     SetGridShowYAxis(bool),
     ClearMessageLog,
