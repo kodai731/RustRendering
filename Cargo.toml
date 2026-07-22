@@ -3,6 +3,7 @@ members = ["crates/*"]
 
 [package]
 name = "thyllore-animation"
+default-run = "thyllore-animation"
 version = "0.0.1-preview"
 edition = "2021"
 license = "Apache-2.0"
