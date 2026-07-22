@@ -224,7 +224,7 @@ impl App {
             &mut data,
             &model_path,
             loaded_scene.is_some(),
-        );
+            );
 
         Self::apply_loaded_scene(&mut data, loaded_scene);
 
@@ -281,6 +281,12 @@ impl App {
         data.ecs_world.insert_resource(grid_mesh_data);
         data.ecs_world.insert_resource(grid_scale);
 
+        let gpu_timestamp_profiler = thyllore_vulkan_core::GpuTimestampProfiler::new(
+            &rrdevice.device,
+            rrdevice.timestamp_period,
+            vulkan_resources.rrswapchain.swapchain_images.len(),
+        );
+
         Ok(Self {
             entry,
             instance,
@@ -290,6 +296,7 @@ impl App {
             resized: false,
             start: Instant::now(),
             last_update_time: 0.0,
+            gpu_timestamp_profiler,
         })
     }
 
@@ -1141,11 +1148,14 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::AutoExposure>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::SelectedFlameInstance>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::FlameCurveWindowState>(data);
         // Spawn an entity with FlameEffect component if none exists
         let has_flame = data.ecs_world.query_flames().len() > 0;
         if !has_flame {
             let entity = data.ecs_world.spawn();
-            data.ecs_world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+            let mut effect = crate::ecs::resource::FlameEffect::default();
+            data.ecs_world.insert_component(entity, effect);
             data.ecs_world.insert_component(entity, crate::ecs::world::Name("Flame".to_string()));
         }
         Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);

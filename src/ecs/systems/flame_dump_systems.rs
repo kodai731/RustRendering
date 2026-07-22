@@ -29,7 +29,22 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
         },
         "temporal_weight": effect.temporal_weight,
         "light_position_world": [effect.light_position_world.x, effect.light_position_world.y, effect.light_position_world.z],
-        "self_shadow_strength": effect.self_shadow_strength
+        "self_shadow_strength": effect.self_shadow_strength,
+        "warp_amp": effect.warp_amp,
+        "warp_freq": effect.warp_freq,
+        "rise_speed": effect.rise_speed,
+        "taper_power": effect.taper_power,
+       "radius_tip_ratio": effect.radius_tip_ratio,
+        "edge_low": effect.edge_low,
+        "edge_high": effect.edge_high,
+        "white_boost": effect.white_boost,
+        "wind_direction": [effect.wind_direction.x, effect.wind_direction.y],
+        "bend_amount": effect.bend_amount,
+        "bend_power": effect.bend_power,
+        "envelope_peak": effect.envelope_peak,
+        "envelope_base": effect.envelope_base,
+        "envelope_tail": effect.envelope_tail,
+        "radial_sharpness": effect.radial_sharpness
     })
 }
 
@@ -131,12 +146,30 @@ mod tests {
             noise_frequency: 0.0,
             noise_scroll_speed: 0.0,
             time: 0.0,
+            time_scale: 1.0,
+            time_offset: 0.0,
             coefficients: thyllore_render_core::fit_flame_coefficients(&thyllore_render_core::FlameProfile::default()),
             temporal_weight: 0.5,
             frame_index: 42,
             light_position_world: Vector3::new(2.0, 3.0, 2.0),
             self_shadow_strength: 0.5,
-        }
+            warp_amp: 0.25,
+            warp_freq: 2.5,
+            rise_speed: 0.8,
+            taper_power: 1.4,
+            radius_tip_ratio: 0.1,
+            edge_low: 0.3,
+            edge_high: 0.7,
+            white_boost: 0.0,
+            wind_direction: cgmath::Vector2::new(0.0, 0.0),
+            bend_amount: 0.0,
+            bend_power: 1.7,
+            envelope_peak: 0.35,
+            envelope_base: 0.45,
+            envelope_tail: 1.6,
+            radial_sharpness: 4.0,
+            rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
+            }
     }
 
     fn sample_temporal() -> FlameTemporalState {

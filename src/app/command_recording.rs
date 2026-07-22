@@ -2,6 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use super::App;
+use crate::ecs::resource::GpuPassTimings;
 use crate::vulkanr::renderer::deferred;
 
 impl App {
@@ -26,6 +27,22 @@ impl App {
             .device
             .begin_command_buffer(command_buffer, &begin_info)?;
 
+        // Collect GPU timestamp profiler results from previous frame and write to ECS resource.
+        // Derive next_frame from the current GpuPassTimings resource (frame + 1), defaulting to 1
+        // if the resource is absent. The borrow must be dropped before insert_resource.
+        let next_frame = self.data.ecs_world.get_resource::<GpuPassTimings>()
+            .map(|t| t.frame + 1)
+            .unwrap_or(1);
+
+        if let Some(passes) = self.gpu_timestamp_profiler.collect(&self.rrdevice.device, image_index) {
+            self.data.ecs_world.insert_resource(GpuPassTimings {
+                frame: next_frame,
+                passes,
+            });
+        }
+
+        self.gpu_timestamp_profiler.begin_frame(&self.rrdevice.device, command_buffer, image_index);
+
         let use_gbuffer =
             self.data.raytracing.is_available() && self.data.viewport.offscreen.is_some();
 
@@ -46,7 +63,14 @@ impl App {
             if has_hdr_pipeline {
                 deferred::record_composite_to_hdr(self, command_buffer)?;
                 deferred::record_onion_skin_pass(self, command_buffer, image_index)?;
+                self.gpu_timestamp_profiler.begin_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                    "flame".to_string(),
+                );
                 deferred::record_flame_passes(self, command_buffer, image_index)?;
+                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
                 deferred::record_bloom(self, command_buffer)?;
                 deferred::record_dof(self, command_buffer)?;
                 deferred::record_auto_exposure(self, command_buffer)?;

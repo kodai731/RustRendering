@@ -8,7 +8,7 @@ use crate::animation::BoneId;
 use crate::animation::{ConstraintId, ConstraintType};
 use crate::app::data::LightMoveTarget;
 use crate::ecs::component::{
-    ColliderShape, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
+    ColliderShape, FlameParam, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
     SpringColliderGroupId, SpringColliderId, SpringJointParam,
 };
 use crate::ecs::resource::gizmo::BoneDisplayStyle;
@@ -98,6 +98,9 @@ pub enum UIEvent {
         value: f32,
     },
     TimelineDeleteSelectedKeyframes,
+    DeleteFlameKeysAt {
+        time: f32,
+    },
     TimelineMoveSelectedKeyframes {
         time_delta: f32,
     },
@@ -408,6 +411,23 @@ pub enum UIEvent {
     UpdateFlameRenderSettings(FlameRenderSettings),
     SetGridShowYAxis(bool),
     ClearMessageLog,
+    InsertFlameKey { param: FlameParam, value: f32 },
+    ClearFlameKeys,
+    SelectFlameInstance(usize),
+    ToggleFlameCurves,
+    MoveFlameKey {
+        param: FlameParam,
+        old_time: f32,
+        new_time: f32,
+        new_value: f32,
+    },
+    DeleteFlameKeyExact {
+        param: FlameParam,
+        time: f32,
+    },
+    ToggleFlameCurveParam {
+        param: FlameParam,
+    },
 }
 
 #[derive(Default)]

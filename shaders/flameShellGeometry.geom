@@ -28,12 +28,15 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     float noiseAmplitude;
     float noiseFrequency;
     float noiseScrollSpeed;
-    float paddingReserved;
+    float radialSharpness;
     vec4 colorBase;
     vec4 colorMid;
     vec4 colorTip;
     vec4 temporalData;
     vec4 lightData;
+    vec4 styleParams0;
+    vec4 styleParams1;
+    vec4 styleParams2;
 } flame;
 
 layout(location = 0) in vec3 geomLocalCorner[];
@@ -50,7 +53,9 @@ vec3 computeRingPosition(vec3 center, float radiusX, float radiusZ, int segment,
     float height01 = float(stack) / float(STACKS);
     float taper = mix(1.0, TAPER_TIP_SCALE, height01);
     float angle = TWO_PI * float(segment) / float(RING_SEGMENTS);
-    return center + vec3(cos(angle) * radiusX * taper, height01, sin(angle) * radiusZ * taper);
+    vec3 pos = center + vec3(cos(angle) * radiusX * taper, height01, sin(angle) * radiusZ * taper);
+    pos.xz += flame.styleParams2.xy * flame.styleParams2.z * pow(height01, flame.styleParams2.w);
+    return pos;
 }
 
 void emitShellVertex(vec3 localPos, vec2 shellUv) {

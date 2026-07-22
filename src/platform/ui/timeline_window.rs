@@ -34,6 +34,7 @@ pub fn build_timeline_window(
     clip_library: &ClipLibrary,
     curve_editor_state: &mut CurveEditorState,
     clip_track_snapshot: &ClipTrackSnapshot,
+    flame_track: Option<&crate::ecs::component::FlameTrack>,
     layout: &LayoutSnapshot,
 ) {
     ui.window("Timeline")
@@ -58,6 +59,7 @@ pub fn build_timeline_window(
                 clip_library,
                 curve_editor_state,
                 clip_track_snapshot,
+                flame_track,
             );
             let clip_duration = state
                 .current_clip_id
@@ -189,6 +191,7 @@ fn build_timeline_content(
     clip_library: &ClipLibrary,
     curve_editor_state: &mut CurveEditorState,
     clip_track_snapshot: &ClipTrackSnapshot,
+    flame_track: Option<&crate::ecs::component::FlameTrack>,
 ) {
     let content_region = ui.content_region_avail();
     let visible_width = (content_region[0] - TRACK_LABEL_WIDTH).max(1.0);
@@ -242,8 +245,99 @@ fn build_timeline_content(
                     timeline_width,
                 );
             }
-            state.scroll_offset = ui.scroll_x();
+            let ruler_start_x = ui.cursor_screen_pos()[0] + TRACK_LABEL_WIDTH;
+            build_flame_track_row(
+                ui,
+                ui_events,
+                flame_track,
+                pixels_per_second,
+                ruler_start_x,
+                state.current_time,
+            );
         });
+}
+
+fn build_flame_track_row(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    flame_track: Option<&crate::ecs::component::FlameTrack>,
+    pixels_per_second: f32,
+    ruler_start_x: f32,
+    current_time: f32,
+) {
+    let track = match flame_track {
+        Some(t) if !t.channels.is_empty() => t,
+        _ => return,
+    };
+
+    // Collect all unique key times from all channels
+    let mut key_times: Vec<f32> = Vec::new();
+    for channel in &track.channels {
+        for key in &channel.keys {
+            if !key_times.contains(&key.time) {
+                key_times.push(key.time);
+            }
+        }
+    }
+
+    if key_times.is_empty() {
+        return;
+    }
+
+    let cursor_pos = ui.cursor_screen_pos();
+    let row_y = cursor_pos[1];
+    let row_height: f32 = 18.0;
+
+    // Draw label "Flame" on the left (same style as group headers)
+    ui.text_colored([0.7, 0.8, 1.0, 1.0], "Flame");
+    ui.same_line_with_pos(TRACK_LABEL_WIDTH);
+
+    let draw_list = ui.get_window_draw_list();
+
+    // Draw a background rect for the row area
+    draw_list
+        .add_rect(
+            [ruler_start_x, row_y],
+            [ruler_start_x + 1000.0, row_y + row_height],
+            [0.15, 0.15, 0.2, 1.0],
+        )
+        .filled(true)
+        .build();
+
+    // Draw diamond markers at each key position using circles
+    for (i, &key_time) in key_times.iter().enumerate() {
+        let x = ruler_start_x + key_time * pixels_per_second;
+        let y = row_y + row_height / 2.0;
+
+        // Color: white if any channel has a key within 0.02s of current_time, else amber
+        let is_under_playhead = (key_time - current_time).abs() < 0.02;
+        let color: [f32; 4] = if is_under_playhead {
+            [1.0, 1.0, 1.0, 1.0] // White
+        } else {
+            [1.0, 0.75, 0.375, 1.0] // Amber (0xFFC060FF)
+        };
+
+        draw_list
+            .add_circle([x, y], 4.0, color)
+            .filled(true)
+            .build();
+
+        // Interactive hit area: invisible button centered on the marker
+        let btn_size = [10.0, 10.0];
+        let btn_x = x - btn_size[0] / 2.0;
+        let btn_y = y - btn_size[1] / 2.0;
+        ui.set_cursor_screen_pos([btn_x, btn_y]);
+        let id = format!("flamekey##{}", i);
+        ui.invisible_button(&id, btn_size);
+
+        if ui.is_item_hovered() && ui.is_mouse_clicked(imgui::MouseButton::Left) {
+            ui_events.send(UIEvent::TimelineSetTime(key_time));
+        }
+
+        if ui.is_item_hovered() && ui.is_mouse_clicked(imgui::MouseButton::Right) {
+            ui_events.send(UIEvent::DeleteFlameKeysAt { time: key_time });
+        }
+    }
 }
 
 fn build_time_ruler_with_scrub(

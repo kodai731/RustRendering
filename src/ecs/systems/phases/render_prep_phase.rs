@@ -9,7 +9,7 @@ use crate::ecs::resource::gizmo::{
     BoneDisplayStyle, BoneGizmoData, ConstraintGizmoData, SpringBoneGizmoData,
 };
 use crate::ecs::resource::ProjectionData;
-use crate::ecs::resource::{Camera, Exposure, TransformGizmoState};
+use crate::ecs::resource::{Camera, Exposure, GpuPassTimings, GpuTimingsSink, TransformGizmoState};
 use crate::ecs::systems::render_data_systems::{
     bone_gizmo_render_data, constraint_gizmo_render_data, gizmo_mesh_render_data,
     gizmo_selectable_render_data, grid_mesh_render_data, spring_bone_gizmo_render_data,
@@ -41,6 +41,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
 
     update_frame_and_scene_uniforms(ctx, view, proj, screen_size, aspect, camera_position)?;
     crate::ecs::systems::flame_time_advance(ctx);
+    gpu_timings_write(&mut ctx.world);
     if let (Some(mut sink), Some(temporal)) = (
         ctx.world.get_resource_mut::<crate::ecs::resource::FlameDumpSink>(),
         ctx.world.get_resource::<crate::ecs::resource::FlameTemporalState>(),
@@ -75,6 +76,45 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     crate::ecs::systems::gizmo_systems::run_vertical_lines_update(ctx)?;
 
     Ok(())
+}
+
+fn gpu_timings_write(world: &mut crate::ecs::World) {
+    let timings = match world.get_resource::<GpuPassTimings>() {
+        Some(t) => t,
+        None => return,
+    };
+    let frame = timings.frame;
+    let passes: Vec<(String, f32)> = timings.passes.clone();
+    if passes.is_empty() {
+        return;
+    }
+    let mut sink = match world.get_resource_mut::<GpuTimingsSink>() {
+        Some(s) => s,
+        None => return,
+    };
+    if frame == sink.last_frame {
+        return;
+    }
+    let passes_map: serde_json::Map<String, serde_json::Value> = passes
+        .into_iter()
+        .map(|(label, ms)| (label, serde_json::json!(ms)))
+        .collect();
+    let line = serde_json::json!({
+        "frame": frame,
+        "passes": passes_map
+    });
+    if let Err(e) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&sink.path)
+        .and_then(|mut f| {
+            use std::io::Write;
+            writeln!(f, "{}", line)
+        })
+    {
+        eprintln!("gpu timings write failed: {}", e);
+    }
+    sink.last_frame = frame;
 }
 
 unsafe fn update_mesh_entity_transforms(ctx: &mut FrameContext) -> Result<()> {

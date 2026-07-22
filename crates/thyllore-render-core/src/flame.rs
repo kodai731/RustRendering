@@ -1,4 +1,4 @@
-use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
+use cgmath::{Deg, InnerSpace, Matrix4, Quaternion, Vector2, Vector3, Vector4};
 use thyllore_math_core::{evaluate_chebyshev, fit_chebyshev, integrate_chebyshev, pack_coefficients_vec4};
 
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
@@ -7,26 +7,57 @@ pub const RADIAL_COEFFICIENT_COUNT: usize = 8;
 
 pub struct FlameProfile {
     pub sigma_t: f32,
-    pub height_falloff: fn(f64) -> f64,
-    pub radial_falloff: fn(f64) -> f64,
+    pub height_falloff: Box<dyn Fn(f64) -> f64>,
+    pub radial_falloff: Box<dyn Fn(f64) -> f64>,
 }
 
 impl Default for FlameProfile {
     fn default() -> Self {
         Self {
             sigma_t: 1.0,
-            height_falloff: default_height_falloff,
-            radial_falloff: default_radial_falloff,
+            height_falloff: Box::new(default_height_falloff),
+            radial_falloff: Box::new(default_radial_falloff),
         }
     }
 }
 
 pub fn default_height_falloff(height01: f64) -> f64 {
-    1.0 - height01 * height01 * (3.0 - 2.0 * height01)
+  parametric_height_falloff(height01, 0.25, 0.05, 1.25)
 }
 
 pub fn default_radial_falloff(radius01: f64) -> f64 {
     (-4.0 * radius01 * radius01).exp()
+}
+
+/// Smooth step function S(x) = x*x*(3-2x).
+fn smooth_step(x: f64) -> f64 {
+    let x = x.clamp(0.0, 1.0);
+    x * x * (3.0 - 2.0 * x)
+}
+
+/// Parametric height falloff using envelope parameters.
+///
+/// p = peak.clamp(0.05, 0.8), v0 = base.clamp(0.0, 0.95), q = tail.clamp(0.5, 4.0)
+/// if h < p: v0 + (1.0 - v0) * S(h/p)
+/// else: (1.0 - S((h-p)/(1.0-p))).powf(q)
+/// Guard: when p >= 1-epsilon and h >= p, return 0 (denominator tiny).
+pub fn parametric_height_falloff(h: f64, peak: f64, base: f64, tail: f64) -> f64 {
+    let p = peak.clamp(0.05, 0.8);
+    let v0 = base.clamp(0.0, 0.95);
+    let q = tail.clamp(0.5, 4.0);
+
+    let result = if h < p {
+        v0 + (1.0 - v0) * smooth_step(h / p)
+    } else {
+        let denom = 1.0 - p;
+        if denom < 1e-9 {
+            0.0
+        } else {
+            (1.0 - smooth_step((h - p) / denom)).powf(q)
+        }
+    };
+
+    result.clamp(0.0, 1.0)
 }
 
 /// Approximate blackbody (Planckian locus) color for a given temperature in Kelvin.
@@ -58,15 +89,21 @@ pub struct FlameCoefficients {
     pub height: [[f32; 4]; 2],
 }
 
+impl Default for FlameCoefficients {
+    fn default() -> Self {
+        fit_flame_coefficients(&FlameProfile::default())
+    }
+}
+
 pub fn fit_flame_coefficients(profile: &FlameProfile) -> FlameCoefficients {
     let height_primitive_source = fit_chebyshev(
-        profile.height_falloff,
+        &profile.height_falloff,
         (0.0, 1.0),
         HEIGHT_PRIMITIVE_COEFFICIENT_COUNT - 1,
     );
     let height_primitive = integrate_chebyshev(&height_primitive_source);
-    let height_series = fit_chebyshev(profile.height_falloff, (0.0, 1.0), HEIGHT_COEFFICIENT_COUNT);
-    let radial_series = fit_chebyshev(profile.radial_falloff, (0.0, 1.0), RADIAL_COEFFICIENT_COUNT);
+    let height_series = fit_chebyshev(&profile.height_falloff, (0.0, 1.0), HEIGHT_COEFFICIENT_COUNT);
+    let radial_series = fit_chebyshev(&profile.radial_falloff, (0.0, 1.0), RADIAL_COEFFICIENT_COUNT);
 
     let height_primitive_slots = pack_coefficients_vec4(&height_primitive, 3);
     let height_slots = pack_coefficients_vec4(&height_series, 2);
@@ -158,6 +195,7 @@ impl FlameRenderSettings {
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlameEffect {
     pub position: Vector3<f32>,
+    pub rotation: cgmath::Quaternion<f32>,
     pub height: f32,
     pub radius: f32,
     pub sigma_t: f32,
@@ -171,38 +209,90 @@ pub struct FlameEffect {
     pub noise_frequency: f32,
     pub noise_scroll_speed: f32,
     pub time: f32,
+    pub time_scale: f32,
+    pub time_offset: f32,
     pub coefficients: FlameCoefficients,
     pub temporal_weight: f32,
     pub frame_index: u64,
     pub light_position_world: Vector3<f32>,
     pub self_shadow_strength: f32,
+    pub warp_amp: f32,
+    pub warp_freq: f32,
+    pub rise_speed: f32,
+    pub taper_power: f32,
+    pub radius_tip_ratio: f32,
+    pub edge_low: f32,
+    pub edge_high: f32,
+    pub white_boost: f32,
+    pub wind_direction: Vector2<f32>,
+    pub bend_amount: f32,
+    pub bend_power: f32,
+    pub envelope_peak: f32,
+    pub envelope_base: f32,
+    pub envelope_tail: f32,
+    pub radial_sharpness: f32,
 }
 
 impl Default for FlameEffect {
     fn default() -> Self {
-        let profile = FlameProfile::default();
-        Self {
+        let mut effect = Self {
             position: Vector3::new(0.0, 0.0, 0.0),
-            height: 1.0,
-            radius: 1.0,
-            sigma_t: profile.sigma_t,
-            intensity: 1.0,
+            rotation: Quaternion::new(1.0, 0.0, 0.0, 0.0),
+            height: 1.6,
+            radius: 0.6,
+            sigma_t: 1.0,
+            intensity: 2.2,
             color_base: [1.0, 0.45, 0.1],
             color_tip: [1.0, 0.1, 0.02],
-            temperature_base_k: 1900.0,
-            temperature_tip_k: 1100.0,
+            temperature_base_k: 3200.0,
+            temperature_tip_k: 1500.0,
             use_blackbody: true,
-            noise_amplitude: 1.2,
+            noise_amplitude: 1.5,
             noise_frequency: 6.0,
             noise_scroll_speed: 1.0,
             time: 0.0,
-            coefficients: fit_flame_coefficients(&profile),
+            time_scale: 1.0,
+            time_offset: 0.0,
+            coefficients: FlameCoefficients::default(),
             temporal_weight: 0.0,
             frame_index: 0,
             light_position_world: Vector3::new(2.0, 3.0, 2.0),
             self_shadow_strength: 0.5,
-        }
+            warp_amp: 1.4,
+            warp_freq: 5.0,
+            rise_speed: 1.5,
+            taper_power: 1.4,
+            radius_tip_ratio: 0.10,
+            edge_low: 0.27,
+            edge_high: 0.33,
+            white_boost: 4.0,
+            wind_direction: Vector2::new(0.0, 0.0),
+            bend_amount: 0.0,
+            bend_power: 1.7,
+            envelope_peak: 0.25,
+            envelope_base: 0.05,
+            envelope_tail: 1.25,
+            radial_sharpness: 4.0,
+        };
+        refresh_flame_coefficients(&mut effect);
+        effect
     }
+}
+
+pub fn profile_from_effect(effect: &FlameEffect) -> FlameProfile {
+    let peak = effect.envelope_peak as f64;
+    let base = effect.envelope_base as f64;
+    let tail = effect.envelope_tail as f64;
+    let radial_sharpness = effect.radial_sharpness;
+    FlameProfile {
+        sigma_t: effect.sigma_t,
+        height_falloff: Box::new(move |h: f64| parametric_height_falloff(h, peak, base, tail)),
+        radial_falloff: Box::new(move |r: f64| (-radial_sharpness * r as f32 * r as f32).exp() as f64),
+    }
+}
+
+pub fn refresh_flame_coefficients(effect: &mut FlameEffect) {
+    effect.coefficients = fit_flame_coefficients(&profile_from_effect(effect));
 }
 
 const MIN_FLAME_EXTENT: f32 = 1e-3;
@@ -215,6 +305,7 @@ pub fn build_flame_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
     let radius = effect.radius.max(MIN_FLAME_EXTENT);
     let height = effect.height.max(MIN_FLAME_EXTENT);
     Matrix4::from_translation(effect.position)
+        * Matrix4::from(effect.rotation)
         * Matrix4::from_nonuniform_scale(radius, height, radius)
 }
 
@@ -222,6 +313,7 @@ pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
     let radius = effect.radius.max(MIN_FLAME_EXTENT);
     let height = effect.height.max(MIN_FLAME_EXTENT);
     Matrix4::from_nonuniform_scale(1.0 / radius, 1.0 / height, 1.0 / radius)
+        * Matrix4::from(effect.rotation.conjugate())
         * Matrix4::from_translation(-effect.position)
 }
 
@@ -260,12 +352,15 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         noise_amplitude: effect.noise_amplitude,
         noise_frequency: effect.noise_frequency,
         noise_scroll_speed: effect.noise_scroll_speed,
-        _padding: 0.0,
+        radialSharpness: effect.radial_sharpness,
         color_base: Vector4::new(color_base[0], color_base[1], color_base[2], 1.0),
         color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
         color_tip: Vector4::new(color_tip[0], color_tip[1], color_tip[2], 1.0),
         temporal_data: Vector4::new(effect.temporal_weight, (effect.frame_index % 16384) as f32, 0.0, 0.0),
         light_data: Vector4::new(norm_dir.x, norm_dir.y, norm_dir.z, effect.self_shadow_strength),
+        style_params0: [effect.warp_amp, effect.warp_freq, effect.rise_speed, effect.taper_power],
+        style_params1: [effect.radius_tip_ratio, effect.edge_low, effect.edge_high, effect.white_boost],
+        style_params2: [effect.wind_direction.x, effect.wind_direction.y, effect.bend_amount, effect.bend_power],
     }
 }
 
@@ -293,12 +388,15 @@ pub struct FlameUBO {
     pub noise_amplitude: f32,
     pub noise_frequency: f32,
     pub noise_scroll_speed: f32,
-    pub _padding: f32,
+    pub radialSharpness: f32,
     pub color_base: Vector4<f32>,
     pub color_mid: Vector4<f32>,
     pub color_tip: Vector4<f32>,
     pub temporal_data: Vector4<f32>,
     pub light_data: Vector4<f32>,
+    pub style_params0: [f32; 4],
+    pub style_params1: [f32; 4],
+    pub style_params2: [f32; 4],
 }
 
 impl Default for FlameUBO {
@@ -592,7 +690,7 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 352);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 400);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 
@@ -771,5 +869,26 @@ mod tests {
         // Relative error should be < 0.5 (layer approximation is coarse)
         let rel_error = (analytical - numerical).abs() / numerical.max(1e-6);
         assert!(rel_error < 0.5, "relative error {} >= 0.5", rel_error);
+    }
+
+    #[test]
+    fn test_flame_model_matrix_inverse_parity() {
+        let mut effect = FlameEffect::default();
+        effect.position = Vector3::new(1.0, 2.0, 3.0);
+        effect.rotation = Quaternion::from(cgmath::Euler::new(Deg(0.0), Deg(0.0), Deg(30.0)));
+        let model = build_flame_model_matrix(&effect);
+        let inverse = build_flame_inverse_model_matrix(&effect);
+        let identity = model * inverse;
+        for i in 0..4 {
+            for j in 0..4 {
+                assert!(
+                    (identity[i][j] - (if i == j { 1.0 } else { 0.0 })).abs() < 1e-4,
+                    "identity[{}][{}] = {}",
+                    i,
+                    j,
+                    identity[i][j]
+                );
+            }
+        }
     }
 }

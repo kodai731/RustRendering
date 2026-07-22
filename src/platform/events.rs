@@ -7,18 +7,18 @@ use super::key_bindings::{default_bindings, dispatch_keyboard_shortcut, Modifier
 use super::platform::System;
 use super::ui::{
     build_bottom_panel, build_clip_browser_window, build_curve_editor_window,
-    build_hierarchy_window, build_inspector_window, build_scene_overlay, build_timeline_window,
-    build_viewport_window, draw_status_bar, handle_splitters, LayoutSnapshot, SceneOverlayState,
-    StatusBarState, ViewportInfo,
+    build_flame_curve_window, build_hierarchy_window, build_inspector_window, build_scene_overlay,
+    build_timeline_window, build_viewport_window, draw_status_bar, handle_splitters, LayoutSnapshot,
+    SceneOverlayState, StatusBarState, ViewportInfo,
 };
 #[cfg(debug_assertions)]
 use super::ui::{build_click_debug_overlay, DebugWindowState};
 use crate::app::App;
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{
-    ClipBrowserState, ClipLibrary, CurveEditorBuffer, CurveEditorState, HierarchyState,
-    ImGuiInputCapture, KeyboardModifiers, MessageLog, MouseInput, PanelLayout, PoseLibrary,
-    TimelineInteractionState, TimelineState, ViewportInput,
+    ClipBrowserState, ClipLibrary, CurveEditorBuffer, CurveEditorState, FlameCurveWindowState,
+    HierarchyState, ImGuiInputCapture, KeyboardModifiers, MessageLog, MouseInput, PanelLayout,
+    PoseLibrary, TimelineInteractionState, TimelineState, ViewportInput,
 };
 use crate::ecs::systems::clip_track_systems::query_clip_tracks;
 use crate::ecs::systems::phases::run_event_dispatch_phase;
@@ -455,6 +455,23 @@ fn build_timeline_and_fixed_overlays(
         query_clip_tracks(&app.data.ecs_world, &*clip_library, &app.data.ecs_assets)
     };
 
+   let flame_track: Option<crate::ecs::component::FlameTrack> = {
+        let entities: Vec<_> = app.data.ecs_world.query_flames();
+        let selected = app
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::SelectedFlameInstance>()
+            .map(|s| s.0)
+            .unwrap_or(0);
+        let idx = selected.min(entities.len().saturating_sub(1));
+        entities.get(idx).and_then(|e| {
+            app.data
+                .ecs_world
+                .get_component::<crate::ecs::component::FlameTrack>(*e)
+                .cloned()
+        })
+    };
+
     {
         let mut timeline_state = app.data.ecs_world.resource_mut::<TimelineState>();
         let mut timeline_interaction = app
@@ -472,10 +489,23 @@ fn build_timeline_and_fixed_overlays(
             &*clip_library,
             &mut *curve_editor,
             &clip_track_snapshot,
+            flame_track.as_ref(),
             layout_snapshot,
         );
     }
 
+    {
+        let current_time = app.data.ecs_world.resource::<TimelineState>().current_time;
+        let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
+        let flame_curve_state = app.data.ecs_world.resource::<FlameCurveWindowState>();
+        build_flame_curve_window(
+            ui,
+            &mut *ui_events,
+            &*flame_curve_state,
+            flame_track.as_ref(),
+            current_time,
+        );
+    }
     // Batch captures are diffed pixel-by-pixel; the status bar shows wall-clock
     // values (FPS, memory) that would break determinism, so skip it there.
     let is_batch_capture = app

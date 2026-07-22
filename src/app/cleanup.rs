@@ -142,6 +142,9 @@ impl App {
 
         self.data.buffer_registry.destroy_all(&self.rrdevice);
 
+        thyllore_vulkan_core::GpuTimestampProfiler::destroy(&mut self.gpu_timestamp_profiler, &self.rrdevice.device);
+        log!("Destroyed GPU timestamp profiler");
+
         self.data.graphics_resources.destroy(&self.rrdevice);
         log!("Destroyed render resources");
 

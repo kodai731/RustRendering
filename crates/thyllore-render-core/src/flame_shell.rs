@@ -14,7 +14,11 @@ const QUAD_CORNERS: [[f32; 3]; 4] = [
     [-0.5, 0.0, 0.5],
 ];
 
-pub fn generate_flame_shell_triangles() -> Vec<[Vector3<f32>; 3]> {
+pub fn generate_flame_shell_triangles(
+    wind: [f32; 2],
+    bend_amount: f32,
+    bend_power: f32,
+) -> Vec<[Vector3<f32>; 3]> {
     let corners: Vec<Vector3<f32>> = QUAD_CORNERS
         .iter()
         .map(|c| Vector3::new(c[0], c[1], c[2]))
@@ -25,9 +29,9 @@ pub fn generate_flame_shell_triangles() -> Vec<[Vector3<f32>; 3]> {
 
     let mut triangles = Vec::new();
     for stack in 0..FLAME_SHELL_STACKS {
-        append_wall_band_triangles(&mut triangles, center, radius_x, radius_z, stack);
+        append_wall_band_triangles(&mut triangles, center, radius_x, radius_z, stack, wind, bend_amount, bend_power);
     }
-    append_cap_triangles(&mut triangles, center, radius_x, radius_z);
+    append_cap_triangles(&mut triangles, center, radius_x, radius_z, wind, bend_amount, bend_power);
     triangles
 }
 
@@ -37,16 +41,24 @@ fn compute_ring_position(
     radius_z: f32,
     segment: usize,
     stack: usize,
+    wind: [f32; 2],
+    bend_amount: f32,
+    bend_power: f32,
 ) -> Vector3<f32> {
     let height01 = stack as f32 / FLAME_SHELL_STACKS as f32;
     let taper = 1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01;
     let angle = std::f32::consts::TAU * segment as f32 / FLAME_SHELL_RING_SEGMENTS as f32;
-    center
+    let mut pos = center
         + Vector3::new(
             angle.cos() * radius_x * taper,
             height01,
             angle.sin() * radius_z * taper,
-        )
+        );
+    // Wind bend deformation (horizontal-only)
+    let bend_offset = wind[0] * bend_amount * height01.powf(bend_power);
+    pos.x += wind[0] * bend_offset;
+    pos.z += wind[1] * bend_offset;
+    pos
 }
 
 fn append_wall_band_triangles(
@@ -55,12 +67,15 @@ fn append_wall_band_triangles(
     radius_x: f32,
     radius_z: f32,
     stack: usize,
+    wind: [f32; 2],
+    bend_amount: f32,
+    bend_power: f32,
 ) {
     let mut strip = Vec::new();
     for i in 0..=FLAME_SHELL_RING_SEGMENTS {
         let segment = i % FLAME_SHELL_RING_SEGMENTS;
         strip.push(compute_ring_position(
-            center, radius_x, radius_z, segment, stack,
+            center, radius_x, radius_z, segment, stack, wind, bend_amount, bend_power,
         ));
         strip.push(compute_ring_position(
             center,
@@ -68,6 +83,9 @@ fn append_wall_band_triangles(
             radius_z,
             segment,
             stack + 1,
+            wind,
+            bend_amount,
+            bend_power,
         ));
     }
 
@@ -85,22 +103,25 @@ fn append_cap_triangles(
     center: Vector3<f32>,
     radius_x: f32,
     radius_z: f32,
+    wind: [f32; 2],
+    bend_amount: f32,
+    bend_power: f32,
 ) {
     let top_center = center + Vector3::new(0.0, 1.0, 0.0);
     for i in 0..FLAME_SHELL_RING_SEGMENTS {
         let next = (i + 1) % FLAME_SHELL_RING_SEGMENTS;
         triangles.push([
             center,
-            compute_ring_position(center, radius_x, radius_z, i, 0),
-            compute_ring_position(center, radius_x, radius_z, next, 0),
+            compute_ring_position(center, radius_x, radius_z, i, 0, wind, bend_amount, bend_power),
+            compute_ring_position(center, radius_x, radius_z, next, 0, wind, bend_amount, bend_power),
         ]);
     }
     for i in 0..FLAME_SHELL_RING_SEGMENTS {
         let next = (i + 1) % FLAME_SHELL_RING_SEGMENTS;
         triangles.push([
             top_center,
-            compute_ring_position(center, radius_x, radius_z, next, FLAME_SHELL_STACKS),
-            compute_ring_position(center, radius_x, radius_z, i, FLAME_SHELL_STACKS),
+            compute_ring_position(center, radius_x, radius_z, next, FLAME_SHELL_STACKS, wind, bend_amount, bend_power),
+            compute_ring_position(center, radius_x, radius_z, i, FLAME_SHELL_STACKS, wind, bend_amount, bend_power),
         ]);
     }
 }
@@ -119,7 +140,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_winding_is_one_inside() {
-        let shell = generate_flame_shell_triangles();
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
         for probe in [
             Vector3::new(0.0, 0.5, 0.0),
             Vector3::new(0.1, 0.1, 0.1),
@@ -135,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_winding_is_zero_outside() {
-        let shell = generate_flame_shell_triangles();
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
         for probe in [
             Vector3::new(2.0, 0.5, 0.0),
             Vector3::new(0.0, -0.5, 0.0),
@@ -149,7 +170,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_is_closed() {
-        let shell = generate_flame_shell_triangles();
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
         let probes = [
             Vector3::new(0.0, 0.5, 0.0),
             Vector3::new(0.2, 0.2, 0.1),
@@ -160,7 +181,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_rays_have_even_hit_count() {
-        let shell = generate_flame_shell_triangles();
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
         let rays = [
             (Vector3::new(-2.0, 0.5, 0.03), Vector3::new(1.0, 0.0, 0.0)),
             (Vector3::new(0.03, -2.0, 0.05), Vector3::new(0.0, 1.0, 0.0)),
@@ -179,5 +200,22 @@ mod tests {
                 hits.len()
             );
         }
+    }
+
+    #[test]
+    fn test_flame_shell_bent_winding_is_closed() {
+        let shell = generate_flame_shell_triangles([1.0, 0.0], 0.6, 1.7);
+        // Inside probe near the bent axis (shifted right by wind)
+        let winding_inside = compute_winding_number(&shell, Vector3::new(0.3, 0.5, 0.0));
+        assert!(
+            (winding_inside - 1.0).abs() < 1e-4,
+            "bent shell inside probe: winding = {winding_inside}"
+        );
+        // Outside probe far from the bent shape
+        let winding_outside = compute_winding_number(&shell, Vector3::new(2.0, 0.5, 0.0));
+        assert!(
+            winding_outside.abs() < 1e-4,
+            "bent shell outside probe: winding = {winding_outside}"
+        );
     }
 }

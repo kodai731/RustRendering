@@ -24,11 +24,14 @@ mod depth_of_field;
 mod edit_history;
 mod exposure;
 mod fbx_model_cache;
+mod flame_curve_window;
 mod flame_dump;
 mod flame_render;
+mod gpu_timings;
 mod flame_temporal;
 mod gltf_model_cache;
 mod graphics;
+mod gpu_pass_timings;
 mod grid_state;
 #[cfg(feature = "text-to-motion")]
 mod grpc_server_process;
@@ -89,10 +92,13 @@ pub use edit_history::*;
 pub use exposure::*;
 pub use fbx_model_cache::*;
 pub use flame_dump::*;
+pub use flame_curve_window::*;
 pub use flame_render::*;
 pub use flame_temporal::*;
+pub use gpu_timings::*;
 pub use gltf_model_cache::*;
 pub use graphics::*;
+pub use gpu_pass_timings::*;
 pub use grid_state::*;
 #[cfg(feature = "text-to-motion")]
 pub use grpc_server_process::*;

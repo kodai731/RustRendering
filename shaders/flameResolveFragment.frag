@@ -32,12 +32,15 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     float noiseAmplitude;
     float noiseFrequency;
     float noiseScrollSpeed;
-    float paddingReserved;
+    float radialSharpness;
     vec4 colorBase;
     vec4 colorMid;
     vec4 colorTip;
     vec4 temporalData;
     vec4 lightData;
+    vec4 styleParams0;
+    vec4 styleParams1;
+    vec4 styleParams2;
 } flame;
 
 layout(set = 1, binding = 2) uniform sampler2D flameAccumSampler;
@@ -226,29 +229,6 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
     return sum * dt;
 }
 
-float sampleNoiseErodedDensity(vec3 localPos, float height01) {
-    vec3 samplePos = localPos * flame.noiseFrequency
-        - vec3(0.0, flame.time * flame.noiseScrollSpeed, 0.0);
-    float turbulence = fbm3(samplePos);
-    float erosion = flame.noiseAmplitude * mix(0.2, 1.0, height01) * turbulence;
-    return max(evaluateHeightFalloff(height01) - erosion, 0.0);
-}
-
-float integrateEmissionNoiseRaymarch(FlameRaySegment segment, int stepCount) {
-    float dt = (segment.tFar - segment.tNear) / float(stepCount);
-    if (dt <= 0.0) {
-        return 0.0;
-    }
-    float jitter = interleavedGradientNoise(gl_FragCoord.xy + vec2(flame.temporalData.y * 5.588238));
-    float sum = 0.0;
-    for (int i = 0; i < stepCount; ++i) {
-        float t = segment.tNear + (float(i) + jitter) * dt;
-        vec3 localPos = segment.localOrigin + t * segment.localDir;
-        float h = clamp(localPos.y, 0.0, 1.0);
-        sum += sampleNoiseErodedDensity(localPos, h);
-    }
-    return sum * dt;
-}
 
 vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
     float heightMid = clamp(
@@ -284,20 +264,81 @@ void main() {
     }
 
     FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
-    float emission;
+
+    vec3 L;
+    float trans;
+
     if (push.mode == 3) {
-        emission = integrateEmissionNoiseRaymarch(segment, push.stepCount);
-    } else if (push.mode == 1) {
-        emission = integrateEmissionRaymarch(segment, push.stepCount);
+        // Per-step Beer-Lambert integrator with tapered radial density
+        float dt = (segment.tFar - segment.tNear) / float(push.stepCount);
+        float jitter = interleavedGradientNoise(gl_FragCoord.xy + vec2(flame.temporalData.y * 5.588238));
+        L = vec3(0.0);
+        trans = 1.0;
+        for (int i = 0; i < push.stepCount; ++i) {
+            float t = segment.tNear + (float(i) + jitter) * dt;
+            vec3 p = segment.localOrigin + t * segment.localDir;
+            float h = clamp(p.y, 0.0, 1.0);
+
+            // Wind bend deformation (horizontal-only)
+            vec2 bendOffset = flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
+            vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
+
+            // Domain warp with upward advection
+            vec3 advect = vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y) * flame.time;
+            vec3 aniso = vec3(1.0, 0.35, 1.0);
+            vec3 wp = (pb * aniso) * flame.styleParams0.y - advect;
+            vec2 w = vec2(fbm3(wp), fbm3(wp + vec3(19.1, 7.7, 3.3))) * 2.0 - 1.0;
+            vec3 q = pb + flame.styleParams0.x * mix(0.15, 1.0, h) * vec3(w.x, 0.0, w.y);
+
+            // Tapered radial density
+            float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
+            float rn = length(q.xz) / max(taperR, 1e-4);
+            float dSmooth = evaluateHeightFalloff(h) * exp(-flame.radialSharpness * rn * rn);
+            float erosion = flame.noiseAmplitude * mix(0.2, 1.0, h)
+                * (fbm3((q * aniso) * flame.noiseFrequency - advect) - 0.35);
+            float density = smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion);
+
+            // Beer-Lambert step
+            float sigma = flame.sigmaT * density;
+            float a = 1.0 - exp(-sigma * dt);
+
+            // Temperature-driven ramp color
+            float tempNorm = clamp(dSmooth, 0.0, 1.0) * (1.0 - 0.55 * h);
+            vec3 rampColor;
+            float u = 1.0 - tempNorm;
+            if (u < 0.5) {
+                rampColor = mix(flame.colorBase.rgb, flame.colorMid.rgb, u * 2.0);
+            } else {
+                rampColor = mix(flame.colorMid.rgb, flame.colorTip.rgb, (u - 0.5) * 2.0);
+            }
+
+            L += trans * rampColor * flame.intensity * (1.0 + flame.styleParams1.w * pow(tempNorm, 4.0)) * a;
+            trans *= 1.0 - a;
+        }
     } else {
-        emission = integrateEmissionAnalytic(segment);
-    }
-    if (flame.lightData.w > 0.0) {
-        vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-        emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+        // Modes 0/1: legacy path via emission scalar + shadeEmission
+        float emission;
+        if (push.mode == 1) {
+            emission = integrateEmissionRaymarch(segment, push.stepCount);
+        } else {
+            emission = integrateEmissionAnalytic(segment);
+        }
+        if (flame.lightData.w > 0.0) {
+            vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
+            emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+        }
+        vec4 shaded = shadeEmission(segment, emission, deltaT);
+        L = shaded.rgb;
+        trans = 1.0 - shaded.a;
     }
 
-    vec4 shaded = shadeEmission(segment, emission, deltaT);
+    // Self-shadow midpoint multiply on L (mode 3)
+    if (push.mode == 3 && flame.lightData.w > 0.0) {
+        vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
+        L *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+    }
+
+    vec4 shaded = vec4(L, 1.0 - trans);
     vec4 blended = mix(shaded, texture(flameHistorySampler, fragTexCoord), flame.temporalData.x);
     outColor = blended;
     outHistory = blended;

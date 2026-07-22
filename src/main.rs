@@ -7,8 +7,8 @@
 
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
-use thyllore_animation::ecs::resource::{BatchRun, Camera, FlameDumpSink, FlameEffect, FlameRenderSettings};
-use thyllore_animation::ecs::systems::{batch_run_report, resolve_engine_cli_overrides};
+use thyllore_animation::ecs::resource::{BatchRun, Camera, FlameDumpSink, FlameEffect, FlameRenderSettings, GpuTimingsSink};
+use thyllore_animation::ecs::systems::{apply_flame_overrides, batch_run_report, resolve_engine_cli_overrides};
 use thyllore_animation::platform;
 
 use anyhow::Result;
@@ -66,19 +66,34 @@ fn main() -> Result<()> {
     if let Some(path) = overrides.flame_dump_path {
         app.data.ecs_world.insert_resource(FlameDumpSink::new(std::path::PathBuf::from(path)));
     }
+    if let Some(path) = overrides.gpu_timings_path {
+        app.data.ecs_world.insert_resource(GpuTimingsSink::new(path));
+    }
     if let Some(n) = overrides.flame_count {
         if n >= 2 {
             for i in 1..n {
                 let e = app.data.ecs_world.spawn();
-                app.data.ecs_world.insert_component(e, FlameEffect {
+                let mut effect = FlameEffect {
                     position: cgmath::Vector3::new(1.5 * i as f32, 0.0, 0.0),
                     radius: 0.7,
                     height: 0.8,
                     temperature_base_k: 1900.0 - 250.0 * i as f32,
                     temperature_tip_k: 1100.0 - 150.0 * i as f32,
                     ..FlameEffect::default()
-                });
+                };
+                apply_flame_overrides(&mut effect, &overrides.flame_set);
+                thyllore_render_core::refresh_flame_coefficients(&mut effect);
+                app.data.ecs_world.insert_component(e, effect);
                 app.data.ecs_world.insert_component(e, thyllore_animation::ecs::world::Name(format!("Flame {}", i + 1)));
+            }
+        }
+    }
+    {
+        let entities: Vec<_> = app.data.ecs_world.query_flames();
+        for e in entities {
+            if let Some(mut effect) = app.data.ecs_world.get_component_mut::<FlameEffect>(e) {
+                apply_flame_overrides(&mut effect, &overrides.flame_set);
+                thyllore_render_core::refresh_flame_coefficients(&mut effect);
             }
         }
     }

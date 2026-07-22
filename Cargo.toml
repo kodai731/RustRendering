@@ -15,6 +15,10 @@ build = "build.rs"
 name = "thyllore-animation"
 path = "src/main.rs"
 
+[[bin]]
+name = "flame_param_fit"
+path = "src/bin/flame_param_fit.rs"
+
 [lib]
 crate-type = ["cdylib", "rlib"]
 

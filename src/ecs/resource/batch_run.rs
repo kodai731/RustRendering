@@ -11,15 +11,17 @@ pub struct BatchRun {
     pub screenshot_frame: u64,
     pub frames_rendered: u64,
     pub state: BatchRunState,
+    pub flame_set: Vec<(String, f32)>,
 }
 
 impl BatchRun {
-    pub fn new(output: PathBuf, screenshot_frame: u64) -> Self {
+    pub fn new(output: PathBuf, screenshot_frame: u64, flame_set: Vec<(String, f32)>) -> Self {
         Self {
             output,
             screenshot_frame,
             frames_rendered: 0,
             state: BatchRunState::WaitingForFrame,
+            flame_set,
         }
     }
 

@@ -61,6 +61,7 @@ pub struct RRDevice {
     pub graphics_queue_family_index: u32,
     pub msaa_samples: vk::SampleCountFlags,
     pub min_uniform_buffer_offset_alignment: u64,
+    pub timestamp_period: f32,
 }
 
 impl RRDevice {
@@ -73,6 +74,7 @@ impl RRDevice {
             graphics_queue_family_index: 0,
             msaa_samples: vk::SampleCountFlags::default(),
             min_uniform_buffer_offset_alignment: 256,
+            timestamp_period: 1.0,
         }
     }
 
@@ -103,8 +105,9 @@ impl RRDevice {
             &physical_device,
         )?;
 
-        let properties = instance.get_physical_device_properties(physical_device);
+      let properties = instance.get_physical_device_properties(physical_device);
         let min_ubo_alignment = properties.limits.min_uniform_buffer_offset_alignment;
+        let timestamp_period = properties.limits.timestamp_period;
 
         println!("created logical device");
         Ok(Self {
@@ -115,8 +118,9 @@ impl RRDevice {
             graphics_queue_family_index: graphics_index.0,
             msaa_samples: sample_count,
             min_uniform_buffer_offset_alignment: min_ubo_alignment,
+            timestamp_period,
         })
-    }
+   }
 
     pub unsafe fn new_headless(
         entry: &Entry,
@@ -142,8 +146,9 @@ impl RRDevice {
             &physical_device,
         )?;
 
-        let properties = instance.get_physical_device_properties(physical_device);
+     let properties = instance.get_physical_device_properties(physical_device);
         let min_ubo_alignment = properties.limits.min_uniform_buffer_offset_alignment;
+        let timestamp_period = properties.limits.timestamp_period;
 
         println!("created headless logical device");
         Ok(Self {
@@ -154,6 +159,7 @@ impl RRDevice {
             graphics_queue_family_index: graphics_index.0,
             msaa_samples: sample_count,
             min_uniform_buffer_offset_alignment: min_ubo_alignment,
+            timestamp_period,
         })
     }
 

@@ -11,6 +11,7 @@ pub mod pipeline;
 pub mod raytracing;
 pub mod render;
 pub mod renderer;
+pub mod profiling;
 pub mod resource;
 pub mod vulkan;
 
@@ -26,3 +27,4 @@ pub use render::*;
 pub use renderer::*;
 pub use resource::*;
 pub use vulkan::*;
+pub use profiling::GpuTimestampProfiler;

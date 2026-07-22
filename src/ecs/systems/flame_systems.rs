@@ -1,7 +1,8 @@
 use crate::app::FrameContext;
+use crate::ecs::component::{apply_flame_track, FlameTrack};
 use crate::ecs::resource::{
     BatchRun, FlameEffect, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState,
-    LightState, ProjectionData,
+    LightState, ProjectionData, TimelineState,
 };
 use crate::ecs::world::Entity;
 use thyllore_render_core::advance_flame_time;
@@ -12,12 +13,6 @@ const BATCH_FIXED_DELTA_SECONDS: f32 = 1.0 / 60.0;
 const STABLE_FRAME_HISTORY_WEIGHT: f32 = 0.85;
 
 pub fn flame_time_advance(ctx: &mut FrameContext) {
-    let delta_time = if ctx.world.contains_resource::<BatchRun>() {
-        BATCH_FIXED_DELTA_SECONDS
-    } else {
-        ctx.delta_time
-    };
-
     let light_position = ctx.world.get_resource::<LightState>().map(|ls| ls.light_position);
 
     // Collect translations from Transform components to avoid borrow conflicts
@@ -30,15 +25,42 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
         })
         .collect();
 
+    // Collect FlameTrack components to avoid borrow conflicts
+    let flame_tracks: Vec<(Entity, FlameTrack)> = flame_entities
+        .iter()
+        .filter_map(|&e| {
+            ctx.world.get_component::<FlameTrack>(e)
+                .map(|t| (e, t.clone()))
+        })
+        .collect();
+
+    let has_batch_run = ctx.world.contains_resource::<BatchRun>();
+    let timeline_current_time = if has_batch_run {
+        None
+    } else {
+        ctx.world.get_resource::<TimelineState>().map(|ts| ts.current_time)
+    };
+
     for &entity in &flame_entities {
         if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {
-            advance_flame_time(&mut effect, delta_time);
+            if has_batch_run {
+                advance_flame_time(&mut effect, BATCH_FIXED_DELTA_SECONDS);
+            } else if let Some(timeline_time) = timeline_current_time {
+                effect.time = timeline_time * effect.time_scale + effect.time_offset;
+            } else {
+                advance_flame_time(&mut effect, ctx.delta_time);
+            }
             if let Some(lp) = light_position {
                 effect.light_position_world = lp;
             }
-            // Sync position from Transform if present
+            // Sync position and rotation from Transform if present
             if let Some((_e, transform)) = transforms.iter().find(|(e, _)| *e == entity) {
                 effect.position = transform.translation;
+                effect.rotation = transform.rotation;
+            }
+            // Apply FlameTrack keyframe channels if present
+            if let Some((_e, track)) = flame_tracks.iter().find(|(e, _)| *e == entity) {
+                apply_flame_track(track, effect.time, &mut effect);
             }
         }
     }

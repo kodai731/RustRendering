@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use super::clip_io::{load_animation_clip, save_animation_clip};
 use super::error::{SceneError, SceneResult};
 use super::format::{
-    AnimationClipRef, AutoExposureState, BloomState, CameraState, DepthOfFieldState, EditorState,
-    ExposureState, LensEffectsState, PanelLayoutState, PhysicalCameraState, SceneFile,
-    SceneMetadata, TimelineConfig, ToneMappingState, SCENE_FORMAT_VERSION,
+    apply_flame_state_to_world, build_flame_scene_data, AnimationClipRef, AutoExposureState,
+    BloomState, CameraState, DepthOfFieldState, EditorState, ExposureState, LensEffectsState,
+    PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata, TimelineConfig,
+    ToneMappingState, SCENE_FORMAT_VERSION,
 };
 use crate::animation::editable::SourceClipId;
 use crate::ecs::resource::CurveEditorState;
@@ -32,7 +33,7 @@ pub fn save_scene(scene_path: &Path, world: &World) -> SceneResult<()> {
 
     let animation_clips = save_animation_clips(world, &animations_dir)?;
 
-    let scene = build_scene_file(collected, previous_metadata, animation_clips);
+    let scene = build_scene_file(collected, previous_metadata, animation_clips, world);
 
     write_scene_file(scene_path, &scene)?;
 
@@ -238,6 +239,7 @@ fn build_scene_file(
     collected: CollectedSceneState,
     previous_metadata: Option<SceneMetadata>,
     animation_clips: Vec<AnimationClipRef>,
+    world: &World,
 ) -> SceneFile {
     let scene_name = previous_metadata
         .as_ref()
@@ -251,6 +253,7 @@ fn build_scene_file(
     scene.timeline = collected.timeline;
     scene.editor = collected.editor;
     scene.panel_layout = collected.panel_layout;
+    scene.flame = build_flame_scene_data(world);
 
     if let Some(prev) = previous_metadata {
         scene.metadata.created_at = prev.created_at;
@@ -367,6 +370,9 @@ pub fn apply_loaded_scene_to_world(
     apply_editor_state(&loaded.scene.editor, world);
     apply_rendering_params(&loaded.scene.camera, world);
     apply_panel_layout(loaded.scene.panel_layout.as_ref(), world);
+    if let Some(ref flame) = loaded.scene.flame {
+        apply_flame_state_to_world(world, flame);
+    }
 }
 
 fn apply_camera_state(camera_state: &CameraState, world: &mut World) {

@@ -4,6 +4,7 @@ mod clip_track_snapshot;
 mod constraint_set;
 mod core;
 mod editor;
+mod flame_track;
 mod gizmo;
 mod glb_source;
 #[cfg(feature = "ml")]
@@ -19,6 +20,7 @@ pub use clip_track_snapshot::*;
 pub use constraint_set::*;
 pub use core::*;
 pub use editor::*;
+pub use flame_track::*;
 pub use gizmo::*;
 pub use glb_source::*;
 #[cfg(feature = "ml")]
