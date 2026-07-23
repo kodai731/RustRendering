@@ -1,6 +1,6 @@
+pub mod batch_flame_orbit;
 pub mod billboard;
 pub mod gizmo;
-
 mod imgui_capture;
 mod keyboard_modifiers;
 mod mouse_input;
@@ -76,6 +76,7 @@ pub use viewport_input::*;
 pub use auto_exposure::*;
 #[cfg(feature = "auto-rig")]
 pub use auto_rig_state::*;
+pub use batch_flame_orbit::*;
 pub use batch_run::*;
 pub use bloom::*;
 pub use bone_pose_override::*;

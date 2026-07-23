@@ -504,6 +504,24 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                     effect_copy.position = cgmath::Vector3::new(position[0], position[1], position[2]);
                 }
 
+                let emitter_labels: [&str; 3] = ["Cylinder", "Ring", "Mesh SDF"];
+                let mut emitter_selected = effect_copy.emitter_kind as usize;
+                if ui.combo_simple_string("Emitter", &mut emitter_selected, &emitter_labels) {
+                    effect_copy.emitter_kind = emitter_selected as u32;
+                }
+
+                if effect_copy.emitter_kind == 1 {
+                    ui.slider_config("Ring Radius", 0.2, 5.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.ring_major_radius);
+                    ui.same_line();
+                    let mut ring_speed = effect_copy.ring_angular_speed;
+                    ui.slider_config("Ring Speed", 0.0, 6.28)
+                        .display_format("%.2f")
+                        .build(&mut ring_speed);
+                    effect_copy.ring_angular_speed = ring_speed;
+                }
+
                 ui.slider_config("Height", 0.05, 10.0)
                     .display_format("%.2f")
                     .build(&mut effect_copy.height);
@@ -725,6 +743,18 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                 }
                 if ui.button("Add Flame") {
                     ui_events.send(UIEvent::AddFlame);
+                }
+
+                // Trail checkbox and slider
+                let trail_state = ecs_world.get_component::<crate::ecs::component::flame_trail::FlameTrail>(selected_flame).map(|t| (t.state.enabled, t.state.fade_seconds)).unwrap_or((false, 0.8));
+                let mut trail_enabled = trail_state.0;
+                let mut trail_fade = trail_state.1;
+                if ui.checkbox("Trail", &mut trail_enabled) {
+                    ui_events.send(UIEvent::UpdateFlameTrailEnabled(trail_enabled));
+                }
+                ui.slider_config("Trail Fade", 0.1, 5.0).build(&mut trail_fade);
+                if (trail_fade - trail_state.1).abs() > 0.01 {
+                    ui_events.send(UIEvent::UpdateFlameTrailFade(trail_fade));
                 }
 
                 // GPU Timings section (read-only)

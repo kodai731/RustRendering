@@ -409,6 +409,8 @@ pub enum UIEvent {
     UpdateFlameEffect(Box<FlameEffect>),
     AddFlame,
     UpdateFlameRenderSettings(FlameRenderSettings),
+    UpdateFlameTrailEnabled(bool),
+    UpdateFlameTrailFade(f32),
     SetGridShowYAxis(bool),
     ClearMessageLog,
     InsertFlameKey { param: FlameParam, value: f32 },

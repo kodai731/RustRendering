@@ -482,7 +482,7 @@ impl App {
             return Ok(());
         };
 
-        flame_descriptor.update_image_views(
+      flame_descriptor.update_image_views(
             &self.rrdevice,
             gbuffer.position_image_view,
             position_sampler,
@@ -490,6 +490,8 @@ impl App {
             flame_buffer.interval_image_view,
             flame_buffer.history_image_views,
             flame_buffer.sampler,
+            self.data.raytracing.flame_sdf_image_view,
+            self.data.raytracing.flame_sdf_sampler,
         );
 
         if let Some(mut state) = self.data.ecs_world.get_resource_mut::<crate::ecs::resource::FlameTemporalState>() {
@@ -667,6 +669,10 @@ impl App {
         }
 
         self.save_manual_exposure_if_needed();
+        // batch 決定性: AE 読み戻しを直前フレーム完了後に固定する
+        if self.data.ecs_world.contains_resource::<crate::ecs::resource::BatchRun>() {
+            let _ = self.rrdevice.device.device_wait_idle();
+        }
 
         let adapted = match self.data.viewport.auto_exposure_buffers {
             Some(ref ae_buffers) => ae_buffers.read_adapted_exposure(&self.rrdevice.device),

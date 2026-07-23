@@ -427,13 +427,17 @@ pub unsafe fn record_auto_exposure(app: &App, command_buffer: vk::CommandBuffer)
         return Ok(());
     };
 
-    let delta_time = app
+    let mut delta_time = app
         .data
         .ecs_world
         .get_resource::<crate::ecs::resource::TimelineState>()
         .map(|t| 1.0 / 60.0 * t.speed.max(0.01))
         .unwrap_or(1.0 / 60.0);
 
+    // Override with fixed timestep (1/60) during batch runs to ensure determinism
+    if app.data.ecs_world.contains_resource::<crate::ecs::resource::BatchRun>() {
+        delta_time = 1.0 / 60.0;
+    }
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
 
     thyllore_vulkan_core::renderer::record_auto_exposure_pass(
@@ -548,8 +552,12 @@ pub unsafe fn record_flame_passes(
         let effect = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(flame)
             .ok_or_else(|| anyhow::anyhow!("Missing FlameEffect for instance {}", i))?;
 
-        // Build UBO for this instance
-        let ubo = thyllore_render_core::build_flame_ubo(effect);
+        // Build UBO for this instance (trail-aware)
+        let trail = app.data.ecs_world.get_component::<crate::ecs::component::FlameTrail>(flame);
+        let is_noise_mode = app.data.ecs_world.get_resource::<crate::ecs::resource::FlameRenderSettings>()
+            .map(|s| s.shading_mode == thyllore_render_core::FlameShadingMode::NoiseRaymarch)
+            .unwrap_or(false);
+        let ubo = thyllore_render_core::build_flame_ubo_with_trail(effect, trail.map(|t| &t.state), is_noise_mode);
 
         // Calculate offset for this instance
         let offset_i = i as vk::DeviceSize * app.data.raytracing.flame_ubo_slot_size;
@@ -566,7 +574,7 @@ pub unsafe fn record_flame_passes(
         }
 
         // Build per-instance model matrix
-        let model_matrix = thyllore_render_core::build_flame_model_matrix(effect);
+        let model_matrix = ubo.model;
 
         // Compute per-instance scissor using the model matrix
         let Some(scissor) = compute_flame_scissor(app, flame_buffer.extent(), &model_matrix) else { continue; };

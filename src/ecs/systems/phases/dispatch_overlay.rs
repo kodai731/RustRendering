@@ -1,4 +1,4 @@
-use crate::ecs::component::{FlameChannel, FlameParam, FlameTrack};
+use crate::ecs::component::{FlameChannel, FlameParam, FlameTrail, FlameTrack};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
@@ -72,6 +72,46 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 let target = flames[idx];
                 if let Some(mut current) = world.get_component_mut::<FlameEffect>(target) {
                     *current = effect.as_ref().clone();
+                }
+            }
+            UIEvent::UpdateFlameTrailEnabled(enabled) => {
+                let flames = world.query_flames();
+                if flames.is_empty() {
+                    continue;
+                }
+                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let idx = selected.min(flames.len() - 1);
+                let target = flames[idx];
+                if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
+                    trail.state.enabled = *enabled;
+                } else {
+                    world.insert_component(target, FlameTrail {
+                        state: thyllore_render_core::FlameTrailState {
+                            enabled: *enabled,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    });
+                }
+            }
+            UIEvent::UpdateFlameTrailFade(fade) => {
+                let flames = world.query_flames();
+                if flames.is_empty() {
+                    continue;
+                }
+                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let idx = selected.min(flames.len() - 1);
+                let target = flames[idx];
+                if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
+                    trail.state.fade_seconds = *fade;
+                } else {
+                    world.insert_component(target, FlameTrail {
+                        state: thyllore_render_core::FlameTrailState {
+                            fade_seconds: *fade,
+                            ..Default::default()
+                        },
+                        ..Default::default()
+                    });
                 }
             }
             UIEvent::AddFlame => {

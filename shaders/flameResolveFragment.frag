@@ -41,11 +41,16 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 styleParams0;
     vec4 styleParams1;
     vec4 styleParams2;
+    mat4 trailUnitInverse;
+    vec4 trailMeta;
+    vec4 trailSamples[16];
+    vec4 emitterParams;
 } flame;
 
 layout(set = 1, binding = 2) uniform sampler2D flameAccumSampler;
 layout(set = 1, binding = 3) uniform sampler2D flameIntervalSampler;
 layout(set = 1, binding = 4) uniform sampler2D flameHistorySampler;
+layout(set = 1, binding = 5) uniform sampler2D flameSdfSampler;
 
 layout(location = 0) in vec2 fragTexCoord;
 
@@ -63,6 +68,8 @@ const float H_DIR_EPSILON = 1e-4;
 float evaluateHeightFalloff(float height01) {
     return evaluateChebyshev8(flame.heightCoefficients[0], flame.heightCoefficients[1], height01);
 }
+
+#include "include/flame_noise_field.glsl"
 
 float evaluateHeightPrimitive(float height01) {
     return evaluateChebyshev12(
@@ -222,9 +229,10 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
     float sum = 0.0;
     for (int i = 0; i < stepCount; ++i) {
         float t = segment.tNear + (float(i) + 0.5) * dt;
+        vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(
             evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
-        sum += evaluateHeightFalloff(h);
+        sum += evaluateHeightFalloff(h) * flameNoiseErosionFactor(p, h);
     }
     return sum * dt;
 }
@@ -279,24 +287,25 @@ void main() {
             vec3 p = segment.localOrigin + t * segment.localDir;
             float h = clamp(p.y, 0.0, 1.0);
 
-            // Wind bend deformation (horizontal-only)
-            vec2 bendOffset = flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
-            vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
-
-            // Domain warp with upward advection
-            vec3 advect = vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y) * flame.time;
-            vec3 aniso = vec3(1.0, 0.35, 1.0);
-            vec3 wp = (pb * aniso) * flame.styleParams0.y - advect;
-            vec2 w = vec2(fbm3(wp), fbm3(wp + vec3(19.1, 7.7, 3.3))) * 2.0 - 1.0;
-            vec3 q = pb + flame.styleParams0.x * mix(0.15, 1.0, h) * vec3(w.x, 0.0, w.y);
-
-            // Tapered radial density
-            float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
-            float rn = length(q.xz) / max(taperR, 1e-4);
-            float dSmooth = evaluateHeightFalloff(h) * exp(-flame.radialSharpness * rn * rn);
-            float erosion = flame.noiseAmplitude * mix(0.2, 1.0, h)
-                * (fbm3((q * aniso) * flame.noiseFrequency - advect) - 0.35);
-            float density = smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion);
+            float dSmooth;
+            float density;
+            if (flame.trailMeta.x >= 1.0) {
+                vec3 pWorld = (flame.model * vec4(p, 1.0)).xyz;
+                vec3 baseUnit = (flame.trailUnitInverse * vec4(pWorld, 1.0)).xyz;
+                density = 0.0;
+                dSmooth = 0.0;
+                float hBest = h;
+                for (int s = 0; s < int(flame.trailMeta.x); ++s) {
+                    vec3 pu = baseUnit - flame.trailSamples[s].xyz;
+                    float hu = clamp(pu.y, 0.0, 1.0);
+                    float ds;
+                    float d = flameEmitterDensity(pu, hu, ds) * flame.trailSamples[s].w;
+                    if (d > density) { density = d; dSmooth = ds; hBest = hu; }
+                }
+                h = hBest;
+            } else {
+                density = flameEmitterDensity(p, h, dSmooth);
+            }
 
             // Beer-Lambert step
             float sigma = flame.sigmaT * density;
@@ -322,6 +331,18 @@ void main() {
             emission = integrateEmissionRaymarch(segment, push.stepCount);
         } else {
             emission = integrateEmissionAnalytic(segment);
+            // Mode 0: multiply emission by weighted average of flameNoiseErosionFactor
+            // evaluated at tNear, midpoint, and tFar (weights 0.25, 0.5, 0.25)
+            float tMid = 0.5 * (segment.tNear + segment.tFar);
+            vec3 pNear = segment.localOrigin + segment.tNear * segment.localDir;
+            vec3 pMid = segment.localOrigin + tMid * segment.localDir;
+            vec3 pFar = segment.localOrigin + segment.tFar * segment.localDir;
+            float hNear = clamp(pNear.y, 0.0, 1.0);
+            float hMid = clamp(pMid.y, 0.0, 1.0);
+            float hFar = clamp(pFar.y, 0.0, 1.0);
+            emission *= 0.25 * flameNoiseErosionFactor(pNear, hNear)
+                   + 0.5 * flameNoiseErosionFactor(pMid, hMid)
+                    + 0.25 * flameNoiseErosionFactor(pFar, hFar);
         }
         if (flame.lightData.w > 0.0) {
             vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;

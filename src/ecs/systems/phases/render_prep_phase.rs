@@ -40,17 +40,25 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     };
 
     update_frame_and_scene_uniforms(ctx, view, proj, screen_size, aspect, camera_position)?;
+    crate::ecs::systems::batch_run_update_orbit(&mut ctx.world);
+    crate::ecs::systems::flame_bone_attach_sync(ctx);
     crate::ecs::systems::flame_time_advance(ctx);
+    crate::ecs::systems::flame_trail_advance(ctx);
     gpu_timings_write(&mut ctx.world);
     if let (Some(mut sink), Some(temporal)) = (
         ctx.world.get_resource_mut::<crate::ecs::resource::FlameDumpSink>(),
         ctx.world.get_resource::<crate::ecs::resource::FlameTemporalState>(),
     ) {
-        let effects: Vec<crate::ecs::resource::FlameEffect> = ctx.world.query_flames()
+        let flame_entities: Vec<_> = ctx.world.query_flames();
+        let effects: Vec<crate::ecs::resource::FlameEffect> = flame_entities
             .iter()
             .filter_map(|e| ctx.world.get_component::<crate::ecs::resource::FlameEffect>(*e).cloned())
             .collect();
-        crate::ecs::systems::flame_dump_system(&mut sink, &*temporal, &effects);
+        let trails: Vec<Option<crate::ecs::component::flame_trail::FlameTrail>> = flame_entities
+            .iter()
+            .map(|e| ctx.world.get_component::<crate::ecs::component::flame_trail::FlameTrail>(*e).cloned())
+            .collect();
+        crate::ecs::systems::flame_dump_system(&mut sink, &*temporal, &effects, &trails);
     }
     crate::ecs::systems::flame_temporal_accumulate(ctx);
 

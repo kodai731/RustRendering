@@ -1,4 +1,5 @@
-use cgmath::{Deg, InnerSpace, Matrix4, Quaternion, Vector2, Vector3, Vector4};
+use cgmath::{Deg, InnerSpace, Matrix3, Matrix4, Quaternion, Vector2, Vector3, Vector4};
+use crate::flame_trail::{flame_trail_fade_weight, FlameTrailSample, FlameTrailState};
 use thyllore_math_core::{evaluate_chebyshev, fit_chebyshev, integrate_chebyshev, pack_coefficients_vec4};
 
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
@@ -231,6 +232,9 @@ pub struct FlameEffect {
     pub envelope_base: f32,
     pub envelope_tail: f32,
     pub radial_sharpness: f32,
+    pub emitter_kind: u32,
+    pub ring_major_radius: f32,
+    pub ring_angular_speed: f32,
 }
 
 impl Default for FlameEffect {
@@ -273,6 +277,9 @@ impl Default for FlameEffect {
             envelope_base: 0.05,
             envelope_tail: 1.25,
             radial_sharpness: 4.0,
+            emitter_kind: 0,
+            ring_major_radius: 1.0,
+            ring_angular_speed: 0.6,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -301,8 +308,16 @@ pub fn advance_flame_time(effect: &mut FlameEffect, delta_time: f32) {
     effect.time += delta_time.max(0.0);
 }
 
+pub fn flame_bounding_radius(effect: &FlameEffect) -> f32 {
+    if effect.emitter_kind == 1 {
+        effect.ring_major_radius + effect.radius
+    } else {
+        effect.radius
+    }
+}
+
 pub fn build_flame_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
-    let radius = effect.radius.max(MIN_FLAME_EXTENT);
+    let radius = flame_bounding_radius(effect).max(MIN_FLAME_EXTENT);
     let height = effect.height.max(MIN_FLAME_EXTENT);
     Matrix4::from_translation(effect.position)
         * Matrix4::from(effect.rotation)
@@ -310,7 +325,7 @@ pub fn build_flame_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
 }
 
 pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
-    let radius = effect.radius.max(MIN_FLAME_EXTENT);
+    let radius = flame_bounding_radius(effect).max(MIN_FLAME_EXTENT);
     let height = effect.height.max(MIN_FLAME_EXTENT);
     Matrix4::from_nonuniform_scale(1.0 / radius, 1.0 / height, 1.0 / radius)
         * Matrix4::from(effect.rotation.conjugate())
@@ -334,7 +349,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         ];
         (base, mid, tip)
     };
-    let radius = effect.radius.max(MIN_FLAME_EXTENT);
+    let radius = flame_bounding_radius(effect).max(MIN_FLAME_EXTENT);
     let height = effect.height.max(MIN_FLAME_EXTENT);
     let rel = effect.light_position_world - effect.position;
     let dir = Vector3::new(rel.x / radius, rel.y / height, rel.z / radius);
@@ -361,8 +376,200 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         style_params0: [effect.warp_amp, effect.warp_freq, effect.rise_speed, effect.taper_power],
         style_params1: [effect.radius_tip_ratio, effect.edge_low, effect.edge_high, effect.white_boost],
         style_params2: [effect.wind_direction.x, effect.wind_direction.y, effect.bend_amount, effect.bend_power],
+      trail_unit_inverse: Matrix4::<f32>::from_scale(1.0),
+        trail_meta: Vector4::new(0.0, 0.0, 0.0, 0.0),
+        trail_samples: [[0.0; 4]; 16],
+      emitter_params: Vector4::new(effect.emitter_kind as f32, if effect.emitter_kind == 1 { effect.ring_major_radius / flame_bounding_radius(effect) } else { 0.0 }, effect.ring_angular_speed, if effect.emitter_kind == 2 { 0.15 } else { 0.0 }),
     }
 }
+
+/// Build the expanded model matrix for flame trail rendering.
+/// Computes world AABB of all trail samples + effect position, then builds a rotation-free
+/// expansion matrix using the same construction rules as build_flame_model_matrix.
+pub fn build_flame_trail_expanded_matrix(effect: &FlameEffect, samples: &[FlameTrailSample]) -> Matrix4<f32> {
+    assert!(
+        !samples.is_empty(),
+        "build_flame_trail_expanded_matrix requires at least one sample"
+    );
+
+    // Compute world AABB of all samples + effect position
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut min_z = f32::MAX;
+    let mut max_x = f32::NEG_INFINITY;
+    let mut max_y = f32::NEG_INFINITY;
+    let mut max_z = f32::NEG_INFINITY;
+
+    // Include effect position
+    let ep = &effect.position;
+    min_x = min_x.min(ep.x);
+    max_x = max_x.max(ep.x);
+    min_y = min_y.min(ep.y);
+    max_y = max_y.max(ep.y);
+    min_z = min_z.min(ep.z);
+    max_z = max_z.max(ep.z);
+
+    // Include all sample positions
+    for s in samples {
+        let p = &s.position;
+        min_x = min_x.min(p[0]);
+        max_x = max_x.max(p[0]);
+        min_y = min_y.min(p[1]);
+        max_y = max_y.max(p[1]);
+        min_z = min_z.min(p[2]);
+        max_z = max_z.max(p[2]);
+    }
+    // XZ center = AABB center
+    let cx = (min_x + max_x) * 0.5;
+    let cz = (min_z + max_z) * 0.5;
+
+    // Extension radius = effect.radius + hypot(half_extent_x, half_extent_z)
+    let half_extent_x = (max_x - min_x) * 0.5;
+    let half_extent_z = (max_z - min_z) * 0.5;
+    let extension_radius = flame_bounding_radius(effect) + (half_extent_x * half_extent_x + half_extent_z * half_extent_z).sqrt();
+
+    // Extension height = effect.height + (max_y - min_y)
+    let extension_height = effect.height + (max_y - min_y);
+
+    // Base y = min_y
+    let base_y = min_y;
+
+    // Build rotation-free expansion matrix using same construction as build_flame_model_matrix
+    Matrix4::from_translation(Vector3::new(cx, base_y, cz))
+        * Matrix4::from_nonuniform_scale(extension_radius, extension_height, extension_radius)
+}
+
+/// Build trail UBO fields: (trailUnitInverse, trailMeta, trailSamples).
+/// trailUnitInverse = inverse of the unit model matrix (without expansion).
+/// For each sample i: localDelta_i = trailUnitInverse.linear_part * (sample.position - effect.position), w = fade weight.
+/// meta = (count as f32, 0.0, 0.0, 0.0).
+/// If count is 0, trailUnitInverse = identity matrix.
+pub fn build_flame_trail_ubo_fields(
+    effect: &FlameEffect,
+    trail: &FlameTrailState,
+) -> (Matrix4<f32>, Vector4<f32>, [[f32; 4]; 16]) {
+    let count = trail.samples.len();
+
+    if count == 0 {
+        return (
+            Matrix4::<f32>::from_scale(1.0),
+            Vector4::new(0.0, 0.0, 0.0, 0.0),
+            [[0.0; 4]; 16],
+        );
+    }
+
+    // trailUnitInverse = inverse of unit model matrix (analytical: translation*scale -> inv_scale*inv_translation)
+    let radius = flame_bounding_radius(effect);
+    let trail_unit_inverse = Matrix4::from_translation(-effect.position)
+        * Matrix4::from_nonuniform_scale(1.0 / radius, 1.0 / effect.height, 1.0 / radius);
+
+    // Build trail samples array
+    let mut trail_samples: [[f32; 4]; 16] = [[0.0; 4]; 16];
+    for (i, sample) in trail.samples.iter().enumerate() {
+        if i >= 16 {
+            break;
+        }
+        // localDelta_i = trailUnitInverse.linear_part * (sample.position - effect.position)
+        let diff = Vector3::new(
+            sample.position[0] - effect.position.x,
+            sample.position[1] - effect.position.y,
+            sample.position[2] - effect.position.z,
+        );
+        let linear = Matrix3::<f32>::from_cols(
+            Vector3::new(trail_unit_inverse[0][0], trail_unit_inverse[1][0], trail_unit_inverse[2][0]),
+            Vector3::new(trail_unit_inverse[0][1], trail_unit_inverse[1][1], trail_unit_inverse[2][1]),
+            Vector3::new(trail_unit_inverse[0][2], trail_unit_inverse[1][2], trail_unit_inverse[2][2]),
+        );
+        let local_delta = linear * diff;
+
+        // w = flame_trail_fade_weight(sample, trail.fade_seconds)
+        let w = flame_trail_fade_weight(sample, trail.fade_seconds);
+
+        trail_samples[i] = [local_delta.x, local_delta.y, local_delta.z, w];
+    }
+
+    let meta = Vector4::new(count as f32, 0.0, 0.0, 0.0);
+
+    (trail_unit_inverse, meta, trail_samples)
+}
+
+/// Build FlameUBO with optional trail support.
+/// If trail is Some AND trail_render_active AND trail.enabled AND samples not empty:
+///   - Replace model/inverse_model with the expanded matrix and its inverse.
+///   - Fill trail fields using build_flame_trail_ubo_fields.
+/// Otherwise, return same as build_flame_ubo.
+pub fn build_flame_ubo_with_trail(
+    effect: &FlameEffect,
+    trail: Option<&FlameTrailState>,
+    trail_render_active: bool,
+) -> FlameUBO {
+    let trail = match trail {
+        Some(t) if trail_render_active && t.enabled && !t.samples.is_empty() => t,
+        _ => return build_flame_ubo(effect),
+    };
+
+    // Build expanded model matrix
+    let model = build_flame_trail_expanded_matrix(effect, &trail.samples);
+   // Expanded matrix is T*S (translation*scale), so inverse is S^-1 * T^-1
+    let inverse_model = Matrix4::from_nonuniform_scale(1.0 / model[0][0], 1.0 / model[1][1], 1.0 / model[2][2])
+        * Matrix4::from_translation(-Vector3::new(model[3][0], model[3][1], model[3][2]));
+
+    // Build trail fields
+    let (trail_unit_inverse, trail_meta, trail_samples) = build_flame_trail_ubo_fields(effect, trail);
+
+    // Color computation same as build_flame_ubo
+    let (color_base, color_mid, color_tip) = if effect.use_blackbody {
+        let base = blackbody_rgb(effect.temperature_base_k);
+        let tip = blackbody_rgb(effect.temperature_tip_k);
+        let mid_temp = (effect.temperature_base_k + effect.temperature_tip_k) / 2.0;
+        let mid = blackbody_rgb(mid_temp);
+        (base, mid, tip)
+    } else {
+        let base = effect.color_base;
+        let tip = effect.color_tip;
+        let mid = [
+            (base[0] + tip[0]) / 2.0,
+            (base[1] + tip[1]) / 2.0,
+            (base[2] + tip[2]) / 2.0,
+        ];
+        (base, mid, tip)
+    };
+
+   let radius = flame_bounding_radius(effect).max(MIN_FLAME_EXTENT);
+    let height = effect.height.max(MIN_FLAME_EXTENT);
+    let rel = effect.light_position_world - effect.position;
+    let dir = Vector3::new(rel.x / radius, rel.y / height, rel.z / radius);
+    let norm_dir = if dir.dot(dir) < 1e-6 { Vector3::new(0.0, 1.0, 0.0) } else { dir.normalize() };
+
+    FlameUBO {
+        model,
+        inverse_model,
+        height_primitive_coefficients: effect.coefficients.height_primitive,
+        radial_coefficients: effect.coefficients.radial,
+        height_coefficients: effect.coefficients.height,
+        time: effect.time,
+        sigma_t: effect.sigma_t,
+        intensity: effect.intensity,
+        height_axis_scale: 1.0,
+        noise_amplitude: effect.noise_amplitude,
+        noise_frequency: effect.noise_frequency,
+        noise_scroll_speed: effect.noise_scroll_speed,
+        radialSharpness: effect.radial_sharpness,
+        color_base: Vector4::new(color_base[0], color_base[1], color_base[2], 1.0),
+        color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
+        color_tip: Vector4::new(color_tip[0], color_tip[1], color_tip[2], 1.0),
+        temporal_data: Vector4::new(effect.temporal_weight, (effect.frame_index % 16384) as f32, 0.0, 0.0),
+        light_data: Vector4::new(norm_dir.x, norm_dir.y, norm_dir.z, effect.self_shadow_strength),
+        style_params0: [effect.warp_amp, effect.warp_freq, effect.rise_speed, effect.taper_power],
+       style_params1: [effect.radius_tip_ratio, effect.edge_low, effect.edge_high, effect.white_boost],
+        style_params2: [effect.wind_direction.x, effect.wind_direction.y, effect.bend_amount, effect.bend_power],
+       trail_unit_inverse,
+        trail_meta,
+        trail_samples,
+      emitter_params: Vector4::new(effect.emitter_kind as f32, if effect.emitter_kind == 1 { effect.ring_major_radius / flame_bounding_radius(effect) } else { 0.0 }, effect.ring_angular_speed, if effect.emitter_kind == 2 { 0.15 } else { 0.0 }),
+    }
+}
+
 
 pub fn integrate_emission_segment(source: f32, sigma_t: f32, dt: f32) -> f32 {
     let x = sigma_t * dt;
@@ -397,6 +604,10 @@ pub struct FlameUBO {
     pub style_params0: [f32; 4],
     pub style_params1: [f32; 4],
     pub style_params2: [f32; 4],
+   pub trail_unit_inverse: Matrix4<f32>,
+    pub trail_meta: Vector4<f32>,
+    pub trail_samples: [[f32; 4]; 16],
+    pub emitter_params: Vector4<f32>,
 }
 
 impl Default for FlameUBO {
@@ -690,7 +901,7 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 400);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 752);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 

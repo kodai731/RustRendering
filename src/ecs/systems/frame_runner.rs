@@ -107,7 +107,13 @@ fn run_timeline_phase(ctx: &mut FrameContext) {
 
     let mut timeline_state = ctx.world.resource_mut::<TimelineState>();
     let clip_library = ctx.world.resource::<ClipLibrary>();
-    timeline_update(&mut timeline_state, &*clip_library, ctx.delta_time);
+    // Use fixed delta for deterministic batch playback (same reason as auto exposure)
+    let timeline_delta = if ctx.world.contains_resource::<crate::ecs::resource::BatchRun>() {
+        1.0 / 60.0
+    } else {
+        ctx.delta_time
+    };
+    timeline_update(&mut timeline_state, &*clip_library, timeline_delta);
     drop(clip_library);
     drop(timeline_state);
 

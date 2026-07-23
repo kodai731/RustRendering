@@ -65,6 +65,11 @@ pub struct RayTracingData {
     pub flame_uniform_buffer_memory: Option<vk::DeviceMemory>,
     pub flame_ubo_slot_size: vk::DeviceSize,
 
+    pub flame_sdf_image: vk::Image,
+    pub flame_sdf_image_memory: vk::DeviceMemory,
+    pub flame_sdf_image_view: vk::ImageView,
+    pub flame_sdf_sampler: vk::Sampler,
+
     pub scene_uniform_buffer: Option<vk::Buffer>,
     pub scene_uniform_buffer_memory: Option<vk::DeviceMemory>,
 }
@@ -408,7 +413,7 @@ impl RayTracingData {
             descriptor_pool: RRFlameDescriptorSet::create_pool(rrdevice)?,
             descriptor_sets: [vk::DescriptorSet::null(); 2],
         };
-        flame_descriptor.allocate_and_update(
+      flame_descriptor.allocate_and_update(
             rrdevice,
             flame_ubo_buffer,
             slot_size,
@@ -418,6 +423,8 @@ impl RayTracingData {
             flame_buffer.interval_image_view,
             flame_buffer.history_image_views,
             flame_buffer.sampler,
+            position_image_view,
+            position_sampler,
         )?;
 
         let additive_blend = BlendConfig {

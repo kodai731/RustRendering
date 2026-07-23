@@ -100,6 +100,10 @@ pub fn build_flame_dump_record(
     effect: &FlameEffect,
     temporal: &FlameTemporalState,
     instance_index: usize,
+    trail_enabled: bool,
+    trail_len: usize,
+    trail_fade_seconds: f32,
+    trail_oldest_age: f32,
 ) -> Value {
     let ubo = build_flame_ubo(effect);
     let mut record = build_effect_json(effect).as_object().unwrap().clone();
@@ -108,6 +112,10 @@ pub fn build_flame_dump_record(
     }
     record.insert("temporal_data".to_string(), build_temporal_json(temporal));
     record.insert("instance_index".to_string(), Value::Number(instance_index.into()));
+    record.insert("trail_enabled".to_string(), Value::Bool(trail_enabled));
+    record.insert("trail_len".to_string(), Value::Number(trail_len.into()));
+    record.insert("trail_fade_seconds".to_string(), Value::Number(serde_json::Number::from_f64(trail_fade_seconds as f64).unwrap()));
+    record.insert("trail_oldest_age".to_string(), Value::Number(serde_json::Number::from_f64(trail_oldest_age as f64).unwrap()));
     Value::Object(record)
 }
 
@@ -115,9 +123,18 @@ pub fn flame_dump_system(
     sink: &mut FlameDumpSink,
     temporal: &FlameTemporalState,
     effects: &[FlameEffect],
+    trails: &[Option<crate::ecs::component::flame_trail::FlameTrail>],
 ) {
     for (i, effect) in effects.iter().enumerate() {
-        let record = build_flame_dump_record(effect, temporal, i);
+        let trail = &trails[i];
+        let (trail_enabled, trail_len, trail_fade_seconds, trail_oldest_age) = match trail {
+            Some(t) => {
+                let oldest_age = t.state.samples.last().map(|s| s.age_seconds).unwrap_or(0.0);
+                (t.state.enabled, t.state.samples.len(), t.state.fade_seconds, oldest_age)
+            }
+            None => (false, 0, 0.8, 0.0),
+        };
+        let record = build_flame_dump_record(effect, temporal, i, trail_enabled, trail_len, trail_fade_seconds, trail_oldest_age);
         let line = serde_json::to_string(&record).expect("failed to serialize flame dump record");
         writeln!(sink.writer, "{}", line).expect("failed to write flame dump line");
     }
@@ -169,6 +186,7 @@ mod tests {
             envelope_tail: 1.6,
             radial_sharpness: 4.0,
             rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
+             ..FlameEffect::default()
             }
     }
 
@@ -180,9 +198,13 @@ mod tests {
     fn build_flame_dump_record_produces_valid_json() {
         let effect = sample_effect();
         let temporal = sample_temporal();
-        let record = build_flame_dump_record(&effect, &temporal, 0);
+        let record = build_flame_dump_record(&effect, &temporal, 0, false, 0, 0.8, 0.0);
         assert_eq!(record["frame_index"], 42);
         assert_eq!(record["time"], 0.0);
         assert_eq!(record["position"], json!([1.0, 2.0, 3.0]));
+        assert_eq!(record["trail_enabled"], false);
+        assert_eq!(record["trail_len"], 0);
+        assert!((record["trail_fade_seconds"].as_f64().unwrap() - 0.8).abs() < 1e-5);
+        assert_eq!(record["trail_oldest_age"], 0.0);
     }
 }

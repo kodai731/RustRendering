@@ -1,11 +1,11 @@
 use crate::app::FrameContext;
-use crate::ecs::component::{apply_flame_track, FlameTrack};
+use crate::ecs::component::{apply_flame_track, FlameBoneAttachment, FlameTrail, FlameTrack};
 use crate::ecs::resource::{
     BatchRun, FlameEffect, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState,
     LightState, ProjectionData, TimelineState,
 };
 use crate::ecs::world::Entity;
-use thyllore_render_core::advance_flame_time;
+use thyllore_render_core::{advance_flame_time, advance_flame_trail};
 
 // Batch runs use a fixed timestep so noise-mode screenshots stay bit-deterministic.
 const BATCH_FIXED_DELTA_SECONDS: f32 = 1.0 / 60.0;
@@ -63,6 +63,102 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
                 apply_flame_track(track, effect.time, &mut effect);
             }
         }
+    }
+}
+
+pub fn flame_bone_attach_sync(ctx: &mut FrameContext) {
+    use crate::ecs::component::resolve_bone_index;
+    use crate::ecs::resource::gizmo::BoneGizmoData;
+
+    let (skeleton_id, cached_global_transforms, bone_local_offsets, mesh_scale) = {
+        let bone_gizmo = match ctx.world.get_resource::<BoneGizmoData>() {
+            Some(bg) => bg,
+            None => return,
+        };
+        let skeleton_id = match bone_gizmo.cached_skeleton_id {
+            Some(id) => id,
+            None => return,
+        };
+        (
+            skeleton_id,
+            bone_gizmo.cached_global_transforms.clone(),
+            bone_gizmo.bone_local_offsets.clone(),
+            bone_gizmo.mesh_scale,
+        )
+    };
+
+    let skeleton = match ctx.assets.get_skeleton_by_skeleton_id(skeleton_id) {
+        Some(s) => s,
+        None => return,
+    };
+    let bone_names: Vec<String> = skeleton.bones.iter().map(|b| b.name.clone()).collect();
+
+    let positions = crate::ecs::systems::bone_gizmo_systems::compute_display_transforms_with_skeleton(
+        &cached_global_transforms,
+        &bone_local_offsets,
+        mesh_scale,
+        Some(&skeleton),
+    );
+
+    let flame_entities: Vec<Entity> = ctx.world.query_flames();
+    for &entity in &flame_entities {
+        let attachment = match ctx.world.get_component::<FlameBoneAttachment>(entity) {
+            Some(a) => a,
+            None => continue,
+        };
+        let idx = match resolve_bone_index(&attachment.bone, &bone_names) {
+            Some(i) => i,
+            None => continue,
+        };
+        if idx >= positions.len() {
+            continue;
+        }
+        let translation = cgmath::Vector3::new(positions[idx][0], positions[idx][1], positions[idx][2]);
+        if let Some(mut transform) = ctx.world.get_component_mut::<crate::ecs::world::Transform>(entity) {
+            transform.translation = translation;
+        } else {
+            ctx.world.insert_component(entity, crate::ecs::world::Transform {
+                translation,
+                rotation: cgmath::Quaternion::new(0.0, 0.0, 0.0, 1.0),
+                scale: cgmath::Vector3::new(1.0, 1.0, 1.0),
+            });
+        }
+    }
+}
+
+pub fn flame_trail_advance(ctx: &mut FrameContext) {
+    let flame_entities = ctx.world.query_flames();
+    let has_batch_run = ctx.world.contains_resource::<BatchRun>();
+    let timeline_current_time = if has_batch_run {
+        None
+    } else {
+        ctx.world.get_resource::<TimelineState>().map(|ts| ts.current_time)
+    };
+
+    for &entity in &flame_entities {
+        // Read position before mutable borrow
+        let position = match ctx.world.get_component::<FlameEffect>(entity) {
+            Some(effect) => effect.position,
+            None => continue,
+        };
+        let mut trail = match ctx.world.get_component_mut::<FlameTrail>(entity) {
+            Some(t) => t,
+            None => continue,
+        };
+        if !trail.state.enabled {
+            continue;
+        }
+        let delta = if has_batch_run {
+            BATCH_FIXED_DELTA_SECONDS
+        } else if let Some(timeline_time) = timeline_current_time {
+            let last = trail.last_timeline_time.unwrap_or(timeline_time);
+            timeline_time - last
+        } else {
+            ctx.delta_time
+        };
+        let pos: [f32; 3] = [position.x, position.y, position.z];
+        advance_flame_trail(&mut trail.state, pos, delta);
+        trail.last_timeline_time = timeline_current_time;
     }
 }
 
