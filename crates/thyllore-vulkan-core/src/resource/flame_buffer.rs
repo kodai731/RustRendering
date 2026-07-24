@@ -106,7 +106,9 @@ impl FlameBuffer {
         let cmd = begin_single_time_commands(rrdevice, command_pool)?;
         for i in 0..2 {
           // Barrier: UNDEFINED -> TRANSFER_DST_OPTIMAL
-            let barrier = vk::ImageMemoryBarrier::builder()
+          let barrier = vk::ImageMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::empty())
+                .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                 .image(history_images[i])
                 .old_layout(vk::ImageLayout::UNDEFINED)
                 .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
@@ -147,7 +149,9 @@ impl FlameBuffer {
                 }],
             );
             // Barrier: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
-            let barrier = vk::ImageMemoryBarrier::builder()
+           let barrier = vk::ImageMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .dst_access_mask(vk::AccessFlags::SHADER_READ)
                 .image(history_images[i])
                 .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
                 .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
@@ -155,7 +159,7 @@ impl FlameBuffer {
                 .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
                 .subresource_range(vk::ImageSubresourceRange {
                     aspect_mask: vk::ImageAspectFlags::COLOR,
-                   base_mip_level: 0,
+                    base_mip_level: 0,
                     level_count: 1,
                     base_array_layer: 0,
                     layer_count: 1,

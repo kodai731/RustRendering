@@ -22,6 +22,8 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
         "noise_amplitude": effect.noise_amplitude,
         "noise_frequency": effect.noise_frequency,
         "noise_scroll_speed": effect.noise_scroll_speed,
+       "noise_aniso_y": effect.noise_aniso_y,
+        "warp_y_scale": effect.warp_y_scale,
         "coefficients": {
             "height_primitive": effect.coefficients.height_primitive,
             "radial": effect.coefficients.radial,

@@ -4,7 +4,7 @@
 // Winding is outward-CCW everywhere; the Rust mirror in
 // thyllore-render-core/src/flame_shell.rs must stay identical (verified by winding tests).
 
-layout(lines_adjacency, invocations = 4) in;
+layout(lines_adjacency, invocations = 9) in;
 layout(triangle_strip, max_vertices = 48) out;
 
 layout(set = 0, binding = 0) uniform FrameUBO {
@@ -49,15 +49,16 @@ layout(location = 0) out vec3 fragWorldPos;
 layout(location = 1) out vec2 fragShellUv;
 
 const int RING_SEGMENTS = 8;
-const int STACKS = 3;
+const int STACKS = 8;
 const float TAPER_TIP_SCALE = 0.25;
 const float TWO_PI = 6.283185307179586;
+const float SHELL_CIRCUMSCRIBE = 1.0823922; // 1/cos(pi/8): circumscribe octagon over unit cylinder
 
 vec3 computeRingPosition(vec3 center, float radiusX, float radiusZ, int segment, int stack) {
     float height01 = float(stack) / float(STACKS);
     float taper = mix(1.0, TAPER_TIP_SCALE, height01);
     float angle = TWO_PI * float(segment) / float(RING_SEGMENTS);
-    vec3 pos = center + vec3(cos(angle) * radiusX * taper, height01, sin(angle) * radiusZ * taper);
+    vec3 pos = center + vec3(cos(angle) * radiusX * SHELL_CIRCUMSCRIBE * taper, height01, sin(angle) * radiusZ * SHELL_CIRCUMSCRIBE * taper);
     pos.xz += flame.styleParams2.xy * flame.styleParams2.z * pow(height01, flame.styleParams2.w);
     return pos;
 }

@@ -31,6 +31,10 @@ impl App {
         }
         log::info!("Created G-Buffer render pass and framebuffer");
 
+        if let Some(hdr_buffer) = &mut data.viewport.hdr_buffer {
+            hdr_buffer.attach_depth(rrdevice, rrrender.gbuffer_depth_image_view)?;
+        }
+
         log::info!("Ray Tracing initialization complete");
         Ok(())
     }
@@ -361,7 +365,7 @@ impl App {
             None => {
                 log!(
                     "AutoExposure buffers not available, \
-                     skipping pipeline"
+                    skipping pipeline"
                 );
                 return Ok(());
             }

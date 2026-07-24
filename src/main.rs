@@ -9,7 +9,7 @@ use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
 use thyllore_animation::ecs::component::FlameTrail;
 use thyllore_animation::ecs::systems::{apply_flame_overrides, batch_run_report, resolve_engine_cli_overrides};
-use thyllore_animation::ecs::resource::{BatchFlameOrbit, BatchRun, Camera, FlameDumpSink, FlameEffect, FlameRenderSettings, GpuTimingsSink};
+use thyllore_animation::ecs::resource::{BatchFlameOrbit, BatchRun, Camera, ExposureDumpSink, FlameDumpSink, FlameEffect, FlameRenderSettings, GpuTimingsSink};
 use thyllore_animation::platform;
 
 use vulkanalia::vk;
@@ -71,6 +71,9 @@ fn main() -> Result<()> {
     }
     if let Some(path) = overrides.gpu_timings_path {
         app.data.ecs_world.insert_resource(GpuTimingsSink::new(path));
+    }
+    if let Some(path) = overrides.exposure_dump_path {
+        app.data.ecs_world.insert_resource(ExposureDumpSink::new(path));
     }
     if let Some(n) = overrides.flame_count {
         if n >= 2 {

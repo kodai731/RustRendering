@@ -15,6 +15,7 @@ const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
 const GPU_TIMINGS_FLAG: &str = "--gpu-timings";
+const EXPOSURE_DUMP_FLAG: &str = "--exposure-dump";
 const BATCH_FLAME_COUNT_FLAG: &str = "--batch-flame-count";
 const BATCH_FLAME_TRAIL_FLAG: &str = "--batch-flame-trail";
 const BATCH_FLAME_ORBIT_FLAG: &str = "--batch-flame-orbit";
@@ -36,6 +37,7 @@ pub struct EngineCliOverrides {
     pub camera_pose: Option<BatchCameraPose>,
     pub flame_dump_path: Option<String>,
     pub gpu_timings_path: Option<String>,
+    pub exposure_dump_path: Option<String>,
     pub flame_count: Option<usize>,
     pub flame_set: Vec<(String, f32)>,
     pub flame_trail: Option<f32>,
@@ -53,6 +55,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         camera_pose: camera_pose_resolve_from_args(args)?,
         flame_dump_path: flame_dump_path_resolve_from_args(args)?,
         gpu_timings_path: gpu_timings_path_resolve_from_args(args)?,
+        exposure_dump_path: exposure_dump_path_resolve_from_args(args)?,
         flame_count: flame_count_resolve_from_args(args)?,
         flame_set: flame_set_resolve_from_args(args)?,
         flame_trail: flame_trail_resolve_from_args(args)?,
@@ -174,6 +177,16 @@ pub fn gpu_timings_path_resolve_from_args(args: &[String]) -> Result<Option<Stri
     Ok(Some(value.clone()))
 }
 
+pub fn exposure_dump_path_resolve_from_args(args: &[String]) -> Result<Option<String>> {
+    let Some(position) = args.iter().position(|arg| arg == EXPOSURE_DUMP_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{EXPOSURE_DUMP_FLAG} requires a path");
+    };
+    Ok(Some(value.clone()))
+}
+
 pub fn flame_count_resolve_from_args(args: &[String]) -> Result<Option<usize>> {
     let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_COUNT_FLAG) else {
         return Ok(None);
@@ -196,7 +209,7 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "sigma_t", "intensity", "height", "radius", "time", "time_scale", "time_offset",
     "rot_z_deg", "temperature_base_k", "temperature_tip_k",
     "envelope_peak", "envelope_base", "envelope_tail", "radial_sharpness",
-    "emitter_kind", "ring_major_radius", "ring_angular_speed",
+    "emitter_kind", "ring_major_radius", "ring_angular_speed", "noise_aniso_y", "warp_y_scale",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -385,6 +398,8 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "noise_amplitude" => effect.noise_amplitude = *value,
             "noise_frequency" => effect.noise_frequency = *value,
             "noise_scroll_speed" => effect.noise_scroll_speed = *value,
+            "noise_aniso_y" => effect.noise_aniso_y = *value,
+            "warp_y_scale" => effect.warp_y_scale = *value,
             "sigma_t" => effect.sigma_t = *value,
             "intensity" => effect.intensity = *value,
             "height" => effect.height = *value,

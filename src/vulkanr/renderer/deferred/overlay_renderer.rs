@@ -28,10 +28,13 @@ impl<'a> OverlayRenderer<'a> {
         &self,
         command_buffer: vk::CommandBuffer,
         image_index: usize,
+        include_grid: bool,
     ) -> Result<()> {
         let ctx = crate::ecs::systems::phases::build_frame_render_context(self.app, image_index);
 
-        self.draw_grid(&ctx, command_buffer)?;
+        if include_grid {
+            self.draw_grid(&ctx, command_buffer, None)?;
+        }
         self.draw_gizmo(&ctx, command_buffer)?;
         self.draw_transform_gizmo(&ctx, command_buffer)?;
         self.draw_light_lines(&ctx, command_buffer)?;
@@ -42,10 +45,22 @@ impl<'a> OverlayRenderer<'a> {
         Ok(())
     }
 
+    pub unsafe fn draw_grid_overlay(
+        &self,
+        command_buffer: vk::CommandBuffer,
+        image_index: usize,
+        pipeline_override: Option<usize>,
+    ) -> Result<()> {
+        let ctx = crate::ecs::systems::phases::build_frame_render_context(self.app, image_index);
+        self.draw_grid(&ctx, command_buffer, pipeline_override)?;
+        Ok(())
+    }
+
     unsafe fn draw_grid(
         &self,
         ctx: &FrameRenderContext<'_>,
         command_buffer: vk::CommandBuffer,
+        pipeline_override: Option<usize>,
     ) -> Result<()> {
         let grid = self.app.resource::<GridMeshData>();
         let index_count = if grid.show_y_axis_grid {
@@ -59,6 +74,7 @@ impl<'a> OverlayRenderer<'a> {
             index_count_override: Some(index_count),
             bind_object_set: true,
             frame_set_override: None,
+            pipeline_override,
         };
         record_line_mesh_draw(ctx, &grid.mesh, &grid.render_info, &options, command_buffer)?;
 
@@ -280,6 +296,7 @@ impl<'a> OverlayRenderer<'a> {
             index_count_override: None,
             bind_object_set: false,
             frame_set_override: Some(descriptor_set),
+            pipeline_override: None,
         };
         record_line_mesh_draw(
             ctx,

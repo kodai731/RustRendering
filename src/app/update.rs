@@ -50,6 +50,7 @@ impl App {
         rrdevice: &RRDevice,
         data: &mut AppData,
         draw_data: &imgui::DrawData,
+        frame_slot: usize,
     ) -> Result<()> {
         if draw_data.total_vtx_count == 0 || draw_data.total_idx_count == 0 {
             return Ok(());
@@ -63,24 +64,24 @@ impl App {
             as vk::DeviceSize;
 
         let needs_vertex_resize =
-            data.imgui.vertex_buffer.is_none() || vtx_buffer_size > data.imgui.vertex_buffer_size;
+            data.imgui.vertex_buffers[frame_slot].is_none() || vtx_buffer_size > data.imgui.vertex_buffer_sizes[frame_slot];
         let needs_index_resize =
-            data.imgui.index_buffer.is_none() || idx_buffer_size > data.imgui.index_buffer_size;
+            data.imgui.index_buffers[frame_slot].is_none() || idx_buffer_size > data.imgui.index_buffer_sizes[frame_slot];
 
         if needs_vertex_resize || needs_index_resize {
             rrdevice.device.device_wait_idle()?;
         }
 
         if needs_vertex_resize {
-            resize_imgui_vertex_buffer(instance, rrdevice, data, vtx_buffer_size)?;
+            resize_imgui_vertex_buffer(instance, rrdevice, data, vtx_buffer_size, frame_slot)?;
         }
 
         if needs_index_resize {
-            resize_imgui_index_buffer(instance, rrdevice, data, idx_buffer_size)?;
+            resize_imgui_index_buffer(instance, rrdevice, data, idx_buffer_size, frame_slot)?;
         }
 
-        upload_imgui_vertex_data(rrdevice, data, draw_data, vtx_buffer_size)?;
-        upload_imgui_index_data(rrdevice, data, draw_data, idx_buffer_size)?;
+        upload_imgui_vertex_data(rrdevice, data, draw_data, vtx_buffer_size, frame_slot)?;
+        upload_imgui_index_data(rrdevice, data, draw_data, idx_buffer_size, frame_slot)?;
 
         Ok(())
     }
@@ -91,11 +92,12 @@ unsafe fn resize_imgui_vertex_buffer(
     rrdevice: &RRDevice,
     data: &mut AppData,
     vtx_buffer_size: vk::DeviceSize,
+    frame_slot: usize,
 ) -> Result<()> {
-    if let Some(buffer) = data.imgui.vertex_buffer {
+    if let Some(buffer) = data.imgui.vertex_buffers[frame_slot] {
         rrdevice.device.destroy_buffer(buffer, None);
     }
-    if let Some(memory) = data.imgui.vertex_buffer_memory {
+    if let Some(memory) = data.imgui.vertex_buffer_memories[frame_slot] {
         rrdevice.device.free_memory(memory, None);
     }
 
@@ -123,9 +125,9 @@ unsafe fn resize_imgui_vertex_buffer(
         .device
         .bind_buffer_memory(vertex_buffer, vertex_buffer_memory, 0)?;
 
-    data.imgui.vertex_buffer = Some(vertex_buffer);
-    data.imgui.vertex_buffer_memory = Some(vertex_buffer_memory);
-    data.imgui.vertex_buffer_size = vtx_buffer_size;
+    data.imgui.vertex_buffers[frame_slot] = Some(vertex_buffer);
+    data.imgui.vertex_buffer_memories[frame_slot] = Some(vertex_buffer_memory);
+    data.imgui.vertex_buffer_sizes[frame_slot] = vtx_buffer_size;
 
     Ok(())
 }
@@ -135,11 +137,12 @@ unsafe fn resize_imgui_index_buffer(
     rrdevice: &RRDevice,
     data: &mut AppData,
     idx_buffer_size: vk::DeviceSize,
+    frame_slot: usize,
 ) -> Result<()> {
-    if let Some(buffer) = data.imgui.index_buffer {
+    if let Some(buffer) = data.imgui.index_buffers[frame_slot] {
         rrdevice.device.destroy_buffer(buffer, None);
     }
-    if let Some(memory) = data.imgui.index_buffer_memory {
+    if let Some(memory) = data.imgui.index_buffer_memories[frame_slot] {
         rrdevice.device.free_memory(memory, None);
     }
 
@@ -165,9 +168,9 @@ unsafe fn resize_imgui_index_buffer(
         .device
         .bind_buffer_memory(index_buffer, index_buffer_memory, 0)?;
 
-    data.imgui.index_buffer = Some(index_buffer);
-    data.imgui.index_buffer_memory = Some(index_buffer_memory);
-    data.imgui.index_buffer_size = idx_buffer_size;
+    data.imgui.index_buffers[frame_slot] = Some(index_buffer);
+    data.imgui.index_buffer_memories[frame_slot] = Some(index_buffer_memory);
+    data.imgui.index_buffer_sizes[frame_slot] = idx_buffer_size;
 
     Ok(())
 }
@@ -177,8 +180,9 @@ unsafe fn upload_imgui_vertex_data(
     data: &AppData,
     draw_data: &imgui::DrawData,
     vtx_buffer_size: vk::DeviceSize,
+    frame_slot: usize,
 ) -> Result<()> {
-    let Some(vertex_buffer_memory) = data.imgui.vertex_buffer_memory else {
+    let Some(vertex_buffer_memory) = data.imgui.vertex_buffer_memories[frame_slot] else {
         return Ok(());
     };
 
@@ -210,8 +214,9 @@ unsafe fn upload_imgui_index_data(
     data: &AppData,
     draw_data: &imgui::DrawData,
     idx_buffer_size: vk::DeviceSize,
+    frame_slot: usize,
 ) -> Result<()> {
-    let Some(index_buffer_memory) = data.imgui.index_buffer_memory else {
+    let Some(index_buffer_memory) = data.imgui.index_buffer_memories[frame_slot] else {
         return Ok(());
     };
 

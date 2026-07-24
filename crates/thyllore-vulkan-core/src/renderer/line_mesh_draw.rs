@@ -11,6 +11,7 @@ pub struct LineMeshDrawOptions {
     pub index_count_override: Option<u32>,
     pub bind_object_set: bool,
     pub frame_set_override: Option<vk::DescriptorSet>,
+    pub pipeline_override: Option<usize>,
 }
 
 impl Default for LineMeshDrawOptions {
@@ -20,6 +21,7 @@ impl Default for LineMeshDrawOptions {
             index_count_override: None,
             bind_object_set: true,
             frame_set_override: None,
+            pipeline_override: None,
         }
     }
 }
@@ -38,9 +40,7 @@ pub unsafe fn record_line_mesh_draw<V>(
     let Some(index_buffer) = buffers.get_index_buffer(mesh.index_buffer_handle) else {
         return Ok(false);
     };
-    let Some(pipeline_id) = render_info.pipeline_id else {
-        return Ok(false);
-    };
+    let pipeline_id = options.pipeline_override.unwrap_or(render_info.pipeline_id.unwrap());
     let Some(pipeline) = ctx.pipelines.get(pipeline_id) else {
         return Ok(false);
     };

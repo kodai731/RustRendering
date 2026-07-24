@@ -10,6 +10,7 @@ impl App {
         &mut self,
         image_index: usize,
         draw_data: &imgui::DrawData,
+        frame_slot: usize,
     ) -> Result<()> {
         let command_buffer = self
             .resource::<crate::vulkanr::context::CommandState>()

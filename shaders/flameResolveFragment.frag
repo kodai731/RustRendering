@@ -193,6 +193,71 @@ struct FlameRaySegment {
     float boundaryHeightIntegral;
 };
 
+bool clampToShellCone(vec3 o, vec3 d, inout float tNear, inout float tFar) {
+    // Shell cone: |p.xz| <= R0 * mix(1.0, TAPER, p.y), R0 = 0.5, TAPER = 0.25 (must match flameShellGeometry.geom TAPER_TIP_SCALE)
+    const float CONE_R0 = 0.5;
+    const float CONE_TAPER = 0.25;
+    // f(t) = m + n*t, m = CONE_R0 * (1.0 - (1.0-CONE_TAPER) * o.y), n = -CONE_R0 * (1.0-CONE_TAPER) * d.y
+    // Condition |o.xz + t*d.xz|^2 - f(t)^2 <= 0 -> a = dot(d.xz,d.xz) - n*n, b = 2.0*(dot(o.xz,d.xz) - m*n), c = dot(o.xz,o.xz) - m*m
+    float m = CONE_R0 * (1.0 - (1.0 - CONE_TAPER) * o.y);
+    float n = -CONE_R0 * (1.0 - CONE_TAPER) * d.y;
+    float a = dot(d.xz, d.xz) - n * n;
+    float b = 2.0 * (dot(o.xz, d.xz) - m * n);
+    float c = dot(o.xz, o.xz) - m * m;
+
+    if (abs(a) < 1e-6) {
+        // Linear case: b*t + c <= 0
+        if (abs(b) < 1e-6) {
+            // Constant: either always inside (c <= 0) or never (c > 0)
+            if (c > 0.0) return false;
+        } else {
+            float tRoot = -c / b;
+            if (b > 0.0) {
+                // b*t + c <= 0 -> t <= tRoot
+                if (tFar > tRoot) tFar = tRoot;
+            } else {
+                // b < 0: b*t + c <= 0 -> t >= tRoot
+                if (tNear < tRoot) tNear = tRoot;
+            }
+        }
+    } else {
+        float disc = b * b - 4.0 * a * c;
+        if (disc < 0.0) {
+            // No real roots: if a > 0, quadratic is always positive -> empty
+            // If a < 0, quadratic is always negative -> conservative (inside everywhere)
+            if (a > 0.0) return false;
+            // a < 0: conservative, no clamping needed
+        } else {
+            float sqrtDisc = sqrt(disc);
+            float tCone0 = (-b - sqrtDisc) / (2.0 * a);
+            float tCone1 = (-b + sqrtDisc) / (2.0 * a);
+            if (tCone0 > tCone1) { float tmp = tCone0; tCone0 = tCone1; tCone1 = tmp; }
+            if (a > 0.0) {
+                // Quadratic opens upward: interval [tCone0, tCone1] is inside
+                if (tNear < tCone0) tNear = tCone0;
+                if (tFar > tCone1) tFar = tCone1;
+            } else {
+                // a < 0: conservative, no clamping (outside intervals would be (-inf,t0] U [t1,inf))
+            }
+        }
+    }
+
+    // Y-slab: 0 <= y <= 1
+    if (abs(d.y) < 1e-6) {
+        // Horizontal ray: check if origin is within slab
+        if (o.y < 0.0 || o.y > 1.0) return false;
+    } else {
+        float tY0 = -o.y / d.y;
+        float tY1 = (1.0 - o.y) / d.y;
+        if (tY0 > tY1) { float tmp = tY0; tY0 = tY1; tY1 = tmp; }
+        // Clamp to y-slab interval
+        if (tNear < tY0) tNear = tY0;
+        if (tFar > tY1) tFar = tY1;
+    }
+
+    return tNear <= tFar;
+}
+
 FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 interval) {
     mat4 invViewProj = inverse(frame.proj * frame.view);
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
@@ -213,7 +278,23 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
         segment.boundaryHeightIntegral -= missingCount
             * evaluateHeightPrimitive(clamp(segment.localOrigin.y, 0.0, 1.0)) / segment.localDir.y;
         segment.tNear = 0.0;
+   }
+
+  // Clamp to shell cone for non-trail domains (cylinder emitter only, bend off)
+   if (flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0 && abs(flame.styleParams2.z) < 1e-4) {
+       if (!clampToShellCone(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar)) {
+            // Empty interval: return with tNear > tFar so caller can detect it
+            segment.tNear = 1.0;
+            segment.tFar = 0.0;
+        } else if (abs(segment.localDir.y) > H_DIR_EPSILON) {
+            // Recalculate boundaryHeightIntegral using analytical form for clamped interval
+            vec3 o = segment.localOrigin;
+            vec3 d = segment.localDir;
+            segment.boundaryHeightIntegral = (evaluateHeightPrimitive(clamp(o.y + segment.tFar * d.y, 0.0, 1.0))
+                - evaluateHeightPrimitive(clamp(o.y + segment.tNear * d.y, 0.0, 1.0))) / segment.localDir.y;
+        }
     }
+
     return segment;
 }
 
@@ -262,8 +343,9 @@ void main() {
     float coverage = accum.x;
     float deltaT = max(accum.y, 0.0);
 
-    if (push.mode == 2) {
+   if (push.mode == 2) {
         outColor = vec4(max(accum.z, 0.0), deltaT, max(-accum.z, 0.0), 1.0);
+        outHistory = outColor;
         return;
     }
 
@@ -271,9 +353,14 @@ void main() {
         discard;
     }
 
-    FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
+   FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
 
-    vec3 L;
+    // Discard if clamping produced an empty interval (tNear > tFar)
+    if (segment.tNear > segment.tFar) {
+        discard;
+    }
+
+   vec3 L;
     float trans;
 
     if (push.mode == 3) {

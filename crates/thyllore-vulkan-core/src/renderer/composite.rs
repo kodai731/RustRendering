@@ -104,16 +104,13 @@ pub unsafe fn end_composite_render_pass(ctx: &FrameRenderContext, cmd: vk::Comma
     ctx.device.device.cmd_end_render_pass(cmd);
 }
 
-pub unsafe fn record_composite_to_hdr_pass(
+pub unsafe fn begin_hdr_render_pass(
     ctx: &FrameRenderContext,
-    pipeline: &RRPipeline,
-    descriptor: &RRCompositeDescriptorSet,
     render_pass: vk::RenderPass,
     framebuffer: vk::Framebuffer,
     extent: vk::Extent2D,
-    debug_view_mode_value: i32,
     cmd: vk::CommandBuffer,
-) -> Result<()> {
+) {
     let device = &ctx.device.device;
     let render_area = vk::Rect2D::builder()
         .offset(vk::Offset2D::default())
@@ -125,7 +122,14 @@ pub unsafe fn record_composite_to_hdr_pass(
         },
     };
 
-    let clear_values = [color_clear_value];
+    let depth_clear_value = vk::ClearValue {
+        depth_stencil: vk::ClearDepthStencilValue {
+            depth: 1.0,
+            stencil: 0,
+        },
+    };
+
+    let clear_values = [color_clear_value, depth_clear_value];
 
     let render_pass_info = vk::RenderPassBeginInfo::builder()
         .render_pass(render_pass)
@@ -134,6 +138,19 @@ pub unsafe fn record_composite_to_hdr_pass(
         .clear_values(&clear_values);
 
     device.cmd_begin_render_pass(cmd, &render_pass_info, vk::SubpassContents::INLINE);
+}
+
+pub unsafe fn record_composite_to_hdr_pass(
+    ctx: &FrameRenderContext,
+    pipeline: &RRPipeline,
+    descriptor: &RRCompositeDescriptorSet,
+    render_pass: vk::RenderPass,
+    framebuffer: vk::Framebuffer,
+    extent: vk::Extent2D,
+    debug_view_mode_value: i32,
+    cmd: vk::CommandBuffer,
+) -> Result<()> {
+    begin_hdr_render_pass(ctx, render_pass, framebuffer, extent, cmd);
 
     record_composite_draw(
         ctx,
@@ -144,7 +161,7 @@ pub unsafe fn record_composite_to_hdr_pass(
         cmd,
     )?;
 
-    device.cmd_end_render_pass(cmd);
+    end_composite_render_pass(ctx, cmd);
 
     Ok(())
 }

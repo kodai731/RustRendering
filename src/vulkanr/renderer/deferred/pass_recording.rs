@@ -1,4 +1,5 @@
 use anyhow::Result;
+use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
@@ -209,7 +210,7 @@ pub unsafe fn record_composite_pass(
         view_mode_value,
         command_buffer,
     )?;
-    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index)?;
+    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index, true)?;
 
     app.record_imgui_rendering(command_buffer, draw_data)?;
     app.rrdevice.device.cmd_end_render_pass(command_buffer);
@@ -259,7 +260,7 @@ pub unsafe fn record_composite_to_offscreen(
         view_mode_value,
         command_buffer,
     )?;
-    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index)?;
+    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index, false)?;
     thyllore_vulkan_core::renderer::end_composite_render_pass(&ctx, command_buffer);
 
     Ok(())
@@ -285,21 +286,30 @@ pub unsafe fn record_composite_to_hdr(
     let render_pass = hdr_buffer.render_pass;
     let framebuffer = hdr_buffer.framebuffer;
     let extent = hdr_buffer.extent();
-
     let (pipeline, descriptor, view_mode_value) = prepare_composite_resources(app)?;
-
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
 
-    thyllore_vulkan_core::renderer::record_composite_to_hdr_pass(
+    thyllore_vulkan_core::renderer::begin_hdr_render_pass(
+        &ctx,
+        render_pass,
+        framebuffer,
+        extent,
+        command_buffer,
+    );
+
+   thyllore_vulkan_core::renderer::record_composite_draw(
         &ctx,
         pipeline,
         descriptor,
-        render_pass,
-        framebuffer,
         extent,
         view_mode_value,
         command_buffer,
     )?;
+
+    let pipeline_override = app.data.viewport.hdr_grid_pipeline_id;
+    super::OverlayRenderer::new(app).draw_grid_overlay(command_buffer, 0, pipeline_override)?;
+
+    thyllore_vulkan_core::renderer::end_composite_render_pass(&ctx, command_buffer);
 
     Ok(())
 }
@@ -528,7 +538,28 @@ pub unsafe fn record_flame_passes(
 
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
-    let flames = app.data.ecs_world.query_flames();
+    let mut flames = app.data.ecs_world.query_flames();
+
+    // Sort flames by descending camera distance (back-to-front) for correct overdraw
+    if let Some(projection) = app.data.ecs_world.get_resource::<crate::ecs::resource::ProjectionData>() {
+        let view_inverse = projection.view.invert().unwrap_or_else(|| cgmath::Matrix4::identity());
+        let camera_pos = cgmath::Vector3::new(view_inverse[3][0], view_inverse[3][1], view_inverse[3][2]);
+        flames.sort_by(|a, b| {
+            let effect_a = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(*a);
+            let effect_b = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(*b);
+            match (effect_a, effect_b) {
+                (Some(ea), Some(eb)) => {
+                    let pos_a = Vector3::new(ea.position[0], ea.position[1], ea.position[2]);
+                    let dist_a = ((pos_a.x - camera_pos.x).powi(2) + (pos_a.y - camera_pos.y).powi(2) + (pos_a.z - camera_pos.z).powi(2)).sqrt();
+                    let pos_b = Vector3::new(eb.position[0], eb.position[1], eb.position[2]);
+                    let dist_b = ((pos_b.x - camera_pos.x).powi(2) + (pos_b.y - camera_pos.y).powi(2) + (pos_b.z - camera_pos.z).powi(2)).sqrt();
+                    dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+                }
+                _ => std::cmp::Ordering::Equal,
+            }
+        });
+    }
+
     let instance_count = flames.len().min(thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES);
 
     if instance_count == 0 {
@@ -577,7 +608,8 @@ pub unsafe fn record_flame_passes(
         let model_matrix = ubo.model;
 
         // Compute per-instance scissor using the model matrix
-        let Some(scissor) = compute_flame_scissor(app, flame_buffer.extent(), &model_matrix) else { continue; };
+        let bend_offset = [ubo.style_params2[0] * ubo.style_params2[2], ubo.style_params2[1] * ubo.style_params2[2]];
+        let Some(scissor) = compute_flame_scissor(app, flame_buffer.extent(), &model_matrix, bend_offset) else { continue; };
 
         // Get render settings for push constants
         let settings = app
@@ -621,7 +653,7 @@ pub unsafe fn record_flame_passes(
     Ok(())
 }
 
-fn compute_flame_scissor(app: &App, extent: vk::Extent2D, model: &cgmath::Matrix4<f32>) -> Option<vk::Rect2D> {
+fn compute_flame_scissor(app: &App, extent: vk::Extent2D, model: &cgmath::Matrix4<f32>, bend_offset: [f32; 2]) -> Option<vk::Rect2D> {
     use crate::ecs::resource::ProjectionData;
     const SCISSOR_MARGIN_PX: f32 = 2.0;
 
@@ -634,10 +666,14 @@ fn compute_flame_scissor(app: &App, extent: vk::Extent2D, model: &cgmath::Matrix
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
+    let x_min = -0.5411961 + bend_offset[0].min(0.0);
+    let x_max = 0.5411961 + bend_offset[0].max(0.0);
+    let z_min = -0.5411961 + bend_offset[1].min(0.0);
+    let z_max = 0.5411961 + bend_offset[1].max(0.0);
     for corner_index in 0..8 {
-        let x = if corner_index & 1 == 0 { -0.5 } else { 0.5 };
+        let x = if corner_index & 1 == 0 { x_min } else { x_max };
         let y = if corner_index & 2 == 0 { 0.0 } else { 1.0 };
-        let z = if corner_index & 4 == 0 { -0.5 } else { 0.5 };
+        let z = if corner_index & 4 == 0 { z_min } else { z_max };
         let clip = view_proj * model * cgmath::vec4(x, y, z, 1.0);
         if clip.w <= 0.0 {
             return Some(full_extent_scissor(extent));
@@ -755,7 +791,7 @@ pub unsafe fn record_tonemap_to_offscreen(
         extent,
         command_buffer,
     )?;
-    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index)?;
+    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index, true)?;
     thyllore_vulkan_core::renderer::end_tonemap_render_pass(&ctx, command_buffer);
 
     Ok(())

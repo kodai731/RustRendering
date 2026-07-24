@@ -14,8 +14,8 @@ pub mod tonemap;
 pub use auto_exposure::record_auto_exposure_pass;
 pub use bloom::record_bloom_pass;
 pub use composite::{
-    begin_composite_render_pass, end_composite_render_pass, record_composite_draw,
-    record_composite_to_hdr_pass,
+    begin_composite_render_pass, begin_hdr_render_pass, end_composite_render_pass,
+    record_composite_draw, record_composite_to_hdr_pass,
 };
 pub use dof::record_dof_pass;
 pub use flame::record_flame_shading_pass;

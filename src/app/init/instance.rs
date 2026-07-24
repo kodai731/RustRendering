@@ -160,6 +160,7 @@ impl App {
             &rrdevice,
             &rrswapchain,
             &rrcommand_pool,
+            &rrrender,
             &mut data,
         )?;
 
@@ -214,6 +215,7 @@ impl App {
             &rrrender,
             &mut data,
         )?;
+
 
         let (model_path, loaded_scene) = Self::determine_startup_model();
         Self::load_startup_model(
@@ -306,12 +308,12 @@ impl App {
         data.ecs_world
             .insert_resource(crate::ecs::resource::DebugViewState::default());
     }
-
     unsafe fn initialize_graphics_and_ecs(
         instance: &Instance,
         rrdevice: &RRDevice,
         rrswapchain: &RRSwapchain,
         rrcommand_pool: &Rc<RRCommandPool>,
+        rrrender: &RRRender,
         data: &mut AppData,
     ) -> Result<()> {
         let swapchain_image_count = rrswapchain.swapchain_images.len();
@@ -374,6 +376,27 @@ impl App {
             rrdevice.msaa_samples,
             rrswapchain.swapchain_format
         );
+
+        let render_layouts = data.graphics_resources.get_layouts();
+        if let Some(ref hdr_buffer) = data.viewport.hdr_buffer {
+            let hdr_grid =
+                PipelineBuilder::new("assets/shaders/gridVert.spv", "assets/shaders/gridFrag.spv")
+                    .vertex_input(VertexInputConfig::Gizmo)
+                    .topology(vk::PrimitiveTopology::LINE_LIST)
+                    .polygon_mode(vk::PolygonMode::LINE)
+                    .depth_test(DepthTestConfig {
+                        test_enable: true,
+                        write_enable: false,
+                        compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+                    })
+                    .custom_render_pass(hdr_buffer.render_pass)
+                    .msaa_samples(vk::SampleCountFlags::_1)
+                    .descriptor_layouts(render_layouts.to_vec())
+                    .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
+                    .context("Failed to create HDR grid pipeline")?;
+            let hdr_grid_id = data.pipeline_storage.register(hdr_grid);
+            data.viewport.hdr_grid_pipeline_id = Some(hdr_grid_id);
+        }
 
         Ok(())
     }

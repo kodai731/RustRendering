@@ -1,7 +1,14 @@
 #ifndef FLAME_NOISE_FIELD_GLSL
 #define FLAME_NOISE_FIELD_GLSL
 
+// Octagonal shell inscribed radius: 0.5 * cos(pi/8), derived from RING_SEGMENTS=8
+
 // Must be included after FlameUBO, chebyshev.glsl, and flame_noise.glsl
+
+// Internal helper: compute the advect vector from style params and time.
+vec3 flameNoiseAdvect() {
+    return vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y) * flame.time;
+}
 
 // Internal helper: compute the warped coordinate q from world position p and height h.
 // This is the single source of truth for the domain-warp chain:
@@ -12,20 +19,19 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
     vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
 
     // Domain warp with upward advection
-    vec3 advect = vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y) * flame.time;
     vec3 aniso = vec3(1.0, 0.35, 1.0);
-    vec3 wp = (pb * aniso) * flame.styleParams0.y - advect;
+    vec3 wp = (pb * aniso) * flame.styleParams0.y - flameNoiseAdvect();
     vec2 w = vec2(fbm3(wp), fbm3(wp + vec3(19.1, 7.7, 3.3))) * 2.0 - 1.0;
-    vec3 q = pb + flame.styleParams0.x * mix(0.15, 1.0, h) * vec3(w.x, 0.0, w.y);
+    float wy = fbm3(wp + vec3(41.3, 23.7, 11.9)) * 2.0 - 1.0;
+    vec3 q = pb + flame.styleParams0.x * mix(0.15, 1.0, h) * vec3(w.x, wy * flame.temporalData.w, w.y);
 
     return q;
 }
 // Internal helper: compute erosion value from warped coordinate q and height h.
 float flameNoiseErosionAt(vec3 q, float h) {
-    vec3 aniso = vec3(1.0, 0.35, 1.0);
-    vec3 advect = vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y) * flame.time;
+    vec3 aniso = vec3(1.0, flame.temporalData.z, 1.0);
     return flame.noiseAmplitude * mix(0.2, 1.0, h)
-        * (fbm3((q * aniso) * flame.noiseFrequency - advect) - 0.35);
+        * (fbm3((q * aniso) * flame.noiseFrequency - flameNoiseAdvect()) - 0.35);
 }
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
@@ -69,7 +75,7 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
 // unit-local XY. Texel encodes d = r - 0.5 (negative inside), normalized by image height.
 float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
-    vec2 uv = vec2(p.x * 0.5 + 0.5, 1.0 - clamp(p.y, 0.0, 1.0));
+    vec2 uv = vec2(p.x + 0.5, 1.0 - clamp(p.y, 0.0, 1.0));
     float d = textureLod(flameSdfSampler, uv, 0.0).r - 0.5;
     float shell = 0.06;
     float zn = p.z / max(flame.emitterParams.w, 1e-3);

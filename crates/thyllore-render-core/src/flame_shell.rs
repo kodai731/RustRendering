@@ -4,9 +4,9 @@ use cgmath::Vector3;
 // Constants and vertex ordering must stay identical to the geometry shader;
 // the winding/closure unit tests are the machine check for that contract.
 pub const FLAME_SHELL_RING_SEGMENTS: usize = 8;
-pub const FLAME_SHELL_STACKS: usize = 3;
+pub const FLAME_SHELL_STACKS: usize = 8;
 pub const FLAME_SHELL_TAPER_TIP_SCALE: f32 = 0.25;
-
+pub const FLAME_SHELL_CIRCUMSCRIBE: f32 = 1.0823922; // 1/cos(pi/8): circumscribe octagon over unit cylinder
 const QUAD_CORNERS: [[f32; 3]; 4] = [
     [-0.5, 0.0, -0.5],
     [0.5, 0.0, -0.5],
@@ -50,14 +50,13 @@ fn compute_ring_position(
     let angle = std::f32::consts::TAU * segment as f32 / FLAME_SHELL_RING_SEGMENTS as f32;
     let mut pos = center
         + Vector3::new(
-            angle.cos() * radius_x * taper,
+            angle.cos() * radius_x * FLAME_SHELL_CIRCUMSCRIBE * taper,
             height01,
-            angle.sin() * radius_z * taper,
+            angle.sin() * radius_z * FLAME_SHELL_CIRCUMSCRIBE * taper,
         );
     // Wind bend deformation (horizontal-only)
-    let bend_offset = wind[0] * bend_amount * height01.powf(bend_power);
-    pos.x += wind[0] * bend_offset;
-    pos.z += wind[1] * bend_offset;
+    pos.x += wind[0] * bend_amount * height01.powf(bend_power);
+    pos.z += wind[1] * bend_amount * height01.powf(bend_power);
     pos
 }
 
@@ -217,5 +216,41 @@ mod tests {
             winding_outside.abs() < 1e-4,
             "bent shell outside probe: winding = {winding_outside}"
         );
+    }
+
+    #[test]
+    fn test_flame_shell_bend_position() {
+        // Verify compute_ring_position with wind bend matches expected formula:
+        // center=(0,0,0), radiusX=1, radiusZ=1, wind=(1,1), bend_amount=1, bend_power=2
+        // For stack=4 (height01=4/8=0.5), segment=0 (angle=0):
+       //   pos.x = cos(0)*1.0*1.0823922*0.625 + 1*1*0.5^2 = 0.676495125 + 0.25 = 0.926495125
+        //   pos.z = sin(0)*1.0*1.0823922*0.625 + 1*1*0.5^2 = 0 + 0.25 = 0.25
+        // Expected: (0.9264951, 0.5, 0.25)
+        let center = Vector3::new(0.0, 0.0, 0.0);
+        let radius_x = 1.0;
+        let radius_z = 1.0;
+        let segment = 0;
+        let stack = 4; // height01 = 4/8 = 0.5
+        let wind: [f32; 2] = [1.0, 1.0];
+        let bend_amount = 1.0;
+        let bend_power = 2.0;
+
+        let pos = compute_ring_position(center, radius_x, radius_z, segment, stack, wind, bend_amount, bend_power);
+
+        assert!(
+            (pos.x - 0.9264951).abs() < 1e-5,
+            "bend position x: expected 0.9264951, got {}",
+            pos.x
+        );
+        assert!(
+            (pos.y - 0.5).abs() < 1e-5,
+            "bend position y: expected 0.5, got {}",
+            pos.y
+        );
+        assert!(
+            (pos.z - 0.25).abs() < 1e-5,
+            "bend position z: expected 0.25, got {}",
+            pos.z
+      );
     }
 }
