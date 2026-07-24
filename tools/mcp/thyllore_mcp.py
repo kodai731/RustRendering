@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import statistics
 import time
 from pathlib import Path
 
@@ -120,6 +121,118 @@ def status() -> str:
         {"ok": True, "engine": str(engine), "built_at": int(engine.stat().st_mtime)},
         ensure_ascii=False,
     )
+
+
+@mcp.tool()
+def profile(
+    frames: int = 240,
+    warmup: int = 60,
+    flame_mode: str = "",
+    camera: str = "",
+    keep_dump: bool = False,
+) -> str:
+    """Launch Thyllore, render `frames` frames, and profile per-pass GPU timings.
+
+    Returns one JSON object: {"ok": true, "frames_measured": <count>,
+    "per_pass": {...}, "frame_total_ms": {...}} or {"ok": false, "error": "..."}.
+    The engine writes a JSONL file with per-frame GPU timings; lines where frame
+    <= warmup are skipped. For each unique pass label, count/mean/p50/p95/max (ms)
+    are computed and sorted by mean descending. frame_total_ms reports the same
+    statistics over each frame's total ms across all passes. `flame_mode` and
+    `camera` work like in screenshot. Set `keep_dump` to True to keep the JSONL
+    dump file (path included in result); it is deleted otherwise."""
+    default_dir = Path(tempfile.gettempdir()) / "thyllore_profile"
+    default_dir.mkdir(parents=True, exist_ok=True)
+    png_path = str(default_dir / f"profile_{int(time.time())}.png")
+    jsonl_path = str(default_dir / f"profile_{int(time.time())}.jsonl")
+
+    args = [
+        "--batch-screenshot",
+        png_path,
+        "--batch-frames",
+        str(frames),
+        "--gpu-timings",
+        jsonl_path,
+    ]
+    if flame_mode:
+        args += ["--batch-flame-mode", flame_mode]
+    if camera:
+        args += ["--batch-camera", camera]
+
+    try:
+        result = _run_batch(args)
+    except Exception as e:
+        return _error(str(e))
+
+    data = json.loads(result)
+    if not data.get("ok"):
+        return result
+
+    try:
+        measured: list[dict] = []
+        with open(jsonl_path, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = json.loads(line)
+                if entry.get("frame", 0) > warmup:
+                    measured.append(entry)
+
+        if not measured:
+            return _error("No frames measured after warmup")
+
+        pass_timings: dict[str, list[float]] = {}
+        frame_totals: list[float] = []
+
+        for entry in measured:
+            passes = entry.get("passes", {})
+            total = 0.0
+            for label, ms in passes.items():
+                pass_timings.setdefault(label, []).append(ms)
+                total += ms
+            frame_totals.append(total)
+
+        def _stats(values: list[float]) -> dict:
+            sorted_v = sorted(values)
+            n = len(sorted_v)
+            return {
+                "count": n,
+                "mean": round(statistics.mean(sorted_v), 3),
+                "p50": round(sorted_v[n // 2], 3),
+                "p95": round(sorted_v[int(n * 0.95)] if n > 1 else sorted_v[0], 3),
+                "max": round(sorted_v[-1], 3),
+            }
+
+        per_pass = {
+            label: _stats(values) for label, values in pass_timings.items()
+        }
+        per_pass_sorted = dict(
+            sorted(per_pass.items(), key=lambda item: item[1]["mean"], reverse=True)
+        )
+
+        out = {
+            "ok": True,
+            "frames_measured": len(measured),
+            "per_pass": per_pass_sorted,
+            "frame_total_ms": _stats(frame_totals),
+        }
+        if keep_dump:
+            out["jsonl_path"] = jsonl_path
+        return json.dumps(out, ensure_ascii=False)
+
+    except Exception as e:
+        return _error(f"failed to parse timings: {e}")
+    finally:
+        try:
+            os.unlink(png_path)
+        except OSError:
+            pass
+        if not keep_dump:
+            try:
+                os.unlink(jsonl_path)
+            except OSError:
+                pass
 
 
 if __name__ == "__main__":
