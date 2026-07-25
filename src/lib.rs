@@ -23,6 +23,7 @@ pub mod loader;
 pub mod math;
 #[cfg(feature = "ml")]
 pub mod ml;
+pub mod orchestrator;
 pub mod paths;
 pub mod platform;
 pub mod render;

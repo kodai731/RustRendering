@@ -34,6 +34,7 @@ pub mod mesh_systems;
 pub mod message_log_systems;
 pub mod object_picking_systems;
 mod onion_skinning_systems;
+pub mod orchestrator;
 pub mod panel_layout_systems;
 pub mod phases;
 mod physical_camera_systems;
