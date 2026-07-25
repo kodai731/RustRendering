@@ -77,7 +77,7 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
     }
 
     unsafe fn update_acceleration_structure(&mut self, mesh_ids: &[MeshId]) -> Result<()> {
-        let Some(ref accel_struct) = self.raytracing.acceleration_structure else {
+        let Some(ref mut accel_struct) = self.raytracing.acceleration_structure else {
             return Ok(());
         };
 
@@ -90,7 +90,7 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
             }
 
             let mesh = &self.graphics.meshes[mesh_id];
-            let blas = &accel_struct.blas_list[mesh_id];
+            let blas = &mut accel_struct.blas_list[mesh_id];
 
             RRAccelerationStructure::update_blas(
                 self.instance,
@@ -109,11 +109,11 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
     }
 
     unsafe fn rebuild_tlas(&mut self) -> Result<()> {
-        let Some(ref accel_struct) = self.raytracing.acceleration_structure else {
+        let Some(ref mut accel_struct) = self.raytracing.acceleration_structure else {
             return Ok(());
         };
 
-        let tlas = &accel_struct.tlas;
+        let tlas = &mut accel_struct.tlas;
         RRAccelerationStructure::update_tlas(
             self.instance,
             self.device,

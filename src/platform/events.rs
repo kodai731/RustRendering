@@ -205,6 +205,15 @@ fn handle_redraw_requested(
     #[cfg(feature = "auto-rig")]
     text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
+    let dt_ms = if let Some(last) = app.last_frame_instant {
+        let elapsed = last.elapsed().as_secs_f32() * 1000.0;
+        app.last_frame_instant = Some(Instant::now());
+        elapsed
+    } else {
+        app.last_frame_instant = Some(Instant::now());
+        0.0
+    };
+
     let ui = imgui.frame();
 
     let io = ui.io();
@@ -256,10 +265,13 @@ fn handle_redraw_requested(
     build_click_debug_overlay(ui, &app.data.ecs_world);
 
     platform.prepare_render(ui, window);
+
+    let imgui_build_start = Instant::now();
     let draw_data = imgui.render();
+    let imgui_build_ms = imgui_build_start.elapsed().as_secs_f32() * 1000.0;
 
     unsafe {
-        process_ui_events_and_render_frame(app, window, draw_data);
+        process_ui_events_and_render_frame(app, window, draw_data, dt_ms, imgui_build_ms);
     }
 
     app.data.ecs_world.resource_mut::<MouseInput>().end_frame();
@@ -586,6 +598,8 @@ unsafe fn process_ui_events_and_render_frame(
     app: &mut App,
     window: &winit::window::Window,
     draw_data: &imgui::DrawData,
+    dt_ms: f32,
+    imgui_build_ms: f32,
 ) {
     let model_bounds = app.data.graphics_resources.calculate_model_bounds();
     let (platform_events, deferred_actions) = run_event_dispatch_phase(
@@ -603,7 +617,7 @@ unsafe fn process_ui_events_and_render_frame(
         execute_deferred_action(app, action);
     }
 
-    render_frame(app, window, draw_data);
+    render_frame(app, window, draw_data, dt_ms, imgui_build_ms);
 }
 
 unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
@@ -748,11 +762,33 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
     }
 }
 
-unsafe fn render_frame(app: &mut App, window: &winit::window::Window, draw_data: &imgui::DrawData) {
+unsafe fn render_frame(app: &mut App, window: &winit::window::Window, draw_data: &imgui::DrawData, dt_ms: f32, imgui_build_ms: f32) {
     let frame_result = (|| -> anyhow::Result<()> {
+        let gpu_wait_start = Instant::now();
         let image_index = app.begin_frame()?;
+        let gpu_wait_ms = gpu_wait_start.elapsed().as_secs_f32() * 1000.0;
+
+        let update_start = Instant::now();
         app.update(image_index)?;
+        let update_ms = update_start.elapsed().as_secs_f32() * 1000.0;
+
+        let render_cpu_start = Instant::now();
         app.render(image_index, draw_data)?;
+        let render_cpu_ms = render_cpu_start.elapsed().as_secs_f32() * 1000.0;
+
+        app.data.ecs_world.insert_resource(crate::ecs::resource::CpuFrameTimings {
+            frame: app.frame as u64,
+            dt_ms,
+            stages: vec![
+                ("imgui_build".to_string(), imgui_build_ms),
+                ("gpu_wait".to_string(), gpu_wait_ms),
+                ("update".to_string(), update_ms),
+                ("render_cpu".to_string(), render_cpu_ms),
+            ],
+            imgui_vtx: draw_data.total_vtx_count as u32,
+            imgui_idx: draw_data.total_idx_count as u32,
+        });
+
         Ok(())
     })();
 

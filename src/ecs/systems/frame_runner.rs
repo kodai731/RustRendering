@@ -25,10 +25,17 @@ use crate::ml::FeedbackSenderHandle;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
 pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
+    let mut stages: Vec<(String, f32)> = Vec::new();
+
+    let t = std::time::Instant::now();
     batch_run_tick(ctx.world);
+    stages.push(("batch_run_tick".to_string(), t.elapsed().as_secs_f32() * 1000.0));
 
+    let t = std::time::Instant::now();
     let mesh_positions = collect_mesh_positions(ctx.graphics);
+    stages.push(("collect_mesh_positions".to_string(), t.elapsed().as_secs_f32() * 1000.0));
 
+    let t = std::time::Instant::now();
     {
         let mut ecs_ctx = EcsContext {
             time: ctx.time,
@@ -44,16 +51,35 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
         run_input_phase(&mut ecs_ctx)?;
         run_transform_phase_ecs(&mut ecs_ctx);
     }
+    stages.push(("input_transform".to_string(), t.elapsed().as_secs_f32() * 1000.0));
 
+    let t = std::time::Instant::now();
     run_timeline_phase(ctx);
     #[cfg(feature = "ml")]
     run_inference_actor_phase(ctx);
-    let animation_updates = run_animation_phase_ecs(ctx);
-    run_animation_phase_gpu(ctx, &animation_updates)?;
-    run_onion_skin_phase(ctx, &animation_updates.updated_meshes)?;
+    stages.push(("timeline".to_string(), t.elapsed().as_secs_f32() * 1000.0));
 
+    let t = std::time::Instant::now();
+    let animation_updates = run_animation_phase_ecs(ctx);
+    stages.push(("animation_ecs".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+
+    let t = std::time::Instant::now();
+    run_animation_phase_gpu(ctx, &animation_updates)?;
+    stages.push(("animation_gpu".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+
+    let t = std::time::Instant::now();
+    run_onion_skin_phase(ctx, &animation_updates.updated_meshes)?;
+    stages.push(("onion_skin".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+
+    let t = std::time::Instant::now();
     run_transform_phase_gpu(ctx)?;
+    stages.push(("transform_gpu".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+
+    let t = std::time::Instant::now();
     run_render_prep_phase(ctx)?;
+    stages.push(("render_prep".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+
+    ctx.world.insert_resource(crate::ecs::resource::UpdatePhaseTimings { stages });
     Ok(())
 }
 

@@ -5,7 +5,7 @@ use anyhow::Result;
 use crate::animation::{BoneId, BoneLocalPose};
 use crate::app::FrameContext;
 use crate::ecs::resource::gizmo::{BoneGizmoData, BoneSelectionState};
-use crate::ecs::resource::{BonePoseOverride, ClipLibrary, NodeAssets, WeightHeatmapState};
+use crate::ecs::resource::{BonePoseOverride, ClipLibrary, NodeAssets, PoseApplyCache, WeightHeatmapState};
 use crate::ecs::{
     playback_upload_animations, run_animation_pipeline, transform_propagation_system,
     update_weight_heatmap,
@@ -22,8 +22,15 @@ pub fn run_animation_phase_ecs(ctx: &mut FrameContext) -> AnimationUpdates {
         .map(|r| r.overrides.clone())
         .unwrap_or_default();
 
+    // Initialize PoseApplyCache before taking other mutable borrows
+    if !ctx.world.contains_resource::<PoseApplyCache>() {
+        ctx.world.insert_resource(PoseApplyCache::default());
+    }
+
     let eval_result = {
         let clip_library = ctx.world.resource::<ClipLibrary>();
+        let mut pose_apply_cache = ctx.world.resource_mut::<PoseApplyCache>();
+
         let mut node_assets = ctx.world.resource_mut::<NodeAssets>();
 
         run_animation_pipeline(
@@ -34,6 +41,7 @@ pub fn run_animation_phase_ecs(ctx: &mut FrameContext) -> AnimationUpdates {
             ctx.assets,
             ctx.delta_time,
             &pose_overrides,
+            &mut pose_apply_cache,
         )
     };
 

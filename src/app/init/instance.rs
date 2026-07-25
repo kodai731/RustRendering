@@ -299,6 +299,7 @@ impl App {
             start: Instant::now(),
             last_update_time: 0.0,
             gpu_timestamp_profiler,
+            last_frame_instant: None,
         })
     }
 

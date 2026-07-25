@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::time::Instant;
+
 use anyhow::Result;
 use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
 
@@ -39,16 +42,40 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
         compute_camera_position(&ctx.camera())
     };
 
+    let mut sub: HashMap<String, f32> = HashMap::new();
+
+    let t = Instant::now();
     update_frame_and_scene_uniforms(ctx, view, proj, screen_size, aspect, camera_position)?;
+    sub.insert("uniforms".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     crate::ecs::systems::batch_run_update_orbit(&mut ctx.world);
+    sub.insert("orbit".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     crate::ecs::systems::flame_bone_attach_sync(ctx);
+    sub.insert("bone_attach".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     crate::ecs::systems::flame_time_advance(ctx);
+    sub.insert("flame_time".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     crate::ecs::systems::flame_trail_advance(ctx);
-    gpu_timings_write(&mut ctx.world);
+    sub.insert("flame_trail".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let timings_write_time = {
+        let t = Instant::now();
+        gpu_timings_write(&mut ctx.world);
+        t.elapsed().as_secs_f32() * 1000.0
+    };
+    sub.insert("timings_write".to_string(), timings_write_time);
+
     if let (Some(mut sink), Some(temporal)) = (
         ctx.world.get_resource_mut::<crate::ecs::resource::FlameDumpSink>(),
         ctx.world.get_resource::<crate::ecs::resource::FlameTemporalState>(),
     ) {
+        let t = Instant::now();
         let flame_entities: Vec<_> = ctx.world.query_flames();
         let effects: Vec<crate::ecs::resource::FlameEffect> = flame_entities
             .iter()
@@ -59,12 +86,19 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
             .map(|e| ctx.world.get_component::<crate::ecs::component::flame_trail::FlameTrail>(*e).cloned())
             .collect();
         crate::ecs::systems::flame_dump_system(&mut sink, &*temporal, &effects, &trails);
+        sub.insert("flame_dump".to_string(), t.elapsed().as_secs_f32() * 1000.0);
     }
-    crate::ecs::systems::flame_temporal_accumulate(ctx);
 
+    let t = Instant::now();
+    crate::ecs::systems::flame_temporal_accumulate(ctx);
+    sub.insert("flame_temporal".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     let render_data_vec = collect_gizmo_render_data(ctx, camera_position);
+    sub.insert("collect_gizmo".to_string(), t.elapsed().as_secs_f32() * 1000.0);
     let render_data_refs: Vec<_> = render_data_vec.iter().collect();
 
+    let t = Instant::now();
     if let Err(e) = update_object_ubo(
         &render_data_refs,
         ctx.image_index,
@@ -73,15 +107,37 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     ) {
         eprintln!("Failed to update object UBOs: {}", e);
     }
+    sub.insert("object_ubo".to_string(), t.elapsed().as_secs_f32() * 1000.0);
 
+    let t = Instant::now();
     update_billboard_ubo(ctx, view, proj)?;
+    sub.insert("billboard_ubo".to_string(), t.elapsed().as_secs_f32() * 1000.0);
 
+    let t = Instant::now();
     update_grid_gizmo_buffers(ctx)?;
+    sub.insert("grid".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     update_transform_gizmo_mesh(ctx)?;
+    sub.insert("transform_gizmo".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     update_bone_gizmo_mesh(ctx)?;
+    sub.insert("bone_gizmo".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     update_constraint_gizmo_mesh(ctx)?;
+    sub.insert("constraint_gizmo".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     update_spring_bone_gizmo_mesh(ctx)?;
+    sub.insert("spring_gizmo".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    let t = Instant::now();
     crate::ecs::systems::gizmo_systems::run_vertical_lines_update(ctx)?;
+    sub.insert("vertical_lines".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+
+    ctx.world.insert_resource(crate::ecs::resource::RenderPrepSubTimings { timings: sub });
 
     Ok(())
 }
@@ -107,10 +163,43 @@ fn gpu_timings_write(world: &mut crate::ecs::World) {
         .into_iter()
         .map(|(label, ms)| (label, serde_json::json!(ms)))
         .collect();
-    let line = serde_json::json!({
-        "frame": frame,
-        "passes": passes_map
-    });
+
+    let mut obj: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    obj.insert("frame".to_string(), serde_json::json!(frame));
+    obj.insert("passes".to_string(), serde_json::Value::Object(passes_map));
+
+    if let Some(cpu) = world.get_resource::<crate::ecs::resource::CpuFrameTimings>() {
+        obj.insert(
+            "cpu_dt_ms".to_string(),
+            serde_json::json!(cpu.dt_ms),
+        );
+        obj.insert("imgui_vtx".to_string(), serde_json::json!(cpu.imgui_vtx));
+        obj.insert("imgui_idx".to_string(), serde_json::json!(cpu.imgui_idx));
+        let cpu_map: serde_json::Map<String, serde_json::Value> = cpu
+            .stages
+            .iter()
+            .map(|(label, ms)| (label.clone(), serde_json::json!(ms)))
+            .collect();
+        obj.insert("cpu".to_string(), serde_json::Value::Object(cpu_map));
+    }
+    if let Some(up) = world.get_resource::<crate::ecs::resource::UpdatePhaseTimings>() {
+        let up_map: serde_json::Map<String, serde_json::Value> = up
+            .stages
+            .iter()
+            .map(|(label, ms)| (label.clone(), serde_json::json!(ms)))
+            .collect();
+        obj.insert("update_phases".to_string(), serde_json::Value::Object(up_map));
+    }
+    if let Some(rps) = world.get_resource::<crate::ecs::resource::RenderPrepSubTimings>() {
+        let rps_map: serde_json::Map<String, serde_json::Value> = rps
+            .timings
+            .iter()
+            .map(|(label, ms)| (label.clone(), serde_json::json!(ms)))
+            .collect();
+        obj.insert("render_prep_sub".to_string(), serde_json::Value::Object(rps_map));
+    }
+
+    let line = serde_json::Value::Object(obj);
     if let Err(e) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)
@@ -313,8 +402,13 @@ unsafe fn update_transform_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
 
     let camera_dir = ctx.camera_direction();
 
-    let mut line_mesh_clone = LineMesh::default();
-    let mut solid_mesh_clone = LineMesh::default();
+    let (mut line_mesh_clone, mut solid_mesh_clone) = {
+        let tg = ctx.world.resource::<TransformGizmoData>();
+        let mut line_mesh_clone = tg.line_mesh.clone();
+        let mut solid_mesh_clone = tg.solid_mesh.clone();
+        drop(tg);
+        (line_mesh_clone, solid_mesh_clone)
+    };
 
     match mode {
         crate::ecs::resource::TransformGizmoMode::Translate => {
@@ -523,8 +617,13 @@ unsafe fn update_octahedral_bone_mesh(
         .map(|s| (*s).clone())
         .unwrap_or_default();
 
-    let mut solid_mesh = LineMesh::default();
-    let mut wire_mesh = LineMesh::default();
+    let (mut solid_mesh, mut wire_mesh) = {
+        let bg = ctx.world.resource::<BoneGizmoData>();
+        let mut solid_mesh = bg.solid_mesh.clone();
+        let mut wire_mesh = bg.wire_mesh.clone();
+        drop(bg);
+        (solid_mesh, wire_mesh)
+    };
     build_octahedral_bone_meshes_with_selection(
         skeleton,
         transforms,
@@ -566,8 +665,13 @@ unsafe fn update_box_bone_mesh(
         .map(|s| (*s).clone())
         .unwrap_or_default();
 
-    let mut solid_mesh = LineMesh::default();
-    let mut wire_mesh = LineMesh::default();
+    let (mut solid_mesh, mut wire_mesh) = {
+        let bg = ctx.world.resource::<BoneGizmoData>();
+        let mut solid_mesh = bg.solid_mesh.clone();
+        let mut wire_mesh = bg.wire_mesh.clone();
+        drop(bg);
+        (solid_mesh, wire_mesh)
+    };
     build_box_bone_meshes_with_selection(
         skeleton,
         transforms,
@@ -611,6 +715,15 @@ unsafe fn update_sphere_bone_mesh(
 
     let mut solid_mesh = LineMesh::default();
     let mut wire_mesh = LineMesh::default();
+
+    {
+        let bone_gizmo = ctx.world.resource::<BoneGizmoData>();
+        solid_mesh.vertex_buffer_handle = bone_gizmo.solid_mesh.vertex_buffer_handle;
+        solid_mesh.index_buffer_handle = bone_gizmo.solid_mesh.index_buffer_handle;
+        wire_mesh.vertex_buffer_handle = bone_gizmo.wire_mesh.vertex_buffer_handle;
+        wire_mesh.index_buffer_handle = bone_gizmo.wire_mesh.index_buffer_handle;
+    }
+
     build_sphere_bone_meshes_with_selection(
         skeleton,
         transforms,
@@ -683,6 +796,13 @@ unsafe fn update_constraint_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
     };
 
     let mut wire_mesh = LineMesh::default();
+
+    {
+        let cg = ctx.world.resource::<ConstraintGizmoData>();
+        wire_mesh.vertex_buffer_handle = cg.wire_mesh.vertex_buffer_handle;
+        wire_mesh.index_buffer_handle = cg.wire_mesh.index_buffer_handle;
+    }
+
     build_constraint_gizmo_mesh(
         &constraint_set,
         &skeleton,
@@ -742,6 +862,13 @@ unsafe fn update_spring_bone_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
     };
 
     let mut wire_mesh = LineMesh::default();
+
+    {
+        let sg = ctx.world.resource::<SpringBoneGizmoData>();
+        wire_mesh.vertex_buffer_handle = sg.wire_mesh.vertex_buffer_handle;
+        wire_mesh.index_buffer_handle = sg.wire_mesh.index_buffer_handle;
+    }
+
     build_spring_bone_gizmo_mesh(&setup, &transforms, &offsets, mesh_scale, &mut wire_mesh);
 
     {
