@@ -3,6 +3,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use super::App;
 use crate::ecs::resource::GpuPassTimings;
+use crate::vulkanr::context::FrameSync;
 use crate::vulkanr::renderer::deferred;
 
 impl App {
@@ -134,7 +135,7 @@ impl App {
                     image_index,
                     "auto_exposure".to_string(),
                 );
-                deferred::record_auto_exposure(self, command_buffer)?;
+                deferred::record_auto_exposure(self, command_buffer, self.resource::<FrameSync>().current_frame)?;
                 self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
 
                 self.gpu_timestamp_profiler.begin_scope(

@@ -15,7 +15,7 @@ pub mod onion_skin_pass;
 pub mod pipeline_storage;
 pub mod raytracing_data;
 
-pub use auto_exposure_buffers::AutoExposureBuffers;
+pub use auto_exposure_buffers::{AutoExposureBuffers, LUMINANCE_BUFFER_SIZE};
 pub use bloom_chain::BloomChain;
 pub use buffer::*;
 pub use buffer_registry::GpuBufferRegistry;

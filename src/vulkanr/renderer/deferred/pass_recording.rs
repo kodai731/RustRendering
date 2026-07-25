@@ -399,7 +399,11 @@ pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result
     Ok(())
 }
 
-pub unsafe fn record_auto_exposure(app: &App, command_buffer: vk::CommandBuffer) -> Result<()> {
+pub unsafe fn record_auto_exposure(
+    app: &App,
+    command_buffer: vk::CommandBuffer,
+    frame_slot: usize,
+) -> Result<()> {
     let ae_settings = app
         .data
         .ecs_world
@@ -461,6 +465,39 @@ pub unsafe fn record_auto_exposure(app: &App, command_buffer: vk::CommandBuffer)
         delta_time,
         command_buffer,
     )?;
+
+    // BufferMemoryBarrier: COMPUTE_SHADER (SHADER_WRITE) → TRANSFER (TRANSFER_READ)
+    let barrier = vk::BufferMemoryBarrier::builder()
+        .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+        .dst_access_mask(vk::AccessFlags::TRANSFER_READ)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .buffer(buffers.luminance_buffer)
+        .offset(0)
+        .size(8u64)
+        .build();
+
+    app.rrdevice.device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[barrier],
+        &[] as &[vk::ImageMemoryBarrier],
+    );
+
+    // Copy luminance_buffer → readback_buffers[frame_slot] (8 bytes)
+    app.rrdevice.device.cmd_copy_buffer(
+        command_buffer,
+        buffers.luminance_buffer,
+        buffers.readback_buffers[frame_slot],
+        &[vk::BufferCopy::builder()
+            .src_offset(0)
+            .dst_offset(0)
+            .size(thyllore_vulkan_core::resource::LUMINANCE_BUFFER_SIZE)
+            .build()],
+    );
 
     Ok(())
 }

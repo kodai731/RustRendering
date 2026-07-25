@@ -715,7 +715,10 @@ impl App {
         }
 
         let adapted = match self.data.viewport.auto_exposure_buffers {
-            Some(ref ae_buffers) => ae_buffers.read_adapted_exposure(&self.rrdevice.device),
+            Some(ref ae_buffers) => {
+                let current_slot = self.resource::<FrameSync>().current_frame;
+                ae_buffers.read_adapted_exposure(&self.rrdevice.device, current_slot)
+            }
             None => return,
         };
 
