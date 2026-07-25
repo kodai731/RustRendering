@@ -1,12 +1,8 @@
 """Tool schema SSoT for the orchestrator evaluation.
 
-Mirrors the design in
-${DocumentPath}/Rust_Rendering/Design/20260725_tiny_llm_command_orchestrator/
-20260725_tiny_llm_command_orchestrator/thyllore_tool_schema.md
-
 Both the JSON Schema handed to llguidance and the tool catalog embedded in the
 prompt are generated from TOOL_VARIANTS, so the two never drift apart. This
-module is the Python-side rehearsal of src/orchestrator/components/tool_schema.rs.
+module is the Python-side mirror of src/orchestrator/components/tool_call.rs.
 """
 
 from dataclasses import dataclass, field

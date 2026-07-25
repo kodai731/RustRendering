@@ -5,8 +5,8 @@ utterance. Expanding those enums into the route identity turns almost every
 route into a zero-argument target, which is the condition the generative
 evaluation scored 100% on.
 
-Design: ${DocumentPath}/Rust_Rendering/Design/20260725_tiny_llm_command_orchestrator/
-20260725_tiny_llm_command_orchestrator/embedding_router.md
+Mirrors src/orchestrator/components/route.rs; the route ids must match exactly
+or the measured accuracy does not describe the engine build.
 """
 
 from dataclasses import dataclass

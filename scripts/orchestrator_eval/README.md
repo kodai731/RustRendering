@@ -60,6 +60,7 @@ snapshot_download('intfloat/multilingual-e5-small',
 | `--embedder` | router | `static` (Gemma embedding table), `contextual` (e5-small) |
 | `--pooling` | router | `mean`, `unit_mean`, `sif` — `static` only |
 | `--aggregation` | router | `max`, `mean_top3` — how per-route exemplar scores combine |
+| `--keyword-router` | router | `on`, `off` — run the deterministic keyword rules first |
 | `--variant` | generative | `baseline`, `aggregated_playback` |
 | `--prompt` | generative | `zero_shot`, `request_framing`, `few_shot` |
 | `--model-dir` | both | defaults per embedder / the Gemma 3 270M ONNX directory |
@@ -74,7 +75,8 @@ utterance on a single intra-op thread, so its 74-case run takes ~3 minutes.
 |---|---|
 | `tool_schema.py` | Tool definitions. Single source for the JSON Schema, the prompt catalog and the routes |
 | `route_schema.py` | Route expansion: tool × the enum arguments that appear in an utterance |
-| `exemplars.jsonl` | 232 example utterances (29 routes × 8, English and Japanese). Disjoint from the testset |
+| `keyword_router.py` | Deterministic keyword routing. Reads `src/orchestrator/data/keyword_router_rules.json`, the same table the engine embeds |
+| `exemplars.jsonl` | 348 example utterances (29 routes × 4 English + 8 Japanese). Disjoint from the testset |
 | `static_embedder.py` | Sentence vectors pooled from Gemma's input embedding table alone |
 | `contextual_embedder.py` | Sentence vectors from an ONNX sentence encoder |
 | `prompt_builder.py` | Prompt strategies. Few-shot examples follow the tool variant |

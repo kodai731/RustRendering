@@ -1,4 +1,4 @@
-"""Evaluate the embedding router against the 74-case tool-selection testset.
+"""Evaluate the router against the 74-case tool-selection testset.
 
 Routes and exemplars are the router's index; the testset is held out. The
 escape-hatch cases have no route and must fall below the rejection threshold
@@ -6,7 +6,7 @@ rather than being classified.
 
 Run:
     .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/eval_router.py \
-        --pooling unit_mean --output results/router_static_unit_mean.json
+        --embedder contextual --keyword-router on --output results/router.json
 """
 
 import argparse
@@ -18,12 +18,15 @@ from pathlib import Path
 import numpy as np
 
 from contextual_embedder import ContextualEmbedder
+from keyword_router import KeywordRouter
 from route_schema import ESCAPE_ROUTE, build_routes, resolve_expected_route
 from static_embedder import POOLING_STRATEGIES, StaticEmbedder
 
 STATIC_MODEL_DIR = "/home/kodai/Projects/CodeAgent/models/gemma-3-270m-it-ONNX"
 CONTEXTUAL_MODEL_DIR = "/home/kodai/Projects/CodeAgent/models/multilingual-e5-small"
 SCRIPT_DIR = Path(__file__).resolve().parent
+
+DETERMINISTIC_SCORE = 1.0
 
 
 @dataclass
@@ -48,10 +51,16 @@ def load_testset(path: Path) -> list[dict]:
 
 
 def aggregate_route_scores(
-    similarities: np.ndarray, route_slices: dict[str, slice], aggregation: str
+    similarities: np.ndarray,
+    route_slices: dict[str, slice],
+    aggregation: str,
+    allowed_routes: set[str] | None,
 ) -> dict[str, float]:
     scores = {}
     for route_id, span in route_slices.items():
+        if allowed_routes is not None and route_id not in allowed_routes:
+            continue
+
         block = similarities[span]
         if aggregation == "max":
             scores[route_id] = float(block.max())
@@ -66,9 +75,10 @@ def predict_route(
     exemplar_matrix: np.ndarray,
     route_slices: dict[str, slice],
     aggregation: str,
+    allowed_routes: set[str] | None = None,
 ) -> tuple[str, float, float]:
     similarities = exemplar_matrix @ utterance_vector
-    scores = aggregate_route_scores(similarities, route_slices, aggregation)
+    scores = aggregate_route_scores(similarities, route_slices, aggregation, allowed_routes)
     ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
     margin = ranked[0][1] - ranked[1][1] if len(ranked) > 1 else ranked[0][1]
     return ranked[0][0], ranked[0][1], margin
@@ -94,9 +104,8 @@ def sweep_rejection_threshold(predictions: list[Prediction]) -> list[dict]:
     routed = [p for p in predictions if p.expected_route != ESCAPE_ROUTE]
     correct = [p for p in routed if p.predicted_route == p.expected_route]
 
-    candidates = sorted({round(p.top_score, 4) for p in predictions})
     curve = []
-    for threshold in candidates:
+    for threshold in sorted({round(p.top_score, 4) for p in predictions}):
         curve.append(
             {
                 "threshold": threshold,
@@ -119,6 +128,7 @@ def summarize(predictions: list[Prediction], elapsed_seconds: float) -> dict:
     tool_correct = [
         p for p in routed if p.predicted_route.split(":")[0] == p.expected_route.split(":")[0]
     ]
+
     curve = sweep_rejection_threshold(predictions)
     full_escape = [point for point in curve if point["escape_recall"] >= 1.0]
 
@@ -153,7 +163,54 @@ def build_embedder(embedder_name: str, model_dir: str | None, pooling: str):
     return ContextualEmbedder(model_dir or CONTEXTUAL_MODEL_DIR)
 
 
-def evaluate(embedder_name: str, model_dir: str | None, pooling: str, aggregation: str) -> dict:
+def predict_all(
+    testset: list[dict],
+    utterance_vectors: np.ndarray,
+    exemplar_matrix: np.ndarray,
+    route_slices: dict[str, slice],
+    aggregation: str,
+    router: KeywordRouter | None,
+) -> tuple[list[Prediction], int]:
+    predictions: list[Prediction] = []
+    decided_count = 0
+
+    for row, vector in zip(testset, utterance_vectors):
+        outcome = router.route(row["utterance"]) if router else None
+
+        if outcome is not None and outcome.decided_route is not None:
+            decided_count += 1
+            predictions.append(
+                Prediction(
+                    row["utterance"],
+                    row["lang"],
+                    row["expected_route"],
+                    outcome.decided_route,
+                    DETERMINISTIC_SCORE,
+                    DETERMINISTIC_SCORE,
+                )
+            )
+            continue
+
+        allowed = set(outcome.candidates) if outcome else None
+        predicted, score, margin = predict_route(
+            vector, exemplar_matrix, route_slices, aggregation, allowed
+        )
+        predictions.append(
+            Prediction(
+                row["utterance"], row["lang"], row["expected_route"], predicted, score, margin
+            )
+        )
+
+    return predictions, decided_count
+
+
+def evaluate(
+    embedder_name: str,
+    model_dir: str | None,
+    pooling: str,
+    aggregation: str,
+    keyword_router: str,
+) -> dict:
     routes = build_routes()
     route_ids = [route.route_id for route in routes]
     exemplars = read_jsonl(SCRIPT_DIR / "exemplars.jsonl")
@@ -162,25 +219,21 @@ def evaluate(embedder_name: str, model_dir: str | None, pooling: str, aggregatio
     embedder = build_embedder(embedder_name, model_dir, pooling)
     embedder.fit_corpus([row["utterance"] for row in exemplars])
     exemplar_matrix, route_slices = build_exemplar_index(embedder, exemplars, route_ids)
+    router = KeywordRouter(routes) if keyword_router == "on" else None
 
     start = time.perf_counter()
     utterance_vectors = embedder.encode_batch([row["utterance"] for row in testset])
-    predictions = []
-    for row, vector in zip(testset, utterance_vectors):
-        predicted, score, margin = predict_route(
-            vector, exemplar_matrix, route_slices, aggregation
-        )
-        predictions.append(
-            Prediction(
-                row["utterance"], row["lang"], row["expected_route"], predicted, score, margin
-            )
-        )
+    predictions, decided_count = predict_all(
+        testset, utterance_vectors, exemplar_matrix, route_slices, aggregation, router
+    )
     elapsed = time.perf_counter() - start
 
     result = summarize(predictions, elapsed)
     result["embedder"] = embedder_name
     result["pooling"] = pooling if embedder_name == "static" else "n/a"
     result["aggregation"] = aggregation
+    result["keyword_router"] = keyword_router
+    result["keyword_router_decided"] = decided_count
     result["route_count"] = len(routes)
     result["exemplar_count"] = len(exemplars)
     result["predictions"] = [vars(p) for p in predictions]
@@ -193,20 +246,29 @@ def main() -> None:
     parser.add_argument("--model-dir")
     parser.add_argument("--pooling", default="unit_mean", choices=POOLING_STRATEGIES)
     parser.add_argument("--aggregation", default="max", choices=("max", "mean_top3"))
+    parser.add_argument("--keyword-router", default="off", choices=("on", "off"))
     parser.add_argument("--output")
     arguments = parser.parse_args()
 
     result = evaluate(
-        arguments.embedder, arguments.model_dir, arguments.pooling, arguments.aggregation
+        arguments.embedder,
+        arguments.model_dir,
+        arguments.pooling,
+        arguments.aggregation,
+        arguments.keyword_router,
     )
 
     print(
         f"embedder={result['embedder']} pooling={result['pooling']} "
-        f"aggregation={result['aggregation']}"
+        f"aggregation={result['aggregation']} keyword_router={result['keyword_router']} "
+        f"(decided {result['keyword_router_decided']}/{result['case_count']})"
     )
     print(f"  route accuracy   {result['route_accuracy']:.3f}")
     print(f"  tool accuracy    {result['tool_accuracy']:.3f}")
-    print(f"  en / ja          {result['route_accuracy_en']:.3f} / {result['route_accuracy_ja']:.3f}")
+    print(
+        f"  en / ja          {result['route_accuracy_en']:.3f}"
+        f" / {result['route_accuracy_ja']:.3f}"
+    )
     print(f"  mean score corr  {result['mean_top_score_correct']:.3f}")
     print(f"  mean score esc   {result['mean_top_score_escape']:.3f}")
     print(f"  escape 100% pt   {result['full_escape_operating_point']}")

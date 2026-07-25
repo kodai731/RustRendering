@@ -1,9 +1,8 @@
-//! Routes are what the embedding router indexes: a tool combined with the enum
-//! arguments that appear in an utterance. Expanding those enums into the route
-//! identity leaves almost every route with no arguments left to extract.
-//!
-//! Design: `${DocumentPath}/Rust_Rendering/Design/20260725_tiny_llm_command_orchestrator/`
-//! `20260725_tiny_llm_command_orchestrator/embedding_router.md`
+//! Routes are what the router indexes: a tool combined with the enum arguments
+//! that appear in an utterance. Expanding those enums into the route identity
+//! leaves almost every route with no arguments left to extract, which is what
+//! makes routing by similarity viable at all — a small model picks a
+//! zero-argument target far more reliably than it fills one in.
 
 use super::tool_call::{
     FocusTarget, MotionCategory, ObjectName, SeekPosition, SpeedPreset, ToolCall, VisibilityState,
@@ -80,7 +79,7 @@ pub const ALL_ROUTES: [Route; 29] = [
 ];
 
 /// Values the router fills in before a route can become a `ToolCall`. Slots come
-/// from Stage C (name resolution), modifiers from Stage A (keyword dictionary).
+/// from name resolution, modifiers from the keyword router.
 #[derive(Clone, Debug, Default)]
 pub struct RouteSlots {
     pub object_name: Option<String>,
@@ -113,6 +112,13 @@ impl Route {
             Route::GenerateMotion(category) => format!("generate_motion:{}", category.as_str()),
             other => other.tool_name().to_string(),
         }
+    }
+
+    pub fn from_id(route_id: &str) -> Option<Self> {
+        ALL_ROUTES
+            .iter()
+            .copied()
+            .find(|route| route.id() == route_id)
     }
 
     pub fn tool_name(self) -> &'static str {

@@ -1,12 +1,9 @@
 """Sentence embeddings built from the Gemma input embedding table alone.
 
-Option C of the router design: 168M of Gemma 3 270M's 268M parameters are the
-262144 x 640 vocabulary table. Stage C keeps that table resident anyway, so
-pooling it costs no additional weights and no transformer forward. It sees no
-context, which is exactly what this evaluation is meant to quantify.
-
-Design: ${DocumentPath}/Rust_Rendering/Design/20260725_tiny_llm_command_orchestrator/
-20260725_tiny_llm_command_orchestrator/embedding_router.md
+168M of Gemma 3 270M's 268M parameters are the 262144 x 640 vocabulary table.
+Argument resolution keeps that table resident anyway, so pooling it costs no
+additional weights and no transformer forward. It sees no context, which is
+exactly what this evaluation is meant to quantify.
 """
 
 from collections import Counter
