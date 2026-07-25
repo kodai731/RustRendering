@@ -122,11 +122,12 @@ At the top of each file, include a brief summary of the issue and its resolution
 ### Repository
 repository is separated to ../AnimationModelTraining
 
-### Large Model Storage
+### Model Storage
 
-When downloading large ML models (HuggingFace weights, TripoSG, etc.), MUST save them to
-`${LargeModelStoragePath}`. This path is symlinked to a high-capacity drive.
-Do NOT download large models to the project directory or HuggingFace default cache.
+`${ModelStoragePath}` is the single location for large ML model weights (HuggingFace snapshots,
+GGUF, ONNX, TripoSG) on this machine. When downloading any of them, MUST save them there.
+Do NOT download large models to a project directory or the HuggingFace default cache — models
+scattered across disks make multi-GB files untraceable and fill up storage.
 
 ### Trained Data
 
