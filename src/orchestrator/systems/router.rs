@@ -1,0 +1,550 @@
+//! Stage B: ranks the routes by how close the utterance is to their exemplars.
+//!
+//! The route a small model can pick reliably is one with no arguments left to
+//! fill, which is why a route is a tool plus the enum arguments that appear in the
+//! utterance. Ranking is then a cosine comparison against per-route exemplars and
+//! nothing else: no generation, no parsing, no prompt. `scripts/orchestrator_eval/`
+//! is where the accuracy of that claim is measured, and this file must rank the
+//! same way or the measurement stops describing the engine — per-route score is
+//! the single best exemplar, ties keep the route table's order, and the score the
+//! threshold sees is the winner's, including after the polarity tie-break has
+//! promoted a runner-up.
+//!
+//! Deliberately free of both the encoder and the filesystem. The vectors arrive
+//! already computed, which keeps this layer pure enough to test the ranking on
+//! hand-written vectors and leaves the ONNX session to
+//! `thyllore_ml_core::sentence_encoder`.
+
+use std::ops::Range;
+
+use serde::Deserialize;
+use thiserror::Error;
+
+use crate::orchestrator::components::route::{OrchestratorMode, Route};
+use crate::orchestrator::systems::normalize::normalize_utterance;
+use crate::orchestrator::systems::polarity_tiebreak::break_polarity_tie;
+
+/// Chosen on `devset` as the lowest threshold that executes no wrong route there:
+/// it rejects 7 of 9 escape utterances and keeps 62 of 63 correct routes. Raising
+/// it to reject all 9 costs 60 points of retention, so full escape recall is not
+/// the operating point.
+///
+/// The criterion does not transfer intact. On `heldout` this same threshold keeps
+/// 80 of 98 correct routes but lets 9 of 116 wrong routes through, where `devset`
+/// promised none — top-1 score alone is a weak confidence signal, and that
+/// remains open rather than being papered over by tuning against `heldout`.
+pub const DEFAULT_REJECTION_THRESHOLD: f32 = 0.825;
+
+const UNIT_LENGTH_TOLERANCE: f32 = 1e-3;
+const BYTES_PER_SCALAR: usize = 4;
+
+#[derive(Debug, Error, PartialEq)]
+pub enum IndexError {
+    #[error("router index manifest is not readable: {0}")]
+    UnreadableManifest(String),
+    #[error("router index declares {0} embedding dimensions")]
+    EmptyEmbedding(usize),
+    #[error("router index names route {0}, which this build does not have")]
+    UnknownRoute(String),
+    #[error("router index gives route {0} no exemplars")]
+    RouteWithoutExemplars(String),
+    #[error("router index vectors are {found} bytes, expected {expected}")]
+    VectorSizeMismatch { expected: usize, found: usize },
+    #[error("router index row {row} has length {length}, expected unit length")]
+    RowNotUnitLength { row: usize, length: f32 },
+}
+
+#[derive(Deserialize)]
+struct Manifest {
+    dimensions: usize,
+    routes: Vec<ManifestRoute>,
+}
+
+#[derive(Deserialize)]
+struct ManifestRoute {
+    route: String,
+    exemplars: usize,
+}
+
+#[derive(Debug)]
+struct RouteBlock {
+    route: Route,
+    rows: Range<usize>,
+}
+
+/// The exemplar vectors the router compares against, one contiguous block per route.
+///
+/// Built from an export rather than by encoding the exemplars at startup: 464
+/// forward passes cost seconds the editor does not have, and an export also pins
+/// the index to the encoder it was measured with.
+#[derive(Debug)]
+pub struct ExemplarIndex {
+    dimensions: usize,
+    blocks: Vec<RouteBlock>,
+    vectors: Vec<f32>,
+}
+
+impl ExemplarIndex {
+    /// Validates the export at the boundary so ranking can trust every row.
+    ///
+    /// `vector_bytes` is little-endian f32, rows in manifest order. A partial or
+    /// mismatched export is the realistic failure — a stale file against a
+    /// retrained encoder — and it has to fail here rather than produce a ranking
+    /// that looks plausible.
+    pub fn from_export(manifest_json: &str, vector_bytes: &[u8]) -> Result<Self, IndexError> {
+        let manifest: Manifest = serde_json::from_str(manifest_json)
+            .map_err(|error| IndexError::UnreadableManifest(error.to_string()))?;
+
+        if manifest.dimensions == 0 {
+            return Err(IndexError::EmptyEmbedding(manifest.dimensions));
+        }
+
+        let blocks = build_blocks(&manifest.routes)?;
+        let rows = blocks.last().map_or(0, |block| block.rows.end);
+        let expected = rows * manifest.dimensions * BYTES_PER_SCALAR;
+        if vector_bytes.len() != expected {
+            return Err(IndexError::VectorSizeMismatch {
+                expected,
+                found: vector_bytes.len(),
+            });
+        }
+
+        let index = Self {
+            dimensions: manifest.dimensions,
+            blocks,
+            vectors: decode_vectors(vector_bytes),
+        };
+        index.verify_rows_are_unit_length()?;
+        Ok(index)
+    }
+
+    pub fn dimensions(&self) -> usize {
+        self.dimensions
+    }
+
+    pub fn exemplar_count(&self) -> usize {
+        self.vectors.len() / self.dimensions
+    }
+
+    fn row(&self, row: usize) -> &[f32] {
+        &self.vectors[row * self.dimensions..(row + 1) * self.dimensions]
+    }
+
+    fn verify_rows_are_unit_length(&self) -> Result<(), IndexError> {
+        for row in 0..self.exemplar_count() {
+            let length = self
+                .row(row)
+                .iter()
+                .map(|value| value * value)
+                .sum::<f32>()
+                .sqrt();
+            if (length - 1.0).abs() > UNIT_LENGTH_TOLERANCE {
+                return Err(IndexError::RowNotUnitLength { row, length });
+            }
+        }
+        Ok(())
+    }
+
+    fn best_similarity(&self, block: &RouteBlock, query: &[f32]) -> f32 {
+        block
+            .rows
+            .clone()
+            .map(|row| dot(self.row(row), query))
+            .fold(f32::NEG_INFINITY, f32::max)
+    }
+}
+
+fn build_blocks(routes: &[ManifestRoute]) -> Result<Vec<RouteBlock>, IndexError> {
+    let mut blocks = Vec::with_capacity(routes.len());
+    let mut start = 0;
+
+    for entry in routes {
+        let route = Route::from_id(&entry.route)
+            .ok_or_else(|| IndexError::UnknownRoute(entry.route.clone()))?;
+        if entry.exemplars == 0 {
+            return Err(IndexError::RouteWithoutExemplars(entry.route.clone()));
+        }
+
+        blocks.push(RouteBlock {
+            route,
+            rows: start..start + entry.exemplars,
+        });
+        start += entry.exemplars;
+    }
+    Ok(blocks)
+}
+
+fn decode_vectors(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(BYTES_PER_SCALAR)
+        .map(|chunk| f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]))
+        .collect()
+}
+
+fn dot(left: &[f32], right: &[f32]) -> f32 {
+    left.iter().zip(right).map(|(a, b)| a * b).sum()
+}
+
+/// Every route the mode allows, best score first.
+///
+/// The sort is stable and the blocks are in route-table order, so two routes with
+/// the same score come back in that order — the evaluation driver's Python sort
+/// behaves identically, and the tie-break downstream reads position, not score.
+pub fn rank_routes(
+    index: &ExemplarIndex,
+    query: &[f32],
+    mode: OrchestratorMode,
+) -> Vec<(Route, f32)> {
+    assert_eq!(
+        query.len(),
+        index.dimensions(),
+        "the encoder and the router index must agree on embedding width"
+    );
+
+    let mut ranked: Vec<(Route, f32)> = index
+        .blocks
+        .iter()
+        .filter(|block| block.route.is_available_in(mode))
+        .map(|block| (block.route, index.best_similarity(block, query)))
+        .collect();
+
+    ranked.sort_by(|left, right| right.1.total_cmp(&left.1));
+    ranked
+}
+
+pub struct RoutingRequest<'a> {
+    pub utterance: &'a str,
+    pub query_vector: &'a [f32],
+    pub mode: OrchestratorMode,
+}
+
+/// What the router concluded. Rejection is a distinct outcome rather than a route
+/// with a low score, so a caller cannot dispatch one by forgetting to compare.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum RouterDecision {
+    Accept {
+        route: Route,
+        score: f32,
+    },
+    /// Below the threshold. `best` is what the encoder preferred, which is what a
+    /// clarifying question should be built from.
+    Reject {
+        best: Route,
+        score: f32,
+    },
+    /// The mode left no route to choose from.
+    NoCandidate,
+}
+
+pub fn route_utterance(
+    request: RoutingRequest<'_>,
+    index: &ExemplarIndex,
+    threshold: f32,
+) -> RouterDecision {
+    let ranked = rank_routes(index, request.query_vector, request.mode);
+    let normalized = normalize_utterance(request.utterance);
+
+    let Some(winner) = break_polarity_tie(&normalized, &ranked) else {
+        return RouterDecision::NoCandidate;
+    };
+
+    // The winner's own score, not the leader's: a promoted runner-up must clear the
+    // threshold on what the encoder gave it, or the tie-break would be a way past a
+    // gate it never met. A winner outside `ranked` cannot happen — the tie-break only
+    // returns one of its first two — and scoring it out of range rather than
+    // unwrapping means the impossible case rejects instead of dispatching.
+    let score = ranked
+        .iter()
+        .find(|(route, _)| *route == winner)
+        .map_or(f32::NEG_INFINITY, |(_, score)| *score);
+
+    if score >= threshold {
+        RouterDecision::Accept {
+            route: winner,
+            score,
+        }
+    } else {
+        RouterDecision::Reject {
+            best: winner,
+            score,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::orchestrator::components::tool_call::{SeekPosition, VisibilityState};
+
+    const DIMENSIONS: usize = 4;
+
+    fn unit(values: [f32; DIMENSIONS]) -> [f32; DIMENSIONS] {
+        let length = values.iter().map(|v| v * v).sum::<f32>().sqrt();
+        values.map(|value| value / length)
+    }
+
+    fn export(rows: &[(&str, Vec<[f32; DIMENSIONS]>)]) -> (String, Vec<u8>) {
+        let routes: Vec<String> = rows
+            .iter()
+            .map(|(route, vectors)| {
+                format!(r#"{{"route":"{route}","exemplars":{}}}"#, vectors.len())
+            })
+            .collect();
+        let manifest = format!(
+            r#"{{"dimensions":{DIMENSIONS},"routes":[{}]}}"#,
+            routes.join(",")
+        );
+
+        let bytes = rows
+            .iter()
+            .flat_map(|(_, vectors)| vectors.iter())
+            .flat_map(|vector| vector.iter().flat_map(|value| value.to_le_bytes()))
+            .collect();
+        (manifest, bytes)
+    }
+
+    fn load(rows: &[(&str, Vec<[f32; DIMENSIONS]>)]) -> ExemplarIndex {
+        let (manifest, bytes) = export(rows);
+        ExemplarIndex::from_export(&manifest, &bytes).expect("the fixture export is valid")
+    }
+
+    fn two_route_index() -> ExemplarIndex {
+        load(&[
+            ("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            (
+                "pause_animation",
+                vec![unit([0.0, 1.0, 0.0, 0.0]), unit([0.0, 0.9, 0.1, 0.0])],
+            ),
+        ])
+    }
+
+    #[test]
+    fn a_route_scores_as_its_single_closest_exemplar() {
+        let index = two_route_index();
+        let ranked = rank_routes(
+            &index,
+            &unit([0.0, 0.9, 0.1, 0.0]),
+            OrchestratorMode::AllowEdit,
+        );
+
+        assert_eq!(ranked[0].0, Route::PauseAnimation);
+        assert!(
+            (ranked[0].1 - 1.0).abs() < 1e-5,
+            "the exact exemplar should score 1.0, got {}",
+            ranked[0].1
+        );
+    }
+
+    /// Averaging would let a route with many mediocre exemplars outrank a route
+    /// with one exact match, which is the opposite of what an index of paraphrases
+    /// should do.
+    #[test]
+    fn extra_distant_exemplars_do_not_dilute_a_route() {
+        let sharp = load(&[
+            ("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("pause_animation", vec![unit([0.9, 0.1, 0.0, 0.0])]),
+        ]);
+        let padded = load(&[
+            (
+                "play_animation",
+                vec![
+                    unit([1.0, 0.0, 0.0, 0.0]),
+                    unit([0.0, 0.0, 1.0, 0.0]),
+                    unit([0.0, 0.0, 0.0, 1.0]),
+                ],
+            ),
+            ("pause_animation", vec![unit([0.9, 0.1, 0.0, 0.0])]),
+        ]);
+
+        let query = unit([1.0, 0.0, 0.0, 0.0]);
+        for index in [sharp, padded] {
+            assert_eq!(
+                rank_routes(&index, &query, OrchestratorMode::AllowEdit)[0].0,
+                Route::PlayAnimation
+            );
+        }
+    }
+
+    #[test]
+    fn equal_scores_keep_the_route_table_order() {
+        let index = load(&[
+            ("pause_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+        ]);
+        let ranked = rank_routes(
+            &index,
+            &unit([1.0, 0.0, 0.0, 0.0]),
+            OrchestratorMode::AllowEdit,
+        );
+
+        assert_eq!(ranked[0].0, Route::PauseAnimation);
+        assert_eq!(ranked[1].0, Route::PlayAnimation);
+    }
+
+    #[test]
+    fn read_only_mode_never_ranks_an_edit_route() {
+        let index = load(&[
+            ("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("list_objects", vec![unit([0.0, 1.0, 0.0, 0.0])]),
+        ]);
+        let ranked = rank_routes(
+            &index,
+            &unit([1.0, 0.0, 0.0, 0.0]),
+            OrchestratorMode::ReadOnly,
+        );
+
+        assert_eq!(ranked, vec![(Route::ListObjects, 0.0)]);
+    }
+
+    #[test]
+    fn a_mode_that_allows_nothing_yields_no_candidate() {
+        let index = load(&[("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])])]);
+        let decision = route_utterance(
+            RoutingRequest {
+                utterance: "play it",
+                query_vector: &unit([1.0, 0.0, 0.0, 0.0]),
+                mode: OrchestratorMode::ReadOnly,
+            },
+            &index,
+            DEFAULT_REJECTION_THRESHOLD,
+        );
+
+        assert_eq!(decision, RouterDecision::NoCandidate);
+    }
+
+    #[test]
+    fn a_score_below_the_threshold_is_rejected_rather_than_dispatched() {
+        let index = two_route_index();
+        let decision = route_utterance(
+            RoutingRequest {
+                utterance: "what is the weather",
+                query_vector: &unit([0.0, 0.0, 1.0, 0.0]),
+                mode: OrchestratorMode::AllowEdit,
+            },
+            &index,
+            DEFAULT_REJECTION_THRESHOLD,
+        );
+
+        assert!(
+            matches!(decision, RouterDecision::Reject { .. }),
+            "got {decision:?}"
+        );
+    }
+
+    /// The threshold must see the promoted route's own score. Reading the leader's
+    /// instead would let a swap smuggle a route past a threshold it never met.
+    #[test]
+    fn a_promoted_runner_up_is_thresholded_on_its_own_score() {
+        let index = load(&[
+            ("seek_time:next_key", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("seek_time:prev_key", vec![unit([0.0, 1.0, 0.0, 0.0])]),
+        ]);
+        let query = unit([0.995, 0.1, 0.0, 0.0]);
+        let request = RoutingRequest {
+            utterance: "hop to the key before this one",
+            query_vector: &query,
+            mode: OrchestratorMode::AllowEdit,
+        };
+        let ranked = rank_routes(&index, &query, OrchestratorMode::AllowEdit);
+        let runner_up_score = ranked[1].1;
+
+        assert_eq!(ranked[0].0, Route::SeekTime(SeekPosition::NextKey));
+        assert_eq!(
+            route_utterance(request, &index, 0.0),
+            RouterDecision::Accept {
+                route: Route::SeekTime(SeekPosition::PrevKey),
+                score: runner_up_score,
+            }
+        );
+    }
+
+    #[test]
+    fn a_promoted_runner_up_below_the_threshold_is_still_rejected() {
+        let index = load(&[
+            (
+                "set_object_visibility:show",
+                vec![unit([1.0, 0.0, 0.0, 0.0])],
+            ),
+            (
+                "set_object_visibility:hide",
+                vec![unit([0.0, 1.0, 0.0, 0.0])],
+            ),
+        ]);
+        let query = unit([0.9, 0.3, 0.0, 0.0]);
+
+        assert_eq!(
+            route_utterance(
+                RoutingRequest {
+                    utterance: "make the cube invisible",
+                    query_vector: &query,
+                    mode: OrchestratorMode::AllowEdit,
+                },
+                &index,
+                DEFAULT_REJECTION_THRESHOLD,
+            ),
+            RouterDecision::Reject {
+                best: Route::SetObjectVisibility(VisibilityState::Hide),
+                score: rank_routes(&index, &query, OrchestratorMode::AllowEdit)[1].1,
+            }
+        );
+    }
+
+    #[test]
+    fn an_export_naming_an_unknown_route_is_refused() {
+        let manifest = r#"{"dimensions":4,"routes":[{"route":"teleport","exemplars":1}]}"#;
+        assert_eq!(
+            ExemplarIndex::from_export(manifest, &[0; 16]).unwrap_err(),
+            IndexError::UnknownRoute("teleport".to_string())
+        );
+    }
+
+    #[test]
+    fn an_export_with_a_route_that_has_no_exemplars_is_refused() {
+        let manifest = r#"{"dimensions":4,"routes":[{"route":"undo","exemplars":0}]}"#;
+        assert_eq!(
+            ExemplarIndex::from_export(manifest, &[]).unwrap_err(),
+            IndexError::RouteWithoutExemplars("undo".to_string())
+        );
+    }
+
+    /// A truncated export is the realistic accident, and it would otherwise leave
+    /// the last routes ranking against whatever the trailing rows happened to be.
+    #[test]
+    fn a_truncated_export_is_refused() {
+        let (manifest, mut bytes) = export(&[
+            ("undo", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("redo", vec![unit([0.0, 1.0, 0.0, 0.0])]),
+        ]);
+        bytes.truncate(bytes.len() - BYTES_PER_SCALAR);
+
+        assert_eq!(
+            ExemplarIndex::from_export(&manifest, &bytes).unwrap_err(),
+            IndexError::VectorSizeMismatch {
+                expected: 32,
+                found: 28,
+            }
+        );
+    }
+
+    /// Cosine is a dot product only while both sides are unit length. An export
+    /// that skipped normalization would silently rank by magnitude.
+    #[test]
+    fn an_export_that_skipped_normalization_is_refused() {
+        let (manifest, bytes) = export(&[("undo", vec![[2.0, 0.0, 0.0, 0.0]])]);
+        assert_eq!(
+            ExemplarIndex::from_export(&manifest, &bytes).unwrap_err(),
+            IndexError::RowNotUnitLength {
+                row: 0,
+                length: 2.0,
+            }
+        );
+    }
+
+    #[test]
+    fn an_unparseable_manifest_is_refused() {
+        assert!(matches!(
+            ExemplarIndex::from_export("not json", &[]),
+            Err(IndexError::UnreadableManifest(_))
+        ));
+    }
+}

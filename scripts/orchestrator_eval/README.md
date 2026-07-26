@@ -91,14 +91,47 @@ snapshot_download('intfloat/multilingual-e5-small',
     --variant baseline --prompt few_shot --output results/few_shot.json
 ```
 
-Regenerate the polarity table after any edit to `exemplars.jsonl`, and re-run the
-sweep if the derivation itself changed:
+Regenerate the polarity table after any edit to `exemplars.jsonl`, then re-export
+the cases the Rust tie-break is tested against. `cargo test --lib` fails naming
+these two commands if the export is stale, so neither can be forgotten silently:
 
 ```bash
 .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/derive_polarity_terms.py
+.venv-orchestrator-eval/bin/python scripts/orchestrator_eval/export_tiebreak_cases.py
+```
+
+Re-run the sweep as well if the derivation itself changed:
+
+```bash
 .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/sweep_polarity.py \
     --model-dir models/gemma/setfit-6ep-en8 --output results/polarity_sweep.json
 ```
+
+## Handing the router to the engine
+
+`src/orchestrator/systems/router.rs` ranks the routes and
+`thyllore_ml_core::sentence_encoder` encodes the utterance, but the accuracy above
+belongs to this driver. What ties the two together is an export of the exemplar
+vectors plus the decision this driver reached for every labelled utterance, which
+the Rust side replays through its own encoder and ranker:
+
+```bash
+.venv-orchestrator-eval/bin/python scripts/orchestrator_eval/export_router_index.py \
+    --model-dir models/gemma/setfit-6ep-en8
+
+THYLLORE_ROUTER_MODEL_DIR=$PWD/models/gemma/setfit-6ep-en8 \
+    cargo test --test orchestrator_router_parity
+```
+
+All 202 utterances agree on route, and on score within 1e-3 — the two runtimes are
+different onnxruntime builds. Re-export after retraining or after any change to
+`exemplars.jsonl`; the test skips with a message when the model directory is unset,
+so a stale export shows up as a disagreement rather than as a silent pass.
+
+The engine's rejection threshold is `DEFAULT_REJECTION_THRESHOLD`, selected on
+`devset` as the lowest value that executes no wrong route there. It does not
+transfer intact — see the constant's own documentation for what `heldout` says
+about it.
 
 | Flag | Driver | Values |
 |---|---|---|
@@ -125,8 +158,12 @@ utterance on a single intra-op thread, so a 128-case run takes ~4 minutes.
 | `normalize.py` | Utterance normalization, mirroring `src/orchestrator/systems/normalize.rs` |
 | `polarity.py` | Polarity axes, term derivation, and the tie-break the engine mirrors |
 | `derive_polarity_terms.py` | Writes `src/orchestrator/data/polarity_groups.json` from the exemplars |
+| `export_tiebreak_cases.py` | Records this tie-break's answers over every utterance, for the Rust differential test |
+| `export_router_index.py` | Writes the engine's exemplar vectors and the decisions the Rust router is held to |
 | `sweep_polarity.py` | Evidence for the minimum-support and margin parameters the tie-break does not have |
-| `exemplars.jsonl` | 464 example utterances (29 routes × 8 English + 8 Japanese). The router's index; disjoint from both datasets |
+| `exemplars.jsonl` | 696 example utterances (29 routes × 8 English + 16 Japanese). The router's index; disjoint from both datasets |
+| `train_setfit.py` | Contrastively adapts the encoder to the routes and exports it as ONNX |
+| `select_setfit_epochs.py` | Picks the epoch count on a split of the exemplars, one checkpointed run per candidate |
 | `static_embedder.py` | Sentence vectors pooled from Gemma's input embedding table alone |
 | `contextual_embedder.py` | Sentence vectors from an ONNX sentence encoder |
 | `prompt_builder.py` | Prompt strategies. Few-shot examples follow the tool variant |

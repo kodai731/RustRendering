@@ -21,6 +21,11 @@
 //! Categorical enums are deliberately not groups even though their schema shape is
 //! identical. The encoder separates `walk` from `jump` reliably, so a tie-break
 //! there has nothing to win and was measured losing.
+//!
+//! `scripts/orchestrator_eval/polarity.py` is the reference: it produced the
+//! measured accuracy, so this file is correct only insofar as it answers the same
+//! way. `polarity_tiebreak_cases.json` records those answers over every utterance
+//! the repository has, and the differential test below holds this code to them.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -300,5 +305,81 @@ mod tests {
     #[test]
     fn an_empty_ranking_resolves_to_nothing() {
         assert_eq!(break_polarity_tie("play it", &[]), None);
+    }
+
+    const EXPORTED_CASES_JSON: &str = include_str!("../data/polarity_tiebreak_cases.json");
+
+    /// The Python answers, over every utterance in the exemplars and both datasets.
+    ///
+    /// The measured 0.845 came from `polarity.py`. Anything this file does
+    /// differently — a normalization step, substring semantics, which routes count
+    /// as one axis — moves the engine off that number without failing a test, so
+    /// the two implementations are compared case by case rather than trusted to
+    /// have been written from the same description.
+    #[derive(Deserialize)]
+    struct ExportedCases {
+        table_term_counts: HashMap<String, usize>,
+        cases: Vec<ExportedCase>,
+    }
+
+    #[derive(Deserialize)]
+    struct ExportedCase {
+        utterance: String,
+        normalized: String,
+        resolutions: Vec<(String, String, String)>,
+    }
+
+    fn load_exported_cases() -> ExportedCases {
+        serde_json::from_str(EXPORTED_CASES_JSON)
+            .expect("polarity_tiebreak_cases.json is generated and must parse")
+    }
+
+    /// Editing `exemplars.jsonl` regenerates the term table, which makes the
+    /// recorded answers describe a table this build no longer has. Comparing the
+    /// term counts turns that staleness into a failure that names the regeneration
+    /// step, rather than letting the resolutions pass or fail for the wrong reason.
+    #[test]
+    fn the_exported_cases_were_generated_from_the_embedded_table() {
+        let exported = load_exported_cases();
+        let embedded: HashMap<String, usize> = POLARITY_AXES
+            .iter()
+            .map(|(route_id, axis)| (route_id.clone(), axis.terms.len()))
+            .collect();
+
+        assert_eq!(
+            exported.table_term_counts, embedded,
+            "re-run derive_polarity_terms.py then export_tiebreak_cases.py"
+        );
+    }
+
+    #[test]
+    fn normalization_agrees_with_the_python_reference() {
+        for case in load_exported_cases().cases {
+            assert_eq!(
+                normalize_utterance(&case.utterance),
+                case.normalized,
+                "for {:?}",
+                case.utterance
+            );
+        }
+    }
+
+    #[test]
+    fn every_exported_resolution_agrees_with_the_python_reference() {
+        for case in load_exported_cases().cases {
+            for (leader, runner_up, expected) in &case.resolutions {
+                let ranked = [(route_named(leader), 1.0), (route_named(runner_up), 0.9)];
+                assert_eq!(
+                    resolve(&case.utterance, &ranked).id(),
+                    *expected,
+                    "for {:?} ranked {leader} over {runner_up}",
+                    case.utterance
+                );
+            }
+        }
+    }
+
+    fn route_named(route_id: &str) -> Route {
+        Route::from_id(route_id).unwrap_or_else(|| panic!("exported unknown route {route_id}"))
     }
 }

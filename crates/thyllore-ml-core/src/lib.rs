@@ -5,6 +5,7 @@ pub mod degrade;
 pub mod feedback;
 pub mod mode;
 pub mod model_path;
+pub mod sentence_encoder;
 
 #[cfg(feature = "python")]
 mod pybindings;

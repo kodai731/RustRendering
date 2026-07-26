@@ -160,8 +160,10 @@ class PolarityTieBreaker:
     def __init__(self, table: dict):
         self.terms_by_route: dict[str, list[str]] = {}
         self.group_of_route: dict[str, str] = {}
+        self.members_by_axis: dict[str, list[str]] = {}
 
         for group_name, members in table["groups"].items():
+            self.members_by_axis[group_name] = list(members)
             for route, terms in members.items():
                 self.terms_by_route[route] = terms
                 self.group_of_route[route] = group_name

@@ -44,8 +44,21 @@ def build_training_dataset(exemplars: list[dict]) -> Dataset:
 
 
 def train_route_encoder(
-    exemplars: list[dict], base_model_dir: str, epochs: int, batch_size: int, output_dir: Path
+    exemplars: list[dict],
+    base_model_dir: str,
+    epochs: int,
+    batch_size: int,
+    output_dir: Path,
+    save_strategy: str = "no",
 ) -> SetFitModel:
+    """`save_strategy="epoch"` is what `select_setfit_epochs.py` needs.
+
+    Comparing epoch counts from checkpoints of one run costs a single training
+    trajectory instead of one run per candidate, and the candidates are nested
+    rather than independently seeded, so the comparison is between epochs and not
+    between initializations. That only works with `save_total_limit` lifted —
+    SetFit defaults it to 1, which leaves the last epoch and deletes the rest.
+    """
     torch.manual_seed(SEED)
     np.random.seed(SEED)
 
@@ -55,7 +68,8 @@ def train_route_encoder(
         batch_size=batch_size,
         num_epochs=epochs,
         num_iterations=20,
-        save_strategy="no",
+        save_strategy=save_strategy,
+        save_total_limit=None,
         seed=SEED,
         report_to="none",
     )

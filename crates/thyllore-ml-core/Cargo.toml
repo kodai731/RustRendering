@@ -34,6 +34,10 @@ sha2 = "0.10"
 ureq = { version = "2", features = ["json"] }
 ndarray = "0.16"
 ndarray-npy = "0.9"
+# fancy-regex rather than the default onig: a pure-Rust regex engine keeps the
+# build free of the oniguruma C dependency, and the sentence encoder's tokenizer
+# is a Unigram model that never reaches the regex path anyway.
+tokenizers = { version = "0.23", default-features = false, features = ["fancy-regex"] }
 obfstr = "0.4"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 

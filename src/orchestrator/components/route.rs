@@ -153,6 +153,13 @@ impl Route {
         }
     }
 
+    pub fn is_available_in(self, mode: OrchestratorMode) -> bool {
+        match mode {
+            OrchestratorMode::ReadOnly => self.kind() == RouteKind::ReadOnly,
+            OrchestratorMode::AllowEdit => true,
+        }
+    }
+
     pub fn slot(self) -> Option<SlotKind> {
         match self {
             Route::SelectObject | Route::SetObjectVisibility(_) => Some(SlotKind::ObjectName),
@@ -203,10 +210,7 @@ pub fn routes_for_mode(mode: OrchestratorMode) -> Vec<Route> {
     ALL_ROUTES
         .iter()
         .copied()
-        .filter(|route| match mode {
-            OrchestratorMode::ReadOnly => route.kind() == RouteKind::ReadOnly,
-            OrchestratorMode::AllowEdit => true,
-        })
+        .filter(|route| route.is_available_in(mode))
         .collect()
 }
 
