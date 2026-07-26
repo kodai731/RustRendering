@@ -27,17 +27,25 @@ Measured on held-out (128 cases), keyword router off, cosine to nearest exemplar
 
 | Directory | Training | route | tool | enum誤り | escape retained |
 |---|---|---|---|---|---|
-| — (base, not stored) | none | 0.603 | 0.698 | 11 | 0.286 |
-| `setfit-1ep` | SetFit, 435 steps | 0.629 | 0.750 | 14 | 0.521 |
-| `setfit-3ep` | SetFit, 1305 steps | 0.698 | 0.784 | 10 | 0.519 |
-| `setfit-6ep` | SetFit, 2610 steps | **0.724** | **0.793** | **8** | **0.524** |
-| `sibling-hardneg` | MNRL on sibling triplets, 430 steps | 0.698 | 0.767 | **8** | 0.444 |
+| — (base, not stored) | none | 0.690 | 0.784 | — | 0.363 |
+| `setfit-6ep-en8` | SetFit, 3480 steps, 464 exemplars | **0.802** | **0.862** | **7** | 0.366 |
+| `setfit-1ep` | SetFit, 435 steps, 348 exemplars | 0.629 | 0.750 | 14 | 0.521 |
+| `setfit-3ep` | SetFit, 1305 steps, 348 exemplars | 0.698 | 0.784 | 10 | 0.519 |
+| `setfit-6ep` | SetFit, 2610 steps, 348 exemplars | 0.724 | 0.793 | 8 | 0.524 |
+| `sibling-hardneg` | MNRL on sibling triplets, 430 steps | 0.698 | 0.767 | 8 | 0.444 |
 
-`setfit-6ep` is the best measured, but **the epoch count is not yet validated**:
-devset saturates at 0.877 for both 3ep and 6ep, so the ranking above comes from
-held-out numbers. That makes 0.724 an optimistic estimate of unseen performance.
-Carving a validation split out of `exemplars.jsonl` is the fix, and until that
-runs, treat the epoch choice as provisional.
+The first two rows use the current 464-exemplar index (8 per language per route);
+the rest were measured when English had only 4 per route, so compare them among
+themselves. `setfit-6ep-en8` is the variant to load.
+
+Its lower `escape retained` is not a regression: 9 of the 12 escape cases drop
+below 0.73, and the operating point is pinned by three genuinely ambiguous ones
+(`fix it`). At 10/12 escape recall it retains 0.710 against `setfit-6ep`'s 0.560.
+
+**The epoch count is not yet validated**: devset saturates for both 3ep and 6ep,
+so the ranking comes from held-out numbers, which makes 0.802 an optimistic
+estimate of unseen performance. Carving a validation split out of
+`exemplars.jsonl` is the fix; until that runs, treat the epoch choice as provisional.
 
 `sibling-hardneg` and the `route_head.json` classifier were both **rejected** —
 kept here because the measurements that rejected them are cited in the design
@@ -59,13 +67,13 @@ sibling-hardneg/
 
 ```bash
 .venv-setfit/bin/python scripts/orchestrator_eval/train_setfit.py \
-    --output-dir models/gemma/setfit-6ep --epochs 6
+    --output-dir models/gemma/setfit-6ep-en8 --epochs 6
 
 .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/eval_router.py \
     --embedder contextual --keyword-router off --dataset heldout \
-    --model-dir models/gemma/setfit-6ep
+    --model-dir models/gemma/setfit-6ep-en8
 ```
 
 Training is CPU-only and deterministic under the seed in `train_setfit.py`:
-about 3 minutes per epoch. The ONNX export matches the torch model to
-cos = 1.0 (max abs diff 2.0e-7).
+about 4 minutes per epoch at 464 exemplars. The ONNX export matches the torch
+model to cos = 1.0 (max abs diff 2.0e-7).

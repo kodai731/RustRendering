@@ -6,7 +6,7 @@ utterance, on plain onnxruntime.
 | Driver | Approach | Result on `heldout` |
 |---|---|---|
 | `eval_tool_selection.py` | Generative — Gemma 3 270M under llguidance JSON Schema constraint | not yet re-measured |
-| `eval_router.py` | Embedding router — cosine similarity against per-route exemplars | 60.3% route accuracy, escape 12/12 at 28.6% retained |
+| `eval_router.py` | Embedding router — cosine similarity against per-route exemplars | 69.0% route accuracy on the plain encoder, 80.2% on the SetFit-adapted one |
 
 ## Which dataset to quote
 
@@ -18,7 +18,11 @@ only alongside it, as the size of the fit.
 | Dataset | Cases | Keyword coverage | Keyword precision | Route accuracy (embed only) | Route accuracy (+keyword) |
 |---|---|---|---|---|---|
 | `devset` | 74 | 0.985 | 1.000 | 0.815 | 1.000 |
-| `heldout` | 128 | 0.405 | 0.468 | 0.603 | 0.569 |
+| `heldout` | 128 | 0.405 | 0.468 | 0.690 | 0.603 |
+
+Route accuracy is with the current 8-per-language exemplar index. Widening the
+English exemplars from 4 to 8 moved `heldout` from 0.603 to 0.690 and widened the
+gap the keyword rules give away: they now cost 11 cases instead of 4.
 
 This is a test-vector generator and a go/no-go gate for `src/orchestrator/` —
 not product code. Findings live in `${RustRenderingDocPath}/Design/`:
@@ -90,7 +94,7 @@ utterance on a single intra-op thread, so a 128-case run takes ~4 minutes.
 | `route_schema.py` | Route expansion: tool × the enum arguments that appear in an utterance |
 | `dataset.py` | Dataset name to path, and what each set is allowed to claim |
 | `keyword_router.py` | Deterministic keyword routing. Reads `src/orchestrator/data/keyword_router_rules.json`, the same table the engine embeds |
-| `exemplars.jsonl` | 348 example utterances (29 routes × 4 English + 8 Japanese). The router's index; disjoint from both datasets |
+| `exemplars.jsonl` | 464 example utterances (29 routes × 8 English + 8 Japanese). The router's index; disjoint from both datasets |
 | `static_embedder.py` | Sentence vectors pooled from Gemma's input embedding table alone |
 | `contextual_embedder.py` | Sentence vectors from an ONNX sentence encoder |
 | `prompt_builder.py` | Prompt strategies. Few-shot examples follow the tool variant |
