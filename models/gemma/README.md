@@ -23,7 +23,9 @@ prefix, which E5 requires even for symmetric tasks.
 
 ## Variants
 
-Measured on held-out (128 cases), keyword router off, cosine to nearest exemplar.
+Measured on held-out (128 cases), `--stage-a none`, cosine to nearest exemplar. The polarity
+tie-break adds 0.043 on top of the adopted variant; it is measured separately because it is
+not a property of the encoder.
 
 | Directory | Training | route | tool | enum誤り | escape retained |
 |---|---|---|---|---|---|
@@ -70,7 +72,7 @@ sibling-hardneg/
     --output-dir models/gemma/setfit-6ep-en8 --epochs 6
 
 .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/eval_router.py \
-    --embedder contextual --keyword-router off --dataset heldout \
+    --embedder contextual --stage-a none --dataset heldout \
     --model-dir models/gemma/setfit-6ep-en8
 ```
 

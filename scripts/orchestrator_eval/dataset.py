@@ -1,10 +1,11 @@
 """The labelled utterance sets both evaluation drivers read.
 
-`devset` is what the keyword rules in `src/orchestrator/data/keyword_router_rules.json`
-were authored against, so any rule-assisted number it produces is optimistic by
-construction. `heldout` was written without reading that table and is the only
-set whose accuracy is expected to hold on unseen phrasing. Report both, and
-treat the gap between them as the amount of fitting the rules absorbed.
+`devset` is what the retired keyword rule table was authored against, so it reads
+high for reasons that do not carry over — the rules scored 1.000 on it and 0.655 on
+`heldout`. It is kept as the selection set for anything with a parameter to choose,
+because using `heldout` for that would spend the only set whose accuracy is expected
+to hold on unseen phrasing. Quote `heldout`; quote `devset` only beside it, as the
+size of the fit.
 """
 
 import json

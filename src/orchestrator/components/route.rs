@@ -79,7 +79,7 @@ pub const ALL_ROUTES: [Route; 29] = [
 ];
 
 /// Values the router fills in before a route can become a `ToolCall`. Slots come
-/// from name resolution, modifiers from the keyword router.
+/// from name resolution, modifiers from `systems::modifier`.
 #[derive(Clone, Debug, Default)]
 pub struct RouteSlots {
     pub object_name: Option<String>,

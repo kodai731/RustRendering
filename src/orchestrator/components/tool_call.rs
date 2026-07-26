@@ -23,15 +23,6 @@ impl SpeedPreset {
             SpeedPreset::Fast => "fast",
         }
     }
-
-    pub fn from_str(text: &str) -> Option<Self> {
-        match text {
-            "slow" => Some(SpeedPreset::Slow),
-            "normal" => Some(SpeedPreset::Normal),
-            "fast" => Some(SpeedPreset::Fast),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
