@@ -46,7 +46,8 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
         "envelope_peak": effect.envelope_peak,
         "envelope_base": effect.envelope_base,
         "envelope_tail": effect.envelope_tail,
-        "radial_sharpness": effect.radial_sharpness
+        "radial_sharpness": effect.radial_sharpness,
+        "occlusion_lum_ref": effect.occlusion_lum_ref
     })
 }
 
@@ -187,6 +188,7 @@ mod tests {
             envelope_base: 0.45,
             envelope_tail: 1.6,
             radial_sharpness: 4.0,
+            occlusion_lum_ref: 1.0,
             rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
              ..FlameEffect::default()
             }

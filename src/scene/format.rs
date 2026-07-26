@@ -306,12 +306,15 @@ pub struct FlameEffectData {
     pub envelope_tail: f32,
     #[serde(default = "default_radial_sharpness")]
     pub radial_sharpness: f32,
+    #[serde(default = "default_occlusion_lum_ref")]
+    pub occlusion_lum_ref: f32,
 }
 
 fn default_envelope_peak() -> f32 { 0.35 }
 fn default_envelope_base() -> f32 { 0.45 }
 fn default_envelope_tail() -> f32 { 1.6 }
 fn default_radial_sharpness() -> f32 { 4.0 }
+fn default_occlusion_lum_ref() -> f32 { 1.0 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameChannelData {
@@ -466,6 +469,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             envelope_base: effect.envelope_base,
             envelope_tail: effect.envelope_tail,
             radial_sharpness: effect.radial_sharpness,
+            occlusion_lum_ref: effect.occlusion_lum_ref,
         },
         channels,
     })
@@ -521,6 +525,7 @@ pub fn apply_flame_state_to_world(
         effect.envelope_base = flame.effect.envelope_base;
         effect.envelope_tail = flame.effect.envelope_tail;
         effect.radial_sharpness = flame.effect.radial_sharpness;
+        effect.occlusion_lum_ref = flame.effect.occlusion_lum_ref;
         thyllore_render_core::refresh_flame_coefficients(&mut effect);
     }
 
@@ -638,6 +643,7 @@ mod tests {
                 envelope_base: 0.45,
                 envelope_tail: 1.6,
                 radial_sharpness: 4.0,
+                occlusion_lum_ref: 1.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),

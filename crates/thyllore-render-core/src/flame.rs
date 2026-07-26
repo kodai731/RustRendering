@@ -127,14 +127,16 @@ pub enum FlameShadingMode {
     ReferenceRaymarch,
     DebugThickness,
     NoiseRaymarch,
+    Factors,
 }
 
 impl FlameShadingMode {
-    pub const ALL: [FlameShadingMode; 4] = [
+    pub const ALL: [FlameShadingMode; 5] = [
         FlameShadingMode::Analytic,
         FlameShadingMode::ReferenceRaymarch,
         FlameShadingMode::NoiseRaymarch,
         FlameShadingMode::DebugThickness,
+        FlameShadingMode::Factors,
     ];
 
     pub fn label(self) -> &'static str {
@@ -143,6 +145,7 @@ impl FlameShadingMode {
             FlameShadingMode::ReferenceRaymarch => "Reference Raymarch",
             FlameShadingMode::DebugThickness => "Debug Thickness",
             FlameShadingMode::NoiseRaymarch => "Noise Raymarch",
+            FlameShadingMode::Factors => "Factors",
         }
     }
 
@@ -152,6 +155,7 @@ impl FlameShadingMode {
             FlameShadingMode::ReferenceRaymarch => 1,
             FlameShadingMode::DebugThickness => 2,
             FlameShadingMode::NoiseRaymarch => 3,
+            FlameShadingMode::Factors => 4,
         }
     }
 
@@ -161,6 +165,7 @@ impl FlameShadingMode {
             "raymarch" => Some(FlameShadingMode::ReferenceRaymarch),
             "thickness" => Some(FlameShadingMode::DebugThickness),
             "noise" => Some(FlameShadingMode::NoiseRaymarch),
+            "factors" => Some(FlameShadingMode::Factors),
             _ => None,
         }
     }
@@ -189,6 +194,7 @@ impl FlameRenderSettings {
             FlameShadingMode::Analytic | FlameShadingMode::DebugThickness => 1,
             FlameShadingMode::ReferenceRaymarch => self.reference_step_count.max(1),
             FlameShadingMode::NoiseRaymarch => self.noise_step_count.max(1),
+            FlameShadingMode::Factors => 1,
         }
     }
 }
@@ -237,6 +243,7 @@ pub struct FlameEffect {
     pub emitter_kind: u32,
     pub ring_major_radius: f32,
     pub ring_angular_speed: f32,
+    pub occlusion_lum_ref: f32,
 }
 
 impl Default for FlameEffect {
@@ -284,6 +291,7 @@ impl Default for FlameEffect {
             emitter_kind: 0,
             ring_major_radius: 1.0,
             ring_angular_speed: 0.6,
+            occlusion_lum_ref: 1.0,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -372,7 +380,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         noise_frequency: effect.noise_frequency,
         noise_scroll_speed: effect.noise_scroll_speed,
         radialSharpness: effect.radial_sharpness,
-        color_base: Vector4::new(color_base[0], color_base[1], color_base[2], 1.0),
+        color_base: Vector4::new(color_base[0], color_base[1], color_base[2], effect.occlusion_lum_ref),
         color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
         color_tip: Vector4::new(color_tip[0], color_tip[1], color_tip[2], 1.0),
         temporal_data: Vector4::new(effect.temporal_weight, (effect.frame_index % 16384) as f32, effect.noise_aniso_y, effect.warp_y_scale),
@@ -559,7 +567,7 @@ pub fn build_flame_ubo_with_trail(
         noise_frequency: effect.noise_frequency,
         noise_scroll_speed: effect.noise_scroll_speed,
         radialSharpness: effect.radial_sharpness,
-        color_base: Vector4::new(color_base[0], color_base[1], color_base[2], 1.0),
+        color_base: Vector4::new(color_base[0], color_base[1], color_base[2], effect.occlusion_lum_ref),
         color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
         color_tip: Vector4::new(color_tip[0], color_tip[1], color_tip[2], 1.0),
         temporal_data: Vector4::new(effect.temporal_weight, (effect.frame_index % 16384) as f32, effect.noise_aniso_y, effect.warp_y_scale),
@@ -827,6 +835,7 @@ mod tests {
             ("raymarch", FlameShadingMode::ReferenceRaymarch, 1),
             ("thickness", FlameShadingMode::DebugThickness, 2),
             ("noise", FlameShadingMode::NoiseRaymarch, 3),
+            ("factors", FlameShadingMode::Factors, 4),
         ];
         for (name, mode, shader_value) in cases {
             assert_eq!(FlameShadingMode::parse(name), Some(mode));

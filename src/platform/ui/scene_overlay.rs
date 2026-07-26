@@ -467,7 +467,7 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                     ui.slider_config("Noise Steps", 4, 64).build(&mut steps);
                     settings_copy.noise_step_count = steps.max(1) as u32;
                 }
-                FlameShadingMode::Analytic | FlameShadingMode::DebugThickness => {}
+            FlameShadingMode::Analytic | FlameShadingMode::DebugThickness | FlameShadingMode::Factors => {}
             }
 
             ui_events.send(UIEvent::UpdateFlameRenderSettings(settings_copy));
@@ -612,6 +612,9 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
 
                 ui.slider_config("Self Shadow", 0.0, 1.0)
                     .build(&mut effect_copy.self_shadow_strength);
+
+                ui.slider_config("Occlusion Lum", 0.05, 4.0)
+                    .build(&mut effect_copy.occlusion_lum_ref);
 
                 ui.slider_config("Warp Amp", 0.0, 3.0)
                     .build(&mut effect_copy.warp_amp);

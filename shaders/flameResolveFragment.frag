@@ -51,6 +51,7 @@ layout(set = 1, binding = 2) uniform sampler2D flameAccumSampler;
 layout(set = 1, binding = 3) uniform sampler2D flameIntervalSampler;
 layout(set = 1, binding = 4) uniform sampler2D flameHistorySampler;
 layout(set = 1, binding = 5) uniform sampler2D flameSdfSampler;
+layout(set = 1, binding = 6) uniform sampler2D sceneDepthSampler;
 
 layout(location = 0) in vec2 fragTexCoord;
 
@@ -64,6 +65,7 @@ layout(push_constant) uniform FlamePush {
 
 const float INTERVAL_CLEAR_THRESHOLD = 1e37;
 const float H_DIR_EPSILON = 1e-4;
+const vec3 LUMA_WEIGHTS = vec3(0.2126, 0.7152, 0.0722);
 
 float evaluateHeightFalloff(float height01) {
     return evaluateChebyshev8(flame.heightCoefficients[0], flame.heightCoefficients[1], height01);
@@ -270,19 +272,30 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
     segment.tFar = max(tFar, segment.tNear);
     segment.boundaryHeightIntegral = heightIntegral;
 
+    // Geometric camera-inside test: local origin must be within the shell cone
+    bool cameraInside = segment.localOrigin.y >= 0.0 && segment.localOrigin.y <= 1.0
+        && length(segment.localOrigin.xz) <= 0.5 * mix(1.0, 0.25, segment.localOrigin.y);
+
     // Camera inside the shell: front boundary terms at t = 0 were never
     // rasterized, so coverage = +N and the missing (-1) * H1(h_o) / h_d
     // terms are restored here (their t and delta-t contributions are zero).
-    if (coverage > 0.5 && abs(segment.localDir.y) > H_DIR_EPSILON) {
+    if (coverage > 0.5 && cameraInside && abs(segment.localDir.y) > H_DIR_EPSILON) {
         float missingCount = round(coverage);
         segment.boundaryHeightIntegral -= missingCount
             * evaluateHeightPrimitive(clamp(segment.localOrigin.y, 0.0, 1.0)) / segment.localDir.y;
         segment.tNear = 0.0;
-   }
+    }
 
-  // Clamp to shell cone for non-trail domains (cylinder emitter only, bend off)
-   if (flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0 && abs(flame.styleParams2.z) < 1e-4) {
-       if (!clampToShellCone(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar)) {
+    // Clamp to shell cone for non-trail domains (cylinder emitter only, bend off)
+    if (flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0 && abs(flame.styleParams2.z) < 1e-4) {
+        // For unpaired coverage pixels (abs(round(coverage)) > 0.5 && !cameraInside), the interval
+        // buffer is degenerate (tNear == tFar). Reset to wide interval before cone clamping so
+        // clampToShellCone correctly finds the intersection with the shell cone/y-slab.
+        if (abs(round(coverage)) > 0.5 && !cameraInside) {
+            segment.tNear = 0.0;
+            segment.tFar = 1e4;
+        }
+        if (!clampToShellCone(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar)) {
             // Empty interval: return with tNear > tFar so caller can detect it
             segment.tNear = 1.0;
             segment.tFar = 0.0;
@@ -292,6 +305,24 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
             vec3 d = segment.localDir;
             segment.boundaryHeightIntegral = (evaluateHeightPrimitive(clamp(o.y + segment.tFar * d.y, 0.0, 1.0))
                 - evaluateHeightPrimitive(clamp(o.y + segment.tNear * d.y, 0.0, 1.0))) / segment.localDir.y;
+        } else if (abs(round(coverage)) > 0.5 && !cameraInside) {
+            // Camera outside but coverage non-zero (boundary artifact): use mid-point rule
+            vec3 o = segment.localOrigin;
+            vec3 d = segment.localDir;
+            segment.boundaryHeightIntegral = evaluateChebyshev8(flame.heightCoefficients[0], flame.heightCoefficients[1],
+                clamp(o.y + 0.5 * (segment.tNear + segment.tFar) * d.y, 0.0, 1.0)) * (segment.tFar - segment.tNear);
+        }
+    }
+
+    float depthRaw = texture(sceneDepthSampler, fragTexCoord).r;
+    if (depthRaw != DEPTH_FAR) {
+        vec4 depthWorld = invViewProj * vec4(fragTexCoord * 2.0 - 1.0, depthRaw, 1.0);
+        vec3 depthPos = depthWorld.xyz / depthWorld.w;
+        float tDepth = dot(depthPos - frame.camera_pos.xyz, rayDir);
+        if (segment.tNear >= tDepth) {
+            segment.tFar = segment.tNear - 1.0;
+        } else {
+            segment.tFar = min(segment.tFar, tDepth);
         }
     }
 
@@ -331,7 +362,8 @@ vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
         rampColor = mix(flame.colorMid.rgb, flame.colorTip.rgb, (heightMid - 0.5) * 2.0);
     }
 
-    vec3 radiance = rampColor * flame.intensity * emission;
+    float tempNorm = clamp(emission * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMid);
+    vec3 radiance = rampColor * flame.intensity * (1.0 + flame.styleParams1.w * pow(tempNorm, 2.0)) * emission;
     float alpha = 1.0 - exp(-flame.sigmaT * emission);
     return vec4(radiance, alpha);
 }
@@ -343,7 +375,14 @@ void main() {
     float coverage = accum.x;
     float deltaT = max(accum.y, 0.0);
 
-   if (push.mode == 2) {
+    if (push.mode == 4) {
+        FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
+        outColor = vec4(0.5 + 0.25 * clamp(coverage, -2.0, 2.0), 0.1 * deltaT, segment.tFar > segment.tNear ? 0.2 * clamp(segment.tFar - segment.tNear, 0.0, 5.0) : 0.0, 1.0);
+        outHistory = outColor;
+        return;
+    }
+
+    if (push.mode == 2) {
         outColor = vec4(max(accum.z, 0.0), deltaT, max(-accum.z, 0.0), 1.0);
         outHistory = outColor;
         return;
@@ -353,14 +392,14 @@ void main() {
         discard;
     }
 
-   FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
+    FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
 
     // Discard if clamping produced an empty interval (tNear > tFar)
     if (segment.tNear > segment.tFar) {
         discard;
     }
 
-   vec3 L;
+    vec3 L;
     float trans;
 
     if (push.mode == 3) {
@@ -447,6 +486,8 @@ void main() {
     }
 
     vec4 shaded = vec4(L, 1.0 - trans);
+    // Occlusion must track displayed luminance: a dim flame adds little light and must not darken the background.
+    shaded.a *= smoothstep(0.0, flame.colorBase.a, dot(shaded.rgb, LUMA_WEIGHTS));
     vec4 blended = mix(shaded, texture(flameHistorySampler, fragTexCoord), flame.temporalData.x);
     outColor = blended;
     outHistory = blended;

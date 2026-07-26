@@ -209,6 +209,9 @@ fn main() -> Result<()> {
                         flame_buffer.sampler,
                         image_view,
                         sampler,
+                        app.resource::<thyllore_animation::vulkanr::context::RenderTargets>()
+                            .render
+                            .gbuffer_depth_image_view,
                     );
                 }
             }

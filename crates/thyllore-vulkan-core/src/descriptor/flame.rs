@@ -6,6 +6,7 @@ pub struct RRFlameDescriptorSet {
     pub descriptor_set_layout: vk::DescriptorSetLayout,
     pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: [vk::DescriptorSet; 2],
+    pub scene_depth_sampler: vk::Sampler,
 }
 
 impl RRFlameDescriptorSet {
@@ -52,6 +53,13 @@ impl RRFlameDescriptorSet {
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
 
+        let scene_depth_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(6)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .build();
+
         let bindings = [
             flame_ubo_binding,
             position_sampler_binding,
@@ -59,6 +67,7 @@ impl RRFlameDescriptorSet {
             interval_sampler_binding,
             history_sampler_binding,
             sdf_sampler_binding,
+            scene_depth_sampler_binding,
         ];
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
@@ -67,8 +76,7 @@ impl RRFlameDescriptorSet {
     pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {
         let sampler_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(10);
-
+            .descriptor_count(12);
         let ubo_size = vk::DescriptorPoolSize::builder()
             .type_(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
             .descriptor_count(2);
@@ -94,6 +102,7 @@ impl RRFlameDescriptorSet {
         flame_sampler: vk::Sampler,
         sdf_image_view: vk::ImageView,
         sdf_sampler: vk::Sampler,
+        scene_depth_view: vk::ImageView,
     ) -> Result<()> {
         let layouts = [self.descriptor_set_layout; 2];
         let alloc_info = vk::DescriptorSetAllocateInfo::builder()
@@ -102,6 +111,17 @@ impl RRFlameDescriptorSet {
 
         let descriptor_sets = rrdevice.device.allocate_descriptor_sets(&alloc_info)?;
         self.descriptor_sets = [descriptor_sets[0], descriptor_sets[1]];
+
+        // Create scene depth sampler (NEAREST/CLAMP_TO_EDGE — depth formats must not use LINEAR)
+        let scene_depth_sampler_info = vk::SamplerCreateInfo::builder()
+            .mag_filter(vk::Filter::NEAREST)
+            .min_filter(vk::Filter::NEAREST)
+            .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
+            .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+            .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+            .build();
+        self.scene_depth_sampler = rrdevice.device.create_sampler(&scene_depth_sampler_info, None)?;
 
         // Write UBO to both sets
         for i in 0..2 {
@@ -156,6 +176,12 @@ impl RRFlameDescriptorSet {
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .build();
 
+            let scene_depth_info = vk::DescriptorImageInfo::builder()
+                .image_view(scene_depth_view)
+                .sampler(self.scene_depth_sampler)
+                .image_layout(vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+                .build();
+
             let writes = [
                 vk::WriteDescriptorSet::builder()
                     .dst_set(self.descriptor_sets[i])
@@ -191,6 +217,13 @@ impl RRFlameDescriptorSet {
                     .dst_array_element(0)
                     .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                     .image_info(std::slice::from_ref(&sdf_info))
+                    .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(6)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&scene_depth_info))
                     .build(),
             ];
 
@@ -241,6 +274,7 @@ impl RRFlameDescriptorSet {
         flame_sampler: vk::Sampler,
         sdf_image_view: vk::ImageView,
         sdf_sampler: vk::Sampler,
+        scene_depth_view: vk::ImageView,
     ) {
         // Update both descriptor sets with ping-pong history views
         for i in 0..2 {
@@ -262,7 +296,7 @@ impl RRFlameDescriptorSet {
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .build();
 
-           let history_info = vk::DescriptorImageInfo::builder()
+            let history_info = vk::DescriptorImageInfo::builder()
                 .image_view(history_image_views[1 - i])
                 .sampler(flame_sampler)
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
@@ -272,6 +306,12 @@ impl RRFlameDescriptorSet {
                 .image_view(sdf_image_view)
                 .sampler(sdf_sampler)
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .build();
+
+            let scene_depth_info = vk::DescriptorImageInfo::builder()
+                .image_view(scene_depth_view)
+                .sampler(self.scene_depth_sampler)
+                .image_layout(vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL)
                 .build();
 
             let writes = [
@@ -310,6 +350,13 @@ impl RRFlameDescriptorSet {
                     .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
                     .image_info(std::slice::from_ref(&sdf_info))
                     .build(),
+                vk::WriteDescriptorSet::builder()
+                    .dst_set(self.descriptor_sets[i])
+                    .dst_binding(6)
+                    .dst_array_element(0)
+                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+                    .image_info(std::slice::from_ref(&scene_depth_info))
+                    .build(),
             ];
 
             rrdevice
@@ -328,5 +375,7 @@ impl RRFlameDescriptorSet {
             device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
             self.descriptor_set_layout = vk::DescriptorSetLayout::null();
         }
+
+        device.destroy_sampler(self.scene_depth_sampler, None);
     }
 }

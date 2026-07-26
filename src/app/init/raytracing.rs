@@ -132,6 +132,7 @@ impl App {
             flame_buffer,
             position_image_view,
             position_sampler,
+            rrrender.gbuffer_depth_image_view,
         )?;
 
         log!("Flame pipeline created successfully");

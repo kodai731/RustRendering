@@ -50,7 +50,7 @@ layout(location = 1) in vec2 fragShellUv;
 layout(location = 0) out vec4 outAccumulate;
 layout(location = 1) out vec2 outRayInterval;
 
-const float H_DIR_EPSILON = 1e-4;
+const float H_DIR_EPSILON = 1e-3;
 
 void main() {
     vec3 toFragment = fragWorldPos - frame.camera_pos.xyz;
@@ -80,7 +80,7 @@ void main() {
             hBoundary);
         heightIntegralTerm = boundarySign * primitive / hDir;
     } else {
-        float falloff = evaluateChebyshev8(
+       float falloff = evaluateChebyshev8(
             flame.heightCoefficients[0],
             flame.heightCoefficients[1],
             hBoundary);

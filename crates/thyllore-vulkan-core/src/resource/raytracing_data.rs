@@ -395,6 +395,7 @@ impl RayTracingData {
         flame_buffer: &FlameBuffer,
         position_image_view: vk::ImageView,
         position_sampler: vk::Sampler,
+        scene_depth_view: vk::ImageView,
     ) -> Result<()> {
         let min_alignment = rrdevice.min_uniform_buffer_offset_alignment;
         let slot_size = (std::mem::size_of::<FlameUBO>() as vk::DeviceSize + min_alignment - 1) & !(min_alignment - 1);
@@ -412,8 +413,9 @@ impl RayTracingData {
             descriptor_set_layout: RRFlameDescriptorSet::create_layout(rrdevice)?,
             descriptor_pool: RRFlameDescriptorSet::create_pool(rrdevice)?,
             descriptor_sets: [vk::DescriptorSet::null(); 2],
+            scene_depth_sampler: vk::Sampler::null(),
         };
-      flame_descriptor.allocate_and_update(
+        flame_descriptor.allocate_and_update(
             rrdevice,
             flame_ubo_buffer,
             slot_size,
@@ -425,6 +427,7 @@ impl RayTracingData {
             flame_buffer.sampler,
             position_image_view,
             position_sampler,
+            scene_depth_view,
         )?;
 
         let additive_blend = BlendConfig {

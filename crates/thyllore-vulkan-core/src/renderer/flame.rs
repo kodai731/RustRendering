@@ -181,7 +181,7 @@ pub unsafe fn record_flame_shading_pass(
         .height(flame_buffer.height as f32)
         .min_depth(0.0)
         .max_depth(1.0);
-    device.cmd_set_viewport(cmd, 0, &[viewport]);
+   device.cmd_set_viewport(cmd, 0, &[viewport]);
     device.cmd_set_scissor(cmd, 0, &[scissor]);
 
     let frame_set = ctx.graphics.frame_set.sets[image_index];

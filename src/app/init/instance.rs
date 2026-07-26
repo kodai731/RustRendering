@@ -218,15 +218,15 @@ impl App {
 
 
         let (model_path, loaded_scene) = Self::determine_startup_model();
-        Self::load_startup_model(
-            &instance,
-            &rrdevice,
-            &rrcommand_pool,
-            &rrswapchain,
-            &mut data,
-            &model_path,
-            loaded_scene.is_some(),
-            );
+        // Self::load_startup_model(
+        //     &instance,
+        //     &rrdevice,
+        //     &rrcommand_pool,
+        //     &rrswapchain,
+        //     &mut data,
+        //     &model_path,
+        //     loaded_scene.is_some(),
+        //     );
 
         Self::apply_loaded_scene(&mut data, loaded_scene);
 
@@ -387,12 +387,21 @@ impl App {
                     .polygon_mode(vk::PolygonMode::LINE)
                     .depth_test(DepthTestConfig {
                         test_enable: true,
-                        write_enable: false,
+                        write_enable: true,
                         compare_op: vk::CompareOp::GREATER_OR_EQUAL,
                     })
                     .custom_render_pass(hdr_buffer.render_pass)
                     .msaa_samples(vk::SampleCountFlags::_1)
                     .descriptor_layouts(render_layouts.to_vec())
+                    .blend(BlendConfig {
+                        enable: true,
+                        src_color_factor: vk::BlendFactor::SRC_ALPHA,
+                        dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                        color_op: vk::BlendOp::ADD,
+                        src_alpha_factor: vk::BlendFactor::ZERO,
+                        dst_alpha_factor: vk::BlendFactor::ONE,
+                        alpha_op: vk::BlendOp::ADD,
+                    })
                     .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
                     .context("Failed to create HDR grid pipeline")?;
             let hdr_grid_id = data.pipeline_storage.register(hdr_grid);
@@ -1305,7 +1314,7 @@ impl App {
     ) {
         use crate::scene::{find_default_scene, load_scene};
 
-        let default_model_path = "assets/models/stickman/stickman.glb".to_string();
+        // let default_model_path = "assets/models/stickman/stickman.glb".to_string();
 
         if let Some(scene_path) = find_default_scene() {
             match load_scene(&scene_path) {
@@ -1321,7 +1330,8 @@ impl App {
             }
         }
 
-        (default_model_path, None)
+        // (default_model_path, None)
+        ("".to_string(), None)
     }
 
     fn register_loaded_clips(

@@ -502,6 +502,10 @@ impl App {
             flame_buffer.sampler,
             self.data.raytracing.flame_sdf_image_view,
             self.data.raytracing.flame_sdf_sampler,
+            {
+                let rt = self.resource::<RenderTargets>();
+                rt.render.gbuffer_depth_image_view
+            },
         );
 
         if let Some(mut state) = self.data.ecs_world.get_resource_mut::<crate::ecs::resource::FlameTemporalState>() {

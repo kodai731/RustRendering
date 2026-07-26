@@ -127,7 +127,7 @@ impl HdrBuffer {
 
         let depth_attachment_ref = vk::AttachmentReference::builder()
             .attachment(1)
-            .layout(vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL)
+            .layout(vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL)
             .build();
 
         let color_attachments = [color_attachment_ref];
@@ -145,9 +145,13 @@ impl HdrBuffer {
                     | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
                     | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
             )
-            .src_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ)
-            .dst_stage_mask(vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT)
-            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE);
+            .src_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
+            .dst_stage_mask(
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                    | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+                    | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+            )
+            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
 
         let dependency_out = vk::SubpassDependency::builder()
             .src_subpass(0)
