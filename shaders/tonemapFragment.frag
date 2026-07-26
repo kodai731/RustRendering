@@ -55,8 +55,6 @@ vec3 applyToneMapOperator(vec3 x) {
     return clamp(x, 0.0, 1.0);
 }
 
-const vec3 BACKGROUND_LINEAR = vec3(0.051);
-
 vec3 sampleWithChromaticAberration(vec2 uv, float intensity) {
     vec2 center = vec2(0.5);
     vec2 offset = (uv - center) * intensity;
@@ -81,31 +79,9 @@ void main() {
         gl_FragDepth = worldToClipDepth(positionData.xyz, sceneData.view, sceneData.proj);
     }
 
-    bool isBackground = positionData.w < 0.5;
-
-    // Background pixels still carry volumetric effects (flame) blended into
-    // the HDR buffer as premultiplied (radiance, coverage): attenuate the
-    // background by the coverage and add the tonemapped radiance on top.
-    if (isBackground) {
-        vec4 volumetric = texture(hdrSampler, fragTexCoord);
-        float volumetricOpacity = clamp(volumetric.a, 0.0, 1.0);
-        vec3 volumetricGlow = applyToneMapOperator(volumetric.rgb * pc.exposureValue);
-        volumetricGlow = pow(volumetricGlow, vec3(1.0 / pc.gamma));
-
-        vec3 bg = BACKGROUND_LINEAR * (1.0 - volumetricOpacity);
-        bg = pow(bg, vec3(1.0 / pc.gamma)) + volumetricGlow;
-
-        if (pc.bloomIntensity > 0.0) {
-            vec3 bloomColor = texture(bloomSampler, fragTexCoord).rgb;
-            vec3 bloomGlow = bloomColor * pc.bloomIntensity * pc.exposureValue;
-            bloomGlow = applyToneMapOperator(bloomGlow);
-            bg += pow(bloomGlow, vec3(1.0 / pc.gamma));
-        }
-
-        outColor = vec4(bg, 1.0);
-        return;
-    }
-
+    // Every pixel takes one path: the HDR buffer already holds scene radiance for
+    // background, opaque surfaces, grid and volumetrics alike, so a single exposure
+    // and tone map curve applies to all of them.
     vec3 hdrColor;
     if (pc.chromaticAberrationIntensity > 0.0) {
         hdrColor = sampleWithChromaticAberration(fragTexCoord, pc.chromaticAberrationIntensity);

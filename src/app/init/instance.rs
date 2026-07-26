@@ -216,7 +216,6 @@ impl App {
             &mut data,
         )?;
 
-
         let (model_path, loaded_scene) = Self::determine_startup_model();
         // Self::load_startup_model(
         //     &instance,
@@ -393,13 +392,16 @@ impl App {
                     .custom_render_pass(hdr_buffer.render_pass)
                     .msaa_samples(vk::SampleCountFlags::_1)
                     .descriptor_layouts(render_layouts.to_vec())
+                    // Opaque surface inside the HDR buffer: alpha 1 marks "background fully
+                    // covered", which the tonemap needs to keep the grid color. The flame
+                    // composites over it afterwards with premultiplied blending.
                     .blend(BlendConfig {
                         enable: true,
                         src_color_factor: vk::BlendFactor::SRC_ALPHA,
                         dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
                         color_op: vk::BlendOp::ADD,
-                        src_alpha_factor: vk::BlendFactor::ZERO,
-                        dst_alpha_factor: vk::BlendFactor::ONE,
+                        src_alpha_factor: vk::BlendFactor::ONE,
+                        dst_alpha_factor: vk::BlendFactor::ZERO,
                         alpha_op: vk::BlendOp::ADD,
                     })
                     .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
@@ -1189,7 +1191,8 @@ impl App {
             let entity = data.ecs_world.spawn();
             let mut effect = crate::ecs::resource::FlameEffect::default();
             data.ecs_world.insert_component(entity, effect);
-            data.ecs_world.insert_component(entity, crate::ecs::world::Name("Flame".to_string()));
+            data.ecs_world
+                .insert_component(entity, crate::ecs::world::Name("Flame".to_string()));
         }
         Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);
     }

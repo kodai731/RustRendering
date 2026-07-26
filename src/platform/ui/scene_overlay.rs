@@ -467,7 +467,7 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                     ui.slider_config("Noise Steps", 4, 64).build(&mut steps);
                     settings_copy.noise_step_count = steps.max(1) as u32;
                 }
-            FlameShadingMode::Analytic | FlameShadingMode::DebugThickness | FlameShadingMode::Factors => {}
+            FlameShadingMode::Analytic | FlameShadingMode::DebugThickness | FlameShadingMode::DebugDepthClamp => {}
             }
 
             ui_events.send(UIEvent::UpdateFlameRenderSettings(settings_copy));

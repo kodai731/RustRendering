@@ -187,12 +187,24 @@ float computeSelfShadowTau(vec3 p, vec3 l) {
     return max(0.0, flame.sigmaT * total);
 }
 
+const int DEPTH_CLAMP_NO_SURFACE = 0;
+const int DEPTH_CLAMP_SURFACE_BEHIND = 1;
+const int DEPTH_CLAMP_TRUNCATES = 2;
+const int DEPTH_CLAMP_OCCLUDES = 3;
+
+struct FlameDepthClamp {
+    float sceneDepth;
+    float tDepth;
+    int state;
+};
+
 struct FlameRaySegment {
     float tNear;
     float tFar;
     vec3 localOrigin;
     vec3 localDir;
     float boundaryHeightIntegral;
+    FlameDepthClamp depthClamp;
 };
 
 bool clampToShellCone(vec3 o, vec3 d, inout float tNear, inout float tFar) {
@@ -260,6 +272,32 @@ bool clampToShellCone(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     return tNear <= tFar;
 }
 
+// Scene depth (grid + opaque meshes) projected onto the view ray, so the emission
+// interval can be cut where a surface occludes the flame.
+FlameDepthClamp resolveSceneDepthClamp(mat4 invViewProj, vec3 rayDir, float tNear, float tFar) {
+    FlameDepthClamp depthClamp;
+    depthClamp.sceneDepth = texture(sceneDepthSampler, fragTexCoord).r;
+    depthClamp.tDepth = 0.0;
+    depthClamp.state = DEPTH_CLAMP_NO_SURFACE;
+
+    if (depthClamp.sceneDepth == DEPTH_FAR) {
+        return depthClamp;
+    }
+
+    vec4 surfaceClip = invViewProj * vec4(fragTexCoord * 2.0 - 1.0, depthClamp.sceneDepth, 1.0);
+    vec3 surfaceWorld = surfaceClip.xyz / surfaceClip.w;
+    depthClamp.tDepth = dot(surfaceWorld - frame.camera_pos.xyz, rayDir);
+
+    if (tNear >= depthClamp.tDepth) {
+        depthClamp.state = DEPTH_CLAMP_OCCLUDES;
+    } else if (tFar > depthClamp.tDepth) {
+        depthClamp.state = DEPTH_CLAMP_TRUNCATES;
+    } else {
+        depthClamp.state = DEPTH_CLAMP_SURFACE_BEHIND;
+    }
+    return depthClamp;
+}
+
 FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 interval) {
     mat4 invViewProj = inverse(frame.proj * frame.view);
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
@@ -286,6 +324,19 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
         segment.tNear = 0.0;
     }
 
+    // Scene depth must cut the interval before the emission integral is derived from it,
+    // otherwise the integral and the shaded midpoint describe different segments.
+    segment.depthClamp = resolveSceneDepthClamp(invViewProj, rayDir, segment.tNear, segment.tFar);
+    if (segment.depthClamp.state == DEPTH_CLAMP_OCCLUDES) {
+        segment.tNear = 1.0;
+        segment.tFar = 0.0;
+        return segment;
+    }
+    float tFarLimit = segment.depthClamp.state == DEPTH_CLAMP_NO_SURFACE
+        ? INTERVAL_CLEAR_THRESHOLD
+        : segment.depthClamp.tDepth;
+    segment.tFar = min(segment.tFar, tFarLimit);
+
     // Clamp to shell cone for non-trail domains (cylinder emitter only, bend off)
     if (flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0 && abs(flame.styleParams2.z) < 1e-4) {
         // For unpaired coverage pixels (abs(round(coverage)) > 0.5 && !cameraInside), the interval
@@ -300,6 +351,10 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
             segment.tNear = 1.0;
             segment.tFar = 0.0;
         } else if (abs(segment.localDir.y) > H_DIR_EPSILON) {
+            // Re-apply the depth cut: the unpaired-coverage reset and the cone clamp above
+            // may have pushed tFar past the occluding surface again.
+            segment.tFar = min(segment.tFar, tFarLimit);
+
             // Recalculate boundaryHeightIntegral using analytical form for clamped interval
             vec3 o = segment.localOrigin;
             vec3 d = segment.localDir;
@@ -307,22 +362,12 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
                 - evaluateHeightPrimitive(clamp(o.y + segment.tNear * d.y, 0.0, 1.0))) / segment.localDir.y;
         } else if (abs(round(coverage)) > 0.5 && !cameraInside) {
             // Camera outside but coverage non-zero (boundary artifact): use mid-point rule
+            segment.tFar = min(segment.tFar, tFarLimit);
+
             vec3 o = segment.localOrigin;
             vec3 d = segment.localDir;
             segment.boundaryHeightIntegral = evaluateChebyshev8(flame.heightCoefficients[0], flame.heightCoefficients[1],
                 clamp(o.y + 0.5 * (segment.tNear + segment.tFar) * d.y, 0.0, 1.0)) * (segment.tFar - segment.tNear);
-        }
-    }
-
-    float depthRaw = texture(sceneDepthSampler, fragTexCoord).r;
-    if (depthRaw != DEPTH_FAR) {
-        vec4 depthWorld = invViewProj * vec4(fragTexCoord * 2.0 - 1.0, depthRaw, 1.0);
-        vec3 depthPos = depthWorld.xyz / depthWorld.w;
-        float tDepth = dot(depthPos - frame.camera_pos.xyz, rayDir);
-        if (segment.tNear >= tDepth) {
-            segment.tFar = segment.tNear - 1.0;
-        } else {
-            segment.tFar = min(segment.tFar, tDepth);
         }
     }
 
@@ -349,6 +394,30 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
     return sum * dt;
 }
 
+
+// Debug mode 4: hue = clamp decision, 1-unit brightness bands = tDepth magnitude.
+// dark blue: no scene surface / cyan: tDepth is NaN / magenta: tDepth behind camera
+// red: segment fully occluded (flame discarded) / yellow: tFar truncated / green: surface behind segment
+vec3 visualizeDepthClamp(FlameDepthClamp depthClamp) {
+    if (depthClamp.state == DEPTH_CLAMP_NO_SURFACE) {
+        return vec3(0.0, 0.0, 0.25);
+    }
+    if (isnan(depthClamp.tDepth)) {
+        return vec3(0.0, 1.0, 1.0);
+    }
+    if (depthClamp.tDepth < 0.0) {
+        return vec3(1.0, 0.0, 1.0);
+    }
+
+    float band = 0.35 + 0.65 * fract(depthClamp.tDepth);
+    if (depthClamp.state == DEPTH_CLAMP_OCCLUDES) {
+        return vec3(band, 0.0, 0.0);
+    }
+    if (depthClamp.state == DEPTH_CLAMP_TRUNCATES) {
+        return vec3(band, band, 0.0);
+    }
+    return vec3(0.0, band, 0.0);
+}
 
 vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
     float heightMid = clamp(
@@ -377,7 +446,7 @@ void main() {
 
     if (push.mode == 4) {
         FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
-        outColor = vec4(0.5 + 0.25 * clamp(coverage, -2.0, 2.0), 0.1 * deltaT, segment.tFar > segment.tNear ? 0.2 * clamp(segment.tFar - segment.tNear, 0.0, 5.0) : 0.0, 1.0);
+        outColor = vec4(visualizeDepthClamp(segment.depthClamp), 1.0);
         outHistory = outColor;
         return;
     }

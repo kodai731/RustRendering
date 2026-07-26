@@ -127,7 +127,7 @@ pub enum FlameShadingMode {
     ReferenceRaymarch,
     DebugThickness,
     NoiseRaymarch,
-    Factors,
+    DebugDepthClamp,
 }
 
 impl FlameShadingMode {
@@ -136,7 +136,7 @@ impl FlameShadingMode {
         FlameShadingMode::ReferenceRaymarch,
         FlameShadingMode::NoiseRaymarch,
         FlameShadingMode::DebugThickness,
-        FlameShadingMode::Factors,
+        FlameShadingMode::DebugDepthClamp,
     ];
 
     pub fn label(self) -> &'static str {
@@ -145,7 +145,7 @@ impl FlameShadingMode {
             FlameShadingMode::ReferenceRaymarch => "Reference Raymarch",
             FlameShadingMode::DebugThickness => "Debug Thickness",
             FlameShadingMode::NoiseRaymarch => "Noise Raymarch",
-            FlameShadingMode::Factors => "Factors",
+            FlameShadingMode::DebugDepthClamp => "Debug Depth Clamp",
         }
     }
 
@@ -155,7 +155,7 @@ impl FlameShadingMode {
             FlameShadingMode::ReferenceRaymarch => 1,
             FlameShadingMode::DebugThickness => 2,
             FlameShadingMode::NoiseRaymarch => 3,
-            FlameShadingMode::Factors => 4,
+            FlameShadingMode::DebugDepthClamp => 4,
         }
     }
 
@@ -165,7 +165,7 @@ impl FlameShadingMode {
             "raymarch" => Some(FlameShadingMode::ReferenceRaymarch),
             "thickness" => Some(FlameShadingMode::DebugThickness),
             "noise" => Some(FlameShadingMode::NoiseRaymarch),
-            "factors" => Some(FlameShadingMode::Factors),
+            "depthclamp" => Some(FlameShadingMode::DebugDepthClamp),
             _ => None,
         }
     }
@@ -194,7 +194,7 @@ impl FlameRenderSettings {
             FlameShadingMode::Analytic | FlameShadingMode::DebugThickness => 1,
             FlameShadingMode::ReferenceRaymarch => self.reference_step_count.max(1),
             FlameShadingMode::NoiseRaymarch => self.noise_step_count.max(1),
-            FlameShadingMode::Factors => 1,
+            FlameShadingMode::DebugDepthClamp => 1,
         }
     }
 }
@@ -835,7 +835,7 @@ mod tests {
             ("raymarch", FlameShadingMode::ReferenceRaymarch, 1),
             ("thickness", FlameShadingMode::DebugThickness, 2),
             ("noise", FlameShadingMode::NoiseRaymarch, 3),
-            ("factors", FlameShadingMode::Factors, 4),
+            ("depthclamp", FlameShadingMode::DebugDepthClamp, 4),
         ];
         for (name, mode, shader_value) in cases {
             assert_eq!(FlameShadingMode::parse(name), Some(mode));

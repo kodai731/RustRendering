@@ -828,7 +828,9 @@ pub unsafe fn record_tonemap_to_offscreen(
         extent,
         command_buffer,
     )?;
-    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index, true)?;
+    // Grid is already drawn inside record_composite_to_hdr, before the flame composite.
+    // Drawing it again here would put it on top of the flame.
+    super::OverlayRenderer::new(app).draw_all_overlays(command_buffer, image_index, false)?;
     thyllore_vulkan_core::renderer::end_tonemap_render_pass(&ctx, command_buffer);
 
     Ok(())

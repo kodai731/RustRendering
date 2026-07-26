@@ -5,6 +5,12 @@ use crate::descriptor::RRCompositeDescriptorSet;
 use crate::frame_context::FrameRenderContext;
 use crate::pipeline::RRPipeline;
 
+/// Scene radiance of the empty viewport. Clearing the HDR buffer with it makes the
+/// background an ordinary part of the scene, so exposure and tone mapping apply to it
+/// exactly as they do to surfaces and volumetrics. Calibrated so the default exposure
+/// reproduces the previous display-referred background.
+pub const BACKGROUND_RADIANCE: f32 = 0.067;
+
 pub unsafe fn begin_composite_render_pass(
     ctx: &FrameRenderContext,
     render_pass: vk::RenderPass,
@@ -118,7 +124,12 @@ pub unsafe fn begin_hdr_render_pass(
 
     let color_clear_value = vk::ClearValue {
         color: vk::ClearColorValue {
-            float32: [0.0, 0.0, 0.0, 1.0],
+            float32: [
+                BACKGROUND_RADIANCE,
+                BACKGROUND_RADIANCE,
+                BACKGROUND_RADIANCE,
+                1.0,
+            ],
         },
     };
 

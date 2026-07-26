@@ -133,10 +133,10 @@ pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadi
         return Ok(None);
     };
     let Some(value) = args.get(position + 1) else {
-        bail!("{BATCH_FLAME_MODE_FLAG} requires a value: analytic|raymarch|thickness|noise");
+        bail!("{BATCH_FLAME_MODE_FLAG} requires a value: analytic|raymarch|thickness|noise|depthclamp");
     };
     let mode = FlameShadingMode::parse(value).ok_or_else(|| {
-        anyhow::anyhow!("invalid flame mode '{value}': expected analytic|raymarch|thickness|noise")
+        anyhow::anyhow!("invalid flame mode '{value}': expected analytic|raymarch|thickness|noise|depthclamp")
     })?;
     Ok(Some(mode))
 }
@@ -210,6 +210,7 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "rot_z_deg", "temperature_base_k", "temperature_tip_k",
     "envelope_peak", "envelope_base", "envelope_tail", "radial_sharpness",
     "emitter_kind", "ring_major_radius", "ring_angular_speed", "noise_aniso_y", "warp_y_scale",
+    "occlusion_lum_ref",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -417,6 +418,7 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "emitter_kind" => effect.emitter_kind = *value as u32,
             "ring_major_radius" => effect.ring_major_radius = *value,
             "ring_angular_speed" => effect.ring_angular_speed = *value,
+            "occlusion_lum_ref" => effect.occlusion_lum_ref = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }
