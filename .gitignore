@@ -33,6 +33,21 @@ log/
 # distribution packages
 dist/
 
+# ML training artifacts. Weights are too large to version, so models/ tracks the
+# manifest, configs and the learned head that explain how each model was made,
+# and the weights themselves stay untracked beside them.
+# `*.bin` is deliberately absent -- tests/fixtures/*.bin are tracked fixtures.
+checkpoints/
+*.safetensors
+*.onnx
+*.pt
+*.pth
+*.ckpt
+*.pkl
+# Copied verbatim from the base encoder and 17MB apiece, so versioning one per
+# trained variant buys nothing. models/gemma/README.md names the base model.
+models/**/tokenizer.json
+
 # lib
 vendor/
 
@@ -56,6 +71,7 @@ crates/thyllore-ml-core/tests/python_parity/fixtures/
 .venv-collect-wheels/
 # Venv for the orchestrator tool-selection evaluation harness
 .venv-orchestrator-eval/
+.venv-setfit/
 # Eval run artifacts; the reported ones are archived under the design doc
 scripts/orchestrator_eval/results/
 

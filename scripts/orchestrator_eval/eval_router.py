@@ -1,8 +1,11 @@
-"""Evaluate the router against the 74-case tool-selection testset.
+"""Evaluate the router against a labelled utterance set.
 
-Routes and exemplars are the router's index; the testset is held out. The
-escape-hatch cases have no route and must fall below the rejection threshold
-rather than being classified.
+Routes and exemplars are the router's index; the evaluated utterances are not in
+it. The escape-hatch cases carry no route and must fall below the rejection
+threshold rather than being classified.
+
+`--dataset heldout` is the number to quote. `--dataset devset` shares its
+phrasing with the keyword rule table and overstates rule-assisted accuracy.
 
 Run:
     .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/eval_router.py \
@@ -18,12 +21,14 @@ from pathlib import Path
 import numpy as np
 
 from contextual_embedder import ContextualEmbedder
+from dataset import DATASET_NAMES, DEFAULT_DATASET, load_dataset, read_jsonl
 from keyword_router import KeywordRouter
+from local_paths import find_model_dir
 from route_schema import ESCAPE_ROUTE, build_routes, resolve_expected_route
 from static_embedder import POOLING_STRATEGIES, StaticEmbedder
 
-STATIC_MODEL_DIR = "/home/kodai/Projects/CodeAgent/models/gemma-3-270m-it-ONNX"
-CONTEXTUAL_MODEL_DIR = "/home/kodai/Projects/CodeAgent/models/multilingual-e5-small"
+STATIC_MODEL_NAME = "gemma-3-270m-it-ONNX"
+CONTEXTUAL_MODEL_NAME = "multilingual-e5-small"
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 DETERMINISTIC_SCORE = 1.0
@@ -39,12 +44,8 @@ class Prediction:
     margin: float
 
 
-def read_jsonl(path: Path) -> list[dict]:
-    return [json.loads(line) for line in path.read_text().splitlines() if line.strip()]
-
-
-def load_testset(path: Path) -> list[dict]:
-    rows = read_jsonl(path)
+def load_labelled_utterances(dataset: str) -> list[dict]:
+    rows = load_dataset(dataset)
     for row in rows:
         row["expected_route"] = resolve_expected_route(row["tool"], row["args"])
     return rows
@@ -70,18 +71,52 @@ def aggregate_route_scores(
     return scores
 
 
+class RouteHead:
+    """The linear classifier SetFit fits on the adapted embeddings.
+
+    Stored as plain coefficients so the evaluation venv needs numpy alone. Its
+    softmax probability replaces the cosine score, which matters because the two
+    are not comparable: cosine saturates near 1 for every utterance, while the
+    probability is calibrated against the other routes.
+    """
+
+    def __init__(self, head_path: Path):
+        payload = json.loads(head_path.read_text(encoding="utf-8"))
+        self.classes = payload["classes"]
+        self.coefficients = np.array(payload["coefficients"], dtype=np.float32)
+        self.intercepts = np.array(payload["intercepts"], dtype=np.float32)
+
+    def score_routes(self, utterance_vector: np.ndarray) -> dict[str, float]:
+        logits = self.coefficients @ utterance_vector + self.intercepts
+        exponentiated = np.exp(logits - logits.max())
+        probabilities = exponentiated / exponentiated.sum()
+        return dict(zip(self.classes, probabilities.tolist()))
+
+
+def rank_scores(scores: dict[str, float]) -> tuple[str, float, float]:
+    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    margin = ranked[0][1] - ranked[1][1] if len(ranked) > 1 else ranked[0][1]
+    return ranked[0][0], ranked[0][1], margin
+
+
 def predict_route(
     utterance_vector: np.ndarray,
     exemplar_matrix: np.ndarray,
     route_slices: dict[str, slice],
     aggregation: str,
     allowed_routes: set[str] | None = None,
+    head: "RouteHead | None" = None,
 ) -> tuple[str, float, float]:
+    if head is not None:
+        scores = head.score_routes(utterance_vector)
+        if allowed_routes is not None:
+            scores = {route: score for route, score in scores.items() if route in allowed_routes}
+        return rank_scores(scores)
+
     similarities = exemplar_matrix @ utterance_vector
-    scores = aggregate_route_scores(similarities, route_slices, aggregation, allowed_routes)
-    ranked = sorted(scores.items(), key=lambda item: item[1], reverse=True)
-    margin = ranked[0][1] - ranked[1][1] if len(ranked) > 1 else ranked[0][1]
-    return ranked[0][0], ranked[0][1], margin
+    return rank_scores(
+        aggregate_route_scores(similarities, route_slices, aggregation, allowed_routes)
+    )
 
 
 def build_exemplar_index(
@@ -157,24 +192,32 @@ def _accuracy_for_language(routed: list[Prediction], lang: str) -> float:
     return sum(p.predicted_route == p.expected_route for p in subset) / len(subset)
 
 
-def build_embedder(embedder_name: str, model_dir: str | None, pooling: str):
+def resolve_model_dir(embedder_name: str, model_dir: str | None) -> str:
+    if model_dir:
+        return model_dir
+    default_name = STATIC_MODEL_NAME if embedder_name == "static" else CONTEXTUAL_MODEL_NAME
+    return find_model_dir(default_name)
+
+
+def build_embedder(embedder_name: str, model_dir: str, pooling: str):
     if embedder_name == "static":
-        return StaticEmbedder(model_dir or STATIC_MODEL_DIR, pooling=pooling)
-    return ContextualEmbedder(model_dir or CONTEXTUAL_MODEL_DIR)
+        return StaticEmbedder(model_dir, pooling=pooling)
+    return ContextualEmbedder(model_dir)
 
 
 def predict_all(
-    testset: list[dict],
+    cases: list[dict],
     utterance_vectors: np.ndarray,
     exemplar_matrix: np.ndarray,
     route_slices: dict[str, slice],
     aggregation: str,
     router: KeywordRouter | None,
+    head: RouteHead | None = None,
 ) -> tuple[list[Prediction], int]:
     predictions: list[Prediction] = []
     decided_count = 0
 
-    for row, vector in zip(testset, utterance_vectors):
+    for row, vector in zip(cases, utterance_vectors):
         outcome = router.route(row["utterance"]) if router else None
 
         if outcome is not None and outcome.decided_route is not None:
@@ -193,7 +236,7 @@ def predict_all(
 
         allowed = set(outcome.candidates) if outcome else None
         predicted, score, margin = predict_route(
-            vector, exemplar_matrix, route_slices, aggregation, allowed
+            vector, exemplar_matrix, route_slices, aggregation, allowed, head
         )
         predictions.append(
             Prediction(
@@ -210,25 +253,35 @@ def evaluate(
     pooling: str,
     aggregation: str,
     keyword_router: str,
+    dataset: str,
+    scorer: str,
 ) -> dict:
     routes = build_routes()
     route_ids = [route.route_id for route in routes]
     exemplars = read_jsonl(SCRIPT_DIR / "exemplars.jsonl")
-    testset = load_testset(SCRIPT_DIR / "testset.jsonl")
+    cases = load_labelled_utterances(dataset)
 
-    embedder = build_embedder(embedder_name, model_dir, pooling)
+    resolved_model_dir = resolve_model_dir(embedder_name, model_dir)
+    embedder = build_embedder(embedder_name, resolved_model_dir, pooling)
     embedder.fit_corpus([row["utterance"] for row in exemplars])
     exemplar_matrix, route_slices = build_exemplar_index(embedder, exemplars, route_ids)
     router = KeywordRouter(routes) if keyword_router == "on" else None
+    head = (
+        RouteHead(Path(resolved_model_dir) / "route_head.json")
+        if scorer == "route_head"
+        else None
+    )
 
     start = time.perf_counter()
-    utterance_vectors = embedder.encode_batch([row["utterance"] for row in testset])
+    utterance_vectors = embedder.encode_batch([row["utterance"] for row in cases])
     predictions, decided_count = predict_all(
-        testset, utterance_vectors, exemplar_matrix, route_slices, aggregation, router
+        cases, utterance_vectors, exemplar_matrix, route_slices, aggregation, router, head
     )
     elapsed = time.perf_counter() - start
 
     result = summarize(predictions, elapsed)
+    result["dataset"] = dataset
+    result["scorer"] = scorer
     result["embedder"] = embedder_name
     result["pooling"] = pooling if embedder_name == "static" else "n/a"
     result["aggregation"] = aggregation
@@ -247,6 +300,8 @@ def main() -> None:
     parser.add_argument("--pooling", default="unit_mean", choices=POOLING_STRATEGIES)
     parser.add_argument("--aggregation", default="max", choices=("max", "mean_top3"))
     parser.add_argument("--keyword-router", default="off", choices=("on", "off"))
+    parser.add_argument("--dataset", default=DEFAULT_DATASET, choices=DATASET_NAMES)
+    parser.add_argument("--scorer", default="exemplar_max", choices=("exemplar_max", "route_head"))
     parser.add_argument("--output")
     arguments = parser.parse_args()
 
@@ -256,11 +311,14 @@ def main() -> None:
         arguments.pooling,
         arguments.aggregation,
         arguments.keyword_router,
+        arguments.dataset,
+        arguments.scorer,
     )
 
     print(
-        f"embedder={result['embedder']} pooling={result['pooling']} "
-        f"aggregation={result['aggregation']} keyword_router={result['keyword_router']} "
+        f"dataset={result['dataset']} scorer={result['scorer']} "
+        f"embedder={result['embedder']} aggregation={result['aggregation']} "
+        f"keyword_router={result['keyword_router']} "
         f"(decided {result['keyword_router_decided']}/{result['case_count']})"
     )
     print(f"  route accuracy   {result['route_accuracy']:.3f}")

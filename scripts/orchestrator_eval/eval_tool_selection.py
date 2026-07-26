@@ -12,22 +12,19 @@ import json
 from collections import Counter
 from pathlib import Path
 
+from dataset import DATASET_NAMES, DEFAULT_DATASET, load_dataset
 from gemma_session import GemmaOnnxSession
+from local_paths import find_model_dir
 from prompt_builder import DEMONSTRATED_TOOLS, PROMPT_STRATEGIES
 from tool_schema import TOOL_VARIANTS, build_json_schema, find_tool
 
-DEFAULT_MODEL_DIR = "/home/kodai/Projects/CodeAgent/models/gemma-3-270m-it-ONNX"
+DEFAULT_MODEL_NAME = "gemma-3-270m-it-ONNX"
 
 PLAYBACK_ACTION_BY_TOOL = {
     "play_animation": "play",
     "pause_animation": "pause",
     "stop_animation": "stop",
 }
-
-
-def load_testset(path: Path) -> list[dict]:
-    lines = [line for line in path.read_text().splitlines() if line.strip()]
-    return [json.loads(line) for line in lines]
 
 
 def adapt_case_to_variant(case: dict, variant: str) -> dict:
@@ -156,8 +153,8 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--variant", default="baseline", choices=sorted(TOOL_VARIANTS))
     parser.add_argument("--prompt", default="few_shot", choices=sorted(PROMPT_STRATEGIES))
-    parser.add_argument("--model-dir", default=DEFAULT_MODEL_DIR)
-    parser.add_argument("--testset", default=str(Path(__file__).parent / "testset.jsonl"))
+    parser.add_argument("--model-dir", default=find_model_dir(DEFAULT_MODEL_NAME))
+    parser.add_argument("--dataset", default=DEFAULT_DATASET, choices=DATASET_NAMES)
     parser.add_argument("--output", default=None)
     parser.add_argument("--limit", type=int, default=None)
     arguments = parser.parse_args()
@@ -167,7 +164,7 @@ def main() -> None:
     session = GemmaOnnxSession(arguments.model_dir)
     grammar = session.build_grammar(build_json_schema(tools))
 
-    cases = load_testset(Path(arguments.testset))
+    cases = load_dataset(arguments.dataset)
     if arguments.limit:
         cases = cases[: arguments.limit]
 
@@ -186,6 +183,7 @@ def main() -> None:
         output_path = Path(arguments.output)
         output_path.parent.mkdir(parents=True, exist_ok=True)
         report = {
+            "dataset": arguments.dataset,
             "variant": arguments.variant,
             "prompt": arguments.prompt,
             "summary": summary,
