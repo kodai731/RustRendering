@@ -47,6 +47,12 @@ checkpoints/
 # Copied verbatim from the base encoder and 17MB apiece, so versioning one per
 # trained variant buys nothing. models/gemma/README.md names the base model.
 models/**/tokenizer.json
+# Derived from the untracked encoder beside them and valid only for that one: the
+# exemplar vectors the engine loads, and the decisions the Rust parity test replays.
+# `scripts/orchestrator_eval/export_router_index.py` regenerates all three.
+models/**/router_index.f32
+models/**/router_index.json
+models/**/router_parity.json
 
 # lib
 vendor/

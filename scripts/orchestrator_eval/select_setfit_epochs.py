@@ -136,9 +136,12 @@ def find_epoch_checkpoints(output_dir: Path) -> list[Path]:
 def pick_best_epoch(measurements: list[dict]) -> dict:
     """Best validation accuracy, and the fewest epochs among equals.
 
-    A tie broken toward more training would be choosing on nothing measured.
+    A tie broken toward more training would be choosing on nothing measured. The
+    un-adapted encoder is epoch 0 and is excluded: it is the reference that says
+    whether the adaptation did anything, not a candidate to ship.
     """
-    return max(measurements, key=lambda row: (row["route_accuracy"], -row["epochs"]))
+    candidates = [row for row in measurements if row["epochs"] > 0]
+    return max(candidates, key=lambda row: (row["route_accuracy"], -row["epochs"]))
 
 
 def report(measurements: list[dict], best: dict) -> None:
@@ -184,7 +187,9 @@ def main() -> None:
     )
 
     measurements = []
-    for epoch, checkpoint in enumerate(find_epoch_checkpoints(output_dir), start=1):
+    for epoch, checkpoint in enumerate(
+        [Path(arguments.base_model_dir), *find_epoch_checkpoints(output_dir)]
+    ):
         encoder = TorchEncoder(checkpoint)
         measurement = measure_route_accuracy(encoder, train, validation, route_ids, breaker)
         measurements.append({"epochs": epoch, "checkpoint": checkpoint.name, **measurement})
