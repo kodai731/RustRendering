@@ -5,7 +5,9 @@ use anyhow::Result;
 use crate::animation::{BoneId, BoneLocalPose};
 use crate::app::FrameContext;
 use crate::ecs::resource::gizmo::{BoneGizmoData, BoneSelectionState};
-use crate::ecs::resource::{BonePoseOverride, ClipLibrary, NodeAssets, PoseApplyCache, WeightHeatmapState};
+use crate::ecs::resource::{
+    BonePoseOverride, ClipLibrary, NodeAssets, PoseApplyCache, WeightHeatmapState,
+};
 use crate::ecs::{
     playback_upload_animations, run_animation_pipeline, transform_propagation_system,
     update_weight_heatmap,

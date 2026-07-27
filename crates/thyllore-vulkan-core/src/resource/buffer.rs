@@ -259,7 +259,9 @@ impl Drop for RRVertexBuffer {
             log_warn!("RRVertexBuffer dropped without calling destroy()");
         }
         if self.staging_buffer != vk::Buffer::null() {
-            log_warn!("RRVertexBuffer dropped without calling destroy() (staging buffer not freed)");
+            log_warn!(
+                "RRVertexBuffer dropped without calling destroy() (staging buffer not freed)"
+            );
         }
     }
 }
@@ -275,38 +277,35 @@ impl RRVertexBuffer {
         length: usize,
     ) -> Result<()> {
         // Allocate or grow staging buffer if needed
-        let (staging_buffer, staging_memory) = if self.staging_buffer == vk::Buffer::null()
-            || size > self.staging_capacity
-        {
-            // Free old staging buffer if it exists
-            if self.staging_buffer != vk::Buffer::null() {
-                rrdevice.device.destroy_buffer(self.staging_buffer, None);
-            }
-            if self.staging_memory != vk::DeviceMemory::null() {
-                rrdevice.device.free_memory(self.staging_memory, None);
-            }
-            let new_capacity = size * 2;
-            let (buf, mem) = create_buffer(
-                instance,
-                rrdevice,
-                new_capacity,
-                vk::BufferUsageFlags::TRANSFER_SRC,
-                vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
-            )?;
-            self.staging_buffer = buf;
-            self.staging_memory = mem;
-            self.staging_capacity = new_capacity;
-            (buf, mem)
-        } else {
-            (self.staging_buffer, self.staging_memory)
-        };
+        let (staging_buffer, staging_memory) =
+            if self.staging_buffer == vk::Buffer::null() || size > self.staging_capacity {
+                // Free old staging buffer if it exists
+                if self.staging_buffer != vk::Buffer::null() {
+                    rrdevice.device.destroy_buffer(self.staging_buffer, None);
+                }
+                if self.staging_memory != vk::DeviceMemory::null() {
+                    rrdevice.device.free_memory(self.staging_memory, None);
+                }
+                let new_capacity = size * 2;
+                let (buf, mem) = create_buffer(
+                    instance,
+                    rrdevice,
+                    new_capacity,
+                    vk::BufferUsageFlags::TRANSFER_SRC,
+                    vk::MemoryPropertyFlags::HOST_COHERENT | vk::MemoryPropertyFlags::HOST_VISIBLE,
+                )?;
+                self.staging_buffer = buf;
+                self.staging_memory = mem;
+                self.staging_capacity = new_capacity;
+                (buf, mem)
+            } else {
+                (self.staging_buffer, self.staging_memory)
+            };
 
-        let map_memory = rrdevice.device.map_memory(
-            staging_memory,
-            0,
-            size,
-            vk::MemoryMapFlags::empty(),
-        )?;
+        let map_memory =
+            rrdevice
+                .device
+                .map_memory(staging_memory, 0, size, vk::MemoryMapFlags::empty())?;
 
         memcpy(data, map_memory.cast(), size as usize);
         rrdevice.device.unmap_memory(staging_memory);

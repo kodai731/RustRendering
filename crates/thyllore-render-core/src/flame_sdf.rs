@@ -11,7 +11,13 @@ pub struct FlameSdfImage {
 /// Build a silhouette mask from luma values.
 /// A pixel is "inside" (true) if its luma < threshold.
 /// If `invert` is true, the condition is flipped (luma >= threshold is inside).
-pub fn build_silhouette_mask(luma: &[f32], width: usize, height: usize, threshold: f32, invert: bool) -> Vec<bool> {
+pub fn build_silhouette_mask(
+    luma: &[f32],
+    width: usize,
+    height: usize,
+    threshold: f32,
+    invert: bool,
+) -> Vec<bool> {
     let total = width * height;
     let mut mask = Vec::with_capacity(total);
     for i in 0..total {
@@ -27,7 +33,12 @@ pub fn build_silhouette_mask(luma: &[f32], width: usize, height: usize, threshol
 
 /// Integer downsampling of a boolean mask to fit within `max_dim`.
 /// A block is true if the majority of its pixels are true.
-pub fn downsample_mask(mask: &[bool], width: usize, height: usize, max_dim: usize) -> (Vec<bool>, usize, usize) {
+pub fn downsample_mask(
+    mask: &[bool],
+    width: usize,
+    height: usize,
+    max_dim: usize,
+) -> (Vec<bool>, usize, usize) {
     let scale_x = (width as f32 / max_dim as f32).ceil() as usize;
     let scale_y = (height as f32 / max_dim as f32).ceil() as usize;
     let out_w = width.div_ceil(scale_x);
@@ -170,7 +181,11 @@ pub fn load_flame_sdf(path: &str) -> io::Result<FlameSdfImage> {
         data.push(val);
     }
 
-    Ok(FlameSdfImage { width, height, data })
+    Ok(FlameSdfImage {
+        width,
+        height,
+        data,
+    })
 }
 
 /// Encode FlameSdfImage as RGBA8 bytes for Vulkan texture upload.
@@ -236,7 +251,10 @@ mod tests {
         let image = FlameSdfImage {
             width: 4,
             height: 4,
-            data: vec![1.0, -0.5, 0.25, -1.0, 0.0, 0.5, -0.75, 0.3, -0.1, 0.9, -0.3, 0.6, 0.4, -0.8, 0.15, -0.2],
+            data: vec![
+                1.0, -0.5, 0.25, -1.0, 0.0, 0.5, -0.75, 0.3, -0.1, 0.9, -0.3, 0.6, 0.4, -0.8, 0.15,
+                -0.2,
+            ],
         };
 
         save_flame_sdf(temp_path.to_str().unwrap(), &image).unwrap();
@@ -251,7 +269,11 @@ mod tests {
 
     #[test]
     fn test_determinism() {
-        let mask: Vec<bool> = [true, false, true, false, false, true, false, true, true, false, true, false, false, true, false, true].to_vec();
+        let mask: Vec<bool> = [
+            true, false, true, false, false, true, false, true, true, false, true, false, false,
+            true, false, true,
+        ]
+        .to_vec();
 
         let sdf1 = compute_signed_distance(&mask, 4, 4);
         let sdf2 = compute_signed_distance(&mask, 4, 4);

@@ -3,9 +3,9 @@ mod billboard;
 mod buffer_handle;
 mod flame;
 pub mod flame_fit;
-pub mod flame_trail;
 pub mod flame_sdf;
 mod flame_shell;
+pub mod flame_trail;
 mod gizmo;
 mod gizmo_data;
 mod mesh;
@@ -15,20 +15,21 @@ mod settings;
 mod ubo;
 
 pub use backend::RenderBackend;
-pub use flame_trail::*;
 pub use billboard::{BillboardMesh, BillboardTransform, BillboardVertex};
 pub use buffer_handle::{BufferHandle, IndexBufferHandle, VertexBufferHandle};
 pub use flame::{
     advance_flame_time, build_flame_inverse_model_matrix, build_flame_model_matrix,
-    build_flame_ubo, build_flame_ubo_with_trail, default_height_falloff, default_radial_falloff, fit_flame_coefficients,
-    integrate_emission_segment, profile_from_effect, refresh_flame_coefficients,
-    FlameCoefficients, FlameEffect, FlameProfile, FlameRenderSettings,
+    build_flame_ubo, build_flame_ubo_with_trail, default_height_falloff, default_radial_falloff,
+    fit_flame_coefficients, integrate_emission_segment, profile_from_effect,
+    refresh_flame_coefficients, FlameCoefficients, FlameEffect, FlameProfile, FlameRenderSettings,
     FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
 };
 pub use flame_shell::{
-    generate_flame_shell_triangles, FLAME_SHELL_RING_SEGMENTS, FLAME_SHELL_STACKS,
+    flame_shell_outer_radius, flame_shell_radius_scale, generate_flame_shell_triangles,
+    FLAME_SHELL_BASE_RADIUS, FLAME_SHELL_RING_SEGMENTS, FLAME_SHELL_STACKS,
     FLAME_SHELL_TAPER_TIP_SCALE,
 };
+pub use flame_trail::*;
 pub use gizmo::{
     BoneDisplayStyle, ColorVertex, GizmoAxis, GizmoDraggable, GizmoPosition, GizmoSelectable,
     TransformGizmoHandle,

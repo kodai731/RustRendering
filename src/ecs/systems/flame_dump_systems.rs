@@ -53,10 +53,8 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
 
 fn matrix4_to_array(m: &cgmath::Matrix4<f32>) -> [f32; 16] {
     [
-        m[0][0], m[0][1], m[0][2], m[0][3],
-        m[1][0], m[1][1], m[1][2], m[1][3],
-        m[2][0], m[2][1], m[2][2], m[2][3],
-        m[3][0], m[3][1], m[3][2], m[3][3],
+        m[0][0], m[0][1], m[0][2], m[0][3], m[1][0], m[1][1], m[1][2], m[1][3], m[2][0], m[2][1],
+        m[2][2], m[2][3], m[3][0], m[3][1], m[3][2], m[3][3],
     ]
 }
 
@@ -114,11 +112,20 @@ pub fn build_flame_dump_record(
         record.insert(k.clone(), v.clone());
     }
     record.insert("temporal_data".to_string(), build_temporal_json(temporal));
-    record.insert("instance_index".to_string(), Value::Number(instance_index.into()));
+    record.insert(
+        "instance_index".to_string(),
+        Value::Number(instance_index.into()),
+    );
     record.insert("trail_enabled".to_string(), Value::Bool(trail_enabled));
     record.insert("trail_len".to_string(), Value::Number(trail_len.into()));
-    record.insert("trail_fade_seconds".to_string(), Value::Number(serde_json::Number::from_f64(trail_fade_seconds as f64).unwrap()));
-    record.insert("trail_oldest_age".to_string(), Value::Number(serde_json::Number::from_f64(trail_oldest_age as f64).unwrap()));
+    record.insert(
+        "trail_fade_seconds".to_string(),
+        Value::Number(serde_json::Number::from_f64(trail_fade_seconds as f64).unwrap()),
+    );
+    record.insert(
+        "trail_oldest_age".to_string(),
+        Value::Number(serde_json::Number::from_f64(trail_oldest_age as f64).unwrap()),
+    );
     Value::Object(record)
 }
 
@@ -133,15 +140,30 @@ pub fn flame_dump_system(
         let (trail_enabled, trail_len, trail_fade_seconds, trail_oldest_age) = match trail {
             Some(t) => {
                 let oldest_age = t.state.samples.last().map(|s| s.age_seconds).unwrap_or(0.0);
-                (t.state.enabled, t.state.samples.len(), t.state.fade_seconds, oldest_age)
+                (
+                    t.state.enabled,
+                    t.state.samples.len(),
+                    t.state.fade_seconds,
+                    oldest_age,
+                )
             }
             None => (false, 0, 0.8, 0.0),
         };
-        let record = build_flame_dump_record(effect, temporal, i, trail_enabled, trail_len, trail_fade_seconds, trail_oldest_age);
+        let record = build_flame_dump_record(
+            effect,
+            temporal,
+            i,
+            trail_enabled,
+            trail_len,
+            trail_fade_seconds,
+            trail_oldest_age,
+        );
         let line = serde_json::to_string(&record).expect("failed to serialize flame dump record");
         writeln!(sink.writer, "{}", line).expect("failed to write flame dump line");
     }
-    sink.writer.flush().expect("failed to flush flame dump writer");
+    sink.writer
+        .flush()
+        .expect("failed to flush flame dump writer");
 }
 
 #[cfg(test)]
@@ -168,7 +190,9 @@ mod tests {
             time: 0.0,
             time_scale: 1.0,
             time_offset: 0.0,
-            coefficients: thyllore_render_core::fit_flame_coefficients(&thyllore_render_core::FlameProfile::default()),
+            coefficients: thyllore_render_core::fit_flame_coefficients(
+                &thyllore_render_core::FlameProfile::default(),
+            ),
             temporal_weight: 0.5,
             frame_index: 42,
             light_position_world: Vector3::new(2.0, 3.0, 2.0),
@@ -190,8 +214,8 @@ mod tests {
             radial_sharpness: 4.0,
             occlusion_lum_ref: 1.0,
             rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
-             ..FlameEffect::default()
-            }
+            ..FlameEffect::default()
+        }
     }
 
     fn sample_temporal() -> FlameTemporalState {

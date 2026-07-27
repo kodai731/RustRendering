@@ -1,4 +1,4 @@
-use crate::ecs::component::{FlameChannel, FlameParam, FlameTrail, FlameTrack};
+use crate::ecs::component::{FlameChannel, FlameParam, FlameTrack, FlameTrail};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
@@ -67,7 +67,10 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
                 if let Some(mut current) = world.get_component_mut::<FlameEffect>(target) {
@@ -79,19 +82,25 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
                 if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
                     trail.state.enabled = *enabled;
                 } else {
-                    world.insert_component(target, FlameTrail {
-                        state: thyllore_render_core::FlameTrailState {
-                            enabled: *enabled,
+                    world.insert_component(
+                        target,
+                        FlameTrail {
+                            state: thyllore_render_core::FlameTrailState {
+                                enabled: *enabled,
+                                ..Default::default()
+                            },
                             ..Default::default()
                         },
-                        ..Default::default()
-                    });
+                    );
                 }
             }
             UIEvent::UpdateFlameTrailFade(fade) => {
@@ -99,48 +108,67 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
                 if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
                     trail.state.fade_seconds = *fade;
                 } else {
-                    world.insert_component(target, FlameTrail {
-                        state: thyllore_render_core::FlameTrailState {
-                            fade_seconds: *fade,
+                    world.insert_component(
+                        target,
+                        FlameTrail {
+                            state: thyllore_render_core::FlameTrailState {
+                                fade_seconds: *fade,
+                                ..Default::default()
+                            },
                             ..Default::default()
                         },
-                        ..Default::default()
-                    });
+                    );
                 }
             }
             UIEvent::AddFlame => {
                 let flames = world.query_flames();
                 if flames.len() < thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES {
                     let e = world.spawn();
-                    world.insert_component(e, FlameEffect {
-                        position: cgmath::Vector3::new(1.5 * flames.len() as f32, 0.0, 0.0),
-                        ..FlameEffect::default()
-                    });
-                    world.insert_component(e, crate::ecs::world::Name(format!("Flame {}", flames.len() + 1)));
+                    world.insert_component(
+                        e,
+                        FlameEffect {
+                            position: cgmath::Vector3::new(1.5 * flames.len() as f32, 0.0, 0.0),
+                            ..FlameEffect::default()
+                        },
+                    );
+                    world.insert_component(
+                        e,
+                        crate::ecs::world::Name(format!("Flame {}", flames.len() + 1)),
+                    );
                 }
             }
             UIEvent::InsertFlameKey { param, value } => {
-                let current_time = world.get_resource::<TimelineState>().map(|t| t.current_time).unwrap_or(0.0);
+                let current_time = world
+                    .get_resource::<TimelineState>()
+                    .map(|t| t.current_time)
+                    .unwrap_or(0.0);
                 let flames = world.query_flames();
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
-                let mut track = if let Some(existing) = world.get_component_mut::<FlameTrack>(target) {
-                    let mut track = existing.clone();
-                    drop(existing);
-                    track
-                } else {
-                    FlameTrack::default()
-                };
+                let mut track =
+                    if let Some(existing) = world.get_component_mut::<FlameTrack>(target) {
+                        let mut track = existing.clone();
+                        drop(existing);
+                        track
+                    } else {
+                        FlameTrack::default()
+                    };
                 // Find or create the channel for this param
                 let mut found = false;
                 for channel in &mut track.channels {
@@ -157,7 +185,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                         if !inserted {
                             use thyllore_anim_core::Keyframe;
                             channel.keys.push(Keyframe::new(current_time, *value));
-                            channel.keys.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+                            channel
+                                .keys
+                                .sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
                         }
                         found = true;
                         break;
@@ -177,7 +207,10 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
                 let mut track = match world.get_component_mut::<FlameTrack>(target) {
@@ -209,7 +242,10 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
                 world.remove_component::<FlameTrack>(target);
@@ -254,12 +290,20 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     }
                 }
             }
-            UIEvent::MoveFlameKey { param, old_time, new_time, new_value } => {
+            UIEvent::MoveFlameKey {
+                param,
+                old_time,
+                new_time,
+                new_value,
+            } => {
                 let flames = world.query_flames();
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
                 let mut track = match world.get_component_mut::<FlameTrack>(target) {
@@ -274,7 +318,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 let mut found_channel = false;
                 for channel in &mut track.channels {
                     if channel.param == *param {
-                        channel.keys.retain(|key| (key.time - old_time).abs() > 1e-4);
+                        channel
+                            .keys
+                            .retain(|key| (key.time - old_time).abs() > 1e-4);
                         // Insert new key at (new_time.max(0.0), new_value), replacing any existing key within 1e-4 of new_time
                         let clamped_time = new_time.max(0.0);
                         let mut inserted = false;
@@ -289,7 +335,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                         if !inserted {
                             use thyllore_anim_core::Keyframe;
                             channel.keys.push(Keyframe::new(clamped_time, *new_value));
-                            channel.keys.sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+                            channel
+                                .keys
+                                .sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
                         }
                         found_channel = true;
                         break;
@@ -310,7 +358,10 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 if flames.is_empty() {
                     continue;
                 }
-                let selected = world.get_resource::<SelectedFlameInstance>().map(|s| s.0).unwrap_or(0);
+                let selected = world
+                    .get_resource::<SelectedFlameInstance>()
+                    .map(|s| s.0)
+                    .unwrap_or(0);
                 let idx = selected.min(flames.len() - 1);
                 let target = flames[idx];
                 let mut track = match world.get_component_mut::<FlameTrack>(target) {
@@ -339,7 +390,7 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 // Keep the track component even if channels are empty (simpler than At variant)
                 world.insert_component(target, track);
             }
-          _ => {}
+            _ => {}
         }
     }
 }

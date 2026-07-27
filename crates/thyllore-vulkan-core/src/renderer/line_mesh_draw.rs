@@ -40,7 +40,9 @@ pub unsafe fn record_line_mesh_draw<V>(
     let Some(index_buffer) = buffers.get_index_buffer(mesh.index_buffer_handle) else {
         return Ok(false);
     };
-    let pipeline_id = options.pipeline_override.unwrap_or(render_info.pipeline_id.unwrap());
+    let pipeline_id = options
+        .pipeline_override
+        .unwrap_or(render_info.pipeline_id.unwrap());
     let Some(pipeline) = ctx.pipelines.get(pipeline_id) else {
         return Ok(false);
     };

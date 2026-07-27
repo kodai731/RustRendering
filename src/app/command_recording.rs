@@ -32,18 +32,25 @@ impl App {
         // Collect GPU timestamp profiler results from previous frame and write to ECS resource.
         // Derive next_frame from the current GpuPassTimings resource (frame + 1), defaulting to 1
         // if the resource is absent. The borrow must be dropped before insert_resource.
-        let next_frame = self.data.ecs_world.get_resource::<GpuPassTimings>()
+        let next_frame = self
+            .data
+            .ecs_world
+            .get_resource::<GpuPassTimings>()
             .map(|t| t.frame + 1)
             .unwrap_or(1);
 
-        if let Some(passes) = self.gpu_timestamp_profiler.collect(&self.rrdevice.device, image_index) {
+        if let Some(passes) = self
+            .gpu_timestamp_profiler
+            .collect(&self.rrdevice.device, image_index)
+        {
             self.data.ecs_world.insert_resource(GpuPassTimings {
                 frame: next_frame,
                 passes,
             });
         }
 
-        self.gpu_timestamp_profiler.begin_frame(&self.rrdevice.device, command_buffer, image_index);
+        self.gpu_timestamp_profiler
+            .begin_frame(&self.rrdevice.device, command_buffer, image_index);
 
         let use_gbuffer =
             self.data.raytracing.is_available() && self.data.viewport.offscreen.is_some();
@@ -56,7 +63,11 @@ impl App {
                 "gbuffer".to_string(),
             );
             deferred::record_gbuffer_pass(self, command_buffer, image_index)?;
-            self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+            self.gpu_timestamp_profiler.end_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+            );
 
             self.gpu_timestamp_profiler.begin_scope(
                 &self.rrdevice.device,
@@ -65,7 +76,11 @@ impl App {
                 "object_id_copy".to_string(),
             );
             self.record_object_id_copy(command_buffer);
-            self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+            self.gpu_timestamp_profiler.end_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+            );
 
             if self.data.raytracing.has_valid_tlas() {
                 self.gpu_timestamp_profiler.begin_scope(
@@ -75,7 +90,11 @@ impl App {
                     "ray_query".to_string(),
                 );
                 deferred::record_ray_query_pass(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
             } else {
                 self.prepare_empty_shadow_mask(command_buffer);
             }
@@ -91,7 +110,11 @@ impl App {
                     "composite_hdr".to_string(),
                 );
                 deferred::record_composite_to_hdr(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
 
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -100,7 +123,11 @@ impl App {
                     "onion_skin".to_string(),
                 );
                 deferred::record_onion_skin_pass(self, command_buffer, image_index)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
 
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -109,7 +136,11 @@ impl App {
                     "flame".to_string(),
                 );
                 deferred::record_flame_passes(self, command_buffer, image_index)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
 
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -118,7 +149,11 @@ impl App {
                     "bloom".to_string(),
                 );
                 deferred::record_bloom(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
 
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -127,7 +162,11 @@ impl App {
                     "dof".to_string(),
                 );
                 deferred::record_dof(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
 
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -135,8 +174,16 @@ impl App {
                     image_index,
                     "auto_exposure".to_string(),
                 );
-                deferred::record_auto_exposure(self, command_buffer, self.resource::<FrameSync>().current_frame)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                deferred::record_auto_exposure(
+                    self,
+                    command_buffer,
+                    self.resource::<FrameSync>().current_frame,
+                )?;
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
 
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -145,7 +192,11 @@ impl App {
                     "tonemap".to_string(),
                 );
                 deferred::record_tonemap_to_offscreen(self, command_buffer, image_index)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
 
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -154,7 +205,11 @@ impl App {
                     "onion_composite".to_string(),
                 );
                 deferred::record_onion_skin_composite(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
             } else {
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -163,7 +218,11 @@ impl App {
                     "composite_offscreen".to_string(),
                 );
                 deferred::record_composite_to_offscreen(self, command_buffer, image_index)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
             }
 
             self.gpu_timestamp_profiler.begin_scope(
@@ -175,7 +234,11 @@ impl App {
             self.begin_main_render_pass(command_buffer, image_index);
             self.record_imgui_rendering(command_buffer, draw_data)?;
             self.rrdevice.device.cmd_end_render_pass(command_buffer);
-            self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+            self.gpu_timestamp_profiler.end_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+            );
         } else {
             if let Some(ref offscreen) = self.data.viewport.offscreen {
                 self.begin_offscreen_render_pass(command_buffer, offscreen);
@@ -186,7 +249,11 @@ impl App {
                     "offscreen_3d".to_string(),
                 );
                 self.record_3d_rendering_to_offscreen(command_buffer, image_index, offscreen)?;
-                self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
                 self.rrdevice.device.cmd_end_render_pass(command_buffer);
             }
 
@@ -199,7 +266,11 @@ impl App {
             self.begin_main_render_pass(command_buffer, image_index);
             self.record_imgui_rendering(command_buffer, draw_data)?;
             self.rrdevice.device.cmd_end_render_pass(command_buffer);
-            self.gpu_timestamp_profiler.end_scope(&self.rrdevice.device, command_buffer, image_index);
+            self.gpu_timestamp_profiler.end_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+            );
         }
 
         self.rrdevice.device.end_command_buffer(command_buffer)?;

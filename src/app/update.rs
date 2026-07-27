@@ -63,10 +63,10 @@ impl App {
             * std::mem::size_of::<imgui::DrawIdx>())
             as vk::DeviceSize;
 
-        let needs_vertex_resize =
-            data.imgui.vertex_buffers[frame_slot].is_none() || vtx_buffer_size > data.imgui.vertex_buffer_sizes[frame_slot];
-        let needs_index_resize =
-            data.imgui.index_buffers[frame_slot].is_none() || idx_buffer_size > data.imgui.index_buffer_sizes[frame_slot];
+        let needs_vertex_resize = data.imgui.vertex_buffers[frame_slot].is_none()
+            || vtx_buffer_size > data.imgui.vertex_buffer_sizes[frame_slot];
+        let needs_index_resize = data.imgui.index_buffers[frame_slot].is_none()
+            || idx_buffer_size > data.imgui.index_buffer_sizes[frame_slot];
 
         if needs_vertex_resize || needs_index_resize {
             rrdevice.device.device_wait_idle()?;

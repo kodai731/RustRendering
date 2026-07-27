@@ -10,6 +10,7 @@
 #include "include/chebyshev.glsl"
 #include "include/flame_ray.glsl"
 #include "include/flame_noise.glsl"
+#include "include/flame_shell_profile.glsl"
 
 layout(set = 0, binding = 0) uniform FrameUBO {
     mat4 view;
@@ -208,13 +209,12 @@ struct FlameRaySegment {
 };
 
 bool clampToShellCone(vec3 o, vec3 d, inout float tNear, inout float tFar) {
-    // Shell cone: |p.xz| <= R0 * mix(1.0, TAPER, p.y), R0 = 0.5, TAPER = 0.25 (must match flameShellGeometry.geom TAPER_TIP_SCALE)
-    const float CONE_R0 = 0.5;
-    const float CONE_TAPER = 0.25;
-    // f(t) = m + n*t, m = CONE_R0 * (1.0 - (1.0-CONE_TAPER) * o.y), n = -CONE_R0 * (1.0-CONE_TAPER) * d.y
+    // Shell cone: |p.xz| <= flameShellOuterRadius(p.y), which is linear in y:
+    // f(t) = m + n*t with m = flameShellOuterRadius(o.y) and n = its slope along the ray.
     // Condition |o.xz + t*d.xz|^2 - f(t)^2 <= 0 -> a = dot(d.xz,d.xz) - n*n, b = 2.0*(dot(o.xz,d.xz) - m*n), c = dot(o.xz,o.xz) - m*m
-    float m = CONE_R0 * (1.0 - (1.0 - CONE_TAPER) * o.y);
-    float n = -CONE_R0 * (1.0 - CONE_TAPER) * d.y;
+    float coneSlope = flameShellOuterRadius(1.0) - flameShellOuterRadius(0.0);
+    float m = flameShellOuterRadius(o.y);
+    float n = coneSlope * d.y;
     float a = dot(d.xz, d.xz) - n * n;
     float b = 2.0 * (dot(o.xz, d.xz) - m * n);
     float c = dot(o.xz, o.xz) - m * m;
@@ -312,7 +312,7 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
 
     // Geometric camera-inside test: local origin must be within the shell cone
     bool cameraInside = segment.localOrigin.y >= 0.0 && segment.localOrigin.y <= 1.0
-        && length(segment.localOrigin.xz) <= 0.5 * mix(1.0, 0.25, segment.localOrigin.y);
+        && length(segment.localOrigin.xz) <= flameShellOuterRadius(segment.localOrigin.y);
 
     // Camera inside the shell: front boundary terms at t = 0 were never
     // rasterized, so coverage = +N and the missing (-1) * H1(h_o) / h_d

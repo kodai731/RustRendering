@@ -40,7 +40,9 @@ pub fn sample_channel(keys: &[Keyframe<f32>], time: f32) -> Option<f32> {
         return None;
     }
 
-    let clamped_time = time.max(keys.first().unwrap().time).min(keys.last().unwrap().time);
+    let clamped_time = time
+        .max(keys.first().unwrap().time)
+        .min(keys.last().unwrap().time);
 
     // Binary search for the interval [keys[i], keys[i+1]] containing clamped_time
     let mut lo: usize = 0;
@@ -181,9 +183,16 @@ mod tests {
         };
 
         apply_flame_track(&track, 1.0, &mut effect);
-        assert!((effect.height - 1.5).abs() < 1e-6, "expected height 1.5, got {}", effect.height);
+        assert!(
+            (effect.height - 1.5).abs() < 1e-6,
+            "expected height 1.5, got {}",
+            effect.height
+        );
 
         // Other fields should be unchanged
-        assert_eq!(effect.radius, crate::ecs::resource::FlameEffect::default().radius);
+        assert_eq!(
+            effect.radius,
+            crate::ecs::resource::FlameEffect::default().radius
+        );
     }
 }

@@ -8,8 +8,13 @@
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
 use thyllore_animation::ecs::component::FlameTrail;
-use thyllore_animation::ecs::systems::{apply_flame_overrides, batch_run_report, resolve_engine_cli_overrides};
-use thyllore_animation::ecs::resource::{BatchFlameOrbit, BatchRun, Camera, ExposureDumpSink, FlameDumpSink, FlameEffect, FlameRenderSettings, GpuTimingsSink};
+use thyllore_animation::ecs::resource::{
+    BatchFlameOrbit, BatchRun, Camera, ExposureDumpSink, FlameDumpSink, FlameEffect,
+    FlameRenderSettings, GpuTimingsSink,
+};
+use thyllore_animation::ecs::systems::{
+    apply_flame_overrides, batch_run_report, resolve_engine_cli_overrides,
+};
 use thyllore_animation::platform;
 
 use vulkanalia::vk;
@@ -67,13 +72,19 @@ fn main() -> Result<()> {
         camera.distance = pose.distance;
     }
     if let Some(path) = overrides.flame_dump_path {
-        app.data.ecs_world.insert_resource(FlameDumpSink::new(std::path::PathBuf::from(path)));
+        app.data
+            .ecs_world
+            .insert_resource(FlameDumpSink::new(std::path::PathBuf::from(path)));
     }
     if let Some(path) = overrides.gpu_timings_path {
-        app.data.ecs_world.insert_resource(GpuTimingsSink::new(path));
+        app.data
+            .ecs_world
+            .insert_resource(GpuTimingsSink::new(path));
     }
     if let Some(path) = overrides.exposure_dump_path {
-        app.data.ecs_world.insert_resource(ExposureDumpSink::new(path));
+        app.data
+            .ecs_world
+            .insert_resource(ExposureDumpSink::new(path));
     }
     if let Some(n) = overrides.flame_count {
         if n >= 2 {
@@ -90,7 +101,10 @@ fn main() -> Result<()> {
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
                 app.data.ecs_world.insert_component(e, effect);
-                app.data.ecs_world.insert_component(e, thyllore_animation::ecs::world::Name(format!("Flame {}", i + 1)));
+                app.data.ecs_world.insert_component(
+                    e,
+                    thyllore_animation::ecs::world::Name(format!("Flame {}", i + 1)),
+                );
             }
         }
     }
@@ -108,14 +122,17 @@ fn main() -> Result<()> {
     if let Some(fade) = overrides.flame_trail {
         let entities: Vec<_> = app.data.ecs_world.query_flames();
         for e in entities {
-            app.data.ecs_world.insert_component(e, FlameTrail {
-                state: thyllore_render_core::FlameTrailState {
-                    enabled: true,
-                    fade_seconds: fade,
+            app.data.ecs_world.insert_component(
+                e,
+                FlameTrail {
+                    state: thyllore_render_core::FlameTrailState {
+                        enabled: true,
+                        fade_seconds: fade,
+                        ..Default::default()
+                    },
                     ..Default::default()
                 },
-                ..Default::default()
-            });
+            );
         }
     }
 
@@ -131,10 +148,17 @@ fn main() -> Result<()> {
     // Apply batch_play override: start timeline playback for deterministic batch clip runs
     if overrides.batch_play {
         let first = {
-        let clip_library = app.data.ecs_world.resource::<thyllore_animation::ecs::resource::ClipLibrary>();
-        let x = clip_library.all_clip_ids().next().copied(); x
+            let clip_library = app
+                .data
+                .ecs_world
+                .resource::<thyllore_animation::ecs::resource::ClipLibrary>();
+            let x = clip_library.all_clip_ids().next().copied();
+            x
         };
-        let mut ts = app.data.ecs_world.resource_mut::<thyllore_animation::ecs::resource::TimelineState>();
+        let mut ts = app
+            .data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::TimelineState>();
         ts.playing = true;
         ts.looping = true;
         ts.current_time = 0.0;
@@ -154,7 +178,7 @@ fn main() -> Result<()> {
         }
     }
 
-  {
+    {
         let (pixels, w, h) = match overrides.flame_sdf.as_ref() {
             Some(path) => match thyllore_render_core::flame_sdf::load_flame_sdf(path) {
                 Ok(sdf) => {
@@ -169,22 +193,28 @@ fn main() -> Result<()> {
             None => (vec![255u8; 4], 1, 1),
         };
 
-      unsafe {
+        unsafe {
             use thyllore_animation::vulkanr::context::CommandState;
             let command_pool = app.resource::<CommandState>().pool.clone();
-            let (image, memory, mips) = thyllore_vulkan_core::resource::create_texture_image_pixel_with_format(
-                &app.instance,
-                &app.rrdevice,
-                &command_pool,
-                &pixels,
-                w,
-                h,
-                vk::Format::R8G8B8A8_UNORM,
-            )?;
+            let (image, memory, mips) =
+                thyllore_vulkan_core::resource::create_texture_image_pixel_with_format(
+                    &app.instance,
+                    &app.rrdevice,
+                    &command_pool,
+                    &pixels,
+                    w,
+                    h,
+                    vk::Format::R8G8B8A8_UNORM,
+                )?;
             let image_view = thyllore_vulkan_core::resource::create_image_view(
-                &app.rrdevice, image, vk::Format::R8G8B8A8_UNORM, vk::ImageAspectFlags::COLOR, mips,
+                &app.rrdevice,
+                image,
+                vk::Format::R8G8B8A8_UNORM,
+                vk::ImageAspectFlags::COLOR,
+                mips,
             )?;
-            let sampler = thyllore_vulkan_core::resource::create_texture_sampler(&app.rrdevice, mips)?;
+            let sampler =
+                thyllore_vulkan_core::resource::create_texture_sampler(&app.rrdevice, mips)?;
 
             app.data.raytracing.flame_sdf_image = image;
             app.data.raytracing.flame_sdf_image_memory = memory;

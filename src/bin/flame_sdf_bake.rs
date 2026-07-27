@@ -50,7 +50,13 @@ fn main() {
     }
 }
 
-fn run(input_path: &PathBuf, output_path: &PathBuf, threshold: f32, invert: bool, max_dim: usize) -> io::Result<String> {
+fn run(
+    input_path: &PathBuf,
+    output_path: &PathBuf,
+    threshold: f32,
+    invert: bool,
+    max_dim: usize,
+) -> io::Result<String> {
     let mut file = fs::File::open(input_path)?;
     let mut bytes = Vec::new();
     file.read_to_end(&mut bytes)?;
@@ -111,5 +117,6 @@ fn run(input_path: &PathBuf, output_path: &PathBuf, threshold: f32, invert: bool
         "width": out_w,
         "height": out_h,
         "inside_pixel_count": inside_count,
-    }).to_string())
+    })
+    .to_string())
 }

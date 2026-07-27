@@ -30,5 +30,5 @@ pub struct AppData {
     pub buffer_registry: GpuBufferRegistry,
     pub pipeline_storage: PipelineStorage,
     pub viewport: ViewportState,
-   pub onion_skin_gpu: Option<OnionSkinGpuState>,
+    pub onion_skin_gpu: Option<OnionSkinGpuState>,
 }

@@ -44,7 +44,7 @@ impl ViewportState {
             swapchain_format,
         )?;
 
-       let hdr_buffer = HdrBuffer::new(instance, rrdevice, width, height)?;
+        let hdr_buffer = HdrBuffer::new(instance, rrdevice, width, height)?;
 
         let bloom_chain = BloomChain::new(instance, rrdevice, width, height, 5, command_pool)?;
 
@@ -175,7 +175,7 @@ impl ViewportState {
         }
 
         if let Some(ref mut hdr_buffer) = self.hdr_buffer {
-          hdr_buffer.resize(instance, rrdevice, new_width, new_height)?;
+            hdr_buffer.resize(instance, rrdevice, new_width, new_height)?;
         }
 
         if let Some(ref mut bloom_chain) = self.bloom_chain {

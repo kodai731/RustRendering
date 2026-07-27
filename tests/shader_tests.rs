@@ -164,7 +164,7 @@ fn test_shader_count_matches() {
     let shader_sources_count = fs::read_dir("shaders")
         .expect("Failed to read shaders directory")
         .filter_map(|entry| entry.ok())
-       .filter(|entry| {
+        .filter(|entry| {
             let path = entry.path();
             path.is_file()
                 && (path.extension() == Some("vert".as_ref())

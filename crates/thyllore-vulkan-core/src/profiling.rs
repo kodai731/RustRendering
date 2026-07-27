@@ -25,7 +25,6 @@ pub fn decode_results(
     Some(results)
 }
 
-
 pub struct GpuTimestampProfiler {
     pools: Vec<vk::QueryPool>,
     labels: Vec<Vec<(String, u32, u32)>>,
@@ -145,7 +144,10 @@ impl GpuTimestampProfiler {
             Ok(_) => {}
         }
 
-        let words: Vec<u64> = data.chunks_exact(8).map(|c| u64::from_ne_bytes(c.try_into().unwrap())).collect::<Vec<u64>>();
+        let words: Vec<u64> = data
+            .chunks_exact(8)
+            .map(|c| u64::from_ne_bytes(c.try_into().unwrap()))
+            .collect::<Vec<u64>>();
         let decoded = decode_results(&self.labels[slot], &words)?;
         let results: Vec<(String, f32)> = decoded
             .into_iter()

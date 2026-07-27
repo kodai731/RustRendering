@@ -8,8 +8,8 @@ use super::platform::System;
 use super::ui::{
     build_bottom_panel, build_clip_browser_window, build_curve_editor_window,
     build_flame_curve_window, build_hierarchy_window, build_inspector_window, build_scene_overlay,
-    build_timeline_window, build_viewport_window, draw_status_bar, handle_splitters, LayoutSnapshot,
-    SceneOverlayState, StatusBarState, ViewportInfo,
+    build_timeline_window, build_viewport_window, draw_status_bar, handle_splitters,
+    LayoutSnapshot, SceneOverlayState, StatusBarState, ViewportInfo,
 };
 #[cfg(debug_assertions)]
 use super::ui::{build_click_debug_overlay, DebugWindowState};
@@ -467,7 +467,7 @@ fn build_timeline_and_fixed_overlays(
         query_clip_tracks(&app.data.ecs_world, &*clip_library, &app.data.ecs_assets)
     };
 
-   let flame_track: Option<crate::ecs::component::FlameTrack> = {
+    let flame_track: Option<crate::ecs::component::FlameTrack> = {
         let entities: Vec<_> = app.data.ecs_world.query_flames();
         let selected = app
             .data
@@ -762,7 +762,13 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
     }
 }
 
-unsafe fn render_frame(app: &mut App, window: &winit::window::Window, draw_data: &imgui::DrawData, dt_ms: f32, imgui_build_ms: f32) {
+unsafe fn render_frame(
+    app: &mut App,
+    window: &winit::window::Window,
+    draw_data: &imgui::DrawData,
+    dt_ms: f32,
+    imgui_build_ms: f32,
+) {
     let frame_result = (|| -> anyhow::Result<()> {
         let gpu_wait_start = Instant::now();
         let image_index = app.begin_frame()?;
@@ -776,18 +782,20 @@ unsafe fn render_frame(app: &mut App, window: &winit::window::Window, draw_data:
         app.render(image_index, draw_data)?;
         let render_cpu_ms = render_cpu_start.elapsed().as_secs_f32() * 1000.0;
 
-        app.data.ecs_world.insert_resource(crate::ecs::resource::CpuFrameTimings {
-            frame: app.frame as u64,
-            dt_ms,
-            stages: vec![
-                ("imgui_build".to_string(), imgui_build_ms),
-                ("gpu_wait".to_string(), gpu_wait_ms),
-                ("update".to_string(), update_ms),
-                ("render_cpu".to_string(), render_cpu_ms),
-            ],
-            imgui_vtx: draw_data.total_vtx_count as u32,
-            imgui_idx: draw_data.total_idx_count as u32,
-        });
+        app.data
+            .ecs_world
+            .insert_resource(crate::ecs::resource::CpuFrameTimings {
+                frame: app.frame as u64,
+                dt_ms,
+                stages: vec![
+                    ("imgui_build".to_string(), imgui_build_ms),
+                    ("gpu_wait".to_string(), gpu_wait_ms),
+                    ("update".to_string(), update_ms),
+                    ("render_cpu".to_string(), render_cpu_ms),
+                ],
+                imgui_vtx: draw_data.total_vtx_count as u32,
+                imgui_idx: draw_data.total_idx_count as u32,
+            });
 
         Ok(())
     })();
@@ -813,8 +821,16 @@ unsafe fn render_frame(app: &mut App, window: &winit::window::Window, draw_data:
                     .unwrap_or(sink.last_frame);
                 use std::fs::OpenOptions;
                 use std::io::Write;
-                if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(&sink.path) {
-                    let _ = writeln!(file, "{{\"event\":\"swapchain_recreate\",\"frame\":{}}}", frame);
+                if let Ok(mut file) = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&sink.path)
+                {
+                    let _ = writeln!(
+                        file,
+                        "{{\"event\":\"swapchain_recreate\",\"frame\":{}}}",
+                        frame
+                    );
                 }
             }
         } else {

@@ -48,7 +48,10 @@ fn param_color(param: &FlameParam) -> [f32; 4] {
 
 fn channel_value_range(keys: &[crate::animation::Keyframe<f32>]) -> (f32, f32) {
     let min = keys.iter().map(|k| k.value).fold(f32::INFINITY, f32::min);
-    let max = keys.iter().map(|k| k.value).fold(f32::NEG_INFINITY, f32::max);
+    let max = keys
+        .iter()
+        .map(|k| k.value)
+        .fold(f32::NEG_INFINITY, f32::max);
     let pad = (max - min) * 0.1;
     if (max - min).abs() < 1e-6 {
         (min - 0.5, min + 0.5)
@@ -109,13 +112,14 @@ pub fn build_flame_curve_window(
             let plot_height = avail[1].max(100.0);
 
             // Draw background
-            draw_list.add_rect(
-                [plot_left, plot_top],
-                [plot_left + plot_width, plot_top + plot_height],
-                [0.118, 0.118, 0.118, 1.0],
-            )
-            .filled(true)
-            .build();
+            draw_list
+                .add_rect(
+                    [plot_left, plot_top],
+                    [plot_left + plot_width, plot_top + plot_height],
+                    [0.118, 0.118, 0.118, 1.0],
+                )
+                .filled(true)
+                .build();
 
             // Draw curves for each visible channel
             for channel in &track.channels {
@@ -130,7 +134,13 @@ pub fn build_flame_curve_window(
                     plot_left + time / t_max * plot_width
                 }
 
-                fn value_to_y(value: f32, v_min: f32, v_max: f32, plot_top: f32, plot_height: f32) -> f32 {
+                fn value_to_y(
+                    value: f32,
+                    v_min: f32,
+                    v_max: f32,
+                    plot_top: f32,
+                    plot_height: f32,
+                ) -> f32 {
                     let ratio = (value - v_min) / (v_max - v_min);
                     plot_top + plot_height * (1.0 - ratio)
                 }
@@ -139,7 +149,13 @@ pub fn build_flame_curve_window(
                     (x - plot_left) / plot_width * t_max
                 }
 
-                fn y_to_value(y: f32, v_min: f32, v_max: f32, plot_top: f32, plot_height: f32) -> f32 {
+                fn y_to_value(
+                    y: f32,
+                    v_min: f32,
+                    v_max: f32,
+                    plot_top: f32,
+                    plot_height: f32,
+                ) -> f32 {
                     let ratio = 1.0 - (y - plot_top) / plot_height;
                     v_min + ratio * (v_max - v_min)
                 }
@@ -158,11 +174,20 @@ pub fn build_flame_curve_window(
                         match prev_key.interpolation {
                             Interpolation::Step => {
                                 // Horizontal then vertical: draw L-shape
-                                draw_list.add_line([px, py], [kx, py], color).thickness(1.0).build();
-                                draw_list.add_line([kx, py], [kx, ky], color).thickness(1.0).build();
+                                draw_list
+                                    .add_line([px, py], [kx, py], color)
+                                    .thickness(1.0)
+                                    .build();
+                                draw_list
+                                    .add_line([kx, py], [kx, ky], color)
+                                    .thickness(1.0)
+                                    .build();
                             }
                             Interpolation::Linear | Interpolation::CubicSpline => {
-                                draw_list.add_line([px, py], [kx, ky], color).thickness(1.0).build();
+                                draw_list
+                                    .add_line([px, py], [kx, ky], color)
+                                    .thickness(1.0)
+                                    .build();
                             }
                         }
                     }
@@ -171,7 +196,10 @@ pub fn build_flame_curve_window(
                     prev_y = Some(ky);
 
                     // Draw filled circle for key
-                    draw_list.add_circle([kx, ky], 4.0, color).filled(true).build();
+                    draw_list
+                        .add_circle([kx, ky], 4.0, color)
+                        .filled(true)
+                        .build();
 
                     // (3) Interaction per key: invisible button
                     let btn_size = [12.0, 12.0];
@@ -184,11 +212,13 @@ pub fn build_flame_curve_window(
 
                     // Tooltip on hover
                     if ui.is_item_hovered() {
-                        ui.get_window_draw_list().add_rect(
-                            [btn_x, btn_y],
-                            [btn_x + btn_size[0], btn_y + btn_size[1]],
-                            [1.0, 1.0, 1.0, 1.0],
-                        ).build();
+                        ui.get_window_draw_list()
+                            .add_rect(
+                                [btn_x, btn_y],
+                                [btn_x + btn_size[0], btn_y + btn_size[1]],
+                                [1.0, 1.0, 1.0, 1.0],
+                            )
+                            .build();
                         ui.tooltip(|| {
                             ui.text(format!("t={:.2} v={:.3}", key.time, key.value));
                         });
@@ -206,7 +236,8 @@ pub fn build_flame_curve_window(
                     if ui.is_item_active() {
                         let mouse_pos = ui.io().mouse_pos;
                         let new_time = x_to_time(mouse_pos[0], t_max, plot_left, plot_width);
-                        let new_value = y_to_value(mouse_pos[1], v_min, v_max, plot_top, plot_height);
+                        let new_value =
+                            y_to_value(mouse_pos[1], v_min, v_max, plot_top, plot_height);
                         ui_events.send(UIEvent::MoveFlameKey {
                             param: channel.param,
                             old_time: key.time,
@@ -219,13 +250,14 @@ pub fn build_flame_curve_window(
 
             // Draw playhead line
             let playhead_x = current_time / t_max * plot_width + plot_left;
-            draw_list.add_line(
-                [playhead_x, plot_top],
-                [playhead_x, plot_top + plot_height],
-                [1.0, 1.0, 1.0, 1.0],
-            )
-            .thickness(1.0)
-            .build();
+            draw_list
+                .add_line(
+                    [playhead_x, plot_top],
+                    [playhead_x, plot_top + plot_height],
+                    [1.0, 1.0, 1.0, 1.0],
+                )
+                .thickness(1.0)
+                .build();
 
             // Reserve the invisible area for mouse interaction on the plot
             ui.set_cursor_screen_pos([plot_left, plot_top]);

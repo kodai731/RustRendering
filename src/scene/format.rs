@@ -294,7 +294,7 @@ pub struct FlameEffectData {
     pub edge_low: f32,
     pub edge_high: f32,
     pub white_boost: f32,
-  pub wind_direction: [f32; 2],
+    pub wind_direction: [f32; 2],
     pub bend_amount: f32,
     pub bend_power: f32,
     pub self_shadow_strength: f32,
@@ -310,11 +310,21 @@ pub struct FlameEffectData {
     pub occlusion_lum_ref: f32,
 }
 
-fn default_envelope_peak() -> f32 { 0.35 }
-fn default_envelope_base() -> f32 { 0.45 }
-fn default_envelope_tail() -> f32 { 1.6 }
-fn default_radial_sharpness() -> f32 { 4.0 }
-fn default_occlusion_lum_ref() -> f32 { 1.0 }
+fn default_envelope_peak() -> f32 {
+    0.35
+}
+fn default_envelope_base() -> f32 {
+    0.45
+}
+fn default_envelope_tail() -> f32 {
+    1.6
+}
+fn default_radial_sharpness() -> f32 {
+    4.0
+}
+fn default_occlusion_lum_ref() -> f32 {
+    1.0
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameChannelData {
@@ -336,18 +346,12 @@ pub fn flame_param_to_string(param: crate::ecs::component::FlameParam) -> String
         crate::ecs::component::FlameParam::Radius => "Radius".to_string(),
         crate::ecs::component::FlameParam::Intensity => "Intensity".to_string(),
         crate::ecs::component::FlameParam::SigmaT => "SigmaT".to_string(),
-        crate::ecs::component::FlameParam::TemperatureBaseK => {
-            "TemperatureBaseK".to_string()
-        }
-        crate::ecs::component::FlameParam::TemperatureTipK => {
-            "TemperatureTipK".to_string()
-        }
+        crate::ecs::component::FlameParam::TemperatureBaseK => "TemperatureBaseK".to_string(),
+        crate::ecs::component::FlameParam::TemperatureTipK => "TemperatureTipK".to_string(),
         crate::ecs::component::FlameParam::WarpAmp => "WarpAmp".to_string(),
         crate::ecs::component::FlameParam::WarpFreq => "WarpFreq".to_string(),
         crate::ecs::component::FlameParam::RiseSpeed => "RiseSpeed".to_string(),
-        crate::ecs::component::FlameParam::NoiseAmplitude => {
-            "NoiseAmplitude".to_string()
-        }
+        crate::ecs::component::FlameParam::NoiseAmplitude => "NoiseAmplitude".to_string(),
         crate::ecs::component::FlameParam::WhiteBoost => "WhiteBoost".to_string(),
         crate::ecs::component::FlameParam::BendAmount => "BendAmount".to_string(),
         crate::ecs::component::FlameParam::WindX => "WindX".to_string(),
@@ -364,18 +368,12 @@ pub fn flame_param_from_string(s: &str) -> Option<crate::ecs::component::FlamePa
         "Radius" => Some(crate::ecs::component::FlameParam::Radius),
         "Intensity" => Some(crate::ecs::component::FlameParam::Intensity),
         "SigmaT" => Some(crate::ecs::component::FlameParam::SigmaT),
-        "TemperatureBaseK" => {
-            Some(crate::ecs::component::FlameParam::TemperatureBaseK)
-        }
-        "TemperatureTipK" => {
-            Some(crate::ecs::component::FlameParam::TemperatureTipK)
-        }
+        "TemperatureBaseK" => Some(crate::ecs::component::FlameParam::TemperatureBaseK),
+        "TemperatureTipK" => Some(crate::ecs::component::FlameParam::TemperatureTipK),
         "WarpAmp" => Some(crate::ecs::component::FlameParam::WarpAmp),
         "WarpFreq" => Some(crate::ecs::component::FlameParam::WarpFreq),
         "RiseSpeed" => Some(crate::ecs::component::FlameParam::RiseSpeed),
-        "NoiseAmplitude" => {
-            Some(crate::ecs::component::FlameParam::NoiseAmplitude)
-        }
+        "NoiseAmplitude" => Some(crate::ecs::component::FlameParam::NoiseAmplitude),
         "WhiteBoost" => Some(crate::ecs::component::FlameParam::WhiteBoost),
         "BendAmount" => Some(crate::ecs::component::FlameParam::BendAmount),
         "WindX" => Some(crate::ecs::component::FlameParam::WindX),
@@ -412,33 +410,37 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
 
     let effect = world.get_component::<crate::ecs::resource::FlameEffect>(*entity)?;
 
-    let channels: Vec<FlameChannelData> = if let Some(track) =
-        world.get_component::<crate::ecs::component::FlameTrack>(*entity)
-    {
-        track
-            .channels
-            .iter()
-            .map(|ch| FlameChannelData {
-                param: flame_param_to_string(ch.param),
-                keys: ch
-                    .keys
-                    .iter()
-                    .map(|k| FlameKeyData {
-                        time: k.time,
-                        value: k.value,
-                        interpolation: interpolation_to_string(k.interpolation.clone()),
-                    })
-                    .collect(),
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let channels: Vec<FlameChannelData> =
+        if let Some(track) = world.get_component::<crate::ecs::component::FlameTrack>(*entity) {
+            track
+                .channels
+                .iter()
+                .map(|ch| FlameChannelData {
+                    param: flame_param_to_string(ch.param),
+                    keys: ch
+                        .keys
+                        .iter()
+                        .map(|k| FlameKeyData {
+                            time: k.time,
+                            value: k.value,
+                            interpolation: interpolation_to_string(k.interpolation.clone()),
+                        })
+                        .collect(),
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
 
     Some(FlameSceneData {
         effect: FlameEffectData {
             position: [effect.position.x, effect.position.y, effect.position.z],
-            rotation: [effect.rotation.s, effect.rotation.v.x, effect.rotation.v.y, effect.rotation.v.z],
+            rotation: [
+                effect.rotation.s,
+                effect.rotation.v.x,
+                effect.rotation.v.y,
+                effect.rotation.v.z,
+            ],
             height: effect.height,
             radius: effect.radius,
             sigma_t: effect.sigma_t,
@@ -476,10 +478,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
 }
 
 /// Apply loaded flame state to the first flame entity in the world.
-pub fn apply_flame_state_to_world(
-    world: &mut crate::ecs::world::World,
-    flame: &FlameSceneData,
-) {
+pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &FlameSceneData) {
     let entities: Vec<_> = world.query_flames();
     let entity = match entities.first() {
         Some(e) => *e,
@@ -488,7 +487,11 @@ pub fn apply_flame_state_to_world(
 
     // Write effect fields onto the existing FlameEffect component
     if let Some(mut effect) = world.get_component_mut::<crate::ecs::resource::FlameEffect>(entity) {
-        effect.position = cgmath::Vector3::new(flame.effect.position[0], flame.effect.position[1], flame.effect.position[2]);
+        effect.position = cgmath::Vector3::new(
+            flame.effect.position[0],
+            flame.effect.position[1],
+            flame.effect.position[2],
+        );
         effect.rotation = cgmath::Quaternion::new(
             flame.effect.rotation[0],
             flame.effect.rotation[1],
@@ -517,7 +520,10 @@ pub fn apply_flame_state_to_world(
         effect.edge_low = flame.effect.edge_low;
         effect.edge_high = flame.effect.edge_high;
         effect.white_boost = flame.effect.white_boost;
-        effect.wind_direction = cgmath::Vector2::new(flame.effect.wind_direction[0], flame.effect.wind_direction[1]);
+        effect.wind_direction = cgmath::Vector2::new(
+            flame.effect.wind_direction[0],
+            flame.effect.wind_direction[1],
+        );
         effect.bend_amount = flame.effect.bend_amount;
         effect.bend_power = flame.effect.bend_power;
         effect.self_shadow_strength = flame.effect.self_shadow_strength;
@@ -674,30 +680,58 @@ mod tests {
         assert_eq!(scene.effect.intensity, restored.effect.intensity);
         assert_eq!(scene.effect.color_base, restored.effect.color_base);
         assert_eq!(scene.effect.color_tip, restored.effect.color_tip);
-        assert_eq!(scene.effect.temperature_base_k, restored.effect.temperature_base_k);
-        assert_eq!(scene.effect.temperature_tip_k, restored.effect.temperature_tip_k);
+        assert_eq!(
+            scene.effect.temperature_base_k,
+            restored.effect.temperature_base_k
+        );
+        assert_eq!(
+            scene.effect.temperature_tip_k,
+            restored.effect.temperature_tip_k
+        );
         assert_eq!(scene.effect.use_blackbody, restored.effect.use_blackbody);
-        assert_eq!(scene.effect.noise_amplitude, restored.effect.noise_amplitude);
-        assert_eq!(scene.effect.noise_frequency, restored.effect.noise_frequency);
-        assert_eq!(scene.effect.noise_scroll_speed, restored.effect.noise_scroll_speed);
+        assert_eq!(
+            scene.effect.noise_amplitude,
+            restored.effect.noise_amplitude
+        );
+        assert_eq!(
+            scene.effect.noise_frequency,
+            restored.effect.noise_frequency
+        );
+        assert_eq!(
+            scene.effect.noise_scroll_speed,
+            restored.effect.noise_scroll_speed
+        );
         assert_eq!(scene.effect.time_scale, restored.effect.time_scale);
         assert_eq!(scene.effect.time_offset, restored.effect.time_offset);
         assert_eq!(scene.effect.warp_amp, restored.effect.warp_amp);
         assert_eq!(scene.effect.warp_freq, restored.effect.warp_freq);
         assert_eq!(scene.effect.rise_speed, restored.effect.rise_speed);
         assert_eq!(scene.effect.taper_power, restored.effect.taper_power);
-        assert_eq!(scene.effect.radius_tip_ratio, restored.effect.radius_tip_ratio);
+        assert_eq!(
+            scene.effect.radius_tip_ratio,
+            restored.effect.radius_tip_ratio
+        );
         assert_eq!(scene.effect.edge_low, restored.effect.edge_low);
         assert_eq!(scene.effect.edge_high, restored.effect.edge_high);
         assert_eq!(scene.effect.white_boost, restored.effect.white_boost);
         assert_eq!(scene.effect.wind_direction, restored.effect.wind_direction);
         assert_eq!(scene.effect.bend_amount, restored.effect.bend_amount);
         assert_eq!(scene.effect.bend_power, restored.effect.bend_power);
-        assert_eq!(scene.effect.self_shadow_strength, restored.effect.self_shadow_strength);
+        assert_eq!(
+            scene.effect.self_shadow_strength,
+            restored.effect.self_shadow_strength
+        );
         assert_eq!(scene.channels.len(), restored.channels.len());
         assert_eq!(scene.channels[0].param, restored.channels[0].param);
-        assert_eq!(scene.channels[0].keys.len(), restored.channels[0].keys.len());
-        for (k1, k2) in scene.channels[0].keys.iter().zip(restored.channels[0].keys.iter()) {
+        assert_eq!(
+            scene.channels[0].keys.len(),
+            restored.channels[0].keys.len()
+        );
+        for (k1, k2) in scene.channels[0]
+            .keys
+            .iter()
+            .zip(restored.channels[0].keys.iter())
+        {
             assert_eq!(k1.time, k2.time);
             assert_eq!(k1.value, k2.value);
             assert_eq!(k1.interpolation, k2.interpolation);

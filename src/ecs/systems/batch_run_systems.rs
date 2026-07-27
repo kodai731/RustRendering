@@ -136,7 +136,9 @@ pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadi
         bail!("{BATCH_FLAME_MODE_FLAG} requires a value: analytic|raymarch|thickness|noise|depthclamp");
     };
     let mode = FlameShadingMode::parse(value).ok_or_else(|| {
-        anyhow::anyhow!("invalid flame mode '{value}': expected analytic|raymarch|thickness|noise|depthclamp")
+        anyhow::anyhow!(
+            "invalid flame mode '{value}': expected analytic|raymarch|thickness|noise|depthclamp"
+        )
     })?;
     Ok(Some(mode))
 }
@@ -198,18 +200,48 @@ pub fn flame_count_resolve_from_args(args: &[String]) -> Result<Option<usize>> {
         .parse()
         .map_err(|_| anyhow::anyhow!("invalid flame count '{value}': expected integer"))?;
     if !(1..=4).contains(&count) {
-        bail!("{BATCH_FLAME_COUNT_FLAG} must be in range 1..=4, got {}", count);
+        bail!(
+            "{BATCH_FLAME_COUNT_FLAG} must be in range 1..=4, got {}",
+            count
+        );
     }
     Ok(Some(count))
 }
 pub(crate) const FLAME_SET_KEYS: &[&str] = &[
-    "warp_amp", "warp_freq", "rise_speed", "taper_power", "radius_tip_ratio",
-    "edge_low", "edge_high", "white_boost", "bend_amount", "bend_power",
-    "wind_x", "wind_z", "noise_amplitude", "noise_frequency", "noise_scroll_speed",
-    "sigma_t", "intensity", "height", "radius", "time", "time_scale", "time_offset",
-    "rot_z_deg", "temperature_base_k", "temperature_tip_k",
-    "envelope_peak", "envelope_base", "envelope_tail", "radial_sharpness",
-    "emitter_kind", "ring_major_radius", "ring_angular_speed", "noise_aniso_y", "warp_y_scale",
+    "warp_amp",
+    "warp_freq",
+    "rise_speed",
+    "taper_power",
+    "radius_tip_ratio",
+    "edge_low",
+    "edge_high",
+    "white_boost",
+    "bend_amount",
+    "bend_power",
+    "wind_x",
+    "wind_z",
+    "noise_amplitude",
+    "noise_frequency",
+    "noise_scroll_speed",
+    "sigma_t",
+    "intensity",
+    "height",
+    "radius",
+    "time",
+    "time_scale",
+    "time_offset",
+    "rot_z_deg",
+    "temperature_base_k",
+    "temperature_tip_k",
+    "envelope_peak",
+    "envelope_base",
+    "envelope_tail",
+    "radial_sharpness",
+    "emitter_kind",
+    "ring_major_radius",
+    "ring_angular_speed",
+    "noise_aniso_y",
+    "warp_y_scale",
     "occlusion_lum_ref",
 ];
 
@@ -263,7 +295,9 @@ fn flame_trail_resolve_from_args(args: &[String]) -> Result<Option<f32>> {
     let Some(value) = args.get(position + 1) else {
         bail!("{BATCH_FLAME_TRAIL_FLAG} requires <fade_seconds>");
     };
-    let fade: f32 = value.parse().map_err(|_| anyhow::anyhow!("invalid {BATCH_FLAME_TRAIL_FLAG} value '{value}'"))?;
+    let fade: f32 = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid {BATCH_FLAME_TRAIL_FLAG} value '{value}'"))?;
     if !fade.is_finite() || fade <= 0.0 {
         bail!("{BATCH_FLAME_TRAIL_FLAG} fade_seconds must be > 0 and finite: '{value}'");
     }
@@ -281,8 +315,14 @@ fn flame_orbit_resolve_from_args(args: &[String]) -> Result<Option<(f32, f32)>> 
     if parts.len() != 2 {
         bail!("{BATCH_FLAME_ORBIT_FLAG} expects 2 comma-separated values, got '{value}'");
     }
-    let radius: f32 = parts[0].trim().parse::<f32>().map_err(|_| anyhow::anyhow!("invalid {BATCH_FLAME_ORBIT_FLAG} radius in '{value}'"))?;
-    let period: f32 = parts[1].trim().parse::<f32>().map_err(|_| anyhow::anyhow!("invalid {BATCH_FLAME_ORBIT_FLAG} period in '{value}'"))?;
+    let radius: f32 = parts[0]
+        .trim()
+        .parse::<f32>()
+        .map_err(|_| anyhow::anyhow!("invalid {BATCH_FLAME_ORBIT_FLAG} radius in '{value}'"))?;
+    let period: f32 = parts[1]
+        .trim()
+        .parse::<f32>()
+        .map_err(|_| anyhow::anyhow!("invalid {BATCH_FLAME_ORBIT_FLAG} period in '{value}'"))?;
     if !radius.is_finite() || radius < 0.0 || !period.is_finite() || period <= 0.0 {
         bail!("{BATCH_FLAME_ORBIT_FLAG} radius must be >= 0 and period > 0, all finite: '{value}'");
     }
@@ -349,7 +389,8 @@ pub fn batch_run_update_orbit(world: &mut World) {
         let period_seconds = orbit.period_seconds;
         let initial = if orbit.initial.is_none() {
             let first = flame_entities[0];
-            let pos = world.get_component::<crate::ecs::world::Transform>(first)
+            let pos = world
+                .get_component::<crate::ecs::world::Transform>(first)
                 .map(|t| t.translation)
                 .unwrap_or(cgmath::Vector3::new(0.0, 0.0, 0.0));
             orbit.initial = Some(pos);
@@ -414,7 +455,13 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "envelope_base" => effect.envelope_base = *value,
             "envelope_tail" => effect.envelope_tail = *value,
             "radial_sharpness" => effect.radial_sharpness = *value,
-            "rot_z_deg" => effect.rotation = cgmath::Quaternion::from(cgmath::Euler::new(cgmath::Deg(0.0), cgmath::Deg(0.0), cgmath::Deg(*value))),
+            "rot_z_deg" => {
+                effect.rotation = cgmath::Quaternion::from(cgmath::Euler::new(
+                    cgmath::Deg(0.0),
+                    cgmath::Deg(0.0),
+                    cgmath::Deg(*value),
+                ))
+            }
             "emitter_kind" => effect.emitter_kind = *value as u32,
             "ring_major_radius" => effect.ring_major_radius = *value,
             "ring_angular_speed" => effect.ring_angular_speed = *value,
@@ -426,7 +473,10 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
 
 fn resolve_absolute_output(output: &Path) -> Result<PathBuf> {
     if output.extension().and_then(|e| e.to_str()) != Some("png") {
-        bail!("batch screenshot output must end with .png: {}", output.display());
+        bail!(
+            "batch screenshot output must end with .png: {}",
+            output.display()
+        );
     }
     if output.is_absolute() {
         return Ok(output.to_path_buf());
@@ -666,7 +716,11 @@ mod tests {
     fn record_ignores_keyboard_screenshot_while_waiting() {
         let world = {
             let mut world = World::new();
-            world.insert_resource(BatchRun::new(PathBuf::from("/tmp/out.png"), 100, Vec::new()));
+            world.insert_resource(BatchRun::new(
+                PathBuf::from("/tmp/out.png"),
+                100,
+                Vec::new(),
+            ));
             world
         };
 
@@ -702,9 +756,7 @@ mod tests {
 
     #[test]
     fn flame_set_combined_form() {
-        let args: Vec<String> = vec![
-            "--batch-flame-set=noise_amplitude=0.35".into(),
-        ];
+        let args: Vec<String> = vec!["--batch-flame-set=noise_amplitude=0.35".into()];
         let pairs = flame_set_resolve_from_args(&args).unwrap();
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].0, "noise_amplitude");
@@ -713,10 +765,7 @@ mod tests {
 
     #[test]
     fn flame_set_separate_form() {
-        let args: Vec<String> = vec![
-            "--batch-flame-set".into(),
-            "noise_amplitude=0.35".into(),
-        ];
+        let args: Vec<String> = vec!["--batch-flame-set".into(), "noise_amplitude=0.35".into()];
         let pairs = flame_set_resolve_from_args(&args).unwrap();
         assert_eq!(pairs.len(), 1);
         assert_eq!(pairs[0].0, "noise_amplitude");
@@ -725,14 +774,9 @@ mod tests {
 
     #[test]
     fn flame_set_unknown_key_error() {
-        let args: Vec<String> = vec![
-            "--batch-flame-set".into(),
-            "invalid_key=1.0".into(),
-        ];
+        let args: Vec<String> = vec!["--batch-flame-set".into(), "invalid_key=1.0".into()];
         let err = flame_set_resolve_from_args(&args).unwrap_err();
-        assert!(
-            err.to_string().contains("invalid_key"),
-        );
+        assert!(err.to_string().contains("invalid_key"),);
     }
 
     #[test]

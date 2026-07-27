@@ -123,7 +123,11 @@ pub fn crop_profile_to_span(profile: &[f32], threshold: f32) -> Option<Vec<f32>>
 /// Model samples are normalized to max 1, then SSE against the profile.
 /// Grid: p in 0.05..=0.80 step 0.05, v0 in 0.0..=0.95 step 0.05, q in 0.5..=4.0 step 0.25.
 /// Returns None if profile.len() < 4 or all elements are zero.
-pub fn fit_envelope_from_profile(profile: &[f32], taper_tip: f32, taper_power: f32) -> Option<(f32, f32, f32)> {
+pub fn fit_envelope_from_profile(
+    profile: &[f32],
+    taper_tip: f32,
+    taper_power: f32,
+) -> Option<(f32, f32, f32)> {
     if profile.len() < 4 || profile.iter().all(|&v| v.abs() < 1e-9) {
         return None;
     }
@@ -146,7 +150,8 @@ pub fn fit_envelope_from_profile(profile: &[f32], taper_tip: f32, taper_power: f
                 let mut model: Vec<f64> = Vec::with_capacity(n);
                 for i in 0..n {
                     let h = i as f64 / (n - 1) as f64;
-                    let envelope = crate::flame::parametric_height_falloff(h, p as f64, v0 as f64, q as f64);
+                    let envelope =
+                        crate::flame::parametric_height_falloff(h, p as f64, v0 as f64, q as f64);
                     let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
                     model.push(envelope * taper);
                 }
@@ -236,7 +241,13 @@ pub fn fit_taper(profile: &[(f32, f32)]) -> Option<(f32, f32)> {
 /// Mean horizontal distance in pixels (normalized by width) between crossings of
 /// lo_frac*row_max and hi_frac*row_max scanning from the left edge toward each row's peak,
 /// averaged over rows whose max > 0.1.
-pub fn edge_width_profile(lum: &[f32], width: usize, height: usize, lo_frac: f32, hi_frac: f32) -> Option<f32> {
+pub fn edge_width_profile(
+    lum: &[f32],
+    width: usize,
+    height: usize,
+    lo_frac: f32,
+    hi_frac: f32,
+) -> Option<f32> {
     let mut total_distance = 0.0f32;
     let mut count = 0usize;
 
@@ -339,14 +350,15 @@ pub fn boundary_wiggle(mask: &[bool], width: usize, height: usize) -> Option<(f3
     let a = (sum_x - b * sum_h) / n;
 
     // Compute residuals
-    let residuals: Vec<f32> = boundary
-        .iter()
-        .map(|(h, x)| x - (a + b * h))
-        .collect();
+    let residuals: Vec<f32> = boundary.iter().map(|(h, x)| x - (a + b * h)).collect();
 
     // Stddev of residual normalized by width
     let mean_r: f32 = residuals.iter().sum::<f32>() / n;
-    let variance: f32 = residuals.iter().map(|r| (r - mean_r) * (r - mean_r)).sum::<f32>() / n;
+    let variance: f32 = residuals
+        .iter()
+        .map(|r| (r - mean_r) * (r - mean_r))
+        .sum::<f32>()
+        / n;
     let stddev = (variance).sqrt() / width as f32;
 
     // Mean run length between sign changes of residual
@@ -409,7 +421,10 @@ mod tests {
         // D65 white point: x=0.3127, y=0.3290 -> should be close to 6500K
         let xy: [f32; 2] = [0.3127, 0.3290];
         let cct = mccamy_cct(xy);
-        assert!(cct.is_some(), "mccamy_cct returned None for D65 white point");
+        assert!(
+            cct.is_some(),
+            "mccamy_cct returned None for D65 white point"
+        );
         let cct = cct.unwrap();
         assert!(
             (cct - 6500.0).abs() < 300.0,
@@ -434,7 +449,10 @@ mod tests {
         // 3x3 image: all bright except bottom-left corner
         let lum = [0.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0];
         let mask = flame_mask(&lum, 3, 3, 0.5);
-        assert_eq!(mask, [false, true, true, true, true, true, true, true, true]);
+        assert_eq!(
+            mask,
+            [false, true, true, true, true, true, true, true, true]
+        );
     }
 
     #[test]
@@ -470,8 +488,8 @@ mod tests {
         // 5x3 mask: triangle widening toward top (narrow at bottom, wide at top)
         let mask = [
             false, false, true, false, false, // row 0 (top) — wide: just center
-            false, true, true, true, false,   // row 1 — wider
-            true, true, true, true, true,     // row 2 (bottom) — widest
+            false, true, true, true, false, // row 1 — wider
+            true, true, true, true, true, // row 2 (bottom) — widest
         ];
         let profile = row_width_profile(&mask, 5, 3);
         assert_eq!(profile.len(), 3);
@@ -541,7 +559,10 @@ mod tests {
             (1.0, 0.2),
         ];
         let result = fit_taper(&profile);
-        assert!(result.is_some(), "fit_taper should return Some for triangle profile");
+        assert!(
+            result.is_some(),
+            "fit_taper should return Some for triangle profile"
+        );
         let (tip, power) = result.unwrap();
         // For a linear taper from 1.0 to ~0.2, tip_ratio should be small and power close to 1.0
         assert!(tip > 0.0 && tip <= 0.6, "tip_ratio {} out of range", tip);
@@ -571,11 +592,18 @@ mod tests {
             0.0, 0.0, 1.0, 1.0, 1.0, // row 2 (top)
         ];
         let result = edge_width_profile(&lum, 5, 3, 0.1, 0.9);
-        assert!(result.is_some(), "edge_width_profile should return Some for hard edge");
+        assert!(
+            result.is_some(),
+            "edge_width_profile should return Some for hard edge"
+        );
         let width = result.unwrap();
         // For a hard edge step [0,0,1,1,1], lo=0.1 crosses at 1+(0.1-0)/(1-0)=1.1,
         // hi=0.9 crosses at 1+(0.9-0)/(1-0)=1.9, distance=0.8, normalized by width=5 -> 0.16
-        assert!((width - 0.16).abs() < 0.01, "hard edge width {} should be ~0.16", width);
+        assert!(
+            (width - 0.16).abs() < 0.01,
+            "hard edge width {} should be ~0.16",
+            width
+        );
     }
 
     #[test]
@@ -588,14 +616,21 @@ mod tests {
         let result = edge_width_profile(&lum, 5, 1, 0.1, 0.9);
         assert!(result.is_some());
         let width = result.unwrap();
-        assert!((width - 0.64).abs() < 0.01, "gradient edge width {} should be ~0.64", width);
+        assert!(
+            (width - 0.64).abs() < 0.01,
+            "gradient edge width {} should be ~0.64",
+            width
+        );
     }
 
     #[test]
     fn test_edge_width_profile_all_below_threshold() {
         let lum = [0.05, 0.05, 0.05];
         let result = edge_width_profile(&lum, 3, 1, 0.1, 0.9);
-        assert!(result.is_none(), "edge_width_profile should return None when all rows below threshold");
+        assert!(
+            result.is_none(),
+            "edge_width_profile should return None when all rows below threshold"
+        );
     }
 
     #[test]
@@ -609,29 +644,47 @@ mod tests {
             false, false, true, true, true, // row 4 (bottom)
         ];
         let result = boundary_wiggle(&mask, 5, 5);
-        assert!(result.is_some(), "boundary_wiggle should return Some for straight edge");
+        assert!(
+            result.is_some(),
+            "boundary_wiggle should return Some for straight edge"
+        );
         let (stddev, _) = result.unwrap();
         // Straight edge has no wiggle, so stddev should be ~0
-        assert!(stddev < 1e-6, "straight edge stddev {} should be near zero", stddev);
+        assert!(
+            stddev < 1e-6,
+            "straight edge stddev {} should be near zero",
+            stddev
+        );
     }
 
     #[test]
     fn test_boundary_wiggle_wiggled_edge() {
         // 5x5 mask: wiggled edge alternating between columns 1 and 3
         let mask = [
-            false, true, true, true, true,   // row 0 (top): first at col 1
-            false, false, true, true, true,  // row 1: first at col 2
-            false, true, true, true, true,   // row 2: first at col 1
-            false, false, true, true, true,  // row 3: first at col 2
-            false, true, true, true, true,   // row 4 (bottom): first at col 1
+            false, true, true, true, true, // row 0 (top): first at col 1
+            false, false, true, true, true, // row 1: first at col 2
+            false, true, true, true, true, // row 2: first at col 1
+            false, false, true, true, true, // row 3: first at col 2
+            false, true, true, true, true, // row 4 (bottom): first at col 1
         ];
         let result = boundary_wiggle(&mask, 5, 5);
-        assert!(result.is_some(), "boundary_wiggle should return Some for wiggled edge");
+        assert!(
+            result.is_some(),
+            "boundary_wiggle should return Some for wiggled edge"
+        );
         let (stddev, mean_run) = result.unwrap();
         // Wiggled edge should have non-zero stddev
-        assert!(stddev > 0.0, "wiggled edge stddev {} should be positive", stddev);
+        assert!(
+            stddev > 0.0,
+            "wiggled edge stddev {} should be positive",
+            stddev
+        );
         // Mean run length should be at least 1
-        assert!(mean_run >= 1.0, "mean run length {} should be >= 1", mean_run);
+        assert!(
+            mean_run >= 1.0,
+            "mean run length {} should be >= 1",
+            mean_run
+        );
     }
 
     #[test]
@@ -639,7 +692,10 @@ mod tests {
         // Only 2 rows with true pixels -> fewer than 3 boundary points
         let mask = [false, false, false, true, true, true];
         let result = boundary_wiggle(&mask, 3, 2);
-        assert!(result.is_none(), "boundary_wiggle should return None for < 3 boundary points");
+        assert!(
+            result.is_none(),
+            "boundary_wiggle should return None for < 3 boundary points"
+        );
     }
 
     #[test]
@@ -664,7 +720,10 @@ mod tests {
         let profile: Vec<f32> = model.iter().map(|&v| (v / model_max) as f32).collect();
 
         let result = fit_envelope_from_profile(&profile, taper_tip, taper_power);
-        assert!(result.is_some(), "fit should return Some for synthetic profile");
+        assert!(
+            result.is_some(),
+            "fit should return Some for synthetic profile"
+        );
 
         let (p, v0, q) = result.unwrap();
 
@@ -693,7 +752,10 @@ mod tests {
     fn test_fit_envelope_from_profile_short_input() {
         let profile = [0.0, 0.5, 1.0];
         let result = fit_envelope_from_profile(&profile, 0.1, 1.4);
-        assert!(result.is_none(), "should return None for profile with < 4 elements");
+        assert!(
+            result.is_none(),
+            "should return None for profile with < 4 elements"
+        );
     }
 
     #[test]

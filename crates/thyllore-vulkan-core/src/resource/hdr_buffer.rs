@@ -145,13 +145,21 @@ impl HdrBuffer {
                     | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
                     | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
             )
-            .src_access_mask(vk::AccessFlags::SHADER_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
+            .src_access_mask(
+                vk::AccessFlags::SHADER_READ
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            )
             .dst_stage_mask(
                 vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
                     | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
                     | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
             )
-            .dst_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE);
+            .dst_access_mask(
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            );
 
         let dependency_out = vk::SubpassDependency::builder()
             .src_subpass(0)
@@ -161,8 +169,14 @@ impl HdrBuffer {
                     | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
                     | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
             )
-            .src_access_mask(vk::AccessFlags::COLOR_ATTACHMENT_WRITE | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE)
-            .dst_stage_mask(vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER)
+            .src_access_mask(
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            )
+            .dst_stage_mask(
+                vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+            )
             .dst_access_mask(vk::AccessFlags::SHADER_READ);
 
         let attachments = [color_attachment, depth_attachment];

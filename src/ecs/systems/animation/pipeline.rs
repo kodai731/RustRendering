@@ -157,12 +157,17 @@ fn apply_blended_animations(
         let mesh_updated = match info.animation_type {
             AnimationType::Node => {
                 let mesh_ref = &graphics.meshes[info.mesh_idx];
-                let node_opt = mesh_ref.node_index.and_then(|idx| {
-                    nodes.iter().find(|n| n.index == idx)
-                });
+                let node_opt = mesh_ref
+                    .node_index
+                    .and_then(|idx| nodes.iter().find(|n| n.index == idx));
                 if let Some(node) = node_opt {
                     let current_value = (node.global_transform, info.node_animation_scale);
-                    if should_skip_node(pose_apply_cache, info.mesh_idx, current_value, morph_targeted) {
+                    if should_skip_node(
+                        pose_apply_cache,
+                        info.mesh_idx,
+                        current_value,
+                        morph_targeted,
+                    ) {
                         continue;
                     }
                     pose_apply_cache
@@ -243,7 +248,9 @@ mod tests {
 
     fn translated_matrices(offset: f32, count: usize) -> Vec<Matrix4<f32>> {
         (0..count)
-            .map(|i| Matrix4::from_translation(cgmath::Vector3::new(offset * (i as f32 + 1.0), 0.0, 0.0)))
+            .map(|i| {
+                Matrix4::from_translation(cgmath::Vector3::new(offset * (i as f32 + 1.0), 0.0, 0.0))
+            })
             .collect()
     }
 
@@ -288,7 +295,10 @@ mod tests {
     fn test_should_skip_node_different_value_no_morph() {
         let mut cache = PoseApplyCache::default();
         let cached_value: (Matrix4<f32>, f32) = (Matrix4::identity(), 1.0);
-        let new_value: (Matrix4<f32>, f32) = (Matrix4::from_translation(cgmath::Vector3::new(1.0, 0.0, 0.0)), 1.0);
+        let new_value: (Matrix4<f32>, f32) = (
+            Matrix4::from_translation(cgmath::Vector3::new(1.0, 0.0, 0.0)),
+            1.0,
+        );
         cache.node_cache.insert(0, cached_value);
 
         assert!(!should_skip_node(&cache, 0, new_value, false));

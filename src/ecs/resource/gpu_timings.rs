@@ -5,6 +5,9 @@ pub struct GpuTimingsSink {
 
 impl GpuTimingsSink {
     pub fn new(path: String) -> Self {
-        Self { path, last_frame: 0 }
+        Self {
+            path,
+            last_frame: 0,
+        }
     }
 }

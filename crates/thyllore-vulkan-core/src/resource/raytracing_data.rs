@@ -398,7 +398,8 @@ impl RayTracingData {
         scene_depth_view: vk::ImageView,
     ) -> Result<()> {
         let min_alignment = rrdevice.min_uniform_buffer_offset_alignment;
-        let slot_size = (std::mem::size_of::<FlameUBO>() as vk::DeviceSize + min_alignment - 1) & !(min_alignment - 1);
+        let slot_size = (std::mem::size_of::<FlameUBO>() as vk::DeviceSize + min_alignment - 1)
+            & !(min_alignment - 1);
         let total_size = slot_size * MAX_FLAME_INSTANCES as vk::DeviceSize;
         let (flame_ubo_buffer, flame_ubo_memory) = create_buffer(
             instance,
@@ -491,15 +492,18 @@ impl RayTracingData {
             dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
             alpha_op: vk::BlendOp::ADD,
         })
-        .attachment_blend(1, BlendConfig {
-            enable: false,
-            src_color_factor: vk::BlendFactor::ONE,
-            dst_color_factor: vk::BlendFactor::ZERO,
-            color_op: vk::BlendOp::ADD,
-            src_alpha_factor: vk::BlendFactor::ONE,
-            dst_alpha_factor: vk::BlendFactor::ZERO,
-            alpha_op: vk::BlendOp::ADD,
-        })
+        .attachment_blend(
+            1,
+            BlendConfig {
+                enable: false,
+                src_color_factor: vk::BlendFactor::ONE,
+                dst_color_factor: vk::BlendFactor::ZERO,
+                color_op: vk::BlendOp::ADD,
+                src_alpha_factor: vk::BlendFactor::ONE,
+                dst_alpha_factor: vk::BlendFactor::ZERO,
+                alpha_op: vk::BlendOp::ADD,
+            },
+        )
         .push_constants(PushConstantConfig {
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             offset: 0,

@@ -121,7 +121,9 @@ impl RRFlameDescriptorSet {
             .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
             .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
             .build();
-        self.scene_depth_sampler = rrdevice.device.create_sampler(&scene_depth_sampler_info, None)?;
+        self.scene_depth_sampler = rrdevice
+            .device
+            .create_sampler(&scene_depth_sampler_info, None)?;
 
         // Write UBO to both sets
         for i in 0..2 {
@@ -164,7 +166,7 @@ impl RRFlameDescriptorSet {
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
                 .build();
 
-        let history_info = vk::DescriptorImageInfo::builder()
+            let history_info = vk::DescriptorImageInfo::builder()
                 .image_view(history_image_views[1 - i])
                 .sampler(flame_sampler)
                 .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)

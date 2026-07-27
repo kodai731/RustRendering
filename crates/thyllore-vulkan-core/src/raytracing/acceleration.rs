@@ -179,12 +179,11 @@ unsafe fn fill_instances_buffer(
     instances_size: vk::DeviceSize,
     blas_list: &[RRBLAS],
 ) -> Result<()> {
-    let ptr = rrdevice.device.map_memory(
-        buf.memory,
-        0,
-        instances_size,
-        vk::MemoryMapFlags::empty(),
-    )? as *mut vk::AccelerationStructureInstanceKHR;
+    let ptr =
+        rrdevice
+            .device
+            .map_memory(buf.memory, 0, instances_size, vk::MemoryMapFlags::empty())?
+            as *mut vk::AccelerationStructureInstanceKHR;
 
     let instances: Vec<vk::AccelerationStructureInstanceKHR> = blas_list
         .iter()
@@ -463,7 +462,8 @@ impl RRAccelerationStructure {
                     instance,
                     rrdevice,
                     size_info.update_scratch_size,
-                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                    vk::BufferUsageFlags::STORAGE_BUFFER
+                        | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 )?;
                 blas.update_scratch = Some(new.clone());
@@ -572,7 +572,8 @@ impl RRAccelerationStructure {
                     instance,
                     rrdevice,
                     size_info.update_scratch_size,
-                    vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                    vk::BufferUsageFlags::STORAGE_BUFFER
+                        | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
                     vk::MemoryPropertyFlags::DEVICE_LOCAL,
                 )?;
                 tlas.update_scratch = Some(new.clone());
@@ -647,7 +648,7 @@ impl RRAccelerationStructure {
         instance: &Instance,
         rrdevice: &RRDevice,
         rrcommand_pool: &RRCommandPool,
-            vertex_buffers: &[(&vk::Buffer, u32, u32, &vk::Buffer, u32)],
+        vertex_buffers: &[(&vk::Buffer, u32, u32, &vk::Buffer, u32)],
     ) -> Result<()> {
         for (i, (vertex_buffer, vertex_count, vertex_stride, index_buffer, index_count)) in
             vertex_buffers.iter().enumerate()

@@ -297,7 +297,7 @@ pub unsafe fn record_composite_to_hdr(
         command_buffer,
     );
 
-   thyllore_vulkan_core::renderer::record_composite_draw(
+    thyllore_vulkan_core::renderer::record_composite_draw(
         &ctx,
         pipeline,
         descriptor,
@@ -449,7 +449,11 @@ pub unsafe fn record_auto_exposure(
         .unwrap_or(1.0 / 60.0);
 
     // Override with fixed timestep (1/60) during batch runs to ensure determinism
-    if app.data.ecs_world.contains_resource::<crate::ecs::resource::BatchRun>() {
+    if app
+        .data
+        .ecs_world
+        .contains_resource::<crate::ecs::resource::BatchRun>()
+    {
         delta_time = 1.0 / 60.0;
     }
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
@@ -578,26 +582,50 @@ pub unsafe fn record_flame_passes(
     let mut flames = app.data.ecs_world.query_flames();
 
     // Sort flames by descending camera distance (back-to-front) for correct overdraw
-    if let Some(projection) = app.data.ecs_world.get_resource::<crate::ecs::resource::ProjectionData>() {
-        let view_inverse = projection.view.invert().unwrap_or_else(|| cgmath::Matrix4::identity());
-        let camera_pos = cgmath::Vector3::new(view_inverse[3][0], view_inverse[3][1], view_inverse[3][2]);
+    if let Some(projection) = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::ProjectionData>()
+    {
+        let view_inverse = projection
+            .view
+            .invert()
+            .unwrap_or_else(|| cgmath::Matrix4::identity());
+        let camera_pos =
+            cgmath::Vector3::new(view_inverse[3][0], view_inverse[3][1], view_inverse[3][2]);
         flames.sort_by(|a, b| {
-            let effect_a = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(*a);
-            let effect_b = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(*b);
+            let effect_a = app
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::resource::FlameEffect>(*a);
+            let effect_b = app
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::resource::FlameEffect>(*b);
             match (effect_a, effect_b) {
                 (Some(ea), Some(eb)) => {
                     let pos_a = Vector3::new(ea.position[0], ea.position[1], ea.position[2]);
-                    let dist_a = ((pos_a.x - camera_pos.x).powi(2) + (pos_a.y - camera_pos.y).powi(2) + (pos_a.z - camera_pos.z).powi(2)).sqrt();
+                    let dist_a = ((pos_a.x - camera_pos.x).powi(2)
+                        + (pos_a.y - camera_pos.y).powi(2)
+                        + (pos_a.z - camera_pos.z).powi(2))
+                    .sqrt();
                     let pos_b = Vector3::new(eb.position[0], eb.position[1], eb.position[2]);
-                    let dist_b = ((pos_b.x - camera_pos.x).powi(2) + (pos_b.y - camera_pos.y).powi(2) + (pos_b.z - camera_pos.z).powi(2)).sqrt();
-                    dist_b.partial_cmp(&dist_a).unwrap_or(std::cmp::Ordering::Equal)
+                    let dist_b = ((pos_b.x - camera_pos.x).powi(2)
+                        + (pos_b.y - camera_pos.y).powi(2)
+                        + (pos_b.z - camera_pos.z).powi(2))
+                    .sqrt();
+                    dist_b
+                        .partial_cmp(&dist_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 }
                 _ => std::cmp::Ordering::Equal,
             }
         });
     }
 
-    let instance_count = flames.len().min(thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES);
+    let instance_count = flames
+        .len()
+        .min(thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES);
 
     if instance_count == 0 {
         return Ok(());
@@ -605,7 +633,11 @@ pub unsafe fn record_flame_passes(
 
     // Calculate history_index from the first flame's frame_index (shared by all instances)
     let history_index = if let Some(first) = flames.first() {
-        if let Some(effect) = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(*first) {
+        if let Some(effect) = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::resource::FlameEffect>(*first)
+        {
             (effect.frame_index as usize) & 1
         } else {
             0
@@ -617,15 +649,28 @@ pub unsafe fn record_flame_passes(
     // Process each instance sequentially: F1_i -> F2_i before moving to i+1
     for i in 0..instance_count {
         let flame = flames[i];
-        let effect = app.data.ecs_world.get_component::<crate::ecs::resource::FlameEffect>(flame)
+        let effect = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::resource::FlameEffect>(flame)
             .ok_or_else(|| anyhow::anyhow!("Missing FlameEffect for instance {}", i))?;
 
         // Build UBO for this instance (trail-aware)
-        let trail = app.data.ecs_world.get_component::<crate::ecs::component::FlameTrail>(flame);
-        let is_noise_mode = app.data.ecs_world.get_resource::<crate::ecs::resource::FlameRenderSettings>()
+        let trail = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::FlameTrail>(flame);
+        let is_noise_mode = app
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameRenderSettings>()
             .map(|s| s.shading_mode == thyllore_render_core::FlameShadingMode::NoiseRaymarch)
             .unwrap_or(false);
-        let ubo = thyllore_render_core::build_flame_ubo_with_trail(effect, trail.map(|t| &t.state), is_noise_mode);
+        let ubo = thyllore_render_core::build_flame_ubo_with_trail(
+            effect,
+            trail.map(|t| &t.state),
+            is_noise_mode,
+        );
 
         // Calculate offset for this instance
         let offset_i = i as vk::DeviceSize * app.data.raytracing.flame_ubo_slot_size;
@@ -645,8 +690,15 @@ pub unsafe fn record_flame_passes(
         let model_matrix = ubo.model;
 
         // Compute per-instance scissor using the model matrix
-        let bend_offset = [ubo.style_params2[0] * ubo.style_params2[2], ubo.style_params2[1] * ubo.style_params2[2]];
-        let Some(scissor) = compute_flame_scissor(app, flame_buffer.extent(), &model_matrix, bend_offset) else { continue; };
+        let bend_offset = [
+            ubo.style_params2[0] * ubo.style_params2[2],
+            ubo.style_params2[1] * ubo.style_params2[2],
+        ];
+        let Some(scissor) =
+            compute_flame_scissor(app, flame_buffer.extent(), &model_matrix, bend_offset)
+        else {
+            continue;
+        };
 
         // Get render settings for push constants
         let settings = app
@@ -690,7 +742,12 @@ pub unsafe fn record_flame_passes(
     Ok(())
 }
 
-fn compute_flame_scissor(app: &App, extent: vk::Extent2D, model: &cgmath::Matrix4<f32>, bend_offset: [f32; 2]) -> Option<vk::Rect2D> {
+fn compute_flame_scissor(
+    app: &App,
+    extent: vk::Extent2D,
+    model: &cgmath::Matrix4<f32>,
+    bend_offset: [f32; 2],
+) -> Option<vk::Rect2D> {
     use crate::ecs::resource::ProjectionData;
     const SCISSOR_MARGIN_PX: f32 = 2.0;
 
@@ -703,10 +760,12 @@ fn compute_flame_scissor(app: &App, extent: vk::Extent2D, model: &cgmath::Matrix
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    let x_min = -0.5411961 + bend_offset[0].min(0.0);
-    let x_max = 0.5411961 + bend_offset[0].max(0.0);
-    let z_min = -0.5411961 + bend_offset[1].min(0.0);
-    let z_max = 0.5411961 + bend_offset[1].max(0.0);
+    use thyllore_render_core::flame_shell_outer_radius;
+    let shell_radius = flame_shell_outer_radius(0.0).max(flame_shell_outer_radius(1.0));
+    let x_min = -shell_radius + bend_offset[0].min(0.0);
+    let x_max = shell_radius + bend_offset[0].max(0.0);
+    let z_min = -shell_radius + bend_offset[1].min(0.0);
+    let z_max = shell_radius + bend_offset[1].max(0.0);
     for corner_index in 0..8 {
         let x = if corner_index & 1 == 0 { x_min } else { x_max };
         let y = if corner_index & 2 == 0 { 0.0 } else { 1.0 };

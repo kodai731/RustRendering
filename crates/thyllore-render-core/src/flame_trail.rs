@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(state.samples[1].age_seconds, 0.6);
     }
 
-  #[test]
+    #[test]
     fn test_oldest_dropped_when_capacity_exceeded() {
         let mut state = FlameTrailState::default();
         // fade large enough that no sample is removed during the test
@@ -113,11 +113,7 @@ mod tests {
 
         // delta=63.0 >= threshold(1000/16=62.5) so every frame inserts
         for i in 0..FLAME_TRAIL_CAPACITY + 2 {
-            advance_flame_trail(
-                &mut state,
-                [i as f32, 0.0, 0.0],
-                63.0,
-            );
+            advance_flame_trail(&mut state, [i as f32, 0.0, 0.0], 63.0);
         }
 
         assert_eq!(state.samples.len(), FLAME_TRAIL_CAPACITY);
@@ -125,7 +121,10 @@ mod tests {
             state.samples[0].position,
             [(FLAME_TRAIL_CAPACITY + 1) as f32, 0.0, 0.0]
         );
-        assert_eq!(state.samples[FLAME_TRAIL_CAPACITY - 1].position, [2.0, 0.0, 0.0]);
+        assert_eq!(
+            state.samples[FLAME_TRAIL_CAPACITY - 1].position,
+            [2.0, 0.0, 0.0]
+        );
     }
 
     #[test]
@@ -192,7 +191,7 @@ mod tests {
         }
     }
 
-  #[test]
+    #[test]
     fn test_time_decimation_covers_full_fade_window() {
         let mut state = FlameTrailState::default();
         state.fade_seconds = 2.4;

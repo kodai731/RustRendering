@@ -5,8 +5,8 @@ mod constraint_set;
 mod core;
 mod editor;
 pub mod flame_bone_attachment;
-pub mod flame_trail;
 mod flame_track;
+pub mod flame_trail;
 mod gizmo;
 mod glb_source;
 #[cfg(feature = "ml")]
@@ -23,8 +23,8 @@ pub use constraint_set::*;
 pub use core::*;
 pub use editor::*;
 pub use flame_bone_attachment::*;
-pub use flame_trail::*;
 pub use flame_track::*;
+pub use flame_trail::*;
 pub use gizmo::*;
 pub use glb_source::*;
 #[cfg(feature = "ml")]

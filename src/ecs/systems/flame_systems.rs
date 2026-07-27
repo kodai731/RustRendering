@@ -1,5 +1,5 @@
 use crate::app::FrameContext;
-use crate::ecs::component::{apply_flame_track, FlameBoneAttachment, FlameTrail, FlameTrack};
+use crate::ecs::component::{apply_flame_track, FlameBoneAttachment, FlameTrack, FlameTrail};
 use crate::ecs::resource::{
     BatchRun, FlameEffect, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState,
     LightState, ProjectionData, TimelineState,
@@ -13,14 +13,18 @@ const BATCH_FIXED_DELTA_SECONDS: f32 = 1.0 / 60.0;
 const STABLE_FRAME_HISTORY_WEIGHT: f32 = 0.85;
 
 pub fn flame_time_advance(ctx: &mut FrameContext) {
-    let light_position = ctx.world.get_resource::<LightState>().map(|ls| ls.light_position);
+    let light_position = ctx
+        .world
+        .get_resource::<LightState>()
+        .map(|ls| ls.light_position);
 
     // Collect translations from Transform components to avoid borrow conflicts
     let flame_entities = ctx.world.query_flames();
     let transforms: Vec<(Entity, crate::ecs::world::Transform)> = flame_entities
         .iter()
         .filter_map(|&e| {
-            ctx.world.get_component::<crate::ecs::world::Transform>(e)
+            ctx.world
+                .get_component::<crate::ecs::world::Transform>(e)
                 .map(|t| (e, t.clone()))
         })
         .collect();
@@ -29,7 +33,8 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
     let flame_tracks: Vec<(Entity, FlameTrack)> = flame_entities
         .iter()
         .filter_map(|&e| {
-            ctx.world.get_component::<FlameTrack>(e)
+            ctx.world
+                .get_component::<FlameTrack>(e)
                 .map(|t| (e, t.clone()))
         })
         .collect();
@@ -38,7 +43,9 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
     let timeline_current_time = if has_batch_run {
         None
     } else {
-        ctx.world.get_resource::<TimelineState>().map(|ts| ts.current_time)
+        ctx.world
+            .get_resource::<TimelineState>()
+            .map(|ts| ts.current_time)
     };
 
     for &entity in &flame_entities {
@@ -93,12 +100,13 @@ pub fn flame_bone_attach_sync(ctx: &mut FrameContext) {
     };
     let bone_names: Vec<String> = skeleton.bones.iter().map(|b| b.name.clone()).collect();
 
-    let positions = crate::ecs::systems::bone_gizmo_systems::compute_display_transforms_with_skeleton(
-        &cached_global_transforms,
-        &bone_local_offsets,
-        mesh_scale,
-        Some(&skeleton),
-    );
+    let positions =
+        crate::ecs::systems::bone_gizmo_systems::compute_display_transforms_with_skeleton(
+            &cached_global_transforms,
+            &bone_local_offsets,
+            mesh_scale,
+            Some(&skeleton),
+        );
 
     let flame_entities: Vec<Entity> = ctx.world.query_flames();
     for &entity in &flame_entities {
@@ -113,15 +121,22 @@ pub fn flame_bone_attach_sync(ctx: &mut FrameContext) {
         if idx >= positions.len() {
             continue;
         }
-        let translation = cgmath::Vector3::new(positions[idx][0], positions[idx][1], positions[idx][2]);
-        if let Some(mut transform) = ctx.world.get_component_mut::<crate::ecs::world::Transform>(entity) {
+        let translation =
+            cgmath::Vector3::new(positions[idx][0], positions[idx][1], positions[idx][2]);
+        if let Some(mut transform) = ctx
+            .world
+            .get_component_mut::<crate::ecs::world::Transform>(entity)
+        {
             transform.translation = translation;
         } else {
-            ctx.world.insert_component(entity, crate::ecs::world::Transform {
-                translation,
-                rotation: cgmath::Quaternion::new(0.0, 0.0, 0.0, 1.0),
-                scale: cgmath::Vector3::new(1.0, 1.0, 1.0),
-            });
+            ctx.world.insert_component(
+                entity,
+                crate::ecs::world::Transform {
+                    translation,
+                    rotation: cgmath::Quaternion::new(0.0, 0.0, 0.0, 1.0),
+                    scale: cgmath::Vector3::new(1.0, 1.0, 1.0),
+                },
+            );
         }
     }
 }
@@ -132,7 +147,9 @@ pub fn flame_trail_advance(ctx: &mut FrameContext) {
     let timeline_current_time = if has_batch_run {
         None
     } else {
-        ctx.world.get_resource::<TimelineState>().map(|ts| ts.current_time)
+        ctx.world
+            .get_resource::<TimelineState>()
+            .map(|ts| ts.current_time)
     };
 
     for &entity in &flame_entities {
@@ -173,7 +190,7 @@ pub fn flame_temporal_accumulate(ctx: &mut FrameContext) {
         return;
     }
 
-   // If there are 2 or more instances, only increment temporal_weight for all
+    // If there are 2 or more instances, only increment temporal_weight for all
     if count >= 2 {
         for &entity in &flame_entities {
             if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {

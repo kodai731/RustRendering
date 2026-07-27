@@ -88,7 +88,9 @@ impl FlameBuffer {
                 vk::SampleCountFlags::_1,
                 FLAME_HISTORY_FORMAT,
                 vk::ImageTiling::OPTIMAL,
-                vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED | vk::ImageUsageFlags::TRANSFER_DST,
+                vk::ImageUsageFlags::COLOR_ATTACHMENT
+                    | vk::ImageUsageFlags::SAMPLED
+                    | vk::ImageUsageFlags::TRANSFER_DST,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?;
             history_images[i] = img;
@@ -105,8 +107,8 @@ impl FlameBuffer {
         // Clear both history images to zero using a single-time command buffer
         let cmd = begin_single_time_commands(rrdevice, command_pool)?;
         for i in 0..2 {
-          // Barrier: UNDEFINED -> TRANSFER_DST_OPTIMAL
-          let barrier = vk::ImageMemoryBarrier::builder()
+            // Barrier: UNDEFINED -> TRANSFER_DST_OPTIMAL
+            let barrier = vk::ImageMemoryBarrier::builder()
                 .src_access_mask(vk::AccessFlags::empty())
                 .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                 .image(history_images[i])
@@ -149,7 +151,7 @@ impl FlameBuffer {
                 }],
             );
             // Barrier: TRANSFER_DST_OPTIMAL -> SHADER_READ_ONLY_OPTIMAL
-           let barrier = vk::ImageMemoryBarrier::builder()
+            let barrier = vk::ImageMemoryBarrier::builder()
                 .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
                 .dst_access_mask(vk::AccessFlags::SHADER_READ)
                 .image(history_images[i])
@@ -416,7 +418,14 @@ impl FlameBuffer {
         hdr_image_view: vk::ImageView,
     ) -> Result<()> {
         self.destroy(&rrdevice.device);
-        *self = Self::new(instance, rrdevice, command_pool, new_width, new_height, hdr_image_view)?;
+        *self = Self::new(
+            instance,
+            rrdevice,
+            command_pool,
+            new_width,
+            new_height,
+            hdr_image_view,
+        )?;
 
         log!("Resized flame buffer to: {}x{}", new_width, new_height);
         Ok(())

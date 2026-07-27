@@ -8,7 +8,10 @@ pub struct ChebyshevSeries {
 
 impl ChebyshevSeries {
     pub fn new(coefficients: Vec<f32>, domain: (f32, f32)) -> Self {
-        Self { coefficients, domain }
+        Self {
+            coefficients,
+            domain,
+        }
     }
 
     pub fn coefficients(&self) -> &[f32] {

@@ -105,7 +105,7 @@ impl RRDevice {
             &physical_device,
         )?;
 
-      let properties = instance.get_physical_device_properties(physical_device);
+        let properties = instance.get_physical_device_properties(physical_device);
         let min_ubo_alignment = properties.limits.min_uniform_buffer_offset_alignment;
         let timestamp_period = properties.limits.timestamp_period;
 
@@ -120,7 +120,7 @@ impl RRDevice {
             min_uniform_buffer_offset_alignment: min_ubo_alignment,
             timestamp_period,
         })
-   }
+    }
 
     pub unsafe fn new_headless(
         entry: &Entry,
@@ -146,7 +146,7 @@ impl RRDevice {
             &physical_device,
         )?;
 
-     let properties = instance.get_physical_device_properties(physical_device);
+        let properties = instance.get_physical_device_properties(physical_device);
         let min_ubo_alignment = properties.limits.min_uniform_buffer_offset_alignment;
         let timestamp_period = properties.limits.timestamp_period;
 

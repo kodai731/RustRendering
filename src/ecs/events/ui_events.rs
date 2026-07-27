@@ -413,7 +413,10 @@ pub enum UIEvent {
     UpdateFlameTrailFade(f32),
     SetGridShowYAxis(bool),
     ClearMessageLog,
-    InsertFlameKey { param: FlameParam, value: f32 },
+    InsertFlameKey {
+        param: FlameParam,
+        value: f32,
+    },
     ClearFlameKeys,
     SelectFlameInstance(usize),
     ToggleFlameCurves,

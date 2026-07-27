@@ -144,15 +144,17 @@ fn process_image(path: &std::path::Path) -> io::Result<serde_json::Value> {
         None => (0.10, 1.4),
     };
     // Crop the vertical profile to the flame's active row span and re-normalize to max 1
-    let envelope_profile = crop_profile_to_span(&vprofile, 0.05).map(|mut cropped| {
-        let max_val = cropped.iter().cloned().fold(0.0f32, f32::max);
-        if max_val > 1e-9 {
-            for v in &mut cropped {
-                *v /= max_val;
+    let envelope_profile = crop_profile_to_span(&vprofile, 0.05)
+        .map(|mut cropped| {
+            let max_val = cropped.iter().cloned().fold(0.0f32, f32::max);
+            if max_val > 1e-9 {
+                for v in &mut cropped {
+                    *v /= max_val;
+                }
             }
-        }
-        cropped
-    }).unwrap_or(vprofile.clone());
+            cropped
+        })
+        .unwrap_or(vprofile.clone());
     let envelope_estimate = fit_envelope_from_profile(&envelope_profile, env_tip, env_power);
     let (envelope_peak, envelope_base, envelope_tail) = match envelope_estimate {
         Some((p, v0, q)) => (Some(p), Some(v0), Some(q)),
@@ -205,24 +207,24 @@ fn process_image(path: &std::path::Path) -> io::Result<serde_json::Value> {
         let cct_p50 = percentile(&ccts, 0.5);
         let cct_p95 = percentile(&ccts, 0.95);
 
-    Ok(json!({
-        "filename": filename,
-        "bg_class": bg_class,
-        "saturated_fraction": saturated_fraction,
-        "cct_p10": cct_p10,
-        "cct_p50": cct_p50,
-        "cct_p95": cct_p95,
-        "mask_coverage": coverage,
-        "tip_ratio": tip_ratio,
-        "taper_power": taper_power,
-        "edge_width": edge_width,
-        "wiggle_amplitude": wiggle_amplitude,
-        "wiggle_frequency": wiggle_frequency,
-        "vertical_profile_peak": peak_position,
-        "envelope_peak": envelope_peak,
-        "envelope_base": envelope_base,
-        "envelope_tail": envelope_tail,
-    }))
+        Ok(json!({
+            "filename": filename,
+            "bg_class": bg_class,
+            "saturated_fraction": saturated_fraction,
+            "cct_p10": cct_p10,
+            "cct_p50": cct_p50,
+            "cct_p95": cct_p95,
+            "mask_coverage": coverage,
+            "tip_ratio": tip_ratio,
+            "taper_power": taper_power,
+            "edge_width": edge_width,
+            "wiggle_amplitude": wiggle_amplitude,
+            "wiggle_frequency": wiggle_frequency,
+            "vertical_profile_peak": peak_position,
+            "envelope_peak": envelope_peak,
+            "envelope_base": envelope_base,
+            "envelope_tail": envelope_tail,
+        }))
     }
 }
 

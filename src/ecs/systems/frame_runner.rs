@@ -29,11 +29,17 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
 
     let t = std::time::Instant::now();
     batch_run_tick(ctx.world);
-    stages.push(("batch_run_tick".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+    stages.push((
+        "batch_run_tick".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
     let t = std::time::Instant::now();
     let mesh_positions = collect_mesh_positions(ctx.graphics);
-    stages.push(("collect_mesh_positions".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+    stages.push((
+        "collect_mesh_positions".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
     let t = std::time::Instant::now();
     {
@@ -51,7 +57,10 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
         run_input_phase(&mut ecs_ctx)?;
         run_transform_phase_ecs(&mut ecs_ctx);
     }
-    stages.push(("input_transform".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+    stages.push((
+        "input_transform".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
     let t = std::time::Instant::now();
     run_timeline_phase(ctx);
@@ -61,11 +70,17 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
 
     let t = std::time::Instant::now();
     let animation_updates = run_animation_phase_ecs(ctx);
-    stages.push(("animation_ecs".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+    stages.push((
+        "animation_ecs".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
     let t = std::time::Instant::now();
     run_animation_phase_gpu(ctx, &animation_updates)?;
-    stages.push(("animation_gpu".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+    stages.push((
+        "animation_gpu".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
     let t = std::time::Instant::now();
     run_onion_skin_phase(ctx, &animation_updates.updated_meshes)?;
@@ -73,13 +88,20 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
 
     let t = std::time::Instant::now();
     run_transform_phase_gpu(ctx)?;
-    stages.push(("transform_gpu".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+    stages.push((
+        "transform_gpu".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
     let t = std::time::Instant::now();
     run_render_prep_phase(ctx)?;
-    stages.push(("render_prep".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+    stages.push((
+        "render_prep".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
-    ctx.world.insert_resource(crate::ecs::resource::UpdatePhaseTimings { stages });
+    ctx.world
+        .insert_resource(crate::ecs::resource::UpdatePhaseTimings { stages });
     Ok(())
 }
 
@@ -134,7 +156,10 @@ fn run_timeline_phase(ctx: &mut FrameContext) {
     let mut timeline_state = ctx.world.resource_mut::<TimelineState>();
     let clip_library = ctx.world.resource::<ClipLibrary>();
     // Use fixed delta for deterministic batch playback (same reason as auto exposure)
-    let timeline_delta = if ctx.world.contains_resource::<crate::ecs::resource::BatchRun>() {
+    let timeline_delta = if ctx
+        .world
+        .contains_resource::<crate::ecs::resource::BatchRun>()
+    {
         1.0 / 60.0
     } else {
         ctx.delta_time

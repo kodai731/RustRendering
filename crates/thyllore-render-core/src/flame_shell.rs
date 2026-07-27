@@ -5,14 +5,23 @@ use cgmath::Vector3;
 // the winding/closure unit tests are the machine check for that contract.
 pub const FLAME_SHELL_RING_SEGMENTS: usize = 8;
 pub const FLAME_SHELL_STACKS: usize = 8;
-pub const FLAME_SHELL_TAPER_TIP_SCALE: f32 = 0.25;
+pub const FLAME_SHELL_BASE_RADIUS: f32 = 0.9;
+pub const FLAME_SHELL_TAPER_TIP_SCALE: f32 = 0.85;
 pub const FLAME_SHELL_CIRCUMSCRIBE: f32 = 1.0823922; // 1/cos(pi/8): circumscribe octagon over unit cylinder
-const QUAD_CORNERS: [[f32; 3]; 4] = [
-    [-0.5, 0.0, -0.5],
-    [0.5, 0.0, -0.5],
-    [0.5, 0.0, 0.5],
-    [-0.5, 0.0, 0.5],
-];
+const R: f32 = FLAME_SHELL_BASE_RADIUS;
+const QUAD_CORNERS: [[f32; 3]; 4] = [[-R, 0.0, -R], [R, 0.0, -R], [R, 0.0, R], [-R, 0.0, R]];
+
+/// Multiplier on the shell's base half-extent at a normalized height. Includes the
+/// circumscribe factor, so a cone built from it encloses the rasterized octagon.
+pub fn flame_shell_radius_scale(height01: f32) -> f32 {
+    FLAME_SHELL_CIRCUMSCRIBE * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01)
+}
+
+/// Outer radius of the shell in flame-local units. Linear in height, so callers that
+/// need a bound over the whole shell take the maximum of the two endpoints.
+pub fn flame_shell_outer_radius(height01: f32) -> f32 {
+    FLAME_SHELL_BASE_RADIUS * flame_shell_radius_scale(height01)
+}
 
 pub fn generate_flame_shell_triangles(
     wind: [f32; 2],
@@ -29,9 +38,26 @@ pub fn generate_flame_shell_triangles(
 
     let mut triangles = Vec::new();
     for stack in 0..FLAME_SHELL_STACKS {
-        append_wall_band_triangles(&mut triangles, center, radius_x, radius_z, stack, wind, bend_amount, bend_power);
+        append_wall_band_triangles(
+            &mut triangles,
+            center,
+            radius_x,
+            radius_z,
+            stack,
+            wind,
+            bend_amount,
+            bend_power,
+        );
     }
-    append_cap_triangles(&mut triangles, center, radius_x, radius_z, wind, bend_amount, bend_power);
+    append_cap_triangles(
+        &mut triangles,
+        center,
+        radius_x,
+        radius_z,
+        wind,
+        bend_amount,
+        bend_power,
+    );
     triangles
 }
 
@@ -46,13 +72,13 @@ fn compute_ring_position(
     bend_power: f32,
 ) -> Vector3<f32> {
     let height01 = stack as f32 / FLAME_SHELL_STACKS as f32;
-    let taper = 1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01;
+    let radius_scale = flame_shell_radius_scale(height01);
     let angle = std::f32::consts::TAU * segment as f32 / FLAME_SHELL_RING_SEGMENTS as f32;
     let mut pos = center
         + Vector3::new(
-            angle.cos() * radius_x * FLAME_SHELL_CIRCUMSCRIBE * taper,
+            angle.cos() * radius_x * radius_scale,
             height01,
-            angle.sin() * radius_z * FLAME_SHELL_CIRCUMSCRIBE * taper,
+            angle.sin() * radius_z * radius_scale,
         );
     // Wind bend deformation (horizontal-only)
     pos.x += wind[0] * bend_amount * height01.powf(bend_power);
@@ -74,7 +100,14 @@ fn append_wall_band_triangles(
     for i in 0..=FLAME_SHELL_RING_SEGMENTS {
         let segment = i % FLAME_SHELL_RING_SEGMENTS;
         strip.push(compute_ring_position(
-            center, radius_x, radius_z, segment, stack, wind, bend_amount, bend_power,
+            center,
+            radius_x,
+            radius_z,
+            segment,
+            stack,
+            wind,
+            bend_amount,
+            bend_power,
         ));
         strip.push(compute_ring_position(
             center,
@@ -111,16 +144,52 @@ fn append_cap_triangles(
         let next = (i + 1) % FLAME_SHELL_RING_SEGMENTS;
         triangles.push([
             center,
-            compute_ring_position(center, radius_x, radius_z, i, 0, wind, bend_amount, bend_power),
-            compute_ring_position(center, radius_x, radius_z, next, 0, wind, bend_amount, bend_power),
+            compute_ring_position(
+                center,
+                radius_x,
+                radius_z,
+                i,
+                0,
+                wind,
+                bend_amount,
+                bend_power,
+            ),
+            compute_ring_position(
+                center,
+                radius_x,
+                radius_z,
+                next,
+                0,
+                wind,
+                bend_amount,
+                bend_power,
+            ),
         ]);
     }
     for i in 0..FLAME_SHELL_RING_SEGMENTS {
         let next = (i + 1) % FLAME_SHELL_RING_SEGMENTS;
         triangles.push([
             top_center,
-            compute_ring_position(center, radius_x, radius_z, next, FLAME_SHELL_STACKS, wind, bend_amount, bend_power),
-            compute_ring_position(center, radius_x, radius_z, i, FLAME_SHELL_STACKS, wind, bend_amount, bend_power),
+            compute_ring_position(
+                center,
+                radius_x,
+                radius_z,
+                next,
+                FLAME_SHELL_STACKS,
+                wind,
+                bend_amount,
+                bend_power,
+            ),
+            compute_ring_position(
+                center,
+                radius_x,
+                radius_z,
+                i,
+                FLAME_SHELL_STACKS,
+                wind,
+                bend_amount,
+                bend_power,
+            ),
         ]);
     }
 }
@@ -156,11 +225,14 @@ mod tests {
     #[test]
     fn test_flame_shell_winding_is_zero_outside() {
         let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
+        // Off-axis probe near the tip: derived from the taper so it stays outside
+        // whatever radius the shell profile is set to.
+        let beyond_taper = flame_shell_outer_radius(0.95) * 1.5 / std::f32::consts::SQRT_2;
         for probe in [
-            Vector3::new(2.0, 0.5, 0.0),
+            Vector3::new(flame_shell_outer_radius(0.0) * 2.0, 0.5, 0.0),
             Vector3::new(0.0, -0.5, 0.0),
             Vector3::new(0.0, 1.5, 0.0),
-            Vector3::new(0.4, 0.95, 0.4),
+            Vector3::new(beyond_taper, 0.95, beyond_taper),
         ] {
             let winding = compute_winding_number(&shell, probe);
             assert!(winding.abs() < 1e-4, "probe {probe:?}: winding = {winding}");
@@ -220,12 +292,11 @@ mod tests {
 
     #[test]
     fn test_flame_shell_bend_position() {
-        // Verify compute_ring_position with wind bend matches expected formula:
-        // center=(0,0,0), radiusX=1, radiusZ=1, wind=(1,1), bend_amount=1, bend_power=2
-        // For stack=4 (height01=4/8=0.5), segment=0 (angle=0):
-       //   pos.x = cos(0)*1.0*1.0823922*0.625 + 1*1*0.5^2 = 0.676495125 + 0.25 = 0.926495125
-        //   pos.z = sin(0)*1.0*1.0823922*0.625 + 1*1*0.5^2 = 0 + 0.25 = 0.25
-        // Expected: (0.9264951, 0.5, 0.25)
+        // Verify compute_ring_position composes the radial scale and the bend offset:
+        //   pos.xz = cos/sin(angle) * radius * CIRCUMSCRIBE * (1 + (TIP - 1) * h)
+        //          + wind * bend_amount * h^bend_power
+        // center=(0,0,0), radiusX=1, radiusZ=1, wind=(1,1), bend_amount=1, bend_power=2,
+        // stack=4 (h=0.5), segment=0 (angle=0).
         let center = Vector3::new(0.0, 0.0, 0.0);
         let radius_x = 1.0;
         let radius_z = 1.0;
@@ -235,22 +306,38 @@ mod tests {
         let bend_amount = 1.0;
         let bend_power = 2.0;
 
-        let pos = compute_ring_position(center, radius_x, radius_z, segment, stack, wind, bend_amount, bend_power);
+        let height01 = 0.5;
+        let radial =
+            FLAME_SHELL_CIRCUMSCRIBE * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01);
+        let bend = height01.powf(bend_power);
+        let expected_x = radial + bend;
+        let expected_z = bend;
+
+        let pos = compute_ring_position(
+            center,
+            radius_x,
+            radius_z,
+            segment,
+            stack,
+            wind,
+            bend_amount,
+            bend_power,
+        );
 
         assert!(
-            (pos.x - 0.9264951).abs() < 1e-5,
-            "bend position x: expected 0.9264951, got {}",
+            (pos.x - expected_x).abs() < 1e-5,
+            "bend position x: expected {expected_x}, got {}",
             pos.x
         );
         assert!(
-            (pos.y - 0.5).abs() < 1e-5,
-            "bend position y: expected 0.5, got {}",
+            (pos.y - height01).abs() < 1e-5,
+            "bend position y: expected {height01}, got {}",
             pos.y
         );
         assert!(
-            (pos.z - 0.25).abs() < 1e-5,
-            "bend position z: expected 0.25, got {}",
+            (pos.z - expected_z).abs() < 1e-5,
+            "bend position z: expected {expected_z}, got {}",
             pos.z
-      );
+        );
     }
 }

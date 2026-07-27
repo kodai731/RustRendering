@@ -467,24 +467,34 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                     ui.slider_config("Noise Steps", 4, 64).build(&mut steps);
                     settings_copy.noise_step_count = steps.max(1) as u32;
                 }
-            FlameShadingMode::Analytic | FlameShadingMode::DebugThickness | FlameShadingMode::DebugDepthClamp => {}
+                FlameShadingMode::Analytic
+                | FlameShadingMode::DebugThickness
+                | FlameShadingMode::DebugDepthClamp => {}
             }
 
             ui_events.send(UIEvent::UpdateFlameRenderSettings(settings_copy));
         }
 
         let flames = ecs_world.query_flames();
-        let selected_index = ecs_world.get_resource::<crate::ecs::resource::SelectedFlameInstance>().map(|r| r.0).unwrap_or(0);
+        let selected_index = ecs_world
+            .get_resource::<crate::ecs::resource::SelectedFlameInstance>()
+            .map(|r| r.0)
+            .unwrap_or(0);
         let clamped_index = selected_index.min(flames.len().saturating_sub(1));
 
         // Instance selector combo (when >1 flame)
         if flames.len() > 1 {
             let mut current = clamped_index;
-            let items: Vec<String> = flames.iter().enumerate().map(|(i, &entity)| {
-                ecs_world.get_component::<crate::ecs::world::Name>(entity)
-                    .map(|n| n.0.clone())
-                    .unwrap_or_else(|| format!("Flame {}", i + 1))
-            }).collect();
+            let items: Vec<String> = flames
+                .iter()
+                .enumerate()
+                .map(|(i, &entity)| {
+                    ecs_world
+                        .get_component::<crate::ecs::world::Name>(entity)
+                        .map(|n| n.0.clone())
+                        .unwrap_or_else(|| format!("Flame {}", i + 1))
+                })
+                .collect();
             if ui.combo_simple_string("Instance", &mut current, &items) {
                 ui_events.send(UIEvent::SelectFlameInstance(current));
             }
@@ -501,7 +511,8 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                     effect_copy.position.z,
                 ];
                 if ui.input_float3("Position", &mut position).build() {
-                    effect_copy.position = cgmath::Vector3::new(position[0], position[1], position[2]);
+                    effect_copy.position =
+                        cgmath::Vector3::new(position[0], position[1], position[2]);
                 }
 
                 let emitter_labels: [&str; 3] = ["Cylinder", "Ring", "Mesh SDF"];
@@ -749,13 +760,17 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
                 }
 
                 // Trail checkbox and slider
-                let trail_state = ecs_world.get_component::<crate::ecs::component::flame_trail::FlameTrail>(selected_flame).map(|t| (t.state.enabled, t.state.fade_seconds)).unwrap_or((false, 0.8));
+                let trail_state = ecs_world
+                    .get_component::<crate::ecs::component::flame_trail::FlameTrail>(selected_flame)
+                    .map(|t| (t.state.enabled, t.state.fade_seconds))
+                    .unwrap_or((false, 0.8));
                 let mut trail_enabled = trail_state.0;
                 let mut trail_fade = trail_state.1;
                 if ui.checkbox("Trail", &mut trail_enabled) {
                     ui_events.send(UIEvent::UpdateFlameTrailEnabled(trail_enabled));
                 }
-                ui.slider_config("Trail Fade", 0.1, 5.0).build(&mut trail_fade);
+                ui.slider_config("Trail Fade", 0.1, 5.0)
+                    .build(&mut trail_fade);
                 if (trail_fade - trail_state.1).abs() > 0.01 {
                     ui_events.send(UIEvent::UpdateFlameTrailFade(trail_fade));
                 }

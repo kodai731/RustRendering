@@ -455,7 +455,7 @@ impl App {
         let object_id_view = gbuffer.object_id_image_view;
         self.recreate_gbuffer_framebuffer()?;
 
-    {
+        {
             let depth_view = {
                 let rt = self.resource::<RenderTargets>();
                 rt.render.gbuffer_depth_image_view
@@ -508,7 +508,11 @@ impl App {
             },
         );
 
-        if let Some(mut state) = self.data.ecs_world.get_resource_mut::<crate::ecs::resource::FlameTemporalState>() {
+        if let Some(mut state) = self
+            .data
+            .ecs_world
+            .get_resource_mut::<crate::ecs::resource::FlameTemporalState>()
+        {
             state.previous = None;
         }
 
@@ -678,9 +682,17 @@ impl App {
             .unwrap_or(false);
 
         // Get frame number from BatchRun if available, otherwise use internal counter
-        let frame = match self.data.ecs_world.get_resource::<crate::ecs::resource::BatchRun>() {
+        let frame = match self
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::BatchRun>()
+        {
             Some(batch_run) => batch_run.frames_rendered,
-            None => match self.data.ecs_world.get_resource_mut::<crate::ecs::resource::ExposureDumpSink>() {
+            None => match self
+                .data
+                .ecs_world
+                .get_resource_mut::<crate::ecs::resource::ExposureDumpSink>()
+            {
                 Some(mut sink) => {
                     sink.last_frame += 1;
                     sink.last_frame
@@ -714,7 +726,11 @@ impl App {
 
         self.save_manual_exposure_if_needed();
         // batch 決定性: AE 読み戻しを直前フレーム完了後に固定する
-        if self.data.ecs_world.contains_resource::<crate::ecs::resource::BatchRun>() {
+        if self
+            .data
+            .ecs_world
+            .contains_resource::<crate::ecs::resource::BatchRun>()
+        {
             let _ = self.rrdevice.device.device_wait_idle();
         }
 
@@ -816,7 +832,13 @@ impl App {
     pub unsafe fn render(&mut self, image_index: usize, draw_data: &imgui::DrawData) -> Result<()> {
         let frame_slot = self.resource::<FrameSync>().current_frame;
 
-        Self::update_imgui_buffers(&self.instance, &self.rrdevice, &mut self.data, draw_data, frame_slot)?;
+        Self::update_imgui_buffers(
+            &self.instance,
+            &self.rrdevice,
+            &mut self.data,
+            draw_data,
+            frame_slot,
+        )?;
 
         self.record_command_buffer(image_index, draw_data, frame_slot)?;
 
@@ -1368,15 +1390,9 @@ impl App {
             .imgui
             .descriptor_set
             .ok_or_else(|| anyhow!("ImGui descriptor set not initialized"))?;
-        let vertex_buffer = self
-            .data
-            .imgui
-            .vertex_buffers[frame_slot]
+        let vertex_buffer = self.data.imgui.vertex_buffers[frame_slot]
             .ok_or_else(|| anyhow!("ImGui vertex buffer not initialized"))?;
-        let index_buffer = self
-            .data
-            .imgui
-            .index_buffers[frame_slot]
+        let index_buffer = self.data.imgui.index_buffers[frame_slot]
             .ok_or_else(|| anyhow!("ImGui index buffer not initialized"))?;
 
         self.setup_imgui_render_state(

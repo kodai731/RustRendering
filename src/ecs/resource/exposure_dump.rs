@@ -6,6 +6,9 @@ pub struct ExposureDumpSink {
 
 impl ExposureDumpSink {
     pub fn new(path: String) -> Self {
-        Self { path, last_frame: 0 }
+        Self {
+            path,
+            last_frame: 0,
+        }
     }
 }
