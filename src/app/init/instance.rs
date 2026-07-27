@@ -1127,7 +1127,11 @@ impl App {
             .contains_resource::<crate::ecs::resource::EditHistory>()
         {
             data.ecs_world
-                .insert_resource(crate::ecs::resource::EditHistory::new(100));
+            .insert_resource(crate::ecs::resource::EditHistory::new(100));
+        }
+
+        if !data.ecs_world.contains_resource::<crate::ecs::resource::OrchestratorState>() {
+            data.ecs_world.insert_resource(crate::ecs::resource::OrchestratorState::default());
         }
     }
 

@@ -1,0 +1,1 @@
+{"categories": {"walk": {"patterns": ["walk", "歩き", "歩行"]}, "run": {"patterns": ["run", "jog", "走り", "走行"]}, "idle": {"patterns": ["idle", "stand", "待機"]}, "jump": {"patterns": ["jump", "跳躍", "ジャンプ"]}, "turn": {"patterns": ["turn", "旋回", "振り向き"]}}}

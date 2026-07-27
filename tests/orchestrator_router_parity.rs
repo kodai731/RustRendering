@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 use thyllore_animation::orchestrator::components::route::{OrchestratorMode, Route};
 use thyllore_animation::orchestrator::systems::router::{
-    route_utterance, ExemplarIndex, RouterDecision, RoutingRequest,
+    route_utterance, ExemplarIndex, RouterDecision, RouterThresholds, RoutingRequest,
 };
 use thyllore_ml_core::sentence_encoder::SentenceEncoder;
 
@@ -120,13 +120,19 @@ fn decide(encoder: &mut SentenceEncoder, index: &ExemplarIndex, utterance: &str)
             utterance,
             query_vector: &query,
             mode: OrchestratorMode::AllowEdit,
+            raw_top_score: None,
         },
         index,
-        f32::NEG_INFINITY,
+        RouterThresholds {
+            tau_reject: f32::NEG_INFINITY,
+            delta: 0.0,
+            tau_confirm: 0.0,
+            tau_raw: 0.0,
+        },
     );
 
     match decision {
-        RouterDecision::Accept { route, score } => (route, score),
+        RouterDecision::Accept { route, score, .. } => (route, score),
         other => panic!("an unthresholded decision must accept, got {other:?} for {utterance:?}"),
     }
 }

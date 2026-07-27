@@ -31,6 +31,7 @@ not a property of the encoder.
 |---|---|---|---|---|---|
 | — (base, not stored) | none | 0.690 | 0.784 | — | 0.363 |
 | `setfit-6ep-en8` | SetFit, 3480 steps, 464 exemplars | **0.802** | **0.862** | **7** | 0.366 |
+| `setfit-3ep-ja16` | SetFit 3ep, 2175 steps, 696 exemplars (en8+ja16) | 0.853 | 0.914 | — | 0.727 |
 | `setfit-1ep` | SetFit, 435 steps, 348 exemplars | 0.629 | 0.750 | 14 | 0.521 |
 | `setfit-3ep` | SetFit, 1305 steps, 348 exemplars | 0.698 | 0.784 | 10 | 0.519 |
 | `setfit-6ep` | SetFit, 2610 steps, 348 exemplars | 0.724 | 0.793 | 8 | 0.524 |
@@ -38,16 +39,13 @@ not a property of the encoder.
 
 The first two rows use the current 464-exemplar index (8 per language per route);
 the rest were measured when English had only 4 per route, so compare them among
-themselves. `setfit-6ep-en8` is the variant to load.
+themselves. `setfit-3ep-ja16` is the variant to load (adopted 2026-07-27; epoch chosen on a validation split, escape handled by an AND gate with the raw e5 encoder at models/gemma/e5-raw — thresholds 0.93/0.90).
 
 Its lower `escape retained` is not a regression: 9 of the 12 escape cases drop
 below 0.73, and the operating point is pinned by three genuinely ambiguous ones
 (`fix it`). At 10/12 escape recall it retains 0.710 against `setfit-6ep`'s 0.560.
 
-**The epoch count is not yet validated**: devset saturates for both 3ep and 6ep,
-so the ranking comes from held-out numbers, which makes 0.802 an optimistic
-estimate of unseen performance. Carving a validation split out of
-`exemplars.jsonl` is the fix; until that runs, treat the epoch choice as provisional.
+The epoch count was validated on a stratified validation split in 2026-07-27 tuning (3 epochs; 6 epochs measured 0.810 on validation = held-out overfit). See the design doc's tuning_plan.md for the campaign.
 
 `sibling-hardneg` and the `route_head.json` classifier were both **rejected** —
 kept here because the measurements that rejected them are cited in the design
@@ -69,11 +67,10 @@ sibling-hardneg/
 
 ```bash
 .venv-setfit/bin/python scripts/orchestrator_eval/train_setfit.py \
-    --output-dir models/gemma/setfit-6ep-en8 --epochs 6
+    --output-dir models/gemma/setfit-3ep-ja16 --epochs 3
 
 .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/eval_router.py \
-    --embedder contextual --stage-a none --dataset heldout \
-    --model-dir models/gemma/setfit-6ep-en8
+    --model-dir models/gemma/setfit-3ep-ja16
 ```
 
 Training is CPU-only and deterministic under the seed in `train_setfit.py`:

@@ -1,0 +1,145 @@
+{"route": "list_objects", "lang": "en", "utterance": "what's in this scene"}
+{"route": "list_objects", "lang": "en", "utterance": "give me a list of all objects"}
+{"route": "list_objects", "lang": "ja", "utterance": "登録されているオブジェクトは"}
+{"route": "list_objects", "lang": "ja", "utterance": "シーンの構成を知りたい"}
+{"route": "list_objects", "lang": "ja", "utterance": "すべてのノードを並べて"}
+{"route": "describe_selection", "lang": "en", "utterance": "explain the selected object"}
+{"route": "describe_selection", "lang": "en", "utterance": "what is the thing I clicked"}
+{"route": "describe_selection", "lang": "ja", "utterance": "選択物の詳細を教えて"}
+{"route": "describe_selection", "lang": "ja", "utterance": "選択中のパラメータを列挙して"}
+{"route": "describe_selection", "lang": "ja", "utterance": "ピックしているものの情報が欲しい"}
+{"route": "get_playback_state", "lang": "en", "utterance": "tell me the playback status"}
+{"route": "get_playback_state", "lang": "en", "utterance": "is the animation running"}
+{"route": "get_playback_state", "lang": "ja", "utterance": "今の再生速度は"}
+{"route": "get_playback_state", "lang": "ja", "utterance": "再生の状態をチェック"}
+{"route": "get_playback_state", "lang": "ja", "utterance": "いま何秒目"}
+{"route": "take_screenshot", "lang": "en", "utterance": "save a picture of the viewport"}
+{"route": "take_screenshot", "lang": "en", "utterance": "make a photo of the current view"}
+{"route": "take_screenshot", "lang": "ja", "utterance": "キャプチャを保存"}
+{"route": "take_screenshot", "lang": "ja", "utterance": "スクショを一枚保存して"}
+{"route": "take_screenshot", "lang": "ja", "utterance": "ビューを写真として残して"}
+{"route": "play_animation", "lang": "en", "utterance": "begin the animation"}
+{"route": "play_animation", "lang": "en", "utterance": "play"}
+{"route": "play_animation", "lang": "ja", "utterance": "再生を始めて"}
+{"route": "play_animation", "lang": "ja", "utterance": "再生を開始させて"}
+{"route": "play_animation", "lang": "ja", "utterance": "モーションを流して"}
+{"route": "pause_animation", "lang": "en", "utterance": "freeze the playback here"}
+{"route": "pause_animation", "lang": "en", "utterance": "halt playback but stay on this frame"}
+{"route": "pause_animation", "lang": "ja", "utterance": "ポーズして"}
+{"route": "pause_animation", "lang": "ja", "utterance": "その場で静止させて"}
+{"route": "pause_animation", "lang": "ja", "utterance": "進行を中断して待って"}
+{"route": "stop_animation", "lang": "en", "utterance": "stop and rewind"}
+{"route": "stop_animation", "lang": "en", "utterance": "cancel playback and reset the playhead"}
+{"route": "stop_animation", "lang": "ja", "utterance": "再生終了して先頭へ"}
+{"route": "stop_animation", "lang": "ja", "utterance": "アニメを止めて開始位置に戻して"}
+{"route": "stop_animation", "lang": "ja", "utterance": "再生をキャンセルして頭から"}
+{"route": "set_playback_speed:slow", "lang": "en", "utterance": "playback at slow speed"}
+{"route": "set_playback_speed:slow", "lang": "en", "utterance": "slower please"}
+{"route": "set_playback_speed:slow", "lang": "ja", "utterance": "再生をもっと遅く"}
+{"route": "set_playback_speed:slow", "lang": "ja", "utterance": "スピードを落として"}
+{"route": "set_playback_speed:slow", "lang": "ja", "utterance": "のんびり再生して"}
+{"route": "set_playback_speed:normal", "lang": "en", "utterance": "set the speed back to normal"}
+{"route": "set_playback_speed:normal", "lang": "en", "utterance": "reset the playback rate"}
+{"route": "set_playback_speed:normal", "lang": "ja", "utterance": "速度を普通にして"}
+{"route": "set_playback_speed:normal", "lang": "ja", "utterance": "通常速度で再生"}
+{"route": "set_playback_speed:normal", "lang": "ja", "utterance": "再生速度をリセット"}
+{"route": "set_playback_speed:fast", "lang": "en", "utterance": "double the playback rate"}
+{"route": "set_playback_speed:fast", "lang": "en", "utterance": "run it at high speed"}
+{"route": "set_playback_speed:fast", "lang": "ja", "utterance": "スピードを上げて"}
+{"route": "set_playback_speed:fast", "lang": "ja", "utterance": "再生を速めにして"}
+{"route": "set_playback_speed:fast", "lang": "ja", "utterance": "2倍速にして"}
+{"route": "seek_time:start", "lang": "en", "utterance": "go to frame zero"}
+{"route": "seek_time:start", "lang": "en", "utterance": "back to frame 0"}
+{"route": "seek_time:start", "lang": "ja", "utterance": "最初のフレームへ飛んで"}
+{"route": "seek_time:start", "lang": "ja", "utterance": "タイムラインの先頭へジャンプ"}
+{"route": "seek_time:start", "lang": "ja", "utterance": "出だしの位置へ"}
+{"route": "seek_time:end", "lang": "en", "utterance": "seek to the last frame"}
+{"route": "seek_time:end", "lang": "en", "utterance": "take me to the last frame of the animation"}
+{"route": "seek_time:end", "lang": "ja", "utterance": "アニメの終わりへ移動"}
+{"route": "seek_time:end", "lang": "ja", "utterance": "一番後ろへ飛んで"}
+{"route": "seek_time:end", "lang": "ja", "utterance": "末端まで進めて"}
+{"route": "seek_time:next_key", "lang": "en", "utterance": "next keyframe"}
+{"route": "seek_time:next_key", "lang": "en", "utterance": "move right to the nearest key ahead"}
+{"route": "seek_time:next_key", "lang": "ja", "utterance": "次のキーに飛んで"}
+{"route": "seek_time:next_key", "lang": "ja", "utterance": "隣のキーフレームへ移動して"}
+{"route": "seek_time:next_key", "lang": "ja", "utterance": "次のキーフレームに送って"}
+{"route": "seek_time:prev_key", "lang": "en", "utterance": "step back to the previous key"}
+{"route": "seek_time:prev_key", "lang": "en", "utterance": "go one key back"}
+{"route": "seek_time:prev_key", "lang": "ja", "utterance": "前のキーへ"}
+{"route": "seek_time:prev_key", "lang": "ja", "utterance": "1つ前のキーに送って"}
+{"route": "seek_time:prev_key", "lang": "ja", "utterance": "直前のキーへ移動"}
+{"route": "toggle_loop", "lang": "en", "utterance": "switch looping off"}
+{"route": "toggle_loop", "lang": "en", "utterance": "toggle repeat mode"}
+{"route": "toggle_loop", "lang": "ja", "utterance": "繰り返し再生をオフに"}
+{"route": "toggle_loop", "lang": "ja", "utterance": "リピートを切り替えて"}
+{"route": "toggle_loop", "lang": "ja", "utterance": "ループフラグを反転"}
+{"route": "select_object", "lang": "en", "utterance": "pick Light01"}
+{"route": "select_object", "lang": "en", "utterance": "highlight the box named Crate"}
+{"route": "select_object", "lang": "ja", "utterance": "Sphere01をアクティブに"}
+{"route": "select_object", "lang": "ja", "utterance": "ライトを選択状態にして"}
+{"route": "select_object", "lang": "ja", "utterance": "Boxをピックして"}
+{"route": "set_object_visibility:show", "lang": "en", "utterance": "unhide the wall"}
+{"route": "set_object_visibility:show", "lang": "en", "utterance": "turn visibility on for Cube"}
+{"route": "set_object_visibility:show", "lang": "ja", "utterance": "隠れているライトを出して"}
+{"route": "set_object_visibility:show", "lang": "ja", "utterance": "地面を再表示して"}
+{"route": "set_object_visibility:show", "lang": "ja", "utterance": "Sphere01を出して"}
+{"route": "set_object_visibility:hide", "lang": "en", "utterance": "hide Cube"}
+{"route": "set_object_visibility:hide", "lang": "en", "utterance": "take the camera out of view"}
+{"route": "set_object_visibility:hide", "lang": "ja", "utterance": "Light01を見えなくして"}
+{"route": "set_object_visibility:hide", "lang": "ja", "utterance": "床を見えなくして"}
+{"route": "set_object_visibility:hide", "lang": "ja", "utterance": "Sphere01を隠して"}
+{"route": "focus_camera:selection", "lang": "en", "utterance": "look at the selection"}
+{"route": "focus_camera:selection", "lang": "en", "utterance": "focus on the current selection"}
+{"route": "focus_camera:selection", "lang": "ja", "utterance": "選択対象にカメラを向けて"}
+{"route": "focus_camera:selection", "lang": "ja", "utterance": "今選んでいるものを映して"}
+{"route": "focus_camera:selection", "lang": "ja", "utterance": "選択箇所にカメラを移動"}
+{"route": "focus_camera:model", "lang": "en", "utterance": "frame everything"}
+{"route": "focus_camera:model", "lang": "en", "utterance": "pull back so everything is visible"}
+{"route": "focus_camera:model", "lang": "ja", "utterance": "引いて全体を表示"}
+{"route": "focus_camera:model", "lang": "ja", "utterance": "モデル全部を画面に"}
+{"route": "focus_camera:model", "lang": "ja", "utterance": "オブジェクト全部にカメラを合わせて"}
+{"route": "focus_camera:reset", "lang": "en", "utterance": "put the camera back to default"}
+{"route": "focus_camera:reset", "lang": "en", "utterance": "restore the original view"}
+{"route": "focus_camera:reset", "lang": "ja", "utterance": "視点をリセット"}
+{"route": "focus_camera:reset", "lang": "ja", "utterance": "ビューを初期状態へ"}
+{"route": "focus_camera:reset", "lang": "ja", "utterance": "視点位置を初期化して"}
+{"route": "undo", "lang": "en", "utterance": "roll back what I just did"}
+{"route": "undo", "lang": "en", "utterance": "scrap what I just did"}
+{"route": "undo", "lang": "ja", "utterance": "一つ前に戻して"}
+{"route": "undo", "lang": "ja", "utterance": "取り消し"}
+{"route": "undo", "lang": "ja", "utterance": "直前の作業を取り消して"}
+{"route": "redo", "lang": "en", "utterance": "bring back the change I reverted"}
+{"route": "redo", "lang": "en", "utterance": "put the change back in place"}
+{"route": "redo", "lang": "ja", "utterance": "戻した変更を再適用"}
+{"route": "redo", "lang": "ja", "utterance": "さっき戻した編集を再実行"}
+{"route": "redo", "lang": "ja", "utterance": "やり直しを実行して"}
+{"route": "save_scene", "lang": "en", "utterance": "store my progress"}
+{"route": "save_scene", "lang": "en", "utterance": "keep this scene saved"}
+{"route": "save_scene", "lang": "ja", "utterance": "現在のシーンを保存して"}
+{"route": "save_scene", "lang": "ja", "utterance": "セーブして"}
+{"route": "save_scene", "lang": "ja", "utterance": "シーンをセーブして"}
+{"route": "generate_motion:walk", "lang": "en", "utterance": "give me a walk animation"}
+{"route": "generate_motion:walk", "lang": "en", "utterance": "synthesize walking motion"}
+{"route": "generate_motion:walk", "lang": "ja", "utterance": "歩行のアニメを作成して"}
+{"route": "generate_motion:walk", "lang": "ja", "utterance": "徒歩のアニメーションを作成"}
+{"route": "generate_motion:walk", "lang": "ja", "utterance": "歩くところを作って"}
+{"route": "generate_motion:run", "lang": "en", "utterance": "create a run cycle"}
+{"route": "generate_motion:run", "lang": "en", "utterance": "build a run loop"}
+{"route": "generate_motion:run", "lang": "ja", "utterance": "ランサイクルを生成"}
+{"route": "generate_motion:run", "lang": "ja", "utterance": "ランニングのアニメを作成"}
+{"route": "generate_motion:run", "lang": "ja", "utterance": "走るアニメーションを生成"}
+{"route": "generate_motion:idle", "lang": "en", "utterance": "make an idle pose animation"}
+{"route": "generate_motion:idle", "lang": "en", "utterance": "synthesize an idle stance"}
+{"route": "generate_motion:idle", "lang": "ja", "utterance": "アイドルアニメーションを生成"}
+{"route": "generate_motion:idle", "lang": "ja", "utterance": "息をしているだけの動きを"}
+{"route": "generate_motion:idle", "lang": "ja", "utterance": "待機のループアニメを作って"}
+{"route": "generate_motion:jump", "lang": "en", "utterance": "generate a jumping motion"}
+{"route": "generate_motion:jump", "lang": "en", "utterance": "have the character hop"}
+{"route": "generate_motion:jump", "lang": "ja", "utterance": "跳ぶアニメーションを作って"}
+{"route": "generate_motion:jump", "lang": "ja", "utterance": "キャラを飛び跳ねさせる動きを"}
+{"route": "generate_motion:jump", "lang": "ja", "utterance": "跳ね上がる動きを作って"}
+{"route": "generate_motion:turn", "lang": "en", "utterance": "give me a turning motion"}
+{"route": "generate_motion:turn", "lang": "en", "utterance": "build a spin-around animation"}
+{"route": "generate_motion:turn", "lang": "ja", "utterance": "ターンのアニメーションを生成"}
+{"route": "generate_motion:turn", "lang": "ja", "utterance": "キャラの向きを変える動作を作成"}
+{"route": "generate_motion:turn", "lang": "ja", "utterance": "振り返る動きを生成"}

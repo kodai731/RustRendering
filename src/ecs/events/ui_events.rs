@@ -233,6 +233,7 @@ pub enum UIEvent {
         entity: Entity,
         source_id: SourceClipId,
         start_time: f32,
+        speed: f32,
     },
     ClipBrowserCreateEmpty,
     ClipBrowserDuplicate(SourceClipId),
@@ -410,6 +411,14 @@ pub enum UIEvent {
 #[derive(Default)]
 pub struct UIEventQueue {
     events: Vec<UIEvent>,
+}
+
+impl std::ops::Index<usize> for UIEventQueue {
+    type Output = UIEvent;
+
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.events[index]
+    }
 }
 
 impl UIEventQueue {

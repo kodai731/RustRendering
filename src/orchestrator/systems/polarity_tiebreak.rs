@@ -68,12 +68,17 @@ fn load_polarity_axes() -> HashMap<String, PolarityAxis> {
     }
     axes
 }
+pub fn embedded_exemplars_sha256() -> Option<String> {
+    let parsed: serde_json::Value = serde_json::from_str(POLARITY_GROUPS_JSON).ok()?;
+    parsed.get("exemplars_sha256")?.as_str()?.to_string().into()
+}
+
 
 fn find_axis(route: Route) -> Option<&'static PolarityAxis> {
     POLARITY_AXES.get(&route.id())
 }
 
-fn share_axis(first: Route, second: Route) -> bool {
+pub fn share_axis(first: Route, second: Route) -> bool {
     match (find_axis(first), find_axis(second)) {
         (Some(left), Some(right)) => left.name == right.name,
         _ => false,
@@ -92,24 +97,36 @@ fn count_polarity_evidence(normalized: &str, route: Route) -> usize {
 /// Promotes the runner-up when the utterance names its pole and not the leader's.
 ///
 /// `ranked` must be the embedding router's output in descending score order. Only
-/// the first two entries are read: anything below them was never in contention, and
+/// the first two entries are read — anything below them was never in contention, and
 /// letting a third route win would be the rule table's mistake again.
-pub fn break_polarity_tie(normalized: &str, ranked: &[(Route, f32)]) -> Option<Route> {
+pub fn break_polarity_tie(normalized: &str, ranked: &[(Route, f32)]) -> Option<TieBreakOutcome> {
     let leader = ranked.first()?.0;
-    let Some(&(runner_up, _)) = ranked.get(1) else {
-        return Some(leader);
-    };
+    if ranked.len() < 2 {
+        return Some(TieBreakOutcome::NotApplicable(leader));
+    }
 
+    let runner_up = ranked[1].0;
     if !share_axis(leader, runner_up) {
-        return Some(leader);
+        return Some(TieBreakOutcome::NotApplicable(leader));
     }
 
     let leader_evidence = count_polarity_evidence(normalized, leader);
     let runner_up_evidence = count_polarity_evidence(normalized, runner_up);
     if runner_up_evidence > leader_evidence {
-        return Some(runner_up);
+        return Some(TieBreakOutcome::Decided(runner_up));
     }
-    Some(leader)
+    Some(TieBreakOutcome::Undecided(leader))
+}
+
+/// The outcome of the polarity tie-break.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum TieBreakOutcome {
+    /// Same axis and polarity evidence decided: the winner is not the leader.
+    Decided(Route),
+    /// Not a same-axis pair (or only one candidate): the leader stands by default.
+    NotApplicable(Route),
+    /// Same axis but polarity evidence did not decide: the leader stands by default.
+    Undecided(Route),
 }
 
 #[cfg(test)]
@@ -120,9 +137,14 @@ mod tests {
     use crate::orchestrator::systems::normalize::normalize_utterance;
     use std::collections::HashSet;
 
-    fn resolve(utterance: &str, ranked: &[(Route, f32)]) -> Route {
-        break_polarity_tie(&normalize_utterance(utterance), ranked)
-            .expect("a non-empty ranking always resolves")
+   fn resolve(utterance: &str, ranked: &[(Route, f32)]) -> Route {
+        let outcome = break_polarity_tie(&normalize_utterance(utterance), ranked)
+            .expect("a non-empty ranking always resolves");
+        match outcome {
+            TieBreakOutcome::Decided(r)
+            | TieBreakOutcome::NotApplicable(r)
+            | TieBreakOutcome::Undecided(r) => r,
+        }
     }
 
     fn assert_promotes(utterance: &str, leader: Route, runner_up: Route) {
@@ -226,14 +248,11 @@ mod tests {
         );
     }
 
-    /// `forward` names the next-key pole but no other route's exemplars may use it,
-    /// and four do — `generate_motion:walk`, `redo` and `set_playback_speed:fast`
-    /// among them. Exclusivity costs this case, and paying that is the point: the
-    /// looser rule is what admitted `生成し`. Widening the next-key exemplars is the
-    /// fix, not loosening the derivation.
+    /// `forward` is an exclusive term for the next-key pole (no other route's
+    /// exemplars use it), so it decides in favor of NextKey.
     #[test]
-    fn a_pole_word_shared_with_other_routes_cannot_decide() {
-        assert_keeps_leader(
+    fn a_pole_word_exclusive_to_one_route_decides() {
+        assert_promotes(
             "nudge the playhead forward to the coming key",
             Route::SeekTime(SeekPosition::PrevKey),
             Route::SeekTime(SeekPosition::NextKey),

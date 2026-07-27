@@ -132,6 +132,7 @@ def main() -> None:
     parser.add_argument("--epochs", type=int, default=1)
     parser.add_argument("--batch-size", type=int, default=32)
     parser.add_argument("--export-only", action="store_true")
+    parser.add_argument("--exemplars", default="exemplars.jsonl", help="Path to exemplars file (default: exemplars.jsonl)")
     arguments = parser.parse_args()
 
     output_dir = Path(arguments.output_dir)
@@ -140,7 +141,7 @@ def main() -> None:
     if arguments.export_only:
         model = SetFitModel.from_pretrained(str(output_dir / "setfit"))
     else:
-        exemplars = read_jsonl(SCRIPT_DIR / "exemplars.jsonl")
+        exemplars = read_jsonl(SCRIPT_DIR / arguments.exemplars)
         routes = len(set(row["route"] for row in exemplars))
         print(f"training on {len(exemplars)} exemplars over {routes} routes")
         model = train_route_encoder(

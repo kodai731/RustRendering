@@ -7,14 +7,13 @@ tie-break and the Python evaluation read one file.
 Run:
     .venv-orchestrator-eval/bin/python scripts/orchestrator_eval/derive_polarity_terms.py
 """
-
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 from dataset import read_jsonl
 from polarity import TABLE_PATH, derive_table
-
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 HEADER_COMMENT = (
@@ -26,6 +25,23 @@ HEADER_COMMENT = (
 
 DEFAULT_MIN_SUPPORT = 1
 
+def write_polarity_table(min_support: int = DEFAULT_MIN_SUPPORT, output: str | None = None) -> tuple[Path, dict]:
+    """Derive and write the polarity table from exemplars.jsonl.
+
+    Returns (path where the table was written, the table dict).
+    """
+    exemplars = read_jsonl(SCRIPT_DIR / "exemplars.jsonl")
+    exemplars_bytes = (SCRIPT_DIR / "exemplars.jsonl").read_bytes()
+    exemplars_sha256 = hashlib.sha256(exemplars_bytes).hexdigest()
+    table = {"_comment": HEADER_COMMENT, "exemplars_sha256": exemplars_sha256, **derive_table(exemplars, min_support)}
+
+    output_path = Path(output or str(TABLE_PATH))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    output_path.write_text(
+        json.dumps(table, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
+    return output_path, table
+
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -33,14 +49,7 @@ def main() -> None:
     parser.add_argument("--output", default=str(TABLE_PATH))
     arguments = parser.parse_args()
 
-    exemplars = read_jsonl(SCRIPT_DIR / "exemplars.jsonl")
-    table = {"_comment": HEADER_COMMENT, **derive_table(exemplars, arguments.min_support)}
-
-    output_path = Path(arguments.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_path.write_text(
-        json.dumps(table, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
+    output_path, table = write_polarity_table(arguments.min_support, arguments.output)
 
     term_count = sum(len(terms) for group in table["groups"].values() for terms in group.values())
     print(f"{output_path} — {len(table['groups'])} groups, {term_count} terms")

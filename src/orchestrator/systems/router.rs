@@ -22,7 +22,7 @@ use thiserror::Error;
 
 use crate::orchestrator::components::route::{OrchestratorMode, Route};
 use crate::orchestrator::systems::normalize::normalize_utterance;
-use crate::orchestrator::systems::polarity_tiebreak::break_polarity_tie;
+use crate::orchestrator::systems::polarity_tiebreak::{break_polarity_tie, share_axis, TieBreakOutcome};
 
 /// Chosen on `devset` as the lowest threshold that executes no wrong route there:
 /// it rejects 7 of 9 escape utterances and keeps 62 of 63 correct routes. Raising
@@ -35,6 +35,11 @@ use crate::orchestrator::systems::polarity_tiebreak::break_polarity_tie;
 /// remains open rather than being papered over by tuning against `heldout`.
 pub const DEFAULT_REJECTION_THRESHOLD: f32 = 0.825;
 
+/// Calibrated thresholds from tuning_plan Phase 3 (devset retained 0.917 / val_escape recall 0.975).
+pub const TUNED_TAU_REJECT: f32 = 0.93;
+pub const TUNED_TAU_RAW: f32 = 0.90;
+pub const TUNED_DELTA: f32 = 0.005;
+pub const TUNED_TAU_CONFIRM: f32 = 0.95;
 const UNIT_LENGTH_TOLERANCE: f32 = 1e-3;
 const BYTES_PER_SCALAR: usize = 4;
 
@@ -57,6 +62,8 @@ pub enum IndexError {
 #[derive(Deserialize)]
 struct Manifest {
     dimensions: usize,
+    #[serde(default)]
+    exemplars_sha256: Option<String>,
     routes: Vec<ManifestRoute>,
 }
 
@@ -80,6 +87,7 @@ struct RouteBlock {
 #[derive(Debug)]
 pub struct ExemplarIndex {
     dimensions: usize,
+    exemplars_sha256: Option<String>,
     blocks: Vec<RouteBlock>,
     vectors: Vec<f32>,
 }
@@ -111,6 +119,7 @@ impl ExemplarIndex {
 
         let index = Self {
             dimensions: manifest.dimensions,
+            exemplars_sha256: manifest.exemplars_sha256,
             blocks,
             vectors: decode_vectors(vector_bytes),
         };
@@ -124,6 +133,10 @@ impl ExemplarIndex {
 
     pub fn exemplar_count(&self) -> usize {
         self.vectors.len() / self.dimensions
+    }
+
+    pub fn exemplars_sha256(&self) -> Option<&str> {
+        self.exemplars_sha256.as_deref()
     }
 
     fn row(&self, row: usize) -> &[f32] {
@@ -216,52 +229,106 @@ pub struct RoutingRequest<'a> {
     pub utterance: &'a str,
     pub query_vector: &'a [f32],
     pub mode: OrchestratorMode,
+    pub raw_top_score: Option<f32>,
 }
 
 /// What the router concluded. Rejection is a distinct outcome rather than a route
 /// with a low score, so a caller cannot dispatch one by forgetting to compare.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RouterDecision {
     Accept {
         route: Route,
         score: f32,
+        needs_confirm: bool,
     },
-    /// Below the threshold. `best` is what the encoder preferred, which is what a
-    /// clarifying question should be built from.
+   /// Below the threshold. `best` is what the encoder preferred, which is what a
     Reject {
         best: Route,
         score: f32,
+    },
+    Clarify {
+        candidates: Vec<(Route, f32)>,
     },
     /// The mode left no route to choose from.
     NoCandidate,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct RouterThresholds {
+    pub tau_reject: f32,
+    pub delta: f32,
+    pub tau_confirm: f32,
+    pub tau_raw: f32,
+}
+
+/// Route an utterance by ranking against the exemplar index.
+///
+/// 昇格側・縮退survivorは自身のスコアで閾値判定する (ゲート迂回不可)
 pub fn route_utterance(
     request: RoutingRequest<'_>,
     index: &ExemplarIndex,
-    threshold: f32,
+    thresholds: RouterThresholds,
 ) -> RouterDecision {
     let ranked = rank_routes(index, request.query_vector, request.mode);
+
+    if let Some(raw) = request.raw_top_score {
+        if raw < thresholds.tau_raw {
+            return match ranked.first() {
+                Some((route, score)) => RouterDecision::Reject {
+                    best: *route,
+                    score: *score,
+                },
+                None => RouterDecision::NoCandidate,
+            };
+        }
+    }
+
     let normalized = normalize_utterance(request.utterance);
 
-    let Some(winner) = break_polarity_tie(&normalized, &ranked) else {
+    let Some(outcome) = break_polarity_tie(&normalized, &ranked) else {
         return RouterDecision::NoCandidate;
     };
 
-    // The winner's own score, not the leader's: a promoted runner-up must clear the
-    // threshold on what the encoder gave it, or the tie-break would be a way past a
-    // gate it never met. A winner outside `ranked` cannot happen — the tie-break only
-    // returns one of its first two — and scoring it out of range rather than
-    // unwrapping means the impossible case rejects instead of dispatching.
-    let score = ranked
-        .iter()
-        .find(|(route, _)| *route == winner)
-        .map_or(f32::NEG_INFINITY, |(_, score)| *score);
+    fn score_of(ranked: &[(Route, f32)], route: Route) -> f32 {
+        ranked.iter().find(|(r, _)| *r == route).map_or(f32::NEG_INFINITY, |(_, s)| *s)
+    }
 
-    if score >= threshold {
+    let (winner, score) = match outcome {
+        TieBreakOutcome::Decided(r) => (r, score_of(&ranked, r)),
+        TieBreakOutcome::NotApplicable(r) => {
+            if thresholds.delta > 0.0 && ranked.len() >= 2 && ranked[0].1 - ranked[1].1 < thresholds.delta {
+                let candidates: Vec<(Route, f32)> = ranked.iter().take(3)
+                    .filter(|(_, s)| *s >= thresholds.tau_reject).copied().collect();
+                match candidates[..] {
+                    [] => return RouterDecision::Reject { best: ranked[0].0, score: ranked[0].1 },
+                    [single] => single,
+                    _ => return RouterDecision::Clarify { candidates },
+                }
+            } else {
+                (r, score_of(&ranked, r))
+            }
+        }
+        TieBreakOutcome::Undecided(r) => {
+            if thresholds.delta > 0.0 && ranked.len() >= 2 {
+                let candidates: Vec<(Route, f32)> = ranked.iter().take(2)
+                    .filter(|(_, s)| *s >= thresholds.tau_reject).copied().collect();
+                match candidates[..] {
+                    [] => return RouterDecision::Reject { best: ranked[0].0, score: ranked[0].1 },
+                    [single] => single,
+                    _ => return RouterDecision::Clarify { candidates },
+                }
+            } else {
+                (r, score_of(&ranked, r))
+            }
+        }
+    };
+
+    if score >= thresholds.tau_reject {
+        let needs_confirm = score < thresholds.tau_confirm;
         RouterDecision::Accept {
             route: winner,
             score,
+            needs_confirm,
         }
     } else {
         RouterDecision::Reject {
@@ -399,20 +466,26 @@ mod tests {
     #[test]
     fn a_mode_that_allows_nothing_yields_no_candidate() {
         let index = load(&[("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])])]);
-        let decision = route_utterance(
+       let decision = route_utterance(
             RoutingRequest {
                 utterance: "play it",
                 query_vector: &unit([1.0, 0.0, 0.0, 0.0]),
                 mode: OrchestratorMode::ReadOnly,
+                raw_top_score: None,
             },
             &index,
-            DEFAULT_REJECTION_THRESHOLD,
+            RouterThresholds {
+                tau_reject: DEFAULT_REJECTION_THRESHOLD,
+                delta: 0.0,
+                tau_confirm: 0.0,
+                tau_raw: 0.0,
+            },
         );
 
         assert_eq!(decision, RouterDecision::NoCandidate);
     }
 
-    #[test]
+  #[test]
     fn a_score_below_the_threshold_is_rejected_rather_than_dispatched() {
         let index = two_route_index();
         let decision = route_utterance(
@@ -420,9 +493,15 @@ mod tests {
                 utterance: "what is the weather",
                 query_vector: &unit([0.0, 0.0, 1.0, 0.0]),
                 mode: OrchestratorMode::AllowEdit,
+                raw_top_score: None,
             },
             &index,
-            DEFAULT_REJECTION_THRESHOLD,
+            RouterThresholds {
+                tau_reject: DEFAULT_REJECTION_THRESHOLD,
+                delta: 0.0,
+                tau_confirm: 0.0,
+                tau_raw: 0.0,
+            },
         );
 
         assert!(
@@ -431,7 +510,7 @@ mod tests {
         );
     }
 
-    /// The threshold must see the promoted route's own score. Reading the leader's
+   /// The threshold must see the promoted route's own score. Reading the leader's
     /// instead would let a swap smuggle a route past a threshold it never met.
     #[test]
     fn a_promoted_runner_up_is_thresholded_on_its_own_score() {
@@ -444,20 +523,21 @@ mod tests {
             utterance: "hop to the key before this one",
             query_vector: &query,
             mode: OrchestratorMode::AllowEdit,
+            raw_top_score: None,
         };
         let ranked = rank_routes(&index, &query, OrchestratorMode::AllowEdit);
         let runner_up_score = ranked[1].1;
 
         assert_eq!(ranked[0].0, Route::SeekTime(SeekPosition::NextKey));
         assert_eq!(
-            route_utterance(request, &index, 0.0),
+            route_utterance(request, &index, RouterThresholds { tau_reject: 0.0, delta: 0.0, tau_confirm: 0.0, tau_raw: 0.0 }),
             RouterDecision::Accept {
                 route: Route::SeekTime(SeekPosition::PrevKey),
                 score: runner_up_score,
+                needs_confirm: false,
             }
         );
     }
-
     #[test]
     fn a_promoted_runner_up_below_the_threshold_is_still_rejected() {
         let index = load(&[
@@ -474,13 +554,19 @@ mod tests {
 
         assert_eq!(
             route_utterance(
-                RoutingRequest {
+          RoutingRequest {
                     utterance: "make the cube invisible",
                     query_vector: &query,
                     mode: OrchestratorMode::AllowEdit,
+                    raw_top_score: None,
                 },
                 &index,
-                DEFAULT_REJECTION_THRESHOLD,
+                RouterThresholds {
+                    tau_reject: DEFAULT_REJECTION_THRESHOLD,
+                    delta: 0.0,
+                    tau_confirm: 0.0,
+                    tau_raw: 0.0,
+                },
             ),
             RouterDecision::Reject {
                 best: Route::SetObjectVisibility(VisibilityState::Hide),
@@ -546,5 +632,167 @@ mod tests {
             ExemplarIndex::from_export("not json", &[]),
             Err(IndexError::UnreadableManifest(_))
         ));
+    }
+
+    /// Undecided axis pair where only 1 is >= tau_reject -> Accept (the surviving one).
+    #[test]
+    fn undecided_axis_pair_only_one_above_tau_reject_is_accepted() {
+        let index = load(&[
+            ("seek_time:start", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("seek_time:end", vec![unit([0.0, 1.0, 0.0, 0.0])]),
+        ]);
+        // Query very close to start, far from end
+        let query = unit([0.995, 0.1, 0.0, 0.0]);
+
+        let decision = route_utterance(
+         RoutingRequest {
+                utterance: "go to the last",
+                query_vector: &query,
+                mode: OrchestratorMode::AllowEdit,
+                raw_top_score: None,
+            },
+            &index,
+            RouterThresholds {
+                tau_reject: 0.95,
+                delta: 0.1,
+                tau_confirm: 0.0,
+                tau_raw: 0.0,
+            },
+        );
+
+        // start score = 0.995*1.0 + 0.1*0.0 = 0.995
+        // end score = 0.995*0.0 + 0.1*1.0 = 0.1
+        // ranked: [start(0.995), end(0.1)]
+        // "last" -> polarity swap to end, so Undecided(end)
+        // axis pair candidates from top 2: [start, end] (both share_axis with end)
+        // filtered by tau_reject=0.95: start(0.995)>=0.95 yes, end(0.1)>=0.95 no -> 1 candidate
+        // single survivor = start -> Accept with start's score
+
+        match decision {
+            RouterDecision::Accept { route, score, needs_confirm } => {
+                assert_eq!(route, Route::SeekTime(SeekPosition::Start));
+                assert!((score - 0.995).abs() < 1e-4, "score = {}", score);
+                assert!(!needs_confirm);
+            }
+            other => panic!("expected Accept, got {:?}", other),
+        }
+    }
+
+    /// Undecided axis pair where both are < tau_reject -> Reject.
+    #[test]
+    fn undecided_axis_pair_both_below_tau_reject_is_rejected() {
+        let index = load(&[
+            ("seek_time:start", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("seek_time:end", vec![unit([0.98, 0.1, 0.0, 0.0])]),
+        ]);
+        // Query far from both
+        let query = unit([0.5, 0.5, 0.5, 0.5]);
+
+        let decision = route_utterance(
+          RoutingRequest {
+                utterance: "go to the last",
+                query_vector: &query,
+                mode: OrchestratorMode::AllowEdit,
+                raw_top_score: None,
+            },
+            &index,
+            RouterThresholds {
+                tau_reject: 0.95,
+                delta: 0.1,
+                tau_confirm: 0.0,
+                tau_raw: 0.0,
+            },
+        );
+
+        assert!(
+            matches!(decision, RouterDecision::Reject { .. }),
+            "expected Reject, got {:?}",
+            decision
+        );
+    }
+
+    /// Undecided (same axis, no polarity word) with large score difference (> delta) still returns Clarify.
+    #[test]
+    fn undecided_large_score_difference_still_clarifies() {
+        let index = load(&[
+            ("seek_time:start", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            // [0.7, sqrt(1-0.49), 0, 0] = [0.7, 0.714, 0, 0]
+            ("seek_time:end", vec![unit([0.7, 0.714, 0.0, 0.0])]),
+        ]);
+        // Query very close to seek_time:start
+        let query = unit([1.0, 0.0, 0.0, 0.0]);
+
+        let decision = route_utterance(
+         RoutingRequest {
+                utterance: "seek",
+                query_vector: &query,
+                mode: OrchestratorMode::AllowEdit,
+                raw_top_score: None,
+            },
+            &index,
+            RouterThresholds {
+                tau_reject: 0.5,
+                delta: 0.1,
+                tau_confirm: 0.8,
+                tau_raw: 0.0,
+            },
+        );
+
+        // seek_time:start score = 1.0, seek_time:end score ~ 0.7
+        // difference = 0.3 > delta(0.1), but Undecided is same-axis antonym with no polarity word
+        // so it should still return Clarify with 2 candidates (both >= tau_reject=0.5)
+
+        match decision {
+            RouterDecision::Clarify { candidates } => {
+                assert_eq!(candidates.len(), 2, "expected 2 candidates, got {:?}", candidates);
+                assert_eq!(candidates[0].0, Route::SeekTime(SeekPosition::Start));
+                assert!((candidates[0].1 - 1.0).abs() < 1e-6, "expected score ~1.0, got {}", candidates[0].1);
+                assert_eq!(candidates[1].0, Route::SeekTime(SeekPosition::End));
+                assert!((candidates[1].1 - 0.7).abs() < 1e-2, "expected score ~0.7, got {}", candidates[1].1);
+            }
+            other => panic!("expected Clarify, got {:?}", other),
+        }
+    }
+
+    /// NotApplicable margin where only top1 is >= tau_reject -> Accept (not Clarify).
+    #[test]
+    fn not_applicable_margin_only_top1_above_tau_reject_is_accepted() {
+        let index = load(&[
+            ("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            // exemplar [0.92, 0.387, 0.0, 0.0] normalized: length = sqrt(0.92^2 + 0.387^2) = sqrt(0.8464 + 0.1498) = sqrt(0.9962) ~ 0.998
+            // Actually let me compute: [0.92, sqrt(1-0.92^2), 0, 0] = [0.92, 0.392, 0, 0]
+            ("pause_animation", vec![unit([0.92, 0.392, 0.0, 0.0])]),
+        ]);
+        // Query very close to play_animation
+        let query = unit([1.0, 0.0, 0.0, 0.0]);
+
+      let decision = route_utterance(
+            RoutingRequest {
+                utterance: "play it",
+                query_vector: &query,
+                mode: OrchestratorMode::AllowEdit,
+                raw_top_score: None,
+            },
+            &index,
+            RouterThresholds {
+                tau_reject: 0.95,
+                delta: 0.1,
+                tau_confirm: 0.0,
+                tau_raw: 0.0,
+            },
+        );
+        // play_animation score = 1.0, pause_animation score ~ 0.92
+        // margin = 1.0 - 0.92 = 0.08 < delta(0.1) -> margin path triggers
+        // candidates from top 3 filtered by tau_reject=0.95: play(1.0)>=0.95 yes, pause(~0.92)>=0.95 no
+        // 1 candidate -> single survivor = play -> Accept
+
+        assert_eq!(
+            decision,
+            RouterDecision::Accept {
+                route: Route::PlayAnimation,
+                score: 1.0,
+                needs_confirm: false,
+            }
+        );
     }
 }

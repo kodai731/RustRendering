@@ -54,6 +54,7 @@ impl System {
         #[cfg(feature = "auto-rig")]
         let mut text_to_animation_dialog_state =
             crate::platform::ui::TextToAnimationDialogState::default();
+        let mut command_bar_state = crate::platform::ui::CommandBarState::default();
 
         event_loop
             .run(move |event, window_target| match event {
@@ -88,6 +89,7 @@ impl System {
                         &mut text_to_mesh_dialog_state,
                         #[cfg(feature = "auto-rig")]
                         &mut text_to_animation_dialog_state,
+                        &mut command_bar_state,
                     );
                 }
 
@@ -114,6 +116,7 @@ fn dispatch_window_event(
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
     #[cfg(feature = "auto-rig")]
     text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
+    command_bar_state: &mut crate::platform::ui::CommandBarState,
 ) {
     match event {
         WindowEvent::CloseRequested => window_target.exit(),
@@ -159,6 +162,7 @@ fn dispatch_window_event(
                 text_to_mesh_dialog,
                 #[cfg(feature = "auto-rig")]
                 text_to_animation_dialog,
+                command_bar_state,
             );
         }
 
@@ -200,6 +204,7 @@ fn handle_redraw_requested(
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
     #[cfg(feature = "auto-rig")]
     text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
+    command_bar_state: &mut crate::platform::ui::CommandBarState,
 ) {
     let ui = imgui.frame();
 
@@ -240,6 +245,7 @@ fn handle_redraw_requested(
         text_to_mesh_dialog,
         #[cfg(feature = "auto-rig")]
         text_to_animation_dialog,
+        command_bar_state,
     );
 
     #[cfg(debug_assertions)]
@@ -271,6 +277,7 @@ fn build_ui_windows(
     text_to_mesh_dialog: &mut crate::platform::ui::TextToMeshDialogState,
     #[cfg(feature = "auto-rig")]
     text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
+    command_bar_state: &mut crate::platform::ui::CommandBarState,
 ) {
     let display_size = ui.io().display_size;
 
@@ -328,6 +335,12 @@ fn build_ui_windows(
             &app.data.ecs_world,
         );
     }
+
+    crate::platform::ui::build_command_bar(
+        ui,
+        command_bar_state,
+        &app.data.ecs_world,
+    );
 
     consume_needs_focus(app);
 }

@@ -1,0 +1,122 @@
+{
+ "dimensions": 384,
+ "exemplars_sha256": "1f348fc8255cd5514c2f39c7e5c05830a13104f357a3fc659d65725120e35385",
+ "routes": [
+  {
+   "route": "list_objects",
+   "exemplars": 24
+  },
+  {
+   "route": "describe_selection",
+   "exemplars": 24
+  },
+  {
+   "route": "get_playback_state",
+   "exemplars": 24
+  },
+  {
+   "route": "take_screenshot",
+   "exemplars": 24
+  },
+  {
+   "route": "play_animation",
+   "exemplars": 24
+  },
+  {
+   "route": "pause_animation",
+   "exemplars": 24
+  },
+  {
+   "route": "stop_animation",
+   "exemplars": 24
+  },
+  {
+   "route": "set_playback_speed:slow",
+   "exemplars": 24
+  },
+  {
+   "route": "set_playback_speed:normal",
+   "exemplars": 24
+  },
+  {
+   "route": "set_playback_speed:fast",
+   "exemplars": 24
+  },
+  {
+   "route": "seek_time:start",
+   "exemplars": 24
+  },
+  {
+   "route": "seek_time:end",
+   "exemplars": 24
+  },
+  {
+   "route": "seek_time:next_key",
+   "exemplars": 24
+  },
+  {
+   "route": "seek_time:prev_key",
+   "exemplars": 24
+  },
+  {
+   "route": "toggle_loop",
+   "exemplars": 24
+  },
+  {
+   "route": "select_object",
+   "exemplars": 24
+  },
+  {
+   "route": "set_object_visibility:show",
+   "exemplars": 24
+  },
+  {
+   "route": "set_object_visibility:hide",
+   "exemplars": 24
+  },
+  {
+   "route": "focus_camera:selection",
+   "exemplars": 24
+  },
+  {
+   "route": "focus_camera:model",
+   "exemplars": 24
+  },
+  {
+   "route": "focus_camera:reset",
+   "exemplars": 24
+  },
+  {
+   "route": "undo",
+   "exemplars": 24
+  },
+  {
+   "route": "redo",
+   "exemplars": 24
+  },
+  {
+   "route": "save_scene",
+   "exemplars": 24
+  },
+  {
+   "route": "generate_motion:walk",
+   "exemplars": 24
+  },
+  {
+   "route": "generate_motion:run",
+   "exemplars": 24
+  },
+  {
+   "route": "generate_motion:idle",
+   "exemplars": 24
+  },
+  {
+   "route": "generate_motion:jump",
+   "exemplars": 24
+  },
+  {
+   "route": "generate_motion:turn",
+   "exemplars": 24
+  }
+ ]
+}

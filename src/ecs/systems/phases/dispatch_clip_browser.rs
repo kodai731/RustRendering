@@ -16,6 +16,7 @@ pub fn dispatch_clip_browser_ecs_events(
                 entity,
                 source_id,
                 start_time,
+                speed,
             } => {
                 let duration = {
                     let clip_library = world.resource::<ClipLibrary>();
@@ -32,6 +33,7 @@ pub fn dispatch_clip_browser_ecs_events(
 
                     if let Some(last) = schedule.instances.last_mut() {
                         last.start_time = *start_time;
+                        last.speed = *speed;
                     }
                 }
             }

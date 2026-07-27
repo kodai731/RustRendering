@@ -31,6 +31,7 @@ from static_embedder import POOLING_STRATEGIES, StaticEmbedder
 
 STATIC_MODEL_NAME = "gemma-3-270m-it-ONNX"
 CONTEXTUAL_MODEL_NAME = "multilingual-e5-small"
+RAW_ENCODER_DIR = "models/gemma/e5-raw"
 SCRIPT_DIR = Path(__file__).resolve().parent
 
 
@@ -42,6 +43,7 @@ class Prediction:
     predicted_route: str
     top_score: float
     margin: float
+    raw_top_score: float = 0.0
 
 
 STAGE_A_MODES = ("none", "polarity")
@@ -189,20 +191,20 @@ def sweep_rejection_threshold(predictions: list[Prediction]) -> list[dict]:
         curve.append(
             {
                 "threshold": threshold,
-                "escape_recall": sum(p.top_score < threshold for p in escape) / len(escape),
-                "retained": sum(p.top_score >= threshold for p in correct) / len(correct),
+                "escape_recall": sum(p.top_score < threshold for p in escape) / len(escape) if len(escape) > 0 else 0.0,
+                "retained": sum(p.top_score >= threshold for p in correct) / len(correct) if len(correct) > 0 else 1.0,
                 "wrong_executed": sum(
                     p.top_score >= threshold
                     for p in routed
                     if p.predicted_route != p.expected_route
                 )
-                / len(routed),
+                / len(routed) if len(routed) > 0 else 0.0,
             }
         )
     return curve
 
 
-def summarize(predictions: list[Prediction], elapsed_seconds: float) -> dict:
+def summarize(predictions: list[Prediction], elapsed_seconds: float, tau1: float = 0.93, tau2: float = 0.90) -> dict:
     routed = [p for p in predictions if p.expected_route != ESCAPE_ROUTE]
     correct = [p for p in routed if p.predicted_route == p.expected_route]
     tool_correct = [
@@ -212,10 +214,32 @@ def summarize(predictions: list[Prediction], elapsed_seconds: float) -> dict:
     curve = sweep_rejection_threshold(predictions)
     full_escape = [point for point in curve if point["escape_recall"] >= 1.0]
 
+    # Composite action point: accept if (setfit top1 >= tau1 AND raw top1 >= tau2)
+    # Escape recall: fraction of escape cases where the condition is NOT met (rejected)
+    escape = [p for p in predictions if p.expected_route == ESCAPE_ROUTE]
+    composite_escape_recall = 0.0
+    composite_retained = 1.0
+    composite_route_accuracy = 0.0
+    if escape:
+        composite_escape_recall = sum(
+            not (p.top_score >= tau1 and p.raw_top_score >= tau2) for p in escape
+        ) / len(escape)
+    # Retained: fraction of correct routed cases where the condition IS met (accepted)
+    if correct:
+        composite_retained = sum(
+            p.top_score >= tau1 and p.raw_top_score >= tau2 for p in correct
+        ) / len(correct)
+    # Route accuracy: among accepted routed cases, what fraction are correct?
+    accepted_routed = [p for p in routed if p.top_score >= tau1 and p.raw_top_score >= tau2]
+    if accepted_routed:
+        composite_route_accuracy = sum(
+            p.predicted_route == p.expected_route for p in accepted_routed
+        ) / len(accepted_routed)
+
     return {
         "case_count": len(predictions),
-        "route_accuracy": len(correct) / len(routed),
-        "tool_accuracy": len(tool_correct) / len(routed),
+        "route_accuracy": len(correct) / len(routed) if len(routed) > 0 else 0.0,
+        "tool_accuracy": len(tool_correct) / len(routed) if len(routed) > 0 else 0.0,
         "route_accuracy_en": _accuracy_for_language(routed, "en"),
         "route_accuracy_ja": _accuracy_for_language(routed, "ja"),
         "mean_top_score_correct": float(np.mean([p.top_score for p in correct])),
@@ -226,7 +250,10 @@ def summarize(predictions: list[Prediction], elapsed_seconds: float) -> dict:
             full_escape, key=lambda point: point["retained"], default=None
         ),
         "threshold_curve": curve,
-        "seconds_per_utterance": elapsed_seconds / len(predictions),
+        "seconds_per_utterance": elapsed_seconds / len(predictions) if len(predictions) > 0 else 0.0,
+        "composite_escape_recall": composite_escape_recall,
+        "composite_retained": composite_retained,
+        "composite_route_accuracy": composite_route_accuracy,
     }
 
 
@@ -258,14 +285,20 @@ def predict_all(
     aggregation: str,
     stage_a: "StageA",
     head: RouteHead | None = None,
+    raw_exemplar_matrix: np.ndarray | None = None,
+    raw_query_vectors: np.ndarray | None = None,
 ) -> tuple[list[Prediction], int]:
     predictions: list[Prediction] = []
     intervened = 0
 
-    for row, vector in zip(cases, utterance_vectors):
+    for i, (row, vector) in enumerate(zip(cases, utterance_vectors)):
         ranked = rank_routes(vector, exemplar_matrix, route_slices, aggregation, None, head)
         predicted, score, swapped = stage_a.break_tie(row["utterance"], ranked)
         intervened += swapped
+        raw_score = 0.0
+        if raw_exemplar_matrix is not None and raw_query_vectors is not None:
+            raw_query_vector = raw_query_vectors[i]
+            raw_score = float(np.max(raw_query_vector @ raw_exemplar_matrix.T))
         predictions.append(
             Prediction(
                 row["utterance"],
@@ -274,11 +307,11 @@ def predict_all(
                 predicted,
                 score,
                 score_margin(ranked),
+                raw_score,
             )
         )
 
     return predictions, intervened
-
 
 def evaluate(
     embedder_name: str,
@@ -305,10 +338,24 @@ def evaluate(
         else None
     )
 
+    # Load raw exemplar matrix from pre-computed raw_index.f32 in RAW_ENCODER_DIR
+    raw_exemplar_matrix: np.ndarray | None = None
+    raw_query_vectors: np.ndarray | None = None
+    raw_index_path = Path(resolved_model_dir) / "raw_index.f32"
+    if raw_index_path.exists():
+        raw_meta = json.loads((Path(resolved_model_dir) / "raw_index.json").read_text())
+        raw_flat = np.fromfile(raw_index_path, dtype=np.float32)
+        raw_exemplar_matrix = raw_flat.reshape(-1, raw_meta["dimensions"])
+        # Instantiate raw embedder and encode query utterances
+        raw_embedder = ContextualEmbedder(RAW_ENCODER_DIR)
+        raw_query_vectors = raw_embedder.encode_batch([row["utterance"] for row in cases])
+
     start = time.perf_counter()
     utterance_vectors = embedder.encode_batch([row["utterance"] for row in cases])
     predictions, intervened = predict_all(
-        cases, utterance_vectors, exemplar_matrix, route_slices, aggregation, stage_a, head
+        cases, utterance_vectors, exemplar_matrix, route_slices, aggregation, stage_a, head,
+        raw_exemplar_matrix=raw_exemplar_matrix,
+        raw_query_vectors=raw_query_vectors,
     )
     elapsed = time.perf_counter() - start
 
@@ -336,6 +383,8 @@ def main() -> None:
     parser.add_argument("--dataset", default=DEFAULT_DATASET, choices=DATASET_NAMES)
     parser.add_argument("--scorer", default="exemplar_max", choices=("exemplar_max", "route_head"))
     parser.add_argument("--output")
+    parser.add_argument("--tau-reject", type=float, default=0.93, help="Setfit threshold for composite action point")
+    parser.add_argument("--tau-raw", type=float, default=0.90, help="Raw encoder threshold for composite action point")
     arguments = parser.parse_args()
 
     result = evaluate(
@@ -364,6 +413,12 @@ def main() -> None:
     print(f"  mean score esc   {result['mean_top_score_escape']:.3f}")
     print(f"  escape 100% pt   {result['full_escape_operating_point']}")
     print(f"  sec/utterance    {result['seconds_per_utterance']:.5f}")
+    print(
+        f"  composite (tau1={arguments.tau_reject}, tau2={arguments.tau_raw}): "
+        f"escape_recall={result['composite_escape_recall']:.3f} "
+        f"retained={result['composite_retained']:.3f} "
+        f"route_accuracy={result['composite_route_accuracy']:.3f}"
+    )
 
     if arguments.output:
         output_path = Path(arguments.output)

@@ -24,6 +24,7 @@ Run:
 """
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
@@ -48,7 +49,7 @@ VECTORS_FILENAME = "router_index.f32"
 PARITY_FILENAME = "router_parity.json"
 
 
-def build_manifest(route_slices: dict[str, slice], dimensions: int) -> dict:
+def build_manifest(route_slices: dict[str, slice], dimensions: int, exemplars_sha256: str) -> dict:
     """Route order is the route table's, because ranking ties fall back to it.
 
     Python's sort and Rust's are both stable, so two routes on the same score come
@@ -58,6 +59,7 @@ def build_manifest(route_slices: dict[str, slice], dimensions: int) -> dict:
     """
     return {
         "dimensions": dimensions,
+        "exemplars_sha256": exemplars_sha256,
         "routes": [
             {"route": route_id, "exemplars": span.stop - span.start}
             for route_id, span in route_slices.items()
@@ -108,22 +110,42 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", required=True)
     parser.add_argument("--stage-a", default="polarity", choices=STAGE_A_MODES)
+    parser.add_argument("--exemplars", default="exemplars.jsonl", help="Path to exemplars file (default: exemplars.jsonl)")
+    parser.add_argument("--raw-model-dir", default="models/gemma/e5-raw", help="Path to raw encoder model dir (set to 'none' to disable)")
     arguments = parser.parse_args()
 
     model_dir = Path(arguments.model_dir)
     route_ids = [route.route_id for route in build_routes()]
-    exemplars = read_jsonl(SCRIPT_DIR / "exemplars.jsonl")
+    exemplars_path = SCRIPT_DIR / arguments.exemplars
+    exemplars = read_jsonl(exemplars_path)
+
+    # Compute exemplars hash once and use it for both artifacts
+    exemplars_bytes = exemplars_path.read_bytes()
+    exemplars_sha256 = hashlib.sha256(exemplars_bytes).hexdigest()
 
     embedder = ContextualEmbedder(model_dir)
     exemplar_matrix, route_slices = build_exemplar_index(embedder, exemplars, route_ids)
     ordered = np.ascontiguousarray(exemplar_matrix, dtype=np.float32)
     verify_slices_tile_the_matrix(route_slices, ordered.shape[0])
 
-    manifest = build_manifest(route_slices, ordered.shape[1])
+    manifest = build_manifest(route_slices, ordered.shape[1], exemplars_sha256)
     (model_dir / MANIFEST_FILENAME).write_text(
         json.dumps(manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
     )
     (model_dir / VECTORS_FILENAME).write_bytes(ordered.tobytes(order="C"))
+
+    # Export raw index if raw model dir is provided
+    if arguments.raw_model_dir != "none":
+        raw_embedder = ContextualEmbedder(arguments.raw_model_dir)
+        raw_exemplar_matrix, raw_route_slices = build_exemplar_index(raw_embedder, exemplars, route_ids)
+        raw_ordered = np.ascontiguousarray(raw_exemplar_matrix, dtype=np.float32)
+        verify_slices_tile_the_matrix(raw_route_slices, raw_ordered.shape[0])
+
+        raw_manifest = build_manifest(raw_route_slices, raw_ordered.shape[1], exemplars_sha256)
+        (model_dir / "raw_index.json").write_text(
+            json.dumps(raw_manifest, ensure_ascii=False, indent=1) + "\n", encoding="utf-8"
+        )
+        (model_dir / "raw_index.f32").write_bytes(raw_ordered.tobytes(order="C"))
 
     cases = build_parity_cases(embedder, exemplar_matrix, route_slices, StageA(arguments.stage_a))
     (model_dir / PARITY_FILENAME).write_text(
@@ -140,10 +162,15 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    # Regenerate polarity table together with the index (import, not subprocess)
+    from derive_polarity_terms import write_polarity_table
+    write_polarity_table()
+
     print(f"{model_dir} — {ordered.shape[0]} exemplars × {ordered.shape[1]} dimensions")
     print(f"  {len(manifest['routes'])} routes, {ordered.nbytes} vector bytes")
     print(f"  {len(cases)} parity cases, {sum(case['swapped'] for case in cases)} swapped")
-
+    if arguments.raw_model_dir != "none":
+        print(f"  raw index: {raw_ordered.shape[0]} exemplars × {raw_ordered.shape[1]} dimensions, {raw_ordered.nbytes} bytes")
 
 if __name__ == "__main__":
     main()
