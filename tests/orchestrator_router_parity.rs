@@ -1,6 +1,6 @@
 //! Holds the Rust router to the decisions the Python evaluation driver reached.
 //!
-//! The published route accuracy was measured by `scripts/orchestrator_eval/`, so
+//! The published route accuracy was measured by `AnimationModelTraining scripts/orchestrator_router/`, so
 //! the Rust port is only as good as its agreement with it. Every step can differ
 //! quietly — a tokenizer that adds different special tokens, pooling that counts
 //! padding, an aggregation that averages instead of taking the best exemplar, a
@@ -80,7 +80,7 @@ fn load_harness() -> Option<Harness> {
     let Some(model_dir) = resolve_model_dir() else {
         eprintln!(
             "Skipping: set {MODEL_DIR_ENV_VAR} to a model directory prepared by \
-             scripts/orchestrator_eval/export_router_index.py"
+             AnimationModelTraining scripts/orchestrator_router/export_router_index.py"
         );
         return None;
     };

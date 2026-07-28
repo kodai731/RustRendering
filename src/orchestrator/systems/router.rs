@@ -3,7 +3,7 @@
 //! The route a small model can pick reliably is one with no arguments left to
 //! fill, which is why a route is a tool plus the enum arguments that appear in the
 //! utterance. Ranking is then a cosine comparison against per-route exemplars and
-//! nothing else: no generation, no parsing, no prompt. `scripts/orchestrator_eval/`
+//! nothing else: no generation, no parsing, no prompt. `AnimationModelTraining scripts/orchestrator_router/`
 //! is where the accuracy of that claim is measured, and this file must rank the
 //! same way or the measurement stops describing the engine — per-route score is
 //! the single best exemplar, ties keep the route table's order, and the score the
@@ -35,10 +35,10 @@ use crate::orchestrator::systems::polarity_tiebreak::{break_polarity_tie, share_
 /// remains open rather than being papered over by tuning against `heldout`.
 pub const DEFAULT_REJECTION_THRESHOLD: f32 = 0.825;
 
-/// Calibrated thresholds from tuning_plan Phase 3 (devset retained 0.917 / val_escape recall 0.975).
+/// Calibrated thresholds from retained_improvement P2 (held-out retained 0.790 / escape recall 0.833 / route 0.862; delta from devset Clarify sweep).
 pub const TUNED_TAU_REJECT: f32 = 0.93;
 pub const TUNED_TAU_RAW: f32 = 0.90;
-pub const TUNED_DELTA: f32 = 0.005;
+pub const TUNED_DELTA: f32 = 0.0025;
 pub const TUNED_TAU_CONFIRM: f32 = 0.95;
 const UNIT_LENGTH_TOLERANCE: f32 = 1e-3;
 const BYTES_PER_SCALAR: usize = 4;

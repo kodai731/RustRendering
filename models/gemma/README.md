@@ -1,8 +1,6 @@
 # Route encoder variants for the orchestrator
 
-Encoders adapted to the 29-route set for `src/orchestrator/`. Every variant here
-was trained by `scripts/orchestrator_eval/` on `exemplars.jsonl` alone, and
-measured on `heldout.jsonl`, which no training run has ever read.
+Encoders adapted to the 29-route set for `src/orchestrator/`. The adopted variant here was trained by AnimationModelTraining's `scripts/orchestrator_router/` on `exemplars.jsonl` alone, and measured on `heldout.jsonl`, which no training run has ever read.
 
 ## What is versioned and what is not
 
@@ -23,54 +21,20 @@ prefix, which E5 requires even for symmetric tasks.
 
 ## Variants
 
-Measured on held-out (128 cases), `--stage-a none`, cosine to nearest exemplar. The polarity
-tie-break adds 0.043 on top of the adopted variant; it is measured separately because it is
-not a property of the encoder.
+This repo only contains the adopted variant. Experimental variants have been moved to ModelStoragePath/orchestrator-router/ (the `models/` directory of the CodeAgent repository). The `e5-raw/` directory remains in this repo as it is a runtime artifact loaded by the AND gate. The full list of variants and retraining procedures are managed in AnimationModelTraining's `scripts/orchestrator_router/`.
 
-| Directory | Training | route | tool | enum誤り | escape retained |
-|---|---|---|---|---|---|
-| — (base, not stored) | none | 0.690 | 0.784 | — | 0.363 |
-| `setfit-6ep-en8` | SetFit, 3480 steps, 464 exemplars | **0.802** | **0.862** | **7** | 0.366 |
-| `setfit-3ep-ja16` | SetFit 3ep, 2175 steps, 696 exemplars (en8+ja16) | 0.853 | 0.914 | — | 0.727 |
-| `setfit-1ep` | SetFit, 435 steps, 348 exemplars | 0.629 | 0.750 | 14 | 0.521 |
-| `setfit-3ep` | SetFit, 1305 steps, 348 exemplars | 0.698 | 0.784 | 10 | 0.519 |
-| `setfit-6ep` | SetFit, 2610 steps, 348 exemplars | 0.724 | 0.793 | 8 | 0.524 |
-| `sibling-hardneg` | MNRL on sibling triplets, 430 steps | 0.698 | 0.767 | 8 | 0.444 |
-
-The first two rows use the current 464-exemplar index (8 per language per route);
-the rest were measured when English had only 4 per route, so compare them among
-themselves. `setfit-3ep-ja16` is the variant to load (adopted 2026-07-27; epoch chosen on a validation split, escape handled by an AND gate with the raw e5 encoder at models/gemma/e5-raw — thresholds 0.93/0.90).
-
-Its lower `escape retained` is not a regression: 9 of the 12 escape cases drop
-below 0.73, and the operating point is pinned by three genuinely ambiguous ones
-(`fix it`). At 10/12 escape recall it retains 0.710 against `setfit-6ep`'s 0.560.
-
-The epoch count was validated on a stratified validation split in 2026-07-27 tuning (3 epochs; 6 epochs measured 0.810 on validation = held-out overfit). See the design doc's tuning_plan.md for the campaign.
-
-`sibling-hardneg` and the `route_head.json` classifier were both **rejected** —
-kept here because the measurements that rejected them are cited in the design
-docs. See `setfit_eval.md` under the design directory.
-
-## Layout
-
-```
-setfit-<n>ep/
-  onnx/model.onnx        engine input; last_hidden_state, pooled on the caller side
-  setfit/                torch weights, for re-export or further training
-  route_head.json        logistic head coefficients (measured, not adopted)
-  tokenizer.json         copy of the base tokenizer
-sibling-hardneg/
-  sentence_transformer/  torch weights (no SetFit head in this variant)
-```
+`setfit-3ep-p2` is the variant to load (adopted 2026-07-28; retrained on 1093 exemplars incl. 397 synthesized paraphrases (undo/redo と 一つ 系の境界汚染 32 件を剪定済み), epoch 3 chosen on a validation split; AND-gate thresholds 0.93/0.90, delta 0.0025).
 
 ## Reproduce
 
 ```bash
-.venv-setfit/bin/python scripts/orchestrator_eval/train_setfit.py \
-    --output-dir models/gemma/setfit-3ep-ja16 --epochs 3
+# run from the AnimationModelTraining checkout
+.venv-setfit-container/bin/python scripts/orchestrator_router/train_setfit.py \
+    --output-dir <this repo>/models/gemma/setfit-3ep-p2 --epochs 3
 
-.venv-orchestrator-eval/bin/python scripts/orchestrator_eval/eval_router.py \
-    --model-dir models/gemma/setfit-3ep-ja16
+.venv-setfit-container/bin/python scripts/orchestrator_router/eval_router.py \
+    --model-dir <this repo>/models/gemma/setfit-3ep-p2
+```
 ```
 
 Training is CPU-only and deterministic under the seed in `train_setfit.py`:

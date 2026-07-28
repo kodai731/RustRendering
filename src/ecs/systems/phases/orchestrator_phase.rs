@@ -14,6 +14,66 @@ use crate::orchestrator::systems::resolution::{confirm_reason, resolve_decision,
 use crate::orchestrator::systems::router::{rank_routes, route_utterance, RoutingRequest};
 
 use crate::ecs::events::UIEvent;
+use std::io::Write;
+
+/// Construct a jsonl entry for Reject / Clarify decisions (pure function).
+/// Returns `None` for variants that are not logged (MissingObjectName, AmbiguousObjectName, NoCandidate).
+fn reject_log_entry(
+    normalized_utterance: &str,
+    raw_top_score: f32,
+    feedback: &crate::orchestrator::systems::resolution::OrchestratorFeedback,
+) -> Option<serde_json::Value> {
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs();
+
+    match feedback {
+        crate::orchestrator::systems::resolution::OrchestratorFeedback::Rejected { best, score } => {
+            Some(serde_json::json!({
+                "ts": ts,
+                "utterance": normalized_utterance,
+                "decision": "reject",
+                "raw_top_score": raw_top_score,
+                "details": {
+                    "best": Route::tool_name(*best),
+                    "score": *score,
+                },
+            }))
+        }
+        crate::orchestrator::systems::resolution::OrchestratorFeedback::ClarifyOptions(candidates) => {
+            let items: Vec<serde_json::Value> = candidates
+                .iter()
+                .map(|(route, score)| {
+                    serde_json::json!({
+                        "route": Route::tool_name(*route),
+                        "score": *score,
+                    })
+                })
+                .collect();
+            Some(serde_json::json!({
+                "ts": ts,
+                "utterance": normalized_utterance,
+                "decision": "clarify",
+                "raw_top_score": raw_top_score,
+                "details": items,
+            }))
+        }
+        _ => None, // MissingObjectName, AmbiguousObjectName, NoCandidate — not logged
+    }
+}
+
+/// Append a pre-built jsonl entry to the reject log file (best-effort, errors ignored).
+fn write_reject_log(entry: serde_json::Value) -> std::io::Result<()> {
+    let log_dir = std::path::PathBuf::from("log");
+    let _ = std::fs::create_dir_all(&log_dir);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(log_dir.join("orchestrator_rejects.jsonl"))?;
+    writeln!(file, "{}", serde_json::to_string(&entry).unwrap_or_default())?;
+    Ok(())
+}
 
 #[derive(Clone, Debug)]
 enum OrchestratorRuntimeKind {
@@ -139,7 +199,7 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                 }
                 let scene_names = list_entity_names(ctx.world);
 
-                let decision = {
+                let (decision, raw_top_score) = {
                     let mut state = ctx.world.resource_mut::<OrchestratorState>();
                     match &mut state.runtime {
                         crate::ecs::resource::RuntimeSlot::Ready(rt) => {
@@ -178,7 +238,7 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                                 ranked.pop().map(|(_, score)| score)
                             };
 
-                            route_utterance(
+                            let decision = route_utterance(
                                 RoutingRequest {
                                     utterance: &normalized,
                                     query_vector: &vector,
@@ -187,7 +247,8 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                                 },
                                 &rt.index,
                                 thresholds,
-                            )
+                            );
+                            (decision, raw_top_score)
                         }
                         _ => {
                             drop(state);
@@ -207,6 +268,10 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                         state.pending = Some((call, reason));
                     }
                     ResolvedAction::Feedback(f) => {
+                        if let Some(entry) = reject_log_entry(&normalized, raw_top_score.unwrap_or(0.0), &f) {
+                            let _ = write_reject_log(entry);
+                        }
+
                         let mut state = ctx.world.resource_mut::<OrchestratorState>();
                         state.feedback = Some(
                             crate::ecs::resource::CommandFeedback::Router(f),
@@ -777,5 +842,94 @@ mod tests {
             let queue = world.resource::<UIEventQueue>();
             assert_eq!(queue.len(), 0, "expected no events in queue");
         }
+    }
+
+    #[test]
+    fn test_reject_log_entry_rejected() {
+        let feedback = crate::orchestrator::systems::resolution::OrchestratorFeedback::Rejected {
+            best: crate::orchestrator::components::route::Route::GenerateMotion(
+                crate::orchestrator::components::tool_call::MotionCategory::Jump,
+            ),
+            score: 0.35,
+        };
+        let entry = reject_log_entry("test utterance", 0.42, &feedback).expect("should return Some for Rejected");
+
+        assert_eq!(entry["decision"], "reject");
+        assert_eq!(entry["utterance"], "test utterance");
+        let raw_score: f32 = entry["raw_top_score"].as_f64().unwrap() as f32;
+        assert!((raw_score - 0.42).abs() < 1e-6, "expected raw_top_score ~0.42, got {}", raw_score);
+        assert_eq!(entry["details"]["best"], "generate_motion");
+        let detail_score: f32 = entry["details"]["score"].as_f64().unwrap() as f32;
+        assert!((detail_score - 0.35).abs() < 1e-6, "expected score ~0.35, got {}", detail_score);
+    }
+
+    #[test]
+    fn test_reject_log_entry_clarify() {
+        let candidates: Vec<(crate::orchestrator::components::route::Route, f32)> = vec![
+            (crate::orchestrator::components::route::Route::GenerateMotion(
+                crate::orchestrator::components::tool_call::MotionCategory::Jump,
+            ), 0.4),
+            (crate::orchestrator::components::route::Route::PlayAnimation, 0.3),
+        ];
+        let feedback = crate::orchestrator::systems::resolution::OrchestratorFeedback::ClarifyOptions(candidates);
+        let entry = reject_log_entry("test utterance", 0.45, &feedback).expect("should return Some for ClarifyOptions");
+
+        assert_eq!(entry["decision"], "clarify");
+        assert_eq!(entry["utterance"], "test utterance");
+        let raw_score: f32 = entry["raw_top_score"].as_f64().unwrap() as f32;
+        assert!((raw_score - 0.45).abs() < 1e-6, "expected raw_top_score ~0.45, got {}", raw_score);
+        let details = entry["details"].as_array().unwrap();
+        assert_eq!(details.len(), 2);
+        assert_eq!(details[0]["route"], "generate_motion");
+        let score0: f32 = details[0]["score"].as_f64().unwrap() as f32;
+        assert!((score0 - 0.4).abs() < 1e-6, "expected score ~0.4, got {}", score0);
+        assert_eq!(details[1]["route"], "play_animation");
+        let score1: f32 = details[1]["score"].as_f64().unwrap() as f32;
+        assert!((score1 - 0.3).abs() < 1e-6, "expected score ~0.3, got {}", score1);
+    }
+
+    #[test]
+    fn test_write_reject_log_appends_json_entry() {
+        let log_path = std::path::PathBuf::from("log/orchestrator_rejects.jsonl");
+        let lines_before = if log_path.exists() {
+            let content = std::fs::read_to_string(&log_path).unwrap_or_default();
+            content.lines().count()
+        } else {
+            0
+        };
+
+        // Build a Rejected feedback entry using reject_log_entry
+        let feedback = crate::orchestrator::systems::resolution::OrchestratorFeedback::Rejected {
+            best: crate::orchestrator::components::route::Route::GenerateMotion(
+                crate::orchestrator::components::tool_call::MotionCategory::Jump,
+            ),
+            score: 0.35,
+        };
+        let entry = reject_log_entry("test utterance", 0.42, &feedback)
+            .expect("should return Some for Rejected");
+
+        // Write the entry via write_reject_log
+        write_reject_log(entry).expect("write_reject_log should succeed");
+
+        // Assert line count increased by at least 1
+        let content = std::fs::read_to_string(&log_path).expect("log file should exist after write");
+        let lines_after = content.lines().count();
+        assert!(
+            lines_after >= lines_before + 1,
+            "expected line count to increase by at least 1: before={}, after={}",
+            lines_before,
+            lines_after
+        );
+
+        // Assert last line is valid JSON containing "decision":"reject"
+        let last_line = content.lines().last().expect("log file should have at least one line");
+        let parsed: serde_json::Value =
+            serde_json::from_str(last_line).expect("last line should be valid JSON");
+        assert_eq!(
+            parsed.get("decision").and_then(|v| v.as_str()),
+            Some("reject"),
+            "expected decision to be 'reject', got {:?}",
+            parsed.get("decision")
+        );
     }
 }

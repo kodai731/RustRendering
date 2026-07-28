@@ -9,7 +9,7 @@ use crate::orchestrator::systems::polarity_tiebreak::embedded_exemplars_sha256;
 use crate::orchestrator::systems::router::{ExemplarIndex, RouterThresholds};
 
 /// Default model directory for the orchestrator runtime.
-pub const ROUTER_MODEL_DIR: &str = "models/gemma/setfit-3ep-ja16";
+pub const ROUTER_MODEL_DIR: &str = "models/gemma/setfit-3ep-p2";
 
 /// Raw encoder model directory (for escape detection).
 pub const RAW_ENCODER_DIR: &str = "models/gemma/e5-raw";
@@ -84,7 +84,7 @@ pub fn validate_artifact_consistency(index_hash: Option<&str>, table_hash: Optio
     match (index_hash, table_hash) {
         (Some(ih), Some(th)) if ih != th => Err(
             "router index and polarity table were generated from different exemplars.jsonl \
-             — re-run scripts/orchestrator_eval/export_router_index.py"
+            — re-run AnimationModelTraining scripts/orchestrator_router/export_router_index.py"
                 .to_string(),
         ),
         _ => Ok(()),

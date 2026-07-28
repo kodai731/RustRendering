@@ -5,11 +5,11 @@ tags:
 - text-classification
 - generated_from_setfit_trainer
 widget:
-- text: 'query: animate a leap'
-- text: 'query: アニメーションをスタート'
-- text: 'query: what did I select'
-- text: 'query: ラストフレームへ'
-- text: 'query: 最初のフレームへ飛んで'
+- text: 'query: スピードを上げて'
+- text: 'query: what frame are we on'
+- text: 'query: セーブして'
+- text: 'query: 標準のカメラ位置に戻す'
+- text: 'query: zoom out to see the whole character'
 metrics:
 - accuracy
 pipeline_tag: text-classification
@@ -95,7 +95,7 @@ from setfit import SetFitModel
 # Download from the 🤗 Hub
 model = SetFitModel.from_pretrained("setfit_model_id")
 # Run inference
-preds = model("query: ラストフレームへ")
+preds = model("query: セーブして")
 ```
 
 <!--
@@ -127,39 +127,39 @@ preds = model("query: ラストフレームへ")
 ### Training Set Metrics
 | Training set | Min | Median | Max |
 |:-------------|:----|:-------|:----|
-| Word count   | 2   | 3.0776 | 8   |
+| Word count   | 2   | 3.1180 | 10  |
 
 | Label                      | Training Sample Count |
 |:---------------------------|:----------------------|
-| describe_selection         | 12                    |
-| focus_camera:model         | 12                    |
-| focus_camera:reset         | 12                    |
-| focus_camera:selection     | 12                    |
-| generate_motion:idle       | 12                    |
-| generate_motion:jump       | 12                    |
-| generate_motion:run        | 12                    |
-| generate_motion:turn       | 12                    |
-| generate_motion:walk       | 12                    |
-| get_playback_state         | 12                    |
-| list_objects               | 12                    |
-| pause_animation            | 12                    |
-| play_animation             | 12                    |
-| redo                       | 12                    |
-| save_scene                 | 12                    |
-| seek_time:end              | 12                    |
-| seek_time:next_key         | 12                    |
-| seek_time:prev_key         | 12                    |
-| seek_time:start            | 12                    |
-| select_object              | 12                    |
-| set_object_visibility:hide | 12                    |
-| set_object_visibility:show | 12                    |
-| set_playback_speed:fast    | 12                    |
-| set_playback_speed:normal  | 12                    |
-| set_playback_speed:slow    | 12                    |
-| stop_animation             | 12                    |
-| take_screenshot            | 12                    |
-| toggle_loop                | 12                    |
-| undo                       | 12                    |
+| describe_selection         | 40                    |
+| focus_camera:model         | 40                    |
+| focus_camera:reset         | 35                    |
+| focus_camera:selection     | 40                    |
+| generate_motion:idle       | 38                    |
+| generate_motion:jump       | 40                    |
+| generate_motion:run        | 34                    |
+| generate_motion:turn       | 38                    |
+| generate_motion:walk       | 40                    |
+| get_playback_state         | 40                    |
+| list_objects               | 38                    |
+| pause_animation            | 40                    |
+| play_animation             | 40                    |
+| redo                       | 24                    |
+| save_scene                 | 40                    |
+| seek_time:end              | 40                    |
+| seek_time:next_key         | 40                    |
+| seek_time:prev_key         | 38                    |
+| seek_time:start            | 40                    |
+| select_object              | 37                    |
+| set_object_visibility:hide | 32                    |
+| set_object_visibility:show | 37                    |
+| set_playback_speed:fast    | 40                    |
+| set_playback_speed:normal  | 39                    |
+| set_playback_speed:slow    | 40                    |
+| stop_animation             | 39                    |
+| take_screenshot            | 40                    |
+| toggle_loop                | 40                    |
+| undo                       | 24                    |
 
 ### Training Hyperparameters
 - batch_size: (32, 32)
@@ -183,40 +183,96 @@ preds = model("query: ラストフレームへ")
 ### Training Results
 | Epoch  | Step | Training Loss | Validation Loss |
 |:------:|:----:|:-------------:|:---------------:|
-| 0.0023 | 1    | 0.3061        | -               |
-| 0.1149 | 50   | 0.3045        | -               |
-| 0.2299 | 100  | 0.1599        | -               |
-| 0.3448 | 150  | 0.1083        | -               |
-| 0.4598 | 200  | 0.082         | -               |
-| 0.5747 | 250  | 0.0588        | -               |
-| 0.6897 | 300  | 0.0491        | -               |
-| 0.8046 | 350  | 0.0449        | -               |
-| 0.9195 | 400  | 0.0378        | -               |
-| 1.0345 | 450  | 0.034         | -               |
-| 1.1494 | 500  | 0.0276        | -               |
-| 1.2644 | 550  | 0.031         | -               |
-| 1.3793 | 600  | 0.0226        | -               |
-| 1.4943 | 650  | 0.0267        | -               |
-| 1.6092 | 700  | 0.0241        | -               |
-| 1.7241 | 750  | 0.0207        | -               |
-| 1.8391 | 800  | 0.0197        | -               |
-| 1.9540 | 850  | 0.0265        | -               |
-| 2.0690 | 900  | 0.0206        | -               |
-| 2.1839 | 950  | 0.0221        | -               |
-| 2.2989 | 1000 | 0.0162        | -               |
-| 2.4138 | 1050 | 0.0137        | -               |
-| 2.5287 | 1100 | 0.0172        | -               |
-| 2.6437 | 1150 | 0.019         | -               |
-| 2.7586 | 1200 | 0.0179        | -               |
-| 2.8736 | 1250 | 0.0196        | -               |
-| 2.9885 | 1300 | 0.0173        | -               |
+| 0.0007 | 1    | 0.279         | -               |
+| 0.0366 | 50   | 0.3358        | -               |
+| 0.0732 | 100  | 0.25          | -               |
+| 0.1097 | 150  | 0.1722        | -               |
+| 0.1463 | 200  | 0.1449        | -               |
+| 0.1829 | 250  | 0.1136        | -               |
+| 0.2195 | 300  | 0.0978        | -               |
+| 0.2560 | 350  | 0.083         | -               |
+| 0.2926 | 400  | 0.0684        | -               |
+| 0.3292 | 450  | 0.064         | -               |
+| 0.3658 | 500  | 0.0549        | -               |
+| 0.4023 | 550  | 0.0505        | -               |
+| 0.4389 | 600  | 0.0411        | -               |
+| 0.4755 | 650  | 0.0388        | -               |
+| 0.5121 | 700  | 0.037         | -               |
+| 0.5486 | 750  | 0.0418        | -               |
+| 0.5852 | 800  | 0.0315        | -               |
+| 0.6218 | 850  | 0.0308        | -               |
+| 0.6584 | 900  | 0.0304        | -               |
+| 0.6950 | 950  | 0.0288        | -               |
+| 0.7315 | 1000 | 0.0248        | -               |
+| 0.7681 | 1050 | 0.0247        | -               |
+| 0.8047 | 1100 | 0.026         | -               |
+| 0.8413 | 1150 | 0.0211        | -               |
+| 0.8778 | 1200 | 0.0223        | -               |
+| 0.9144 | 1250 | 0.0218        | -               |
+| 0.9510 | 1300 | 0.0203        | -               |
+| 0.9876 | 1350 | 0.0192        | -               |
+| 1.0241 | 1400 | 0.0173        | -               |
+| 1.0607 | 1450 | 0.0159        | -               |
+| 1.0973 | 1500 | 0.0158        | -               |
+| 1.1339 | 1550 | 0.0157        | -               |
+| 1.1704 | 1600 | 0.0144        | -               |
+| 1.2070 | 1650 | 0.0123        | -               |
+| 1.2436 | 1700 | 0.015         | -               |
+| 1.2802 | 1750 | 0.0123        | -               |
+| 1.3168 | 1800 | 0.0147        | -               |
+| 1.3533 | 1850 | 0.0123        | -               |
+| 1.3899 | 1900 | 0.0139        | -               |
+| 1.4265 | 1950 | 0.0103        | -               |
+| 1.4631 | 2000 | 0.0147        | -               |
+| 1.4996 | 2050 | 0.0122        | -               |
+| 1.5362 | 2100 | 0.0084        | -               |
+| 1.5728 | 2150 | 0.0152        | -               |
+| 1.6094 | 2200 | 0.0144        | -               |
+| 1.6459 | 2250 | 0.012         | -               |
+| 1.6825 | 2300 | 0.013         | -               |
+| 1.7191 | 2350 | 0.0101        | -               |
+| 1.7557 | 2400 | 0.0113        | -               |
+| 1.7922 | 2450 | 0.0092        | -               |
+| 1.8288 | 2500 | 0.0095        | -               |
+| 1.8654 | 2550 | 0.0086        | -               |
+| 1.9020 | 2600 | 0.0098        | -               |
+| 1.9386 | 2650 | 0.0109        | -               |
+| 1.9751 | 2700 | 0.0078        | -               |
+| 2.0117 | 2750 | 0.0101        | -               |
+| 2.0483 | 2800 | 0.0068        | -               |
+| 2.0849 | 2850 | 0.0077        | -               |
+| 2.1214 | 2900 | 0.0056        | -               |
+| 2.1580 | 2950 | 0.0081        | -               |
+| 2.1946 | 3000 | 0.0073        | -               |
+| 2.2312 | 3050 | 0.0093        | -               |
+| 2.2677 | 3100 | 0.0076        | -               |
+| 2.3043 | 3150 | 0.007         | -               |
+| 2.3409 | 3200 | 0.0061        | -               |
+| 2.3775 | 3250 | 0.0068        | -               |
+| 2.4140 | 3300 | 0.0103        | -               |
+| 2.4506 | 3350 | 0.0084        | -               |
+| 2.4872 | 3400 | 0.0099        | -               |
+| 2.5238 | 3450 | 0.0049        | -               |
+| 2.5604 | 3500 | 0.0065        | -               |
+| 2.5969 | 3550 | 0.0085        | -               |
+| 2.6335 | 3600 | 0.0104        | -               |
+| 2.6701 | 3650 | 0.0056        | -               |
+| 2.7067 | 3700 | 0.008         | -               |
+| 2.7432 | 3750 | 0.0074        | -               |
+| 2.7798 | 3800 | 0.0067        | -               |
+| 2.8164 | 3850 | 0.0069        | -               |
+| 2.8530 | 3900 | 0.0101        | -               |
+| 2.8895 | 3950 | 0.0057        | -               |
+| 2.9261 | 4000 | 0.0073        | -               |
+| 2.9627 | 4050 | 0.0058        | -               |
+| 2.9993 | 4100 | 0.0049        | -               |
 
 ### Framework Versions
-- Python: 3.11.15
+- Python: 3.12.13
 - SetFit: 1.1.3
 - Sentence Transformers: 5.6.1
 - Transformers: 4.57.6
-- PyTorch: 2.13.0+cpu
+- PyTorch: 2.13.0+cu130
 - Datasets: 5.0.0
 - Tokenizers: 0.22.2
 

@@ -219,7 +219,7 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    /// The router index in `scripts/orchestrator_eval/route_schema.py` must expand
+    /// The router index in `AnimationModelTraining scripts/orchestrator_router/route_schema.py` must expand
     /// to exactly these ids, or the measured accuracy does not describe this build.
     const EXPECTED_ROUTE_IDS: [&str; 29] = [
         "list_objects",
