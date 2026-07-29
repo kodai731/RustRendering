@@ -3,6 +3,7 @@ mod billboard;
 mod buffer_handle;
 mod flame;
 pub mod flame_fit;
+mod flame_radial;
 pub mod flame_sdf;
 mod flame_shell;
 pub mod flame_trail;
@@ -23,6 +24,10 @@ pub use flame::{
     fit_flame_coefficients, integrate_emission_segment, profile_from_effect,
     refresh_flame_coefficients, FlameCoefficients, FlameEffect, FlameProfile, FlameRenderSettings,
     FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
+};
+pub use flame_radial::{
+    evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_gaussian_scale,
+    integrate_radial_emission, FlameRadialTaper, FLAME_RADIAL_BAND_COUNT,
 };
 pub use flame_shell::{
     flame_shell_outer_radius, flame_shell_radius_scale, generate_flame_shell_triangles,

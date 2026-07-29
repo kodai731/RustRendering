@@ -8,9 +8,10 @@
 //
 // The proxy only bounds where the density field is sampled; it must stay wider than the
 // field's own extent, otherwise the silhouette becomes the proxy instead of the density.
+// The height taper lives in the density instead: it is concave, so no cone encloses it.
 
-const float FLAME_SHELL_BASE_RADIUS = 0.9;
-const float FLAME_SHELL_TAPER_TIP_SCALE = 0.85;
+const float FLAME_SHELL_BASE_RADIUS = 0.5;
+const float FLAME_SHELL_TAPER_TIP_SCALE = 1.0;
 const float FLAME_SHELL_CIRCUMSCRIBE = 1.0823922; // 1/cos(pi/8): circumscribe octagon over unit cylinder
 
 // Multiplier on the base half-extent. Includes the circumscribe factor, so a cone built

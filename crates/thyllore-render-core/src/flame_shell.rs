@@ -5,8 +5,8 @@ use cgmath::Vector3;
 // the winding/closure unit tests are the machine check for that contract.
 pub const FLAME_SHELL_RING_SEGMENTS: usize = 8;
 pub const FLAME_SHELL_STACKS: usize = 8;
-pub const FLAME_SHELL_BASE_RADIUS: f32 = 0.9;
-pub const FLAME_SHELL_TAPER_TIP_SCALE: f32 = 0.85;
+pub const FLAME_SHELL_BASE_RADIUS: f32 = 0.5;
+pub const FLAME_SHELL_TAPER_TIP_SCALE: f32 = 1.0;
 pub const FLAME_SHELL_CIRCUMSCRIBE: f32 = 1.0823922; // 1/cos(pi/8): circumscribe octagon over unit cylinder
 const R: f32 = FLAME_SHELL_BASE_RADIUS;
 const QUAD_CORNERS: [[f32; 3]; 4] = [[-R, 0.0, -R], [R, 0.0, -R], [R, 0.0, R], [-R, 0.0, R]];

@@ -73,6 +73,7 @@ float evaluateHeightFalloff(float height01) {
 }
 
 #include "include/flame_noise_field.glsl"
+#include "include/flame_radial_integral.glsl"
 
 float evaluateHeightPrimitive(float height01) {
     return evaluateChebyshev12(
@@ -206,7 +207,15 @@ struct FlameRaySegment {
     vec3 localDir;
     float boundaryHeightIntegral;
     FlameDepthClamp depthClamp;
+    bool cylinderDomain;
 };
+
+// The closed form and the shell clamp both assume the plain cylinder domain.
+bool isCylinderDomain() {
+    return flame.emitterParams.x < 0.5
+        && flame.trailMeta.x < 1.0
+        && abs(flame.styleParams2.z) < 1e-4;
+}
 
 bool clampToShellCone(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     // Shell cone: |p.xz| <= flameShellOuterRadius(p.y), which is linear in y:
@@ -309,6 +318,7 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
     float tFar = interval.y > INTERVAL_CLEAR_THRESHOLD ? segment.tNear : -interval.y;
     segment.tFar = max(tFar, segment.tNear);
     segment.boundaryHeightIntegral = heightIntegral;
+    segment.cylinderDomain = isCylinderDomain();
 
     // Geometric camera-inside test: local origin must be within the shell cone
     bool cameraInside = segment.localOrigin.y >= 0.0 && segment.localOrigin.y <= 1.0
@@ -337,8 +347,7 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
         : segment.depthClamp.tDepth;
     segment.tFar = min(segment.tFar, tFarLimit);
 
-    // Clamp to shell cone for non-trail domains (cylinder emitter only, bend off)
-    if (flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0 && abs(flame.styleParams2.z) < 1e-4) {
+    if (segment.cylinderDomain) {
         // For unpaired coverage pixels (abs(round(coverage)) > 0.5 && !cameraInside), the interval
         // buffer is degenerate (tNear == tFar). Reset to wide interval before cone clamping so
         // clampToShellCone correctly finds the intersection with the shell cone/y-slab.
@@ -375,6 +384,10 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
 }
 
 float integrateEmissionAnalytic(FlameRaySegment segment) {
+    if (segment.cylinderDomain) {
+        return max(integrateRadialEmission(
+            segment.localOrigin, segment.localDir, segment.tNear, segment.tFar), 0.0);
+    }
     return max(segment.boundaryHeightIntegral, 0.0);
 }
 
@@ -389,7 +402,8 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
         vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(
             evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
-        sum += evaluateHeightFalloff(h) * flameNoiseErosionFactor(p, h);
+        float radial = segment.cylinderDomain ? flameRadialDensityFactor(p, h) : 1.0;
+        sum += evaluateHeightFalloff(h) * radial * flameNoiseErosionFactor(p, h);
     }
     return sum * dt;
 }
