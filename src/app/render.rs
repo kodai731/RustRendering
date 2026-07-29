@@ -263,7 +263,7 @@ impl App {
         let swapchain = self.resource::<SwapchainState>().swapchain.clone();
         match crate::app::model_loader::load_model_from_file_system_with_result(
             &load_result,
-            "Generated Mesh",
+            crate::scene::ModelReference::GENERATED_MESH,
             &self.instance,
             &self.rrdevice,
             &command_pool,
@@ -281,7 +281,8 @@ impl App {
                         .data
                         .ecs_world
                         .resource_mut::<crate::ecs::resource::ModelState>();
-                    model_state.model_path = "Generated Mesh".to_string();
+                    model_state.model_path =
+                        crate::scene::ModelReference::GENERATED_MESH.to_string();
                     model_state.load_status = "Loaded: Generated Mesh".to_string();
                 }
                 {

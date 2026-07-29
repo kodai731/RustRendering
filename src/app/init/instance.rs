@@ -227,6 +227,9 @@ impl App {
         //     loaded_scene.is_some(),
         //     );
 
+        // The scene restores timeline, panel and curve editor state, so those resources must
+        // exist before it is applied. Registration is idempotent and runs again below.
+        Self::register_editor_resources(&mut data);
         Self::apply_loaded_scene(&mut data, loaded_scene);
 
         if let Err(e) = Self::create_ray_tracing_pipelines_with_resources(
@@ -886,14 +889,6 @@ impl App {
             Vec<crate::animation::editable::EditableAnimationClip>,
         )>,
     ) {
-        if !data
-            .ecs_world
-            .contains_resource::<crate::ecs::resource::PanelLayout>()
-        {
-            data.ecs_world
-                .insert_resource(crate::ecs::resource::PanelLayout::default());
-        }
-
         let mut scene_state = SceneState::new();
         if let Some((scene_path, scene, clips)) = loaded_scene {
             let clips_with_ids =
@@ -1322,7 +1317,9 @@ impl App {
         if let Some(scene_path) = find_default_scene() {
             match load_scene(&scene_path) {
                 Ok(loaded) => {
-                    let model_path = loaded.model_path.to_string_lossy().to_string();
+                    // The scene's own reference, not the resolved file: a generated mesh has no
+                    // file and must round-trip its sentinel back out on the next save.
+                    let model_path = loaded.scene.model.path.clone();
                     let clips = loaded.clips.clone();
                     log!("Loaded default scene from: {}", scene_path.display());
                     return (model_path, Some((scene_path, loaded, clips)));

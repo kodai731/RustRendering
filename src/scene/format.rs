@@ -70,11 +70,18 @@ pub struct ModelReference {
 }
 
 impl ModelReference {
+    /// Written in place of a file path when the mesh was generated in-app.
+    pub const GENERATED_MESH: &'static str = "Generated Mesh";
+
     pub fn new(path: &str) -> Self {
         Self {
             path: path.to_string(),
             transform: TransformData::default(),
         }
+    }
+
+    pub fn is_generated_mesh(&self) -> bool {
+        self.path == Self::GENERATED_MESH
     }
 }
 
