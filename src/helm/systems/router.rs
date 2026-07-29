@@ -3,7 +3,7 @@
 //! The route a small model can pick reliably is one with no arguments left to
 //! fill, which is why a route is a tool plus the enum arguments that appear in the
 //! utterance. Ranking is then a cosine comparison against per-route exemplars and
-//! nothing else: no generation, no parsing, no prompt. `AnimationModelTraining scripts/orchestrator_router/`
+//! nothing else: no generation, no parsing, no prompt. `AnimationModelTraining scripts/helm_router/`
 //! is where the accuracy of that claim is measured, and this file must rank the
 //! same way or the measurement stops describing the engine — per-route score is
 //! the single best exemplar, ties keep the route table's order, and the score the
@@ -20,9 +20,9 @@ use std::ops::Range;
 use serde::Deserialize;
 use thiserror::Error;
 
-use crate::orchestrator::components::route::{OrchestratorMode, Route};
-use crate::orchestrator::systems::normalize::normalize_utterance;
-use crate::orchestrator::systems::polarity_tiebreak::{break_polarity_tie, share_axis, TieBreakOutcome};
+use crate::helm::components::route::{HelmMode, Route};
+use crate::helm::systems::normalize::normalize_utterance;
+use crate::helm::systems::polarity_tiebreak::{break_polarity_tie, share_axis, TieBreakOutcome};
 
 /// Chosen on `devset` as the lowest threshold that executes no wrong route there:
 /// it rejects 7 of 9 escape utterances and keeps 62 of 63 correct routes. Raising
@@ -206,7 +206,7 @@ fn dot(left: &[f32], right: &[f32]) -> f32 {
 pub fn rank_routes(
     index: &ExemplarIndex,
     query: &[f32],
-    mode: OrchestratorMode,
+    mode: HelmMode,
 ) -> Vec<(Route, f32)> {
     assert_eq!(
         query.len(),
@@ -228,7 +228,7 @@ pub fn rank_routes(
 pub struct RoutingRequest<'a> {
     pub utterance: &'a str,
     pub query_vector: &'a [f32],
-    pub mode: OrchestratorMode,
+    pub mode: HelmMode,
     pub raw_top_score: Option<f32>,
 }
 
@@ -240,6 +240,7 @@ pub enum RouterDecision {
         route: Route,
         score: f32,
         needs_confirm: bool,
+        raw_near_miss: bool,
     },
    /// Below the threshold. `best` is what the encoder preferred, which is what a
     Reject {
@@ -259,6 +260,7 @@ pub struct RouterThresholds {
     pub delta: f32,
     pub tau_confirm: f32,
     pub tau_raw: f32,
+    pub tau_raw_nearmiss: f32,
 }
 
 /// Route an utterance by ranking against the exemplar index.
@@ -271,8 +273,16 @@ pub fn route_utterance(
 ) -> RouterDecision {
     let ranked = rank_routes(index, request.query_vector, request.mode);
 
-    if let Some(raw) = request.raw_top_score {
-        if raw < thresholds.tau_raw {
+    // If top-1 is EscapeAnchor, reject immediately — bypass threshold gate and polarity tie-break.
+    if let Some((Route::EscapeAnchor, score)) = ranked.first() {
+        return RouterDecision::Reject {
+            best: Route::EscapeAnchor,
+            score: *score,
+        };
+    }
+
+   let raw_near_miss = if let Some(raw) = request.raw_top_score {
+        if raw < thresholds.tau_raw_nearmiss {
             return match ranked.first() {
                 Some((route, score)) => RouterDecision::Reject {
                     best: *route,
@@ -281,8 +291,10 @@ pub fn route_utterance(
                 None => RouterDecision::NoCandidate,
             };
         }
-    }
-
+        raw < thresholds.tau_raw
+    } else {
+        false
+    };
     let normalized = normalize_utterance(request.utterance);
 
     let Some(outcome) = break_polarity_tie(&normalized, &ranked) else {
@@ -323,14 +335,15 @@ pub fn route_utterance(
         }
     };
 
-    if score >= thresholds.tau_reject {
+   if score >= thresholds.tau_reject {
         let needs_confirm = score < thresholds.tau_confirm;
         RouterDecision::Accept {
             route: winner,
             score,
             needs_confirm,
+            raw_near_miss,
         }
-    } else {
+   } else {
         RouterDecision::Reject {
             best: winner,
             score,
@@ -341,7 +354,7 @@ pub fn route_utterance(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orchestrator::components::tool_call::{SeekPosition, VisibilityState};
+    use crate::helm::components::tool_call::{SeekPosition, VisibilityState};
 
     const DIMENSIONS: usize = 4;
 
@@ -391,7 +404,7 @@ mod tests {
         let ranked = rank_routes(
             &index,
             &unit([0.0, 0.9, 0.1, 0.0]),
-            OrchestratorMode::AllowEdit,
+            HelmMode::AllowEdit,
         );
 
         assert_eq!(ranked[0].0, Route::PauseAnimation);
@@ -426,7 +439,7 @@ mod tests {
         let query = unit([1.0, 0.0, 0.0, 0.0]);
         for index in [sharp, padded] {
             assert_eq!(
-                rank_routes(&index, &query, OrchestratorMode::AllowEdit)[0].0,
+                rank_routes(&index, &query, HelmMode::AllowEdit)[0].0,
                 Route::PlayAnimation
             );
         }
@@ -441,7 +454,7 @@ mod tests {
         let ranked = rank_routes(
             &index,
             &unit([1.0, 0.0, 0.0, 0.0]),
-            OrchestratorMode::AllowEdit,
+            HelmMode::AllowEdit,
         );
 
         assert_eq!(ranked[0].0, Route::PauseAnimation);
@@ -457,7 +470,7 @@ mod tests {
         let ranked = rank_routes(
             &index,
             &unit([1.0, 0.0, 0.0, 0.0]),
-            OrchestratorMode::ReadOnly,
+            HelmMode::ReadOnly,
         );
 
         assert_eq!(ranked, vec![(Route::ListObjects, 0.0)]);
@@ -470,7 +483,7 @@ mod tests {
             RoutingRequest {
                 utterance: "play it",
                 query_vector: &unit([1.0, 0.0, 0.0, 0.0]),
-                mode: OrchestratorMode::ReadOnly,
+                mode: HelmMode::ReadOnly,
                 raw_top_score: None,
             },
             &index,
@@ -479,20 +492,21 @@ mod tests {
                 delta: 0.0,
                 tau_confirm: 0.0,
                 tau_raw: 0.0,
+                tau_raw_nearmiss: 0.0,
             },
         );
 
         assert_eq!(decision, RouterDecision::NoCandidate);
     }
 
-  #[test]
+    #[test]
     fn a_score_below_the_threshold_is_rejected_rather_than_dispatched() {
         let index = two_route_index();
         let decision = route_utterance(
             RoutingRequest {
                 utterance: "what is the weather",
                 query_vector: &unit([0.0, 0.0, 1.0, 0.0]),
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &index,
@@ -501,6 +515,7 @@ mod tests {
                 delta: 0.0,
                 tau_confirm: 0.0,
                 tau_raw: 0.0,
+                tau_raw_nearmiss: 0.0,
             },
         );
 
@@ -522,19 +537,20 @@ mod tests {
         let request = RoutingRequest {
             utterance: "hop to the key before this one",
             query_vector: &query,
-            mode: OrchestratorMode::AllowEdit,
+            mode: HelmMode::AllowEdit,
             raw_top_score: None,
         };
-        let ranked = rank_routes(&index, &query, OrchestratorMode::AllowEdit);
+        let ranked = rank_routes(&index, &query, HelmMode::AllowEdit);
         let runner_up_score = ranked[1].1;
 
-        assert_eq!(ranked[0].0, Route::SeekTime(SeekPosition::NextKey));
+       assert_eq!(ranked[0].0, Route::SeekTime(SeekPosition::NextKey));
         assert_eq!(
-            route_utterance(request, &index, RouterThresholds { tau_reject: 0.0, delta: 0.0, tau_confirm: 0.0, tau_raw: 0.0 }),
+            route_utterance(request, &index, RouterThresholds { tau_reject: 0.0, delta: 0.0, tau_confirm: 0.0, tau_raw: 0.0, tau_raw_nearmiss: 0.0 }),
             RouterDecision::Accept {
                 route: Route::SeekTime(SeekPosition::PrevKey),
                 score: runner_up_score,
                 needs_confirm: false,
+                raw_near_miss: false,
             }
         );
     }
@@ -554,10 +570,10 @@ mod tests {
 
         assert_eq!(
             route_utterance(
-          RoutingRequest {
+                RoutingRequest {
                     utterance: "make the cube invisible",
                     query_vector: &query,
-                    mode: OrchestratorMode::AllowEdit,
+                    mode: HelmMode::AllowEdit,
                     raw_top_score: None,
                 },
                 &index,
@@ -566,11 +582,12 @@ mod tests {
                     delta: 0.0,
                     tau_confirm: 0.0,
                     tau_raw: 0.0,
+                    tau_raw_nearmiss: 0.0,
                 },
             ),
             RouterDecision::Reject {
                 best: Route::SetObjectVisibility(VisibilityState::Hide),
-                score: rank_routes(&index, &query, OrchestratorMode::AllowEdit)[1].1,
+                score: rank_routes(&index, &query, HelmMode::AllowEdit)[1].1,
             }
         );
     }
@@ -645,10 +662,10 @@ mod tests {
         let query = unit([0.995, 0.1, 0.0, 0.0]);
 
         let decision = route_utterance(
-         RoutingRequest {
+            RoutingRequest {
                 utterance: "go to the last",
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &index,
@@ -657,6 +674,7 @@ mod tests {
                 delta: 0.1,
                 tau_confirm: 0.0,
                 tau_raw: 0.0,
+                tau_raw_nearmiss: 0.0,
             },
         );
 
@@ -669,7 +687,7 @@ mod tests {
         // single survivor = start -> Accept with start's score
 
         match decision {
-            RouterDecision::Accept { route, score, needs_confirm } => {
+          RouterDecision::Accept { route, score, needs_confirm, .. } => {
                 assert_eq!(route, Route::SeekTime(SeekPosition::Start));
                 assert!((score - 0.995).abs() < 1e-4, "score = {}", score);
                 assert!(!needs_confirm);
@@ -689,10 +707,10 @@ mod tests {
         let query = unit([0.5, 0.5, 0.5, 0.5]);
 
         let decision = route_utterance(
-          RoutingRequest {
+            RoutingRequest {
                 utterance: "go to the last",
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &index,
@@ -701,6 +719,7 @@ mod tests {
                 delta: 0.1,
                 tau_confirm: 0.0,
                 tau_raw: 0.0,
+                tau_raw_nearmiss: 0.0,
             },
         );
 
@@ -723,10 +742,10 @@ mod tests {
         let query = unit([1.0, 0.0, 0.0, 0.0]);
 
         let decision = route_utterance(
-         RoutingRequest {
+            RoutingRequest {
                 utterance: "seek",
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &index,
@@ -735,6 +754,7 @@ mod tests {
                 delta: 0.1,
                 tau_confirm: 0.8,
                 tau_raw: 0.0,
+                tau_raw_nearmiss: 0.0,
             },
         );
 
@@ -770,7 +790,7 @@ mod tests {
             RoutingRequest {
                 utterance: "play it",
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &index,
@@ -779,6 +799,7 @@ mod tests {
                 delta: 0.1,
                 tau_confirm: 0.0,
                 tau_raw: 0.0,
+                tau_raw_nearmiss: 0.0,
             },
         );
         // play_animation score = 1.0, pause_animation score ~ 0.92
@@ -792,6 +813,7 @@ mod tests {
                 route: Route::PlayAnimation,
                 score: 1.0,
                 needs_confirm: false,
+                raw_near_miss: false,
             }
         );
     }

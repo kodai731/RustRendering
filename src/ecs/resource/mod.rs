@@ -57,7 +57,8 @@ mod tone_mapping;
 mod transform_gizmo_state;
 mod view_mode;
 mod weight_heatmap;
-mod orchestrator_state;
+mod helm_state;
+mod helm_batch;
 
 pub use billboard::*;
 pub use gizmo::*;
@@ -118,4 +119,5 @@ pub use tone_mapping::*;
 pub use transform_gizmo_state::*;
 pub use view_mode::*;
 pub use weight_heatmap::*;
-pub use orchestrator_state::*;
+pub use helm_state::*;
+pub use helm_batch::*;

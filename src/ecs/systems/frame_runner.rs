@@ -8,8 +8,9 @@ use super::inference_actor_systems::{inference_actor_initialize, inference_actor
 use super::object_picking_systems::apply_mesh_selection;
 use super::phases::{
     run_animation_phase_ecs, run_animation_phase_gpu, run_input_phase, run_onion_skin_phase,
-    run_orchestrator_phase, run_render_prep_phase, run_transform_phase_ecs, run_transform_phase_gpu,
+    run_helm_phase, run_render_prep_phase, run_transform_phase_ecs, run_transform_phase_gpu,
 };
+use super::helm::batch_driver;
 use super::timeline_systems::timeline_update;
 use crate::app::FrameContext;
 #[cfg(feature = "ml")]
@@ -39,7 +40,9 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
 
         process_pending_mesh_selection(&mut ecs_ctx);
         run_input_phase(&mut ecs_ctx)?;
-        run_orchestrator_phase(&mut ecs_ctx);
+        batch_driver::run_before_helm(&mut ecs_ctx);
+        run_helm_phase(&mut ecs_ctx);
+        batch_driver::run_after_helm(&mut ecs_ctx);
         run_transform_phase_ecs(&mut ecs_ctx);
     }
 

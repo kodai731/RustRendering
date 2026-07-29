@@ -5,8 +5,8 @@
 //! the scene names are matched by normalized substring inclusion with longest-match
 //! tiebreaking.
 
-use crate::orchestrator::components::route::{Route, SlotKind};
-use crate::orchestrator::components::tool_call::{ObjectName, SpeedPreset, ToolCall};
+use crate::helm::components::route::{Route, SlotKind};
+use crate::helm::components::tool_call::{ObjectName, SpeedPreset, ToolCall};
 
 use super::modifier::extract_speed_modifier;
 use super::normalize::normalize_utterance;
@@ -52,11 +52,12 @@ fn direct_call(route: Route, normalized_utterance: &str) -> BindOutcome {
             let speed = extract_speed_modifier(normalized_utterance).unwrap_or(SpeedPreset::Normal);
             ToolCall::GenerateMotion(category, speed)
         }
-        // ObjectName slot routes are handled by resolve_object_name
+      // ObjectName slot routes are handled by resolve_object_name
         Route::SelectObject | Route::SetObjectVisibility(_) => unreachable!(
             "slot() returned None for {:?}, but it has an ObjectName slot",
             route
         ),
+        Route::EscapeAnchor => unreachable!("EscapeAnchor should be rejected before binding"),
     };
     BindOutcome::Call(tool_call)
 }
@@ -118,7 +119,7 @@ fn make_object_tool_call(route: Route, name: &str) -> ToolCall {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orchestrator::components::tool_call::{MotionCategory, VisibilityState};
+    use crate::helm::components::tool_call::{MotionCategory, VisibilityState};
 
     fn bind(route: Route, utterance: &str, scene_names: &[&str]) -> BindOutcome {
         let names: Vec<String> = scene_names.iter().map(|s| s.to_string()).collect();

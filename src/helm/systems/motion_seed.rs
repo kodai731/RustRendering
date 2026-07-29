@@ -8,8 +8,8 @@ use std::collections::HashMap;
 use serde::Deserialize;
 
 use crate::animation::editable::SourceClipId;
-use crate::orchestrator::components::tool_call::MotionCategory;
-use crate::orchestrator::systems::normalize::normalize_utterance;
+use crate::helm::components::tool_call::MotionCategory;
+use crate::helm::systems::normalize::normalize_utterance;
 
 const MOTION_SEED_CATALOG_JSON: &str = include_str!("../data/motion_seed_catalog.json");
 

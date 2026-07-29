@@ -1130,8 +1130,45 @@ impl App {
             .insert_resource(crate::ecs::resource::EditHistory::new(100));
         }
 
-        if !data.ecs_world.contains_resource::<crate::ecs::resource::OrchestratorState>() {
-            data.ecs_world.insert_resource(crate::ecs::resource::OrchestratorState::default());
+        if !data.ecs_world.contains_resource::<crate::ecs::resource::HelmState>() {
+            data.ecs_world.insert_resource(crate::ecs::resource::HelmState::default());
+        }
+
+        // Insert HelmBatchState if --batch-utterance flag is present.
+        if let Some((input_path, output_path)) = crate::ecs::resource::parse_batch_flags() {
+            let rows = crate::ecs::resource::HelmBatchState::from_jsonl(&input_path)
+                .expect("failed to read batch input file");
+            // Record RSS immediately after from_jsonl.
+            let rss_start_kb = {
+                let contents = match std::fs::read_to_string("/proc/self/status") {
+                    Ok(c) => c,
+                    Err(_) => String::new(),
+                };
+                let mut kb: usize = 0;
+                for line in contents.lines() {
+                    if let Some(value) = line.strip_prefix("VmRSS:") {
+                        let parts: Vec<&str> = value.split_whitespace().collect();
+                        if let Some(v) = parts.first() {
+                            if let Ok(val) = v.parse::<usize>() {
+                                kb = val;
+                                break;
+                            }
+                        }
+                    }
+                }
+                kb
+            };
+            data.ecs_world.insert_resource(crate::ecs::resource::HelmBatchState {
+                rows,
+                next: 0,
+                out: output_path,
+                results: Vec::new(),
+                injected_last_frame: false,
+                ui_events_before: 0,
+                rss_start_kb,
+            });
+            let mut helm_state = data.ecs_world.resource_mut::<crate::ecs::resource::HelmState>();
+            helm_state.mode = crate::helm::components::route::HelmMode::AllowEdit;
         }
     }
 

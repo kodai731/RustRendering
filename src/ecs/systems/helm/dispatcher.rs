@@ -7,10 +7,10 @@
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{HierarchyState, TimelineState};
 use crate::ecs::world::{Entity, World};
-use crate::orchestrator::components::tool_call::{
+use crate::helm::components::tool_call::{
     FocusTarget, MotionCategory, ObjectName, SpeedPreset, ToolCall, VisibilityState,
 };
-use crate::orchestrator::systems::seek::{resolve_seek_time, TimelineContext};
+use crate::helm::systems::seek::{resolve_seek_time, TimelineContext};
 
 use super::name_resolver::{
     list_entity_names, read_entity_name, resolve_entity_by_name, NameResolution,
@@ -171,7 +171,7 @@ fn report_playback_state(world: &World) -> DispatchOutcome {
 mod tests {
     use super::*;
     use crate::ecs::world::{Name, Visibility};
-    use crate::orchestrator::components::tool_call::SeekPosition;
+    use crate::helm::components::tool_call::SeekPosition;
 
     fn spawn_named(world: &mut World, name: &str) -> Entity {
         let entity = world.spawn();

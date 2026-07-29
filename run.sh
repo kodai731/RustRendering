@@ -14,6 +14,7 @@ Usage: ./run.sh <command> [args...]
 Commands:
   engine [private|degrade|full] [cargo args...]
       Launch the engine (cargo run) with a curve copilot mode.
+      The engine includes the helm command bar (text control; Read Only by default).
       full sources .config/curve_copilot_full.env (gitignored) for
       THYLLORE_FEEDBACK_TEST_ENDPOINT / THYLLORE_INGEST_TOKEN.
         ./run.sh engine                              # private (default)
@@ -38,6 +39,9 @@ Commands:
       Smoke-test the deployed feedback worker (src/ml/worker/smoke.sh). Sources the
       full-mode env file; WORKER_URL is derived from
       THYLLORE_FEEDBACK_TEST_ENDPOINT when not given.
+  helm-test [args...]
+      Runs parity and e2e tests for the helm router.
+        ./run.sh helm-test
   help
       Show this help.
 EOF
@@ -71,6 +75,9 @@ case "$command" in
             export WORKER_URL="${smoke_endpoint%/v1/feedback}"
         fi
         exec bash "$REPO_ROOT/src/ml/worker/smoke.sh" "$@"
+        ;;
+    helm-test)
+        exec bash "$REPO_ROOT/scripts/run_helm_test.sh" "$@"
         ;;
     help|-h|--help)
         usage

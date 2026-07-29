@@ -10,7 +10,7 @@
 //! be lowercase. Longer terms come first within a preset because the first hit wins
 //! and `半分の速さ` must not be reached through `速`.
 
-use crate::orchestrator::components::tool_call::SpeedPreset;
+use crate::helm::components::tool_call::SpeedPreset;
 
 const SLOW_TERMS: [&str; 8] = [
     "slowly",
@@ -59,7 +59,7 @@ pub fn extract_speed_modifier(normalized: &str) -> Option<SpeedPreset> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orchestrator::systems::normalize::normalize_utterance;
+    use crate::helm::systems::normalize::normalize_utterance;
 
     fn extract(utterance: &str) -> Option<SpeedPreset> {
         extract_speed_modifier(&normalize_utterance(utterance))

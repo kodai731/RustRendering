@@ -1,4 +1,4 @@
-use crate::orchestrator::components::tool_call::SeekPosition;
+use crate::helm::components::tool_call::SeekPosition;
 
 /// Timeline facts a seek needs. Kept separate from `TimelineState` so the
 /// resolution stays a pure function that unit tests can drive directly.

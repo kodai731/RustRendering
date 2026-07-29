@@ -1,17 +1,17 @@
-//! Orchestrator phase: processes submitted utterances and confirm responses.
+//! Helm phase: processes submitted utterances and confirm responses.
 
 use crate::ecs::context::EcsContext;
-use crate::ecs::resource::{ClipLibrary, OrchestratorState, TimelineState};
-use crate::ecs::systems::orchestrator::dispatcher::{dispatch_tool_call, DispatchOutcome};
-use crate::ecs::systems::orchestrator::name_resolver::list_entity_names;
-use crate::ecs::systems::orchestrator::timeline_context::build_timeline_context;
+use crate::ecs::resource::{ClipLibrary, HelmState, TimelineState};
+use crate::ecs::systems::helm::dispatcher::{dispatch_tool_call, DispatchOutcome};
+use crate::ecs::systems::helm::name_resolver::list_entity_names;
+use crate::ecs::systems::helm::timeline_context::build_timeline_context;
 use crate::ecs::UIEventQueue;
-use crate::orchestrator::components::route::Route;
-use crate::orchestrator::components::tool_call::ToolCall;
-use crate::orchestrator::systems::binder::{bind_route, BindOutcome};
-use crate::orchestrator::systems::normalize::normalize_utterance;
-use crate::orchestrator::systems::resolution::{confirm_reason, resolve_decision, ConfirmReason, ResolvedAction};
-use crate::orchestrator::systems::router::{rank_routes, route_utterance, RoutingRequest};
+use crate::helm::components::route::Route;
+use crate::helm::components::tool_call::ToolCall;
+use crate::helm::systems::binder::{bind_route, BindOutcome};
+use crate::helm::systems::normalize::normalize_utterance;
+use crate::helm::systems::resolution::{confirm_reason, resolve_decision, ResolvedAction};
+use crate::helm::systems::router::{rank_routes, route_utterance, RoutingRequest};
 
 use crate::ecs::events::UIEvent;
 use std::io::Write;
@@ -21,7 +21,7 @@ use std::io::Write;
 fn reject_log_entry(
     normalized_utterance: &str,
     raw_top_score: f32,
-    feedback: &crate::orchestrator::systems::resolution::OrchestratorFeedback,
+    feedback: &crate::helm::systems::resolution::HelmFeedback,
 ) -> Option<serde_json::Value> {
     let ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
@@ -29,7 +29,7 @@ fn reject_log_entry(
         .as_secs();
 
     match feedback {
-        crate::orchestrator::systems::resolution::OrchestratorFeedback::Rejected { best, score } => {
+        crate::helm::systems::resolution::HelmFeedback::Rejected { best, score } => {
             Some(serde_json::json!({
                 "ts": ts,
                 "utterance": normalized_utterance,
@@ -41,7 +41,7 @@ fn reject_log_entry(
                 },
             }))
         }
-        crate::orchestrator::systems::resolution::OrchestratorFeedback::ClarifyOptions(candidates) => {
+        crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(candidates) => {
             let items: Vec<serde_json::Value> = candidates
                 .iter()
                 .map(|(route, score)| {
@@ -70,23 +70,23 @@ fn write_reject_log(entry: serde_json::Value) -> std::io::Result<()> {
     let mut file = std::fs::OpenOptions::new()
         .append(true)
         .create(true)
-        .open(log_dir.join("orchestrator_rejects.jsonl"))?;
+        .open(log_dir.join("helm_rejects.jsonl"))?;
     writeln!(file, "{}", serde_json::to_string(&entry).unwrap_or_default())?;
     Ok(())
 }
 
 #[derive(Clone, Debug)]
-enum OrchestratorRuntimeKind {
+enum HelmRuntimeKind {
     Uninitialized,
     Ready,
     Failed(String),
 }
 
-/// Run the orchestrator phase.
-pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
+/// Run the helm phase.
+pub fn run_helm_phase(ctx: &mut EcsContext) {
     // Copy state values before accessing other world resources to avoid borrow conflicts.
     let (submitted_utterance, confirm_response, clarify_choice, mode, thresholds, confirm_all) = {
-        let mut state = ctx.world.resource_mut::<OrchestratorState>();
+        let mut state = ctx.world.resource_mut::<HelmState>();
         (
             state.submitted_utterance.take(),
             state.confirm_response.take(),
@@ -99,29 +99,30 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
 
     // Handle confirm_response first.
     if let Some(response) = confirm_response {
-        let outcome = {
-            let mut state = ctx.world.resource_mut::<OrchestratorState>();
+        let (outcome, tool_name): (Option<DispatchOutcome>, Option<String>) = {
+            let mut state = ctx.world.resource_mut::<HelmState>();
             if let Some((call, reason)) = state.pending.take() {
+                let tool_name = call.tool_name().to_string();
                 if response {
-                    Some(execute_call(ctx.world, call, &state))
+                    (Some(execute_call(ctx.world, call, &state)), Some(tool_name))
                 } else {
                     state.feedback = Some(
                         crate::ecs::resource::CommandFeedback::Report("cancelled".to_string()),
                     );
-                    None
+                    (None, None)
                 }
             } else {
-                None
+                (None, None)
             }
         };
-        if let Some(outcome) = outcome {
-            handle_dispatch_outcome(ctx.world, outcome);
+        if let (Some(outcome), Some(tool_name)) = (outcome, tool_name) {
+            handle_dispatch_outcome(ctx.world, outcome, &tool_name);
         }
     }
 
     if let Some(route) = clarify_choice {
         let normalized_utterance = {
-            let state = ctx.world.resource::<OrchestratorState>();
+            let state = ctx.world.resource::<HelmState>();
             state.last_utterance.clone().unwrap_or_default()
         };
         let scene_names = list_entity_names(ctx.world);
@@ -129,25 +130,26 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
 
         match outcome {
             BindOutcome::Call(call) => {
-                let reason = confirm_reason(&call, false, confirm_all);
+                let reason = confirm_reason(&call, false, false, confirm_all);
                 if let Some(reason) = reason {
-                    let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                    let mut state = ctx.world.resource_mut::<HelmState>();
                     state.pending = Some((call, reason));
                 } else {
-                    let outcome = execute_call(ctx.world, call, &ctx.world.resource::<OrchestratorState>());
-                    handle_dispatch_outcome(ctx.world, outcome);
+                    let tool_name = call.tool_name().to_string();
+                    let outcome = execute_call(ctx.world, call, &ctx.world.resource::<HelmState>());
+                    handle_dispatch_outcome(ctx.world, outcome, &tool_name);
                 }
             }
             BindOutcome::MissingSlot { route: _, slot } => {
-                let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                let mut state = ctx.world.resource_mut::<HelmState>();
                 state.feedback = Some(crate::ecs::resource::CommandFeedback::Router(
-                    crate::orchestrator::systems::resolution::OrchestratorFeedback::MissingObjectName { route },
+                    crate::helm::systems::resolution::HelmFeedback::MissingObjectName { route },
                 ));
             }
             BindOutcome::AmbiguousSlot { route: _, candidates } => {
-                let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                let mut state = ctx.world.resource_mut::<HelmState>();
                 state.feedback = Some(crate::ecs::resource::CommandFeedback::Router(
-                    crate::orchestrator::systems::resolution::OrchestratorFeedback::AmbiguousObjectName { candidates },
+                    crate::helm::systems::resolution::HelmFeedback::AmbiguousObjectName { candidates },
                 ));
             }
         }
@@ -155,34 +157,39 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
 
     // Handle submitted_utterance.
     if let Some(utterance) = submitted_utterance {
-        let runtime_kind: OrchestratorRuntimeKind = {
-            let state = ctx.world.resource::<OrchestratorState>();
+        let runtime_kind: HelmRuntimeKind = {
+            let state = ctx.world.resource::<HelmState>();
             match &state.runtime {
                 crate::ecs::resource::RuntimeSlot::Uninitialized => {
-                    OrchestratorRuntimeKind::Uninitialized
+                    HelmRuntimeKind::Uninitialized
                 }
-                crate::ecs::resource::RuntimeSlot::Ready(_) => OrchestratorRuntimeKind::Ready,
+                crate::ecs::resource::RuntimeSlot::Ready(_) => HelmRuntimeKind::Ready,
                 crate::ecs::resource::RuntimeSlot::Failed(msg) => {
-                    OrchestratorRuntimeKind::Failed(msg.clone())
+                    HelmRuntimeKind::Failed(msg.clone())
                 }
             }
         };
 
         match runtime_kind {
-            OrchestratorRuntimeKind::Uninitialized => {
+            HelmRuntimeKind::Uninitialized => {
                 // Try to load the runtime.
-                let result = crate::ecs::resource::load_runtime(std::path::Path::new(
-                    crate::ecs::resource::ROUTER_MODEL_DIR,
-                ));
-                let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                let start = std::time::Instant::now();
+                let result = crate::ecs::resource::load_runtime(
+                    &crate::ecs::resource::resolve_router_model_dir(),
+                );
+                let elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
+                let mut state = ctx.world.resource_mut::<HelmState>();
                 match result {
                     Ok(runtime) => {
                         state.runtime =
                             crate::ecs::resource::RuntimeSlot::Ready(Box::new(runtime));
+                        state.last_runtime_load_ms = Some(elapsed_ms);
+                        state.submitted_utterance = Some(utterance);
                     }
                     Err(e) => {
                         state.runtime =
                             crate::ecs::resource::RuntimeSlot::Failed(e.clone());
+                        state.last_runtime_load_ms = Some(elapsed_ms);
                         state.feedback = Some(
                             crate::ecs::resource::CommandFeedback::Unavailable(e),
                         );
@@ -190,24 +197,25 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                     }
                 }
             }
-            OrchestratorRuntimeKind::Ready => {
+            HelmRuntimeKind::Ready => {
                 // Process the utterance: normalize -> encode -> route -> resolve.
+                let start = std::time::Instant::now();
                 let normalized = normalize_utterance(&utterance);
                 {
-                    let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                    let mut state = ctx.world.resource_mut::<HelmState>();
                     state.last_utterance = Some(normalized.clone());
                 }
                 let scene_names = list_entity_names(ctx.world);
 
                 let (decision, raw_top_score) = {
-                    let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                    let mut state = ctx.world.resource_mut::<HelmState>();
                     match &mut state.runtime {
                         crate::ecs::resource::RuntimeSlot::Ready(rt) => {
                             let vector: Vec<f32> = match rt.encoder.encode(&normalized) {
                                 Ok(v) => v,
                                 Err(e) => {
                                     drop(state);
-                                    let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                                    let mut state = ctx.world.resource_mut::<HelmState>();
                                     state.feedback = Some(
                                         crate::ecs::resource::CommandFeedback::DispatchError(format!(
                                             "encoding failed: {}",
@@ -222,7 +230,7 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                                 Ok(v) => v,
                                 Err(e) => {
                                     drop(state);
-                                    let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                                    let mut state = ctx.world.resource_mut::<HelmState>();
                                     state.feedback = Some(
                                         crate::ecs::resource::CommandFeedback::DispatchError(format!(
                                             "raw encoding failed: {}",
@@ -234,8 +242,8 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                             };
 
                             let raw_top_score = {
-                                let mut ranked = rank_routes(&rt.raw_index, &raw_vector, mode);
-                                ranked.pop().map(|(_, score)| score)
+                                let ranked = rank_routes(&rt.raw_index, &raw_vector, mode);
+                                ranked.first().map(|(_, score)| *score)
                             };
 
                             let decision = route_utterance(
@@ -256,32 +264,47 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
                         }
                     }
                 };
+                let elapsed_ms = start.elapsed().as_secs_f32() * 1000.0;
+
+                // Extract last_routed_tool from decision before it's consumed.
+                let last_routed_tool = match &decision {
+                    crate::helm::systems::router::RouterDecision::Accept { route, .. } => Some(route.clone().id()),
+                    _ => None,
+                };
 
                 let action = resolve_decision(decision, &normalized, &scene_names, confirm_all);
                 match action {
                     ResolvedAction::Dispatch(call) => {
-                        let outcome = execute_call(ctx.world, call, &ctx.world.resource::<OrchestratorState>());
-                        handle_dispatch_outcome(ctx.world, outcome);
+                        let tool_name = call.tool_name().to_string();
+                        let outcome = execute_call(ctx.world, call, &ctx.world.resource::<HelmState>());
+                        handle_dispatch_outcome(ctx.world, outcome, &tool_name);
+                        let mut state = ctx.world.resource_mut::<HelmState>();
+                        state.last_routed_tool = last_routed_tool;
+                        state.last_route_latency_ms = Some(elapsed_ms);
                     }
                     ResolvedAction::AwaitConfirm { call, reason } => {
-                        let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                        let mut state = ctx.world.resource_mut::<HelmState>();
                         state.pending = Some((call, reason));
+                        state.last_routed_tool = last_routed_tool;
+                        state.last_route_latency_ms = Some(elapsed_ms);
                     }
                     ResolvedAction::Feedback(f) => {
                         if let Some(entry) = reject_log_entry(&normalized, raw_top_score.unwrap_or(0.0), &f) {
                             let _ = write_reject_log(entry);
                         }
 
-                        let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                        let mut state = ctx.world.resource_mut::<HelmState>();
                         state.feedback = Some(
                             crate::ecs::resource::CommandFeedback::Router(f),
                         );
+                        state.last_routed_tool = last_routed_tool;
+                        state.last_route_latency_ms = Some(elapsed_ms);
                     }
                 }
             }
-            OrchestratorRuntimeKind::Failed(e) => {
+            HelmRuntimeKind::Failed(e) => {
                 // Don't retry — feedback is already set from the failed load.
-                let mut state = ctx.world.resource_mut::<OrchestratorState>();
+                let mut state = ctx.world.resource_mut::<HelmState>();
                 state.feedback = Some(
                     crate::ecs::resource::CommandFeedback::Unavailable(e),
                 );
@@ -294,7 +317,7 @@ pub fn run_orchestrator_phase(ctx: &mut EcsContext) {
 fn execute_call(
     world: &crate::ecs::world::World,
     call: ToolCall,
-    state: &OrchestratorState,
+    state: &HelmState,
 ) -> DispatchOutcome {
     let timeline_state = world.resource::<TimelineState>();
     let clip_library = world.resource::<ClipLibrary>();
@@ -303,28 +326,18 @@ fn execute_call(
 }
 
 /// Handle a dispatch outcome by updating the UI event queue and feedback.
-fn handle_dispatch_outcome(world: &crate::ecs::world::World, outcome: DispatchOutcome) {
+fn handle_dispatch_outcome(world: &crate::ecs::world::World, outcome: DispatchOutcome, tool_name: &str) {
     match outcome {
         DispatchOutcome::Command(event) => {
-            let tool_name = {
-                let mut state = world.resource_mut::<OrchestratorState>();
-                let name = if let Some(ref pending) = state.pending {
-                    pending.0.tool_name().to_string()
-                } else {
-                    "unknown".to_string()
-                };
-                drop(state);
-                name
-            };
             let mut ui_events = world.resource_mut::<UIEventQueue>();
             ui_events.send(event);
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.feedback = Some(
-                crate::ecs::resource::CommandFeedback::Executed(tool_name),
+                crate::ecs::resource::CommandFeedback::Executed(tool_name.to_string()),
             );
         }
         DispatchOutcome::Report(s) => {
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(s));
         }
         DispatchOutcome::MotionRequest { category, speed } => {
@@ -332,10 +345,10 @@ fn handle_dispatch_outcome(world: &crate::ecs::world::World, outcome: DispatchOu
             let category_str = category.as_str();
 
             // (a) Load motion seed catalog
-            let catalog = match crate::orchestrator::systems::motion_seed::load_motion_seed_catalog() {
+            let catalog = match crate::helm::systems::motion_seed::load_motion_seed_catalog() {
                 Ok(c) => c,
                 Err(e) => {
-                    let mut state = world.resource_mut::<OrchestratorState>();
+                    let mut state = world.resource_mut::<HelmState>();
                     state.feedback = Some(
                         crate::ecs::resource::CommandFeedback::Unavailable(e),
                     );
@@ -353,14 +366,14 @@ fn handle_dispatch_outcome(world: &crate::ecs::world::World, outcome: DispatchOu
             drop(clip_library);
 
             // (c) Find seed candidates
-            let candidates = crate::orchestrator::systems::motion_seed::find_seed_candidates(
+            let candidates = crate::helm::systems::motion_seed::find_seed_candidates(
                 &catalog,
                 category,
                 &clip_names,
             );
 
             if candidates.is_empty() {
-                let mut state = world.resource_mut::<OrchestratorState>();
+                let mut state = world.resource_mut::<HelmState>();
                 state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(format!(
                     "no loaded clip matches motion category '{}'",
                     category_str
@@ -381,7 +394,7 @@ fn handle_dispatch_outcome(world: &crate::ecs::world::World, outcome: DispatchOu
             let target_entity = match target_entity {
                 Some(e) => e,
                 None => {
-                    let mut state = world.resource_mut::<OrchestratorState>();
+                    let mut state = world.resource_mut::<HelmState>();
                     state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(
                         "select a target entity first".to_string(),
                     ));
@@ -390,17 +403,17 @@ fn handle_dispatch_outcome(world: &crate::ecs::world::World, outcome: DispatchOu
             };
 
             // (e) Round-robin counter
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             let counter = state.motion_seed_counters.entry(category).or_insert(0);
             let pick_index = *counter;
             *counter += 1;
             drop(state);
 
-            let picked = crate::orchestrator::systems::motion_seed::pick_round_robin(&candidates, pick_index);
+            let picked = crate::helm::systems::motion_seed::pick_round_robin(&candidates, pick_index);
             let (source_id, clip_name) = match picked {
                 Some(p) => p,
                 None => {
-                    let mut state = world.resource_mut::<OrchestratorState>();
+                    let mut state = world.resource_mut::<HelmState>();
                     state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(
                         "no candidate found".to_string(),
                     ));
@@ -422,14 +435,14 @@ fn handle_dispatch_outcome(world: &crate::ecs::world::World, outcome: DispatchOu
                 speed: speed_mult,
             });
 
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.feedback = Some(crate::ecs::resource::CommandFeedback::Executed(format!(
                 "generate_motion {}: {}",
                 category_str, clip_name
             )));
         }
         DispatchOutcome::Rejected(e) => {
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.feedback = Some(
                 crate::ecs::resource::CommandFeedback::DispatchError(format!("{:?}", e)),
             );
@@ -442,13 +455,14 @@ mod tests {
     use super::*;
     use crate::ecs::events::UIEvent;
     use crate::ecs::world::{Entity, Name, World};
+    use crate::helm::systems::resolution::ConfirmReason;
 
     fn make_world() -> World {
         let mut world = World::new();
         world.insert_resource(crate::ecs::resource::HierarchyState::default());
         world.insert_resource(TimelineState::new());
         world.insert_resource(ClipLibrary::new());
-        world.insert_resource(OrchestratorState::default());
+        world.insert_resource(HelmState::default());
         world.insert_resource(UIEventQueue::new());
         world
     }
@@ -477,7 +491,7 @@ mod tests {
     /// Test that PlayAnimation dispatch produces a Command (UIEvent) outcome.
     #[test]
     fn test_play_animation_dispatch_produces_command() {
-        let mut world = make_world();
+        let world = make_world();
 
         let timeline_state = world.resource::<TimelineState>();
         let clip_library = world.resource::<ClipLibrary>();
@@ -495,13 +509,7 @@ mod tests {
     /// Test that handle_dispatch_outcome for PlayAnimation pushes to UIEventQueue.
     #[test]
     fn test_play_animation_pushes_to_ui_event_queue() {
-        let mut world = make_world();
-
-        // Set up a pending call so handle_dispatch_outcome can extract the tool name.
-        {
-            let mut state = world.resource_mut::<OrchestratorState>();
-            state.pending = Some((ToolCall::PlayAnimation, ConfirmReason::ConfirmAll));
-        }
+        let world = make_world();
 
         let timeline_state = world.resource::<TimelineState>();
         let clip_library = world.resource::<ClipLibrary>();
@@ -513,7 +521,7 @@ mod tests {
             queue.len()
         };
 
-        handle_dispatch_outcome(&world, outcome);
+            handle_dispatch_outcome(&world, outcome, "play_animation");
 
         let events_after = {
             let queue = world.resource::<UIEventQueue>();
@@ -523,7 +531,7 @@ mod tests {
         assert_eq!(events_after - events_before, 1, "expected 1 event pushed");
 
         let feedback = {
-            let state = world.resource::<OrchestratorState>();
+            let state = world.resource::<HelmState>();
             state.feedback.clone()
         };
 
@@ -542,7 +550,7 @@ mod tests {
 
         // Set up a pending call.
         {
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.pending = Some((ToolCall::PlayAnimation, ConfirmReason::ConfirmAll));
             state.confirm_response = Some(false);
         }
@@ -557,9 +565,9 @@ mod tests {
             assets: &mut crate::asset::AssetStorage::new(),
             mesh_positions: Vec::new(),
         };
-        run_orchestrator_phase(&mut ctx);
+        run_helm_phase(&mut ctx);
 
-        let state = world.resource::<OrchestratorState>();
+        let state = world.resource::<HelmState>();
         assert!(state.pending.is_none(), "expected pending to be cleared");
         match &state.feedback {
             Some(crate::ecs::resource::CommandFeedback::Report(msg)) => {
@@ -576,7 +584,7 @@ mod tests {
 
         // Set up clarify_choice with PlayAnimation and confirm_all=false.
         {
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.clarify_choice = Some(Route::PlayAnimation);
             state.confirm_all = false;
         }
@@ -596,7 +604,7 @@ mod tests {
             assets: &mut crate::asset::AssetStorage::new(),
             mesh_positions: Vec::new(),
         };
-        run_orchestrator_phase(&mut ctx);
+        run_helm_phase(&mut ctx);
 
         let events_after = {
             let queue = world.resource::<UIEventQueue>();
@@ -607,7 +615,7 @@ mod tests {
         // It should enter pending, not execute immediately.
         assert_eq!(events_after, events_before, "expected no events pushed (should be pending)");
 
-        let state = world.resource::<OrchestratorState>();
+        let state = world.resource::<HelmState>();
         assert!(state.clarify_choice.is_none(), "expected clarify_choice to be consumed");
         assert!(state.pending.is_some(), "expected pending to be set for PlayAnimation");
     }
@@ -621,7 +629,7 @@ mod tests {
 
         // Set up clarify_choice with ListObjects (read-only).
         {
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.confirm_all = false;
             state.clarify_choice = Some(Route::ListObjects);
         }
@@ -636,9 +644,9 @@ mod tests {
             assets: &mut crate::asset::AssetStorage::new(),
             mesh_positions: Vec::new(),
         };
-        run_orchestrator_phase(&mut ctx);
+        run_helm_phase(&mut ctx);
 
-        let state = world.resource::<OrchestratorState>();
+        let state = world.resource::<HelmState>();
         assert!(state.clarify_choice.is_none(), "expected clarify_choice to be consumed");
         assert!(state.pending.is_none(), "expected no pending (should execute immediately)");
         match &state.feedback {
@@ -658,7 +666,7 @@ mod tests {
 
         // Set up clarify_choice with ListObjects while confirm_all is true.
         {
-            let mut state = world.resource_mut::<OrchestratorState>();
+            let mut state = world.resource_mut::<HelmState>();
             state.confirm_all = true;
             state.clarify_choice = Some(Route::ListObjects);
         }
@@ -673,9 +681,9 @@ mod tests {
             assets: &mut crate::asset::AssetStorage::new(),
             mesh_positions: Vec::new(),
         };
-        run_orchestrator_phase(&mut ctx);
+        run_helm_phase(&mut ctx);
 
-        let mut state = world.resource_mut::<OrchestratorState>();
+        let mut state = world.resource_mut::<HelmState>();
         assert!(state.clarify_choice.is_none(), "expected clarify_choice to be consumed");
         let (call, reason) = state.pending.take().expect("expected pending to be set");
         assert!(matches!(call, ToolCall::ListObjects), "expected ListObjects call");
@@ -710,10 +718,10 @@ mod tests {
         let outcome = dispatch_tool_call(
             &world,
             &timeline_ctx,
-            &ToolCall::GenerateMotion(crate::orchestrator::components::tool_call::MotionCategory::Walk, crate::orchestrator::components::tool_call::SpeedPreset::Normal),
+            &ToolCall::GenerateMotion(crate::helm::components::tool_call::MotionCategory::Walk, crate::helm::components::tool_call::SpeedPreset::Normal),
         );
 
-        handle_dispatch_outcome(&world, outcome);
+       handle_dispatch_outcome(&world, outcome, "generate_motion");
 
         // Assert UIEventQueue has 1 ClipInstanceAdd with speed 1.0
         {
@@ -730,7 +738,7 @@ mod tests {
 
         // Assert feedback is Executed
         {
-            let state = world.resource::<OrchestratorState>();
+            let state = world.resource::<HelmState>();
             match &state.feedback {
                 Some(crate::ecs::resource::CommandFeedback::Executed(_)) => {}
                 other => panic!("expected Executed feedback, got {:?}", other),
@@ -739,8 +747,8 @@ mod tests {
 
         // Assert motion_seed_counters[Walk] == 1
         {
-            let state = world.resource::<OrchestratorState>();
-            let counter = state.motion_seed_counters.get(&crate::orchestrator::components::tool_call::MotionCategory::Walk);
+            let state = world.resource::<HelmState>();
+            let counter = state.motion_seed_counters.get(&crate::helm::components::tool_call::MotionCategory::Walk);
             assert_eq!(counter, Some(&1), "expected Walk counter to be 1, got {:?}", counter);
         }
     }
@@ -774,9 +782,9 @@ mod tests {
         let outcome = dispatch_tool_call(
             &world,
             &timeline_ctx,
-            &ToolCall::GenerateMotion(crate::orchestrator::components::tool_call::MotionCategory::Walk, crate::orchestrator::components::tool_call::SpeedPreset::Normal),
+            &ToolCall::GenerateMotion(crate::helm::components::tool_call::MotionCategory::Walk, crate::helm::components::tool_call::SpeedPreset::Normal),
         );
-        handle_dispatch_outcome(&world, outcome);
+       handle_dispatch_outcome(&world, outcome, "generate_motion");
 
         // Second call
         let timeline_state = world.resource::<TimelineState>();
@@ -785,9 +793,9 @@ mod tests {
         let outcome = dispatch_tool_call(
             &world,
             &timeline_ctx,
-            &ToolCall::GenerateMotion(crate::orchestrator::components::tool_call::MotionCategory::Walk, crate::orchestrator::components::tool_call::SpeedPreset::Normal),
+            &ToolCall::GenerateMotion(crate::helm::components::tool_call::MotionCategory::Walk, crate::helm::components::tool_call::SpeedPreset::Normal),
         );
-        handle_dispatch_outcome(&world, outcome);
+      handle_dispatch_outcome(&world, outcome, "generate_motion");
 
         // Assert queue has 2 events (round robin progression)
         {
@@ -797,8 +805,8 @@ mod tests {
 
         // Assert motion_seed_counters[Walk] == 2
         {
-            let state = world.resource::<OrchestratorState>();
-            let counter = state.motion_seed_counters.get(&crate::orchestrator::components::tool_call::MotionCategory::Walk);
+            let state = world.resource::<HelmState>();
+            let counter = state.motion_seed_counters.get(&crate::helm::components::tool_call::MotionCategory::Walk);
             assert_eq!(counter, Some(&2), "expected Walk counter to be 2, got {:?}", counter);
         }
     }
@@ -823,14 +831,14 @@ mod tests {
         let outcome = dispatch_tool_call(
             &world,
             &timeline_ctx,
-            &ToolCall::GenerateMotion(crate::orchestrator::components::tool_call::MotionCategory::Jump, crate::orchestrator::components::tool_call::SpeedPreset::Normal),
+            &ToolCall::GenerateMotion(crate::helm::components::tool_call::MotionCategory::Jump, crate::helm::components::tool_call::SpeedPreset::Normal),
         );
 
-        handle_dispatch_outcome(&world, outcome);
+      handle_dispatch_outcome(&world, outcome, "generate_motion");
 
         // Assert feedback is Report
         {
-            let state = world.resource::<OrchestratorState>();
+            let state = world.resource::<HelmState>();
             match &state.feedback {
                 Some(crate::ecs::resource::CommandFeedback::Report(_)) => {}
                 other => panic!("expected Report feedback, got {:?}", other),
@@ -846,9 +854,9 @@ mod tests {
 
     #[test]
     fn test_reject_log_entry_rejected() {
-        let feedback = crate::orchestrator::systems::resolution::OrchestratorFeedback::Rejected {
-            best: crate::orchestrator::components::route::Route::GenerateMotion(
-                crate::orchestrator::components::tool_call::MotionCategory::Jump,
+        let feedback = crate::helm::systems::resolution::HelmFeedback::Rejected {
+            best: crate::helm::components::route::Route::GenerateMotion(
+                crate::helm::components::tool_call::MotionCategory::Jump,
             ),
             score: 0.35,
         };
@@ -865,13 +873,13 @@ mod tests {
 
     #[test]
     fn test_reject_log_entry_clarify() {
-        let candidates: Vec<(crate::orchestrator::components::route::Route, f32)> = vec![
-            (crate::orchestrator::components::route::Route::GenerateMotion(
-                crate::orchestrator::components::tool_call::MotionCategory::Jump,
+        let candidates: Vec<(crate::helm::components::route::Route, f32)> = vec![
+            (crate::helm::components::route::Route::GenerateMotion(
+                crate::helm::components::tool_call::MotionCategory::Jump,
             ), 0.4),
-            (crate::orchestrator::components::route::Route::PlayAnimation, 0.3),
+            (crate::helm::components::route::Route::PlayAnimation, 0.3),
         ];
-        let feedback = crate::orchestrator::systems::resolution::OrchestratorFeedback::ClarifyOptions(candidates);
+        let feedback = crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(candidates);
         let entry = reject_log_entry("test utterance", 0.45, &feedback).expect("should return Some for ClarifyOptions");
 
         assert_eq!(entry["decision"], "clarify");
@@ -890,7 +898,7 @@ mod tests {
 
     #[test]
     fn test_write_reject_log_appends_json_entry() {
-        let log_path = std::path::PathBuf::from("log/orchestrator_rejects.jsonl");
+        let log_path = std::path::PathBuf::from("log/helm_rejects.jsonl");
         let lines_before = if log_path.exists() {
             let content = std::fs::read_to_string(&log_path).unwrap_or_default();
             content.lines().count()
@@ -899,9 +907,9 @@ mod tests {
         };
 
         // Build a Rejected feedback entry using reject_log_entry
-        let feedback = crate::orchestrator::systems::resolution::OrchestratorFeedback::Rejected {
-            best: crate::orchestrator::components::route::Route::GenerateMotion(
-                crate::orchestrator::components::tool_call::MotionCategory::Jump,
+        let feedback = crate::helm::systems::resolution::HelmFeedback::Rejected {
+            best: crate::helm::components::route::Route::GenerateMotion(
+                crate::helm::components::tool_call::MotionCategory::Jump,
             ),
             score: 0.35,
         };

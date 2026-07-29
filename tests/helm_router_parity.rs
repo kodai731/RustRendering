@@ -1,6 +1,6 @@
 //! Holds the Rust router to the decisions the Python evaluation driver reached.
 //!
-//! The published route accuracy was measured by `AnimationModelTraining scripts/orchestrator_router/`, so
+//! The published route accuracy was measured by `AnimationModelTraining scripts/helm_router/`, so
 //! the Rust port is only as good as its agreement with it. Every step can differ
 //! quietly — a tokenizer that adds different special tokens, pooling that counts
 //! padding, an aggregation that averages instead of taking the best exemplar, a
@@ -22,8 +22,8 @@
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
-use thyllore_animation::orchestrator::components::route::{OrchestratorMode, Route};
-use thyllore_animation::orchestrator::systems::router::{
+use thyllore_animation::helm::components::route::{HelmMode, Route};
+use thyllore_animation::helm::systems::router::{
     route_utterance, ExemplarIndex, RouterDecision, RouterThresholds, RoutingRequest,
 };
 use thyllore_ml_core::sentence_encoder::SentenceEncoder;
@@ -80,7 +80,7 @@ fn load_harness() -> Option<Harness> {
     let Some(model_dir) = resolve_model_dir() else {
         eprintln!(
             "Skipping: set {MODEL_DIR_ENV_VAR} to a model directory prepared by \
-             AnimationModelTraining scripts/orchestrator_router/export_router_index.py"
+             AnimationModelTraining scripts/helm_router/export_router_index.py"
         );
         return None;
     };
@@ -119,7 +119,7 @@ fn decide(encoder: &mut SentenceEncoder, index: &ExemplarIndex, utterance: &str)
         RoutingRequest {
             utterance,
             query_vector: &query,
-            mode: OrchestratorMode::AllowEdit,
+            mode: HelmMode::AllowEdit,
             raw_top_score: None,
         },
         index,
@@ -128,6 +128,7 @@ fn decide(encoder: &mut SentenceEncoder, index: &ExemplarIndex, utterance: &str)
             delta: 0.0,
             tau_confirm: 0.0,
             tau_raw: 0.0,
+            tau_raw_nearmiss: 0.0,
         },
     );
 

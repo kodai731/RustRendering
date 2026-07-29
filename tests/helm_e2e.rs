@@ -14,16 +14,16 @@ use std::path::PathBuf;
 
 use thyllore_animation::ecs::events::UIEvent;
 use thyllore_animation::ecs::resource::{
-    load_runtime, HierarchyState, OrchestratorRuntime, TimelineState,
+    load_runtime, HierarchyState, HelmRuntime, TimelineState,
 };
-use thyllore_animation::ecs::systems::orchestrator::dispatcher::dispatch_tool_call;
+use thyllore_animation::ecs::systems::helm::dispatcher::dispatch_tool_call;
 use thyllore_animation::ecs::UIEventQueue;
-use thyllore_animation::ecs::systems::orchestrator::name_resolver::list_entity_names;
+use thyllore_animation::ecs::systems::helm::name_resolver::list_entity_names;
 use thyllore_animation::ecs::world::{Entity, Name, World};
-use thyllore_animation::orchestrator::components::route::{OrchestratorMode, Route, RouteKind};
-use thyllore_animation::orchestrator::systems::normalize::normalize_utterance;
-use thyllore_animation::orchestrator::systems::resolution::{resolve_decision, OrchestratorFeedback, ResolvedAction};
-use thyllore_animation::orchestrator::systems::router::{
+use thyllore_animation::helm::components::route::{HelmMode, Route, RouteKind};
+use thyllore_animation::helm::systems::normalize::normalize_utterance;
+use thyllore_animation::helm::systems::resolution::{resolve_decision, HelmFeedback, ResolvedAction};
+use thyllore_animation::helm::systems::router::{
     rank_routes, route_utterance, DEFAULT_REJECTION_THRESHOLD, RouterDecision, RouterThresholds,
     RoutingRequest,
 };
@@ -54,11 +54,12 @@ fn build_world() -> (World, Entity) {
 }
 
 fn thresholds() -> RouterThresholds {
-    RouterThresholds {
+  RouterThresholds {
         tau_reject: DEFAULT_REJECTION_THRESHOLD,
         delta: 0.0,
         tau_confirm: 0.0,
         tau_raw: 0.90,
+        tau_raw_nearmiss: 0.0,
     }
 }
 
@@ -67,13 +68,13 @@ fn e2e_text_to_ui_event_full_path() {
     let Some(model_dir) = resolve_model_dir() else {
         eprintln!(
             "Skipping: set {MODEL_DIR_ENV_VAR} to a model directory prepared by \
-            scripts/orchestrator_eval/export_router_index.py"
+            scripts/helm_eval/export_router_index.py"
         );
         return;
     };
 
     // Load runtime (encoder + index + hash consistency checks)
-    let mut runtime: OrchestratorRuntime =
+    let mut runtime: HelmRuntime =
         load_runtime(&model_dir).expect("load_runtime must succeed");
 
     // Spawn a named entity "Hero" in the world
@@ -96,7 +97,7 @@ fn e2e_text_to_ui_event_full_path() {
             RoutingRequest {
                 utterance: &normalized,
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &runtime.index,
@@ -121,13 +122,13 @@ fn e2e_text_to_ui_event_full_path() {
         let tool_call = match action {
             ResolvedAction::AwaitConfirm { call, reason } => {
                 assert!(
-                    matches!(call, thyllore_animation::orchestrator::components::tool_call::ToolCall::PlayAnimation),
+                    matches!(call, thyllore_animation::helm::components::tool_call::ToolCall::PlayAnimation),
                     "expected PlayAnimation call in AwaitConfirm, got {:?}",
                     call
                 );
                 assert_eq!(
                     reason,
-                    thyllore_animation::orchestrator::systems::resolution::ConfirmReason::Mutating,
+                    thyllore_animation::helm::systems::resolution::ConfirmReason::Mutating,
                     "expected Mutating reason"
                 );
                 call
@@ -138,12 +139,12 @@ fn e2e_text_to_ui_event_full_path() {
         let queue_len_before = world.get_resource::<UIEventQueue>().unwrap().len();
         let outcome = dispatch_tool_call(
             &world,
-            &thyllore_animation::orchestrator::systems::seek::TimelineContext::default(),
+            &thyllore_animation::helm::systems::seek::TimelineContext::default(),
             &tool_call,
         );
 
         match outcome {
-            thyllore_animation::ecs::systems::orchestrator::dispatcher::DispatchOutcome::Command(event) => {
+            thyllore_animation::ecs::systems::helm::dispatcher::DispatchOutcome::Command(event) => {
                 assert!(
                     matches!(event, UIEvent::TimelinePlay),
                     "expected TimelinePlay event, got {:?}",
@@ -172,7 +173,7 @@ fn e2e_text_to_ui_event_full_path() {
             RoutingRequest {
                 utterance: &normalized,
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &runtime.index,
@@ -205,7 +206,7 @@ fn e2e_text_to_ui_event_full_path() {
             RoutingRequest {
                 utterance: &normalized,
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &runtime.index,
@@ -232,8 +233,8 @@ fn e2e_text_to_ui_event_full_path() {
                 assert!(
                     matches!(
                         call,
-                        thyllore_animation::orchestrator::components::tool_call::ToolCall::SelectObject(
-                            thyllore_animation::orchestrator::components::tool_call::ObjectName(ref name)
+                        thyllore_animation::helm::components::tool_call::ToolCall::SelectObject(
+                            thyllore_animation::helm::components::tool_call::ObjectName(ref name)
                         ) if name == "Hero"
                     ),
                     "expected SelectObject(ObjectName(\"Hero\")) in AwaitConfirm, got {:?}",
@@ -241,7 +242,7 @@ fn e2e_text_to_ui_event_full_path() {
                 );
                 assert_eq!(
                     reason,
-                    thyllore_animation::orchestrator::systems::resolution::ConfirmReason::Mutating,
+                    thyllore_animation::helm::systems::resolution::ConfirmReason::Mutating,
                     "expected Mutating reason"
                 );
                 call
@@ -252,12 +253,12 @@ fn e2e_text_to_ui_event_full_path() {
         let queue_len_before = world.get_resource::<UIEventQueue>().unwrap().len();
         let outcome = dispatch_tool_call(
             &world,
-            &thyllore_animation::orchestrator::systems::seek::TimelineContext::default(),
+            &thyllore_animation::helm::systems::seek::TimelineContext::default(),
             &tool_call,
         );
 
         match outcome {
-            thyllore_animation::ecs::systems::orchestrator::dispatcher::DispatchOutcome::Command(event) => {
+            thyllore_animation::ecs::systems::helm::dispatcher::DispatchOutcome::Command(event) => {
                 assert!(
                     matches!(event, UIEvent::SelectEntity(entity) if entity == hero_entity),
                     "expected SelectEntity(hero_entity) event, got {:?}",
@@ -286,7 +287,7 @@ fn e2e_text_to_ui_event_full_path() {
             RoutingRequest {
                 utterance: &normalized,
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &runtime.index,
@@ -299,13 +300,13 @@ fn e2e_text_to_ui_event_full_path() {
         match action {
             ResolvedAction::AwaitConfirm { call, reason } => {
                 assert!(
-                    matches!(call, thyllore_animation::orchestrator::components::tool_call::ToolCall::PlayAnimation),
+                    matches!(call, thyllore_animation::helm::components::tool_call::ToolCall::PlayAnimation),
                     "expected PlayAnimation call in AwaitConfirm, got {:?}",
                     call
                 );
                 assert_eq!(
                     reason,
-                    thyllore_animation::orchestrator::systems::resolution::ConfirmReason::ConfirmAll,
+                    thyllore_animation::helm::systems::resolution::ConfirmReason::ConfirmAll,
                     "expected ConfirmAll reason"
                 );
             }
@@ -325,7 +326,7 @@ fn e2e_text_to_ui_event_full_path() {
             RoutingRequest {
                 utterance: &normalized,
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: None,
             },
             &runtime.index,
@@ -353,18 +354,18 @@ fn e2e_text_to_ui_event_full_path() {
         };
 
         assert!(
-            matches!(tool_call, thyllore_animation::orchestrator::components::tool_call::ToolCall::ListObjects),
+            matches!(tool_call, thyllore_animation::helm::components::tool_call::ToolCall::ListObjects),
             "expected ListObjects tool call"
         );
 
         let outcome = dispatch_tool_call(
             &world,
-            &thyllore_animation::orchestrator::systems::seek::TimelineContext::default(),
+            &thyllore_animation::helm::systems::seek::TimelineContext::default(),
             &tool_call,
         );
 
         match outcome {
-            thyllore_animation::ecs::systems::orchestrator::dispatcher::DispatchOutcome::Report(_) => {}
+            thyllore_animation::ecs::systems::helm::dispatcher::DispatchOutcome::Report(_) => {}
             other => panic!("expected Report outcome for read-only ListObjects, got {:?}", other),
         }
     }
@@ -376,35 +377,36 @@ fn e2e_text_to_ui_event_full_path() {
         let normalized = normalize_utterance(utterance);
         let query = runtime.encoder.encode(&normalized).expect("encoder must produce a vector");
         let raw_query = runtime.raw_encoder.encode(&normalized).expect("raw encoder must produce a vector");
-        let raw_ranked = rank_routes(&runtime.raw_index, &raw_query, OrchestratorMode::AllowEdit);
+        let raw_ranked = rank_routes(&runtime.raw_index, &raw_query, HelmMode::AllowEdit);
         let raw_top = raw_ranked.first().map(|(_, s)| *s).unwrap_or(f32::NEG_INFINITY);
 
         let decision = route_utterance(
             RoutingRequest {
                 utterance: &normalized,
                 query_vector: &query,
-                mode: OrchestratorMode::AllowEdit,
+                mode: HelmMode::AllowEdit,
                 raw_top_score: Some(raw_top),
             },
             &runtime.index,
-            RouterThresholds {
+           RouterThresholds {
                 tau_reject: 0.93,
                 delta: 0.005,
                 tau_confirm: 0.95,
                 tau_raw: 0.90,
+                tau_raw_nearmiss: 0.90,
             },
         );
 
         assert!(matches!(decision, RouterDecision::Reject { .. }), "production thresholds must reject out-of-domain utterance via raw gate, got {:?}", decision);
     }
 
-    // Case (7): OrchestratorMode::ReadOnly
+    // Case (7): HelmMode::ReadOnly
     // -> rank_routes results all have route.kind() == RouteKind::ReadOnly
     {
         let utterance = "play the animation";
         let query = runtime.encoder.encode(utterance).expect("encoder must produce a vector");
 
-        let ranked = rank_routes(&runtime.index, &query, OrchestratorMode::ReadOnly);
+        let ranked = rank_routes(&runtime.index, &query, HelmMode::ReadOnly);
 
         assert!(
             !ranked.is_empty(),

@@ -20,7 +20,7 @@ pub enum SlotKind {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum OrchestratorMode {
+pub enum HelmMode {
     ReadOnly,
     AllowEdit,
 }
@@ -44,6 +44,7 @@ pub enum Route {
     Redo,
     SaveScene,
     GenerateMotion(MotionCategory),
+    EscapeAnchor,
 }
 
 pub const ALL_ROUTES: [Route; 29] = [
@@ -110,18 +111,22 @@ impl Route {
             }
             Route::FocusCamera(target) => format!("focus_camera:{}", target.as_str()),
             Route::GenerateMotion(category) => format!("generate_motion:{}", category.as_str()),
+            Route::EscapeAnchor => "__escape__".to_string(),
             other => other.tool_name().to_string(),
         }
     }
 
-    pub fn from_id(route_id: &str) -> Option<Self> {
+  pub fn from_id(route_id: &str) -> Option<Self> {
+        if route_id == "__escape__" {
+            return Some(Route::EscapeAnchor);
+        }
         ALL_ROUTES
             .iter()
             .copied()
             .find(|route| route.id() == route_id)
     }
 
-    pub fn tool_name(self) -> &'static str {
+  pub fn tool_name(self) -> &'static str {
         match self {
             Route::ListObjects => "list_objects",
             Route::DescribeSelection => "describe_selection",
@@ -140,6 +145,7 @@ impl Route {
             Route::Redo => "redo",
             Route::SaveScene => "save_scene",
             Route::GenerateMotion(_) => "generate_motion",
+            Route::EscapeAnchor => "__escape__",
         }
     }
 
@@ -153,10 +159,13 @@ impl Route {
         }
     }
 
-    pub fn is_available_in(self, mode: OrchestratorMode) -> bool {
-        match mode {
-            OrchestratorMode::ReadOnly => self.kind() == RouteKind::ReadOnly,
-            OrchestratorMode::AllowEdit => true,
+ pub fn is_available_in(self, mode: HelmMode) -> bool {
+        match self {
+            Route::EscapeAnchor => true,
+            _ => match mode {
+                HelmMode::ReadOnly => self.kind() == RouteKind::ReadOnly,
+                HelmMode::AllowEdit => true,
+            },
         }
     }
 
@@ -167,7 +176,7 @@ impl Route {
         }
     }
 
-    pub fn bind(self, slots: &RouteSlots) -> Result<ToolCall, BindError> {
+pub fn bind(self, slots: &RouteSlots) -> Result<ToolCall, BindError> {
         let speed = slots.speed.unwrap_or(SpeedPreset::Normal);
         match self {
             Route::ListObjects => Ok(ToolCall::ListObjects),
@@ -175,7 +184,6 @@ impl Route {
             Route::GetPlaybackState => Ok(ToolCall::GetPlaybackState),
             Route::TakeScreenshot => Ok(ToolCall::TakeScreenshot),
             Route::PlayAnimation => Ok(ToolCall::PlayAnimation),
-            Route::PauseAnimation => Ok(ToolCall::PauseAnimation),
             Route::StopAnimation => Ok(ToolCall::StopAnimation),
             Route::SetPlaybackSpeed(preset) => Ok(ToolCall::SetPlaybackSpeed(preset)),
             Route::SeekTime(position) => Ok(ToolCall::SeekTime(position)),
@@ -191,6 +199,9 @@ impl Route {
                 self.take_object_name(slots)?,
                 state,
             )),
+
+           Route::EscapeAnchor => Err(BindError::MissingObjectName(Route::EscapeAnchor)),
+            Route::PauseAnimation => Ok(ToolCall::PauseAnimation),
         }
     }
 
@@ -206,7 +217,7 @@ impl Route {
 
 /// Read Only mode does not reject edit routes — it never puts them in the index,
 /// so the router has no way to produce one.
-pub fn routes_for_mode(mode: OrchestratorMode) -> Vec<Route> {
+pub fn routes_for_mode(mode: HelmMode) -> Vec<Route> {
     ALL_ROUTES
         .iter()
         .copied()
@@ -219,7 +230,7 @@ mod tests {
     use super::*;
     use std::collections::HashSet;
 
-    /// The router index in `AnimationModelTraining scripts/orchestrator_router/route_schema.py` must expand
+    /// The router index in `AnimationModelTraining scripts/helm_router/route_schema.py` must expand
     /// to exactly these ids, or the measured accuracy does not describe this build.
     const EXPECTED_ROUTE_IDS: [&str; 29] = [
         "list_objects",
@@ -284,7 +295,7 @@ mod tests {
 
     #[test]
     fn read_only_mode_excludes_every_edit_route() {
-        let routes = routes_for_mode(OrchestratorMode::ReadOnly);
+        let routes = routes_for_mode(HelmMode::ReadOnly);
         assert_eq!(routes.len(), 4);
         assert!(routes
             .iter()
@@ -295,7 +306,7 @@ mod tests {
 
     #[test]
     fn allow_edit_mode_exposes_every_route() {
-        assert_eq!(routes_for_mode(OrchestratorMode::AllowEdit).len(), 29);
+        assert_eq!(routes_for_mode(HelmMode::AllowEdit).len(), 29);
     }
 
     #[test]

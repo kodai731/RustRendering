@@ -1,6 +1,6 @@
 //! Resolves the object name a user spoke to a concrete `Entity`.
 //!
-//! The orchestrator never sees `Entity` ids — it cannot know them — so every
+//! The helm never sees `Entity` ids — it cannot know them — so every
 //! object argument arrives as a name and is resolved here by deterministic
 //! logic. Ambiguity is reported rather than guessed: acting on the wrong object
 //! is worse than asking.

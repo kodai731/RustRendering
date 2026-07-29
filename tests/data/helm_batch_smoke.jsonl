@@ -1,0 +1,20 @@
+{"utterance": "list objects", "expected_tool": "list_objects"}
+{"utterance": "describe selection", "expected_tool": "describe_selection"}
+{"utterance": "tell me the playback status", "expected_tool": "get_playback_state"}
+{"utterance": "take a screenshot", "expected_tool": "take_screenshot"}
+{"utterance": "play the animation", "expected_tool": "play_animation"}
+{"utterance": "pause the animation", "expected_tool": "pause_animation"}
+{"utterance": "stop the animation", "expected_tool": "stop_animation"}
+{"utterance": "set playback speed to slow", "expected_tool": "set_playback_speed"}
+{"utterance": "seek to start", "expected_tool": "seek_time"}
+{"utterance": "toggle loop", "expected_tool": "toggle_loop"}
+{"utterance": "select object cube", "expected_tool": "select_object"}
+{"utterance": "hide the object", "expected_tool": "set_object_visibility"}
+{"utterance": "focus camera on selection", "expected_tool": "focus_camera"}
+{"utterance": "undo", "expected_tool": "undo"}
+{"utterance": "redo", "expected_tool": "redo"}
+{"utterance": "save the scene", "expected_tool": "save_scene"}
+{"utterance": "generate a walk motion", "expected_tool": "generate_motion"}
+{"utterance": "再生を一時停止して", "expected_tool": "pause_animation"}
+{"utterance": "アニメーションを再生", "expected_tool": "play_animation"}
+{"utterance": "seek to end", "expected_tool": "seek_time"}

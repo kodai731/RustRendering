@@ -1,13 +1,14 @@
 //! Resolve a router decision into an action: dispatch, await confirmation, or feedback.
 
-use crate::orchestrator::components::route::{Route, SlotKind};
-use crate::orchestrator::components::tool_call::{RiskLevel, ToolCall};
+use crate::helm::components::route::{Route, SlotKind};
+use crate::helm::components::tool_call::{RiskLevel, ToolCall};
 
 use super::binder::{bind_route, BindOutcome};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ConfirmReason {
     ConfirmAll,
+    NearMiss,
     LowConfidence,
     Mutating,
 }
@@ -16,12 +17,15 @@ pub enum ConfirmReason {
 ///
 /// Priority:
 /// - If `confirm_all` is true -> `Some(ConfirmAll)`
+/// - Else if `raw_near_miss` is true -> `Some(NearMiss)`
 /// - Else if `needs_confirm` is true -> `Some(LowConfidence)`
 /// - Else if `call.risk_level()` is `RiskLevel::Mutating` or `RiskLevel::Destructive` -> `Some(Mutating)`
 /// - Else -> `None`
-pub fn confirm_reason(call: &ToolCall, needs_confirm: bool, confirm_all: bool) -> Option<ConfirmReason> {
+pub fn confirm_reason(call: &ToolCall, needs_confirm: bool, raw_near_miss: bool, confirm_all: bool) -> Option<ConfirmReason> {
     if confirm_all {
         Some(ConfirmReason::ConfirmAll)
+    } else if raw_near_miss {
+        Some(ConfirmReason::NearMiss)
     } else if needs_confirm {
         Some(ConfirmReason::LowConfidence)
     } else if matches!(call.risk_level(), RiskLevel::Mutating | RiskLevel::Destructive) {
@@ -38,11 +42,11 @@ pub enum ResolvedAction {
         call: ToolCall,
         reason: ConfirmReason,
     },
-    Feedback(OrchestratorFeedback),
+    Feedback(HelmFeedback),
 }
 
 #[derive(Clone, Debug)]
-pub enum OrchestratorFeedback {
+pub enum HelmFeedback {
     Rejected {
         best: Route,
         score: f32,
@@ -57,7 +61,7 @@ pub enum OrchestratorFeedback {
     NoCandidate,
 }
 
-use crate::orchestrator::systems::router::RouterDecision;
+use crate::helm::systems::router::RouterDecision;
 
 /// Resolve a router decision into a concrete action.
 pub fn resolve_decision(
@@ -67,31 +71,31 @@ pub fn resolve_decision(
     confirm_all: bool,
 ) -> ResolvedAction {
     match decision {
-        RouterDecision::Accept { route, score: _, needs_confirm } => {
+        RouterDecision::Accept { route, score: _, needs_confirm, raw_near_miss } => {
             match bind_route(route.clone(), normalized_utterance, scene_names) {
                 BindOutcome::Call(call) => {
-                    if let Some(reason) = confirm_reason(&call, needs_confirm, confirm_all) {
+                    if let Some(reason) = confirm_reason(&call, needs_confirm, raw_near_miss, confirm_all) {
                         ResolvedAction::AwaitConfirm { call, reason }
                     } else {
                         ResolvedAction::Dispatch(call)
                     }
                 }
                 BindOutcome::MissingSlot { route, slot: _ } => {
-                    ResolvedAction::Feedback(OrchestratorFeedback::MissingObjectName { route })
+                    ResolvedAction::Feedback(HelmFeedback::MissingObjectName { route })
                 }
                 BindOutcome::AmbiguousSlot { route: _, candidates } => {
-                    ResolvedAction::Feedback(OrchestratorFeedback::AmbiguousObjectName { candidates })
+                    ResolvedAction::Feedback(HelmFeedback::AmbiguousObjectName { candidates })
                 }
             }
         }
         RouterDecision::Clarify { candidates } => {
-            ResolvedAction::Feedback(OrchestratorFeedback::ClarifyOptions(candidates))
+            ResolvedAction::Feedback(HelmFeedback::ClarifyOptions(candidates))
         }
         RouterDecision::Reject { best, score } => {
-            ResolvedAction::Feedback(OrchestratorFeedback::Rejected { best, score })
+            ResolvedAction::Feedback(HelmFeedback::Rejected { best, score })
         }
         RouterDecision::NoCandidate => {
-            ResolvedAction::Feedback(OrchestratorFeedback::NoCandidate)
+            ResolvedAction::Feedback(HelmFeedback::NoCandidate)
         }
     }
 }
@@ -99,14 +103,23 @@ pub fn resolve_decision(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::orchestrator::components::tool_call::{MotionCategory, SpeedPreset};
+    use crate::helm::components::tool_call::{MotionCategory, SpeedPreset};
 
     #[test]
     fn confirm_reason_confirm_all_priority() {
         let call = ToolCall::ListObjects;
         assert_eq!(
-            confirm_reason(&call, false, true),
+            confirm_reason(&call, false, false, true),
             Some(ConfirmReason::ConfirmAll)
+        );
+    }
+
+    #[test]
+    fn confirm_reason_near_miss_priority() {
+        let call = ToolCall::ListObjects;
+        assert_eq!(
+            confirm_reason(&call, false, true, false),
+            Some(ConfirmReason::NearMiss)
         );
     }
 
@@ -114,7 +127,7 @@ mod tests {
     fn confirm_reason_low_confidence() {
         let call = ToolCall::ListObjects;
         assert_eq!(
-            confirm_reason(&call, true, false),
+            confirm_reason(&call, true, false, false),
             Some(ConfirmReason::LowConfidence)
         );
     }
@@ -122,14 +135,14 @@ mod tests {
     #[test]
     fn confirm_reason_none_for_read_only() {
         let call = ToolCall::ListObjects;
-        assert_eq!(confirm_reason(&call, false, false), None);
+        assert_eq!(confirm_reason(&call, false, false, false), None);
     }
 
     #[test]
     fn confirm_reason_mutating_for_play_animation() {
         let call = ToolCall::PlayAnimation;
         assert_eq!(
-            confirm_reason(&call, false, false),
+            confirm_reason(&call, false, false, false),
             Some(ConfirmReason::Mutating)
         );
     }
@@ -140,6 +153,7 @@ mod tests {
             route: Route::ListObjects,
             score: 0.9,
             needs_confirm: false,
+            raw_near_miss: false,
         };
         let action = resolve_decision(decision, "list objects", &[], false);
         match action {
@@ -156,6 +170,7 @@ mod tests {
             route: Route::ListObjects,
             score: 0.9,
             needs_confirm: false,
+            raw_near_miss: false,
         };
         let action = resolve_decision(decision, "list objects", &[], true);
         match action {
@@ -173,10 +188,11 @@ mod tests {
             route: Route::SelectObject,
             score: 0.9,
             needs_confirm: false,
+            raw_near_miss: false,
         };
         let action = resolve_decision(decision, "select the lamp", &["Hero".to_string()], false);
         match action {
-            ResolvedAction::Feedback(OrchestratorFeedback::MissingObjectName { route }) => {
+            ResolvedAction::Feedback(HelmFeedback::MissingObjectName { route }) => {
                 assert_eq!(route, Route::SelectObject);
             }
             other => panic!("expected MissingObjectName feedback, got {:?}", other),
@@ -189,7 +205,7 @@ mod tests {
         let decision = RouterDecision::Clarify { candidates: candidates.clone() };
         let action = resolve_decision(decision, "what?", &[], false);
         match action {
-            ResolvedAction::Feedback(OrchestratorFeedback::ClarifyOptions(opts)) => {
+            ResolvedAction::Feedback(HelmFeedback::ClarifyOptions(opts)) => {
                 assert_eq!(opts, candidates);
             }
             other => panic!("expected ClarifyOptions feedback, got {:?}", other),
@@ -201,7 +217,7 @@ mod tests {
         let decision = RouterDecision::Reject { best: Route::ListObjects, score: 0.3 };
         let action = resolve_decision(decision, "nonsense", &[], false);
         match action {
-            ResolvedAction::Feedback(OrchestratorFeedback::Rejected { best, score }) => {
+            ResolvedAction::Feedback(HelmFeedback::Rejected { best, score }) => {
                 assert_eq!(best, Route::ListObjects);
                 assert!((score - 0.3).abs() < 1e-6);
             }
@@ -214,7 +230,7 @@ mod tests {
         let decision = RouterDecision::NoCandidate;
         let action = resolve_decision(decision, "whatever", &[], false);
         match action {
-            ResolvedAction::Feedback(OrchestratorFeedback::NoCandidate) => {}
+            ResolvedAction::Feedback(HelmFeedback::NoCandidate) => {}
             other => panic!("expected NoCandidate feedback, got {:?}", other),
         }
     }
