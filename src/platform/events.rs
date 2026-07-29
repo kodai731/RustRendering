@@ -527,13 +527,10 @@ fn build_timeline_and_fixed_overlays(
     if !is_batch_capture {
         let delta_time = (app.start.elapsed().as_secs_f32() - app.last_update_time).max(0.001);
         let timeline_state = app.data.ecs_world.resource::<TimelineState>();
-        let clip_duration = timeline_state
-            .current_clip_id
-            .and_then(|id| {
-                let lib = app.data.ecs_world.resource::<ClipLibrary>();
-                lib.get(id).map(|c| c.duration)
-            })
-            .unwrap_or(0.0);
+        let clip_duration = {
+            let lib = app.data.ecs_world.resource::<ClipLibrary>();
+            crate::ecs::systems::timeline_effective_duration(&timeline_state, &lib)
+        };
         draw_status_bar(
             ui,
             status_bar_state,

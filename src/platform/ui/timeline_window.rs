@@ -10,6 +10,7 @@ use crate::ecs::resource::{
     ClipDragState, ClipDragType, ClipLibrary, CurveEditorState, TimelineInteractionState,
     TimelineState,
 };
+use crate::ecs::systems::timeline_effective_duration;
 
 use super::layout_snapshot::LayoutSnapshot;
 
@@ -61,11 +62,7 @@ pub fn build_timeline_window(
                 clip_track_snapshot,
                 flame_track,
             );
-            let clip_duration = state
-                .current_clip_id
-                .and_then(|id| clip_library.get(id))
-                .map(|c| c.duration)
-                .unwrap_or(5.0);
+            let clip_duration = timeline_effective_duration(state, clip_library);
             handle_timeline_shortcuts(ui, ui_events, state);
             handle_mouse_wheel_zoom(ui, ui_events, state, clip_duration);
         });
@@ -99,8 +96,7 @@ fn build_transport_controls(
 
     ui.same_line();
     let current_clip = state.current_clip_id.and_then(|id| clip_library.get(id));
-
-    let duration = current_clip.map(|c| c.duration).unwrap_or(0.0);
+    let duration = timeline_effective_duration(state, clip_library);
 
     ui.text(format!(
         "Time: {:.2}s / {:.2}s",
@@ -108,10 +104,9 @@ fn build_transport_controls(
     ));
 
     let available_width = state.last_visible_width.max(1.0);
-    let clip_duration = duration.max(1.0);
     let (min_zoom, max_zoom) = compute_zoom_limits(
         available_width,
-        clip_duration,
+        duration.max(1.0),
         state.snap_settings.frame_rate,
     );
 
@@ -197,11 +192,9 @@ fn build_timeline_content(
     let visible_width = (content_region[0] - TRACK_LABEL_WIDTH).max(1.0);
     state.last_visible_width = visible_width;
 
-    let current_clip = state.current_clip_id.and_then(|id| clip_library.get(id));
-    let duration = current_clip.map(|c| c.duration).unwrap_or(5.0);
+    let duration = timeline_effective_duration(state, clip_library);
     let pixels_per_second = PIXELS_PER_SECOND * state.zoom_level;
-    let display_duration = duration;
-    let timeline_width = (display_duration * pixels_per_second).max(visible_width);
+    let timeline_width = (duration * pixels_per_second).max(visible_width);
 
     let ruler_child_height = TIME_RULER_HEIGHT + ui.text_line_height_with_spacing() + 4.0;
     let synced_scroll_x = state.scroll_offset;
@@ -218,7 +211,7 @@ fn build_timeline_content(
                 state,
                 interaction,
                 timeline_width,
-                display_duration,
+                duration,
             );
         });
     ui.separator();

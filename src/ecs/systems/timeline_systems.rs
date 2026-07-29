@@ -408,6 +408,29 @@ pub fn timeline_zoom_out(state: &mut TimelineState, min_zoom: f32) {
     state.zoom_level = (state.zoom_level / 1.2).max(min_zoom);
 }
 
+/// Range the timeline spans when no clip supplies one, so the ruler, the transport and
+/// playback all agree on how far the playhead may travel.
+pub const TIMELINE_FALLBACK_DURATION_SECONDS: f32 = 5.0;
+
+/// Range the playhead travels over. Always positive: scrubbing and playback stay usable
+/// before a clip exists.
+pub fn timeline_effective_duration(
+    timeline_state: &TimelineState,
+    clip_library: &ClipLibrary,
+) -> f32 {
+    let clip_duration = timeline_state
+        .current_clip_id
+        .and_then(|id| clip_library.get(id))
+        .map(|c| c.duration)
+        .unwrap_or(0.0);
+
+    if clip_duration > 0.0 {
+        clip_duration
+    } else {
+        TIMELINE_FALLBACK_DURATION_SECONDS
+    }
+}
+
 pub fn timeline_update(
     timeline_state: &mut TimelineState,
     clip_library: &ClipLibrary,
@@ -417,16 +440,7 @@ pub fn timeline_update(
         return;
     }
 
-    let duration = timeline_state
-        .current_clip_id
-        .and_then(|id| clip_library.get(id))
-        .map(|c| c.duration)
-        .unwrap_or(0.0);
-
-    if duration <= 0.0 {
-        return;
-    }
-
+    let duration = timeline_effective_duration(timeline_state, clip_library);
     let new_time = timeline_state.current_time + delta_time * timeline_state.speed;
 
     if timeline_state.looping {
@@ -767,6 +781,63 @@ mod tests {
         ));
 
         (state, library)
+    }
+
+    #[test]
+    fn timeline_advances_without_a_clip() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.playing = true;
+
+        timeline_update(&mut state, &library, 0.5);
+
+        assert!((state.current_time - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn timeline_without_a_clip_loops_at_the_fallback_duration() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.playing = true;
+        state.looping = true;
+        state.current_time = TIMELINE_FALLBACK_DURATION_SECONDS - 0.25;
+
+        timeline_update(&mut state, &library, 0.5);
+
+        assert!((state.current_time - 0.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn timeline_without_a_clip_stops_at_the_fallback_duration_when_not_looping() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.playing = true;
+        state.looping = false;
+        state.current_time = TIMELINE_FALLBACK_DURATION_SECONDS - 0.25;
+
+        timeline_update(&mut state, &library, 0.5);
+
+        assert!((state.current_time - TIMELINE_FALLBACK_DURATION_SECONDS).abs() < 1e-5);
+        assert!(!state.playing);
+    }
+
+    #[test]
+    fn timeline_uses_the_clip_duration_when_one_is_selected() {
+        let (mut state, library) = setup_test_clip();
+        let clip_duration = library.get(1).unwrap().duration;
+        assert!(clip_duration > 0.0 && clip_duration < TIMELINE_FALLBACK_DURATION_SECONDS);
+
+        assert!(
+            (timeline_effective_duration(&state, &library) - clip_duration).abs() < 1e-5,
+            "effective duration must follow the clip, not the fallback"
+        );
+
+        state.playing = true;
+        state.looping = true;
+        state.current_time = clip_duration - 0.1;
+        timeline_update(&mut state, &library, 0.2);
+
+        assert!((state.current_time - 0.1).abs() < 1e-5);
     }
 
     #[test]
