@@ -25,6 +25,7 @@ pub fn init(title: &str) -> System {
         .with_title(title)
         .with_inner_size(LogicalSize::new(2560, 1440));
     let window = builder.build(&event_loop).expect("Failed to create window");
+    window.set_ime_allowed(true);
 
     let mut imgui = Context::create();
     imgui.set_ini_filename(None);

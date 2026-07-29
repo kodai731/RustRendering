@@ -86,7 +86,7 @@ use winit::{
 
 use winit::{
     error::ExternalError,
-    event::{ElementState, Event, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
+    event::{ElementState, Event, Ime, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent},
     window::{CursorIcon as MouseCursor, Window},
 };
 
@@ -96,6 +96,7 @@ pub struct WinitPlatform {
     hidpi_mode: ActiveHiDpiMode,
     hidpi_factor: f64,
     cursor_cache: Option<CursorSettings>,
+    ime_composing: bool,
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
@@ -322,6 +323,7 @@ impl WinitPlatform {
             hidpi_mode: ActiveHiDpiMode::Default,
             hidpi_factor: 1.0,
             cursor_cache: None,
+            ime_composing: false,
         }
     }
     /// Attaches the platform instance to a winit window.
@@ -464,10 +466,12 @@ impl WinitPlatform {
                 io.add_key_event(Key::ModSuper, state.super_key());
             }
             WindowEvent::KeyboardInput { ref event, .. } => {
-                if let Some(txt) = &event.text {
-                    for ch in txt.chars() {
-                        if ch != '\u{7f}' {
-                            io.add_input_character(ch)
+                if event.state == ElementState::Pressed && !self.ime_composing {
+                    if let Some(txt) = &event.text {
+                        for ch in txt.chars() {
+                            if ch != '\u{7f}' {
+                                io.add_input_character(ch)
+                            }
                         }
                     }
                 }
@@ -483,11 +487,25 @@ impl WinitPlatform {
                 // https://github.com/ocornut/imgui/issues/5047
                 handle_key_modifier(io, &key, pressed);
 
-                println!("KEY EVENT: {event:?}");
-
                 // Add main key event
                 if let Some(key) = to_imgui_key(key, event.location) {
                     io.add_key_event(key, pressed);
+                }
+            }
+            WindowEvent::Ime(ref ime) => {
+                match ime {
+                    Ime::Preedit(text, _) => {
+                        self.ime_composing = !text.is_empty();
+                    }
+                    Ime::Commit(text) => {
+                        self.ime_composing = false;
+                        for ch in text.chars() {
+                            io.add_input_character(ch);
+                        }
+                    }
+                    Ime::Enabled | Ime::Disabled => {
+                        self.ime_composing = false;
+                    }
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
