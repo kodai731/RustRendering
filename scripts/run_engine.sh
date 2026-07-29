@@ -126,6 +126,8 @@ if [[ "$MODE" == "full" ]]; then
 fi
 
 cd "$REPO_ROOT"
+source "$REPO_ROOT/scripts/lib/onnxruntime.sh"
+ensure_onnxruntime
 source "$REPO_ROOT/scripts/lib/helm_preflight.sh"
 helm_preflight
 echo "[run_engine] mode=$MODE cargo args: ${CARGO_ARGS[*]:-(none)}"
