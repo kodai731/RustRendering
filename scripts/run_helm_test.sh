@@ -47,12 +47,12 @@ fi
 # Positional arg: layer filter parity|e2e|heldout|all|bench (default all)
 LAYER="${1:-all}"
 case "$LAYER" in
-    parity)   shift; TEST_FLAGS="--test helm_router_parity" ;;
-    e2e)      shift; TEST_FLAGS="--test helm_e2e" ;;
-    heldout)  shift; TEST_FLAGS="--test helm_heldout" ;;
-    all)      shift; TEST_FLAGS="--test helm_router_parity --test helm_e2e --test helm_heldout" ;;
+    parity)   shift || true; TEST_FLAGS="--test helm_router_parity" ;;
+    e2e)      shift || true; TEST_FLAGS="--test helm_e2e" ;;
+    heldout)  shift || true; TEST_FLAGS="--test helm_heldout" ;;
+    all)      shift || true; TEST_FLAGS="--test helm_router_parity --test helm_e2e --test helm_heldout" ;;
     bench)
-        shift
+        shift || true
         echo "[helm-test] building..."
         cargo build
         # NOTE: the batch bench runs the GUI app (headless) — an X display is required.

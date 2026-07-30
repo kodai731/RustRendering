@@ -21,14 +21,22 @@ pub enum ConfirmReason {
 /// - Else if `needs_confirm` is true -> `Some(LowConfidence)`
 /// - Else if `call.risk_level()` is `RiskLevel::Mutating` or `RiskLevel::Destructive` -> `Some(Mutating)`
 /// - Else -> `None`
-pub fn confirm_reason(call: &ToolCall, needs_confirm: bool, raw_near_miss: bool, confirm_all: bool) -> Option<ConfirmReason> {
+pub fn confirm_reason(
+    call: &ToolCall,
+    needs_confirm: bool,
+    raw_near_miss: bool,
+    confirm_all: bool,
+) -> Option<ConfirmReason> {
     if confirm_all {
         Some(ConfirmReason::ConfirmAll)
     } else if raw_near_miss {
         Some(ConfirmReason::NearMiss)
     } else if needs_confirm {
         Some(ConfirmReason::LowConfidence)
-    } else if matches!(call.risk_level(), RiskLevel::Mutating | RiskLevel::Destructive) {
+    } else if matches!(
+        call.risk_level(),
+        RiskLevel::Mutating | RiskLevel::Destructive
+    ) {
         Some(ConfirmReason::Mutating)
     } else {
         None
@@ -47,17 +55,10 @@ pub enum ResolvedAction {
 
 #[derive(Clone, Debug)]
 pub enum HelmFeedback {
-    Rejected {
-        best: Route,
-        score: f32,
-    },
+    Rejected { best: Route, score: f32 },
     ClarifyOptions(Vec<(Route, f32)>),
-    MissingObjectName {
-        route: Route,
-    },
-    AmbiguousObjectName {
-        candidates: Vec<String>,
-    },
+    MissingObjectName { route: Route },
+    AmbiguousObjectName { candidates: Vec<String> },
     NoCandidate,
 }
 
@@ -71,32 +72,36 @@ pub fn resolve_decision(
     confirm_all: bool,
 ) -> ResolvedAction {
     match decision {
-        RouterDecision::Accept { route, score: _, needs_confirm, raw_near_miss } => {
-            match bind_route(route.clone(), normalized_utterance, scene_names) {
-                BindOutcome::Call(call) => {
-                    if let Some(reason) = confirm_reason(&call, needs_confirm, raw_near_miss, confirm_all) {
-                        ResolvedAction::AwaitConfirm { call, reason }
-                    } else {
-                        ResolvedAction::Dispatch(call)
-                    }
-                }
-                BindOutcome::MissingSlot { route, slot: _ } => {
-                    ResolvedAction::Feedback(HelmFeedback::MissingObjectName { route })
-                }
-                BindOutcome::AmbiguousSlot { route: _, candidates } => {
-                    ResolvedAction::Feedback(HelmFeedback::AmbiguousObjectName { candidates })
+        RouterDecision::Accept {
+            route,
+            score: _,
+            needs_confirm,
+            raw_near_miss,
+        } => match bind_route(route.clone(), normalized_utterance, scene_names) {
+            BindOutcome::Call(call) => {
+                if let Some(reason) =
+                    confirm_reason(&call, needs_confirm, raw_near_miss, confirm_all)
+                {
+                    ResolvedAction::AwaitConfirm { call, reason }
+                } else {
+                    ResolvedAction::Dispatch(call)
                 }
             }
-        }
+            BindOutcome::MissingSlot { route, slot: _ } => {
+                ResolvedAction::Feedback(HelmFeedback::MissingObjectName { route })
+            }
+            BindOutcome::AmbiguousSlot {
+                route: _,
+                candidates,
+            } => ResolvedAction::Feedback(HelmFeedback::AmbiguousObjectName { candidates }),
+        },
         RouterDecision::Clarify { candidates } => {
             ResolvedAction::Feedback(HelmFeedback::ClarifyOptions(candidates))
         }
         RouterDecision::Reject { best, score } => {
             ResolvedAction::Feedback(HelmFeedback::Rejected { best, score })
         }
-        RouterDecision::NoCandidate => {
-            ResolvedAction::Feedback(HelmFeedback::NoCandidate)
-        }
+        RouterDecision::NoCandidate => ResolvedAction::Feedback(HelmFeedback::NoCandidate),
     }
 }
 
@@ -202,7 +207,9 @@ mod tests {
     #[test]
     fn resolve_clarify_feedback() {
         let candidates = vec![(Route::ListObjects, 0.5), (Route::DescribeSelection, 0.4)];
-        let decision = RouterDecision::Clarify { candidates: candidates.clone() };
+        let decision = RouterDecision::Clarify {
+            candidates: candidates.clone(),
+        };
         let action = resolve_decision(decision, "what?", &[], false);
         match action {
             ResolvedAction::Feedback(HelmFeedback::ClarifyOptions(opts)) => {
@@ -214,7 +221,10 @@ mod tests {
 
     #[test]
     fn resolve_reject_feedback() {
-        let decision = RouterDecision::Reject { best: Route::ListObjects, score: 0.3 };
+        let decision = RouterDecision::Reject {
+            best: Route::ListObjects,
+            score: 0.3,
+        };
         let action = resolve_decision(decision, "nonsense", &[], false);
         match action {
             ResolvedAction::Feedback(HelmFeedback::Rejected { best, score }) => {

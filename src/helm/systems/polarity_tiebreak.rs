@@ -73,7 +73,6 @@ pub fn embedded_exemplars_sha256() -> Option<String> {
     parsed.get("exemplars_sha256")?.as_str()?.to_string().into()
 }
 
-
 fn find_axis(route: Route) -> Option<&'static PolarityAxis> {
     POLARITY_AXES.get(&route.id())
 }
@@ -137,7 +136,7 @@ mod tests {
     use crate::helm::systems::normalize::normalize_utterance;
     use std::collections::HashSet;
 
-   fn resolve(utterance: &str, ranked: &[(Route, f32)]) -> Route {
+    fn resolve(utterance: &str, ranked: &[(Route, f32)]) -> Route {
         let outcome = break_polarity_tie(&normalize_utterance(utterance), ranked)
             .expect("a non-empty ranking always resolves");
         match outcome {

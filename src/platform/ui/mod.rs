@@ -1,6 +1,6 @@
 mod bottom_panel;
-mod command_bar;
 mod clip_browser_window;
+mod command_bar;
 mod constraint_inspector;
 mod curve_editor_window;
 #[cfg(debug_assertions)]
@@ -21,8 +21,8 @@ pub(crate) mod timeline_window;
 mod viewport_window;
 
 pub use bottom_panel::*;
-pub use command_bar::*;
 pub use clip_browser_window::*;
+pub use command_bar::*;
 pub use constraint_inspector::*;
 pub use curve_editor_window::*;
 #[cfg(debug_assertions)]

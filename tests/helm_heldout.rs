@@ -61,7 +61,7 @@ fn derive_expected(index_route_ids: &[String], tool: &str, args: &serde_json::Va
         .filter(|id| id.as_str() == tool || id.starts_with(&format!("{}:", tool)))
         .collect();
 
-  if candidates.is_empty() {
+    if candidates.is_empty() {
         return "__escape__".to_string();
     }
 
@@ -70,7 +70,7 @@ fn derive_expected(index_route_ids: &[String], tool: &str, args: &serde_json::Va
     }
 
     // Multiple candidates: find unique one where any string value in args matches the suffix
-   let matches: Vec<&String> = candidates
+    let matches: Vec<&String> = candidates
         .into_iter()
         .filter(|id| {
             if let Some(suffix) = id.strip_prefix(&format!("{}:", tool)) {
@@ -134,8 +134,7 @@ fn helm_heldout_evaluation() {
         return;
     };
     // Load runtime (encoder + index + raw encoder + raw index)
-    let mut runtime: HelmRuntime =
-        load_runtime(&model_dir).expect("load_runtime must succeed");
+    let mut runtime: HelmRuntime = load_runtime(&model_dir).expect("load_runtime must succeed");
 
     // Load held-out data
     let jsonl = std::fs::read_to_string(&heldout_path)
@@ -144,9 +143,8 @@ fn helm_heldout_evaluation() {
         .lines()
         .filter(|line| !line.trim().is_empty())
         .map(|line| {
-            serde_json::from_str(line).unwrap_or_else(|e| {
-                panic!("failed to parse held-out line: {}\nline: {}", e, line)
-            })
+            serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("failed to parse held-out line: {}\nline: {}", e, line))
         })
         .collect();
 
@@ -283,11 +281,7 @@ fn helm_heldout_evaluation() {
         "expected 116 routed samples, got {}",
         routed_count
     );
-    assert_eq!(
-        correct, 100,
-        "expected 100 correct routes, got {}",
-        correct
-    );
+    assert_eq!(correct, 100, "expected 100 correct routes, got {}", correct);
     assert_eq!(
         escape_rejected, 10,
         "expected 10 escape rejected, got {}",
@@ -306,5 +300,8 @@ fn compute_raw_top_score(
     query: &[f32],
 ) -> f32 {
     let ranked = rank_routes(index, query, HelmMode::AllowEdit);
-    ranked.first().map(|(_, score)| *score).unwrap_or(f32::NEG_INFINITY)
+    ranked
+        .first()
+        .map(|(_, score)| *score)
+        .unwrap_or(f32::NEG_INFINITY)
 }

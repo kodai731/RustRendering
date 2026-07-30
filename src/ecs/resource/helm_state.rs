@@ -39,7 +39,9 @@ pub fn select_router_model_dir(shared_data_dir: Option<&std::path::Path>) -> std
 /// Resolve the router model directory by reading `THYLLORE_SHARED_DATA_DIR` from the environment
 /// and calling `select_router_model_dir`.
 pub fn resolve_router_model_dir() -> std::path::PathBuf {
-    let shared_data_dir = env::var(SHARED_DATA_ENV_VAR).ok().map(std::path::PathBuf::from);
+    let shared_data_dir = env::var(SHARED_DATA_ENV_VAR)
+        .ok()
+        .map(std::path::PathBuf::from);
     select_router_model_dir(shared_data_dir.as_deref())
 }
 
@@ -74,12 +76,16 @@ pub struct HelmState {
     pub confirm_response: Option<bool>,
     pub clarify_choice: Option<Route>,
     pub last_utterance: Option<String>,
-    pub pending: Option<(crate::helm::components::tool_call::ToolCall, crate::helm::systems::resolution::ConfirmReason)>,
+    pub pending: Option<(
+        crate::helm::components::tool_call::ToolCall,
+        crate::helm::systems::resolution::ConfirmReason,
+    )>,
     pub feedback: Option<CommandFeedback>,
     pub confirm_all: bool,
     pub thresholds: RouterThresholds,
     pub runtime: RuntimeSlot,
-    pub motion_seed_counters: std::collections::HashMap<crate::helm::components::tool_call::MotionCategory, usize>,
+    pub motion_seed_counters:
+        std::collections::HashMap<crate::helm::components::tool_call::MotionCategory, usize>,
     pub last_routed_tool: Option<String>,
     pub last_route_latency_ms: Option<f32>,
     pub last_runtime_load_ms: Option<f32>,
@@ -116,7 +122,10 @@ impl Default for HelmState {
 ///
 /// Returns Ok(()) if both hashes match or if either is None (old artifact compatibility).
 /// Returns Err with a message if both are Some but differ.
-pub fn validate_artifact_consistency(index_hash: Option<&str>, table_hash: Option<&str>) -> Result<(), String> {
+pub fn validate_artifact_consistency(
+    index_hash: Option<&str>,
+    table_hash: Option<&str>,
+) -> Result<(), String> {
     match (index_hash, table_hash) {
         (Some(ih), Some(th)) if ih != th => Err(
             "router index and polarity table were generated from different exemplars.jsonl \
@@ -145,11 +154,17 @@ pub fn load_runtime(model_dir: &Path) -> Result<HelmRuntime, String> {
 
     // Staleness check: if both index and embedded polarity table carry exemplars_sha256,
     // they must match — otherwise one artifact is stale.
-    validate_artifact_consistency(index.exemplars_sha256(), embedded_exemplars_sha256().as_deref())?;
+    validate_artifact_consistency(
+        index.exemplars_sha256(),
+        embedded_exemplars_sha256().as_deref(),
+    )?;
 
     // Load raw encoder for escape detection: prefer bundle sibling (model_dir/../e5-raw) if it
     // exists, otherwise fall back to the fixed RAW_ENCODER_DIR.
-    let raw_encoder_dir = model_dir.parent().map(|p| p.join("e5-raw")).filter(|p| p.is_dir());
+    let raw_encoder_dir = model_dir
+        .parent()
+        .map(|p| p.join("e5-raw"))
+        .filter(|p| p.is_dir());
     let raw_encoder_path: &Path = match raw_encoder_dir {
         Some(ref p) => p.as_path(),
         None => Path::new(RAW_ENCODER_DIR),
@@ -172,7 +187,12 @@ pub fn load_runtime(model_dir: &Path) -> Result<HelmRuntime, String> {
     // Validate that raw_index exemplars_sha256 matches setfit index
     validate_artifact_consistency(raw_index.exemplars_sha256(), index.exemplars_sha256())?;
 
-    Ok(HelmRuntime { encoder, index, raw_encoder, raw_index })
+    Ok(HelmRuntime {
+        encoder,
+        index,
+        raw_encoder,
+        raw_index,
+    })
 }
 
 #[cfg(test)]
@@ -199,16 +219,25 @@ mod tests {
     #[test]
     fn test_validate_artifact_consistency_one_none() {
         let result1 = validate_artifact_consistency(Some("abc123"), None);
-        assert!(result1.is_ok(), "one None should be Ok (old artifact compatibility)");
+        assert!(
+            result1.is_ok(),
+            "one None should be Ok (old artifact compatibility)"
+        );
 
         let result2 = validate_artifact_consistency(None, Some("abc123"));
-        assert!(result2.is_ok(), "one None should be Ok (old artifact compatibility)");
+        assert!(
+            result2.is_ok(),
+            "one None should be Ok (old artifact compatibility)"
+        );
     }
 
     #[test]
     fn test_validate_artifact_consistency_both_none() {
         let result = validate_artifact_consistency(None, None);
-        assert!(result.is_ok(), "both None should be Ok (old artifact compatibility)");
+        assert!(
+            result.is_ok(),
+            "both None should be Ok (old artifact compatibility)"
+        );
     }
 
     #[test]
@@ -227,7 +256,10 @@ mod tests {
     #[test]
     fn test_select_router_model_dir_bundle_exists_returns_bundle() {
         let temp_dir = std::env::temp_dir().join("thyllore_test_select_router_model_dir");
-        let bundle_path = temp_dir.join(EXPORTS_SUBDIR).join(EXPORTS_BUNDLE_DIR).join("setfit-3ep-p2");
+        let bundle_path = temp_dir
+            .join(EXPORTS_SUBDIR)
+            .join(EXPORTS_BUNDLE_DIR)
+            .join("setfit-3ep-p2");
         std::fs::create_dir_all(&bundle_path).expect("failed to create temp bundle dir");
 
         let path = select_router_model_dir(Some(&temp_dir));

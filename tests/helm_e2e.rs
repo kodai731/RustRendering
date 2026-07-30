@@ -13,19 +13,19 @@
 use std::path::PathBuf;
 
 use thyllore_animation::ecs::events::UIEvent;
-use thyllore_animation::ecs::resource::{
-    load_runtime, HierarchyState, HelmRuntime, TimelineState,
-};
+use thyllore_animation::ecs::resource::{load_runtime, HelmRuntime, HierarchyState, TimelineState};
 use thyllore_animation::ecs::systems::helm::dispatcher::dispatch_tool_call;
-use thyllore_animation::ecs::UIEventQueue;
 use thyllore_animation::ecs::systems::helm::name_resolver::list_entity_names;
 use thyllore_animation::ecs::world::{Entity, Name, World};
+use thyllore_animation::ecs::UIEventQueue;
 use thyllore_animation::helm::components::route::{HelmMode, Route, RouteKind};
 use thyllore_animation::helm::systems::normalize::normalize_utterance;
-use thyllore_animation::helm::systems::resolution::{resolve_decision, HelmFeedback, ResolvedAction};
+use thyllore_animation::helm::systems::resolution::{
+    resolve_decision, HelmFeedback, ResolvedAction,
+};
 use thyllore_animation::helm::systems::router::{
-    rank_routes, route_utterance, DEFAULT_REJECTION_THRESHOLD, RouterDecision, RouterThresholds,
-    RoutingRequest,
+    rank_routes, route_utterance, RouterDecision, RouterThresholds, RoutingRequest,
+    DEFAULT_REJECTION_THRESHOLD,
 };
 
 const MODEL_DIR_ENV_VAR: &str = "THYLLORE_ROUTER_MODEL_DIR";
@@ -54,7 +54,7 @@ fn build_world() -> (World, Entity) {
 }
 
 fn thresholds() -> RouterThresholds {
-  RouterThresholds {
+    RouterThresholds {
         tau_reject: DEFAULT_REJECTION_THRESHOLD,
         delta: 0.0,
         tau_confirm: 0.0,
@@ -74,8 +74,7 @@ fn e2e_text_to_ui_event_full_path() {
     };
 
     // Load runtime (encoder + index + hash consistency checks)
-    let mut runtime: HelmRuntime =
-        load_runtime(&model_dir).expect("load_runtime must succeed");
+    let mut runtime: HelmRuntime = load_runtime(&model_dir).expect("load_runtime must succeed");
 
     // Spawn a named entity "Hero" in the world
     let mut world = World::new();
@@ -91,7 +90,10 @@ fn e2e_text_to_ui_event_full_path() {
         let (world, hero_entity) = build_world();
         let utterance = "play the animation";
         let normalized = normalize_utterance(utterance);
-        let query = runtime.encoder.encode(utterance).expect("encoder must produce a vector");
+        let query = runtime
+            .encoder
+            .encode(utterance)
+            .expect("encoder must produce a vector");
 
         let decision = route_utterance(
             RoutingRequest {
@@ -122,7 +124,10 @@ fn e2e_text_to_ui_event_full_path() {
         let tool_call = match action {
             ResolvedAction::AwaitConfirm { call, reason } => {
                 assert!(
-                    matches!(call, thyllore_animation::helm::components::tool_call::ToolCall::PlayAnimation),
+                    matches!(
+                        call,
+                        thyllore_animation::helm::components::tool_call::ToolCall::PlayAnimation
+                    ),
                     "expected PlayAnimation call in AwaitConfirm, got {:?}",
                     call
                 );
@@ -150,7 +155,10 @@ fn e2e_text_to_ui_event_full_path() {
                     "expected TimelinePlay event, got {:?}",
                     event
                 );
-                world.get_resource_mut::<UIEventQueue>().unwrap().send(event);
+                world
+                    .get_resource_mut::<UIEventQueue>()
+                    .unwrap()
+                    .send(event);
             }
             other => panic!("expected Command outcome, got {:?}", other),
         }
@@ -167,7 +175,10 @@ fn e2e_text_to_ui_event_full_path() {
     {
         let utterance = "アニメーションを再生して";
         let normalized = normalize_utterance(utterance);
-        let query = runtime.encoder.encode(utterance).expect("encoder must produce a vector");
+        let query = runtime
+            .encoder
+            .encode(utterance)
+            .expect("encoder must produce a vector");
 
         let decision = route_utterance(
             RoutingRequest {
@@ -189,7 +200,10 @@ fn e2e_text_to_ui_event_full_path() {
                     score
                 );
             }
-            other => panic!("expected Accept decision for Japanese utterance, got {:?}", other),
+            other => panic!(
+                "expected Accept decision for Japanese utterance, got {:?}",
+                other
+            ),
         }
     }
 
@@ -200,7 +214,10 @@ fn e2e_text_to_ui_event_full_path() {
         let (world, hero_entity) = build_world();
         let utterance = "select the hero";
         let normalized = normalize_utterance(utterance);
-        let query = runtime.encoder.encode(utterance).expect("encoder must produce a vector");
+        let query = runtime
+            .encoder
+            .encode(utterance)
+            .expect("encoder must produce a vector");
 
         let decision = route_utterance(
             RoutingRequest {
@@ -264,7 +281,10 @@ fn e2e_text_to_ui_event_full_path() {
                     "expected SelectEntity(hero_entity) event, got {:?}",
                     event
                 );
-                world.get_resource_mut::<UIEventQueue>().unwrap().send(event);
+                world
+                    .get_resource_mut::<UIEventQueue>()
+                    .unwrap()
+                    .send(event);
             }
             other => panic!("expected Command outcome, got {:?}", other),
         }
@@ -281,7 +301,10 @@ fn e2e_text_to_ui_event_full_path() {
     {
         let utterance = "play the animation";
         let normalized = normalize_utterance(utterance);
-        let query = runtime.encoder.encode(utterance).expect("encoder must produce a vector");
+        let query = runtime
+            .encoder
+            .encode(utterance)
+            .expect("encoder must produce a vector");
 
         let decision = route_utterance(
             RoutingRequest {
@@ -300,7 +323,10 @@ fn e2e_text_to_ui_event_full_path() {
         match action {
             ResolvedAction::AwaitConfirm { call, reason } => {
                 assert!(
-                    matches!(call, thyllore_animation::helm::components::tool_call::ToolCall::PlayAnimation),
+                    matches!(
+                        call,
+                        thyllore_animation::helm::components::tool_call::ToolCall::PlayAnimation
+                    ),
                     "expected PlayAnimation call in AwaitConfirm, got {:?}",
                     call
                 );
@@ -310,7 +336,10 @@ fn e2e_text_to_ui_event_full_path() {
                     "expected ConfirmAll reason"
                 );
             }
-            other => panic!("expected AwaitConfirm action with confirm_all=true, got {:?}", other),
+            other => panic!(
+                "expected AwaitConfirm action with confirm_all=true, got {:?}",
+                other
+            ),
         }
     }
 
@@ -320,7 +349,10 @@ fn e2e_text_to_ui_event_full_path() {
     {
         let utterance = "list the objects in the scene";
         let normalized = normalize_utterance(utterance);
-        let query = runtime.encoder.encode(utterance).expect("encoder must produce a vector");
+        let query = runtime
+            .encoder
+            .encode(utterance)
+            .expect("encoder must produce a vector");
 
         let decision = route_utterance(
             RoutingRequest {
@@ -354,7 +386,10 @@ fn e2e_text_to_ui_event_full_path() {
         };
 
         assert!(
-            matches!(tool_call, thyllore_animation::helm::components::tool_call::ToolCall::ListObjects),
+            matches!(
+                tool_call,
+                thyllore_animation::helm::components::tool_call::ToolCall::ListObjects
+            ),
             "expected ListObjects tool call"
         );
 
@@ -366,7 +401,10 @@ fn e2e_text_to_ui_event_full_path() {
 
         match outcome {
             thyllore_animation::ecs::systems::helm::dispatcher::DispatchOutcome::Report(_) => {}
-            other => panic!("expected Report outcome for read-only ListObjects, got {:?}", other),
+            other => panic!(
+                "expected Report outcome for read-only ListObjects, got {:?}",
+                other
+            ),
         }
     }
 
@@ -375,10 +413,19 @@ fn e2e_text_to_ui_event_full_path() {
     {
         let utterance = "what is the weather today";
         let normalized = normalize_utterance(utterance);
-        let query = runtime.encoder.encode(&normalized).expect("encoder must produce a vector");
-        let raw_query = runtime.raw_encoder.encode(&normalized).expect("raw encoder must produce a vector");
+        let query = runtime
+            .encoder
+            .encode(&normalized)
+            .expect("encoder must produce a vector");
+        let raw_query = runtime
+            .raw_encoder
+            .encode(&normalized)
+            .expect("raw encoder must produce a vector");
         let raw_ranked = rank_routes(&runtime.raw_index, &raw_query, HelmMode::AllowEdit);
-        let raw_top = raw_ranked.first().map(|(_, s)| *s).unwrap_or(f32::NEG_INFINITY);
+        let raw_top = raw_ranked
+            .first()
+            .map(|(_, s)| *s)
+            .unwrap_or(f32::NEG_INFINITY);
 
         let decision = route_utterance(
             RoutingRequest {
@@ -388,7 +435,7 @@ fn e2e_text_to_ui_event_full_path() {
                 raw_top_score: Some(raw_top),
             },
             &runtime.index,
-           RouterThresholds {
+            RouterThresholds {
                 tau_reject: 0.93,
                 delta: 0.005,
                 tau_confirm: 0.95,
@@ -397,14 +444,21 @@ fn e2e_text_to_ui_event_full_path() {
             },
         );
 
-        assert!(matches!(decision, RouterDecision::Reject { .. }), "production thresholds must reject out-of-domain utterance via raw gate, got {:?}", decision);
+        assert!(
+            matches!(decision, RouterDecision::Reject { .. }),
+            "production thresholds must reject out-of-domain utterance via raw gate, got {:?}",
+            decision
+        );
     }
 
     // Case (7): HelmMode::ReadOnly
     // -> rank_routes results all have route.kind() == RouteKind::ReadOnly
     {
         let utterance = "play the animation";
-        let query = runtime.encoder.encode(utterance).expect("encoder must produce a vector");
+        let query = runtime
+            .encoder
+            .encode(utterance)
+            .expect("encoder must produce a vector");
 
         let ranked = rank_routes(&runtime.index, &query, HelmMode::ReadOnly);
 

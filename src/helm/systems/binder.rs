@@ -52,7 +52,7 @@ fn direct_call(route: Route, normalized_utterance: &str) -> BindOutcome {
             let speed = extract_speed_modifier(normalized_utterance).unwrap_or(SpeedPreset::Normal);
             ToolCall::GenerateMotion(category, speed)
         }
-      // ObjectName slot routes are handled by resolve_object_name
+        // ObjectName slot routes are handled by resolve_object_name
         Route::SelectObject | Route::SetObjectVisibility(_) => unreachable!(
             "slot() returned None for {:?}, but it has an ObjectName slot",
             route
@@ -112,7 +112,10 @@ fn make_object_tool_call(route: Route, name: &str) -> ToolCall {
         Route::SetObjectVisibility(state) => {
             ToolCall::SetObjectVisibility(ObjectName(name.to_string()), state)
         }
-        _ => unreachable!("make_object_tool_call called for non-object route {:?}", route),
+        _ => unreachable!(
+            "make_object_tool_call called for non-object route {:?}",
+            route
+        ),
     }
 }
 
@@ -129,7 +132,10 @@ mod tests {
     #[test]
     fn direct_mapping_set_playback_speed() {
         let outcome = bind(Route::SetPlaybackSpeed(SpeedPreset::Fast), "fast", &[]);
-        assert_eq!(outcome, BindOutcome::Call(ToolCall::SetPlaybackSpeed(SpeedPreset::Fast)));
+        assert_eq!(
+            outcome,
+            BindOutcome::Call(ToolCall::SetPlaybackSpeed(SpeedPreset::Fast))
+        );
     }
 
     #[test]

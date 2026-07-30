@@ -82,7 +82,14 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
     }
 
     // Get feedback, last_routed_tool, submitted_utterance, last_route_latency_ms, last_runtime_load_ms, and pending from HelmState.
-    let (feedback, last_routed_tool, submitted_utterance, last_route_latency_ms, last_runtime_load_ms, has_pending): (
+    let (
+        feedback,
+        last_routed_tool,
+        submitted_utterance,
+        last_route_latency_ms,
+        last_runtime_load_ms,
+        has_pending,
+    ): (
         Option<CommandFeedback>,
         Option<String>,
         Option<String>,
@@ -145,8 +152,12 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
         Some(CommandFeedback::Router(f)) => match f {
             crate::helm::systems::resolution::HelmFeedback::Rejected { .. } => "rejected",
             crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(_) => "clarify",
-            crate::helm::systems::resolution::HelmFeedback::MissingObjectName { .. } => "missing_object",
-            crate::helm::systems::resolution::HelmFeedback::AmbiguousObjectName { .. } => "ambiguous_object",
+            crate::helm::systems::resolution::HelmFeedback::MissingObjectName { .. } => {
+                "missing_object"
+            }
+            crate::helm::systems::resolution::HelmFeedback::AmbiguousObjectName { .. } => {
+                "ambiguous_object"
+            }
             crate::helm::systems::resolution::HelmFeedback::NoCandidate => "no_candidate",
         },
         None => "none",
@@ -164,9 +175,13 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
             let actual_tool = name.split(':').next().unwrap_or(name.as_str());
             actual_tool == expected.as_str()
         }
-        (Some(expected), None, Some(CommandFeedback::Router(
-            crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(candidates),
-        ))) if !candidates.is_empty() => {
+        (
+            Some(expected),
+            None,
+            Some(CommandFeedback::Router(
+                crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(candidates),
+            )),
+        ) if !candidates.is_empty() => {
             let first_route = &candidates[0].0;
             let route_id = first_route.id();
             let actual_tool = route_id.split(':').next().unwrap_or(route_id.as_str());
@@ -195,7 +210,11 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
         let matches: usize = batch
             .results
             .iter()
-            .filter(|r| r.get("tool_match").and_then(|v| v.as_bool()).unwrap_or(false))
+            .filter(|r| {
+                r.get("tool_match")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
+            })
             .count();
         let total = batch.results.len();
 
@@ -204,7 +223,9 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
             .results
             .iter()
             .filter(|r| {
-                r.get("tool_match").and_then(|v| v.as_bool()).unwrap_or(false)
+                r.get("tool_match")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
                     && r.get("decision").and_then(|v| v.as_str()) == Some("executed")
             })
             .count();
@@ -212,7 +233,9 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
             .results
             .iter()
             .filter(|r| {
-                r.get("tool_match").and_then(|v| v.as_bool()).unwrap_or(false)
+                r.get("tool_match")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false)
                     && r.get("decision").and_then(|v| v.as_str()) == Some("clarify")
             })
             .count();
@@ -221,7 +244,11 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
         let mut latencies: Vec<f32> = batch
             .results
             .iter()
-            .filter_map(|r| r.get("latency_ms").and_then(|v| v.as_f64()).map(|f| f as f32))
+            .filter_map(|r| {
+                r.get("latency_ms")
+                    .and_then(|v| v.as_f64())
+                    .map(|f| f as f32)
+            })
             .collect();
         latencies.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
 
@@ -233,7 +260,11 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
         let lazy_load_ms: f32 = batch
             .results
             .iter()
-            .filter_map(|r| r.get("lazy_load_ms").and_then(|v| v.as_f64()).map(|f| f as f32))
+            .filter_map(|r| {
+                r.get("lazy_load_ms")
+                    .and_then(|v| v.as_f64())
+                    .map(|f| f as f32)
+            })
             .sum();
 
         // Read RSS at end.
@@ -247,7 +278,8 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
         }
         let mut file = std::fs::File::create(&batch.out).expect("failed to create output file");
         for result in &batch.results {
-            writeln!(file, "{}", serde_json::to_string(result).unwrap()).expect("failed to write result");
+            writeln!(file, "{}", serde_json::to_string(result).unwrap())
+                .expect("failed to write result");
         }
 
         // Write bench summary JSONL.
@@ -272,13 +304,23 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
             "rss_end_mb": rss_end_kb as f64 / 1024.0,
         });
 
-        let mut bench_file = std::fs::File::create(&bench_path).expect("failed to create bench file");
-        writeln!(bench_file, "{}", serde_json::to_string(&bench_line).unwrap()).expect("failed to write bench result");
+        let mut bench_file =
+            std::fs::File::create(&bench_path).expect("failed to create bench file");
+        writeln!(
+            bench_file,
+            "{}",
+            serde_json::to_string(&bench_line).unwrap()
+        )
+        .expect("failed to write bench result");
 
         let mismatch = total - matches;
         println!(
             "[helm-batch] done: tool_match {}/{} (accept={}, clarify={}) -> {}",
-            matches, total, accept_matches, clarify_matches, batch.out.display()
+            matches,
+            total,
+            accept_matches,
+            clarify_matches,
+            batch.out.display()
         );
         println!("[helm-batch] bench: {:?}", bench_line);
 

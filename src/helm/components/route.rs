@@ -116,7 +116,7 @@ impl Route {
         }
     }
 
-  pub fn from_id(route_id: &str) -> Option<Self> {
+    pub fn from_id(route_id: &str) -> Option<Self> {
         if route_id == "__escape__" {
             return Some(Route::EscapeAnchor);
         }
@@ -126,7 +126,7 @@ impl Route {
             .find(|route| route.id() == route_id)
     }
 
-  pub fn tool_name(self) -> &'static str {
+    pub fn tool_name(self) -> &'static str {
         match self {
             Route::ListObjects => "list_objects",
             Route::DescribeSelection => "describe_selection",
@@ -159,7 +159,7 @@ impl Route {
         }
     }
 
- pub fn is_available_in(self, mode: HelmMode) -> bool {
+    pub fn is_available_in(self, mode: HelmMode) -> bool {
         match self {
             Route::EscapeAnchor => true,
             _ => match mode {
@@ -176,7 +176,7 @@ impl Route {
         }
     }
 
-pub fn bind(self, slots: &RouteSlots) -> Result<ToolCall, BindError> {
+    pub fn bind(self, slots: &RouteSlots) -> Result<ToolCall, BindError> {
         let speed = slots.speed.unwrap_or(SpeedPreset::Normal);
         match self {
             Route::ListObjects => Ok(ToolCall::ListObjects),
@@ -200,7 +200,7 @@ pub fn bind(self, slots: &RouteSlots) -> Result<ToolCall, BindError> {
                 state,
             )),
 
-           Route::EscapeAnchor => Err(BindError::MissingObjectName(Route::EscapeAnchor)),
+            Route::EscapeAnchor => Err(BindError::MissingObjectName(Route::EscapeAnchor)),
             Route::PauseAnimation => Ok(ToolCall::PauseAnimation),
         }
     }

@@ -1127,11 +1127,15 @@ impl App {
             .contains_resource::<crate::ecs::resource::EditHistory>()
         {
             data.ecs_world
-            .insert_resource(crate::ecs::resource::EditHistory::new(100));
+                .insert_resource(crate::ecs::resource::EditHistory::new(100));
         }
 
-        if !data.ecs_world.contains_resource::<crate::ecs::resource::HelmState>() {
-            data.ecs_world.insert_resource(crate::ecs::resource::HelmState::default());
+        if !data
+            .ecs_world
+            .contains_resource::<crate::ecs::resource::HelmState>()
+        {
+            data.ecs_world
+                .insert_resource(crate::ecs::resource::HelmState::default());
         }
 
         // Insert HelmBatchState if --batch-utterance flag is present.
@@ -1158,16 +1162,19 @@ impl App {
                 }
                 kb
             };
-            data.ecs_world.insert_resource(crate::ecs::resource::HelmBatchState {
-                rows,
-                next: 0,
-                out: output_path,
-                results: Vec::new(),
-                injected_last_frame: false,
-                ui_events_before: 0,
-                rss_start_kb,
-            });
-            let mut helm_state = data.ecs_world.resource_mut::<crate::ecs::resource::HelmState>();
+            data.ecs_world
+                .insert_resource(crate::ecs::resource::HelmBatchState {
+                    rows,
+                    next: 0,
+                    out: output_path,
+                    results: Vec::new(),
+                    injected_last_frame: false,
+                    ui_events_before: 0,
+                    rss_start_kb,
+                });
+            let mut helm_state = data
+                .ecs_world
+                .resource_mut::<crate::ecs::resource::HelmState>();
             helm_state.mode = crate::helm::components::route::HelmMode::AllowEdit;
         }
     }

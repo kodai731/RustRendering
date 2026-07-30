@@ -492,22 +492,20 @@ impl WinitPlatform {
                     io.add_key_event(key, pressed);
                 }
             }
-            WindowEvent::Ime(ref ime) => {
-                match ime {
-                    Ime::Preedit(text, _) => {
-                        self.ime_composing = !text.is_empty();
-                    }
-                    Ime::Commit(text) => {
-                        self.ime_composing = false;
-                        for ch in text.chars() {
-                            io.add_input_character(ch);
-                        }
-                    }
-                    Ime::Enabled | Ime::Disabled => {
-                        self.ime_composing = false;
+            WindowEvent::Ime(ref ime) => match ime {
+                Ime::Preedit(text, _) => {
+                    self.ime_composing = !text.is_empty();
+                }
+                Ime::Commit(text) => {
+                    self.ime_composing = false;
+                    for ch in text.chars() {
+                        io.add_input_character(ch);
                     }
                 }
-            }
+                Ime::Enabled | Ime::Disabled => {
+                    self.ime_composing = false;
+                }
+            },
             WindowEvent::CursorMoved { position, .. } => {
                 let position = position.to_logical(window.scale_factor());
                 let position = self.scale_pos_from_winit(window, position);

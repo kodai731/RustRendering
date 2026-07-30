@@ -83,7 +83,9 @@ pub fn find_seed_candidates(
         .iter()
         .filter(|(_, name)| {
             let normalized = normalize_utterance(name);
-            patterns.iter().any(|pattern| normalized.contains(pattern.as_str()))
+            patterns
+                .iter()
+                .any(|pattern| normalized.contains(pattern.as_str()))
         })
         .cloned()
         .collect();

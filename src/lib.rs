@@ -19,11 +19,11 @@ pub mod ecs;
 pub mod exporter;
 #[cfg(feature = "text-to-motion")]
 pub mod grpc;
+pub mod helm;
 pub mod loader;
 pub mod math;
 #[cfg(feature = "ml")]
 pub mod ml;
-pub mod helm;
 pub mod paths;
 pub mod platform;
 pub mod render;

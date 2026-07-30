@@ -25,6 +25,7 @@ mod frame_runner;
 mod frame_systems;
 mod gizmo_systems;
 mod grid_systems;
+pub mod helm;
 mod hierarchy_systems;
 #[cfg(feature = "ml")]
 mod inference_actor_systems;
@@ -34,7 +35,6 @@ pub mod mesh_systems;
 pub mod message_log_systems;
 pub mod object_picking_systems;
 mod onion_skinning_systems;
-pub mod helm;
 pub mod panel_layout_systems;
 pub mod phases;
 mod physical_camera_systems;

@@ -49,7 +49,11 @@ mod tests {
     use crate::animation::BoneId;
     use std::collections::HashMap;
 
-    fn make_clip(id: u64, duration: f32, tracks: HashMap<BoneId, BoneTrack>) -> EditableAnimationClip {
+    fn make_clip(
+        id: u64,
+        duration: f32,
+        tracks: HashMap<BoneId, BoneTrack>,
+    ) -> EditableAnimationClip {
         let mut clip = EditableAnimationClip::new(id, "test".to_string());
         clip.duration = duration;
         clip.tracks = tracks;
@@ -59,7 +63,9 @@ mod tests {
     fn insert_keyframes(curve: &mut PropertyCurve, times: &[f32]) {
         let mut id_counter: u64 = 1;
         for time in times {
-            curve.keyframes.push(EditableKeyframe::new(id_counter, *time, 0.0));
+            curve
+                .keyframes
+                .push(EditableKeyframe::new(id_counter, *time, 0.0));
             id_counter += 1;
         }
     }

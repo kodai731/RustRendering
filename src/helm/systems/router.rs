@@ -203,11 +203,7 @@ fn dot(left: &[f32], right: &[f32]) -> f32 {
 /// The sort is stable and the blocks are in route-table order, so two routes with
 /// the same score come back in that order — the evaluation driver's Python sort
 /// behaves identically, and the tie-break downstream reads position, not score.
-pub fn rank_routes(
-    index: &ExemplarIndex,
-    query: &[f32],
-    mode: HelmMode,
-) -> Vec<(Route, f32)> {
+pub fn rank_routes(index: &ExemplarIndex, query: &[f32], mode: HelmMode) -> Vec<(Route, f32)> {
     assert_eq!(
         query.len(),
         index.dimensions(),
@@ -242,7 +238,7 @@ pub enum RouterDecision {
         needs_confirm: bool,
         raw_near_miss: bool,
     },
-   /// Below the threshold. `best` is what the encoder preferred, which is what a
+    /// Below the threshold. `best` is what the encoder preferred, which is what a
     Reject {
         best: Route,
         score: f32,
@@ -281,7 +277,7 @@ pub fn route_utterance(
         };
     }
 
-   let raw_near_miss = if let Some(raw) = request.raw_top_score {
+    let raw_near_miss = if let Some(raw) = request.raw_top_score {
         if raw < thresholds.tau_raw_nearmiss {
             return match ranked.first() {
                 Some((route, score)) => RouterDecision::Reject {
@@ -302,17 +298,32 @@ pub fn route_utterance(
     };
 
     fn score_of(ranked: &[(Route, f32)], route: Route) -> f32 {
-        ranked.iter().find(|(r, _)| *r == route).map_or(f32::NEG_INFINITY, |(_, s)| *s)
+        ranked
+            .iter()
+            .find(|(r, _)| *r == route)
+            .map_or(f32::NEG_INFINITY, |(_, s)| *s)
     }
 
     let (winner, score) = match outcome {
         TieBreakOutcome::Decided(r) => (r, score_of(&ranked, r)),
         TieBreakOutcome::NotApplicable(r) => {
-            if thresholds.delta > 0.0 && ranked.len() >= 2 && ranked[0].1 - ranked[1].1 < thresholds.delta {
-                let candidates: Vec<(Route, f32)> = ranked.iter().take(3)
-                    .filter(|(_, s)| *s >= thresholds.tau_reject).copied().collect();
+            if thresholds.delta > 0.0
+                && ranked.len() >= 2
+                && ranked[0].1 - ranked[1].1 < thresholds.delta
+            {
+                let candidates: Vec<(Route, f32)> = ranked
+                    .iter()
+                    .take(3)
+                    .filter(|(_, s)| *s >= thresholds.tau_reject)
+                    .copied()
+                    .collect();
                 match candidates[..] {
-                    [] => return RouterDecision::Reject { best: ranked[0].0, score: ranked[0].1 },
+                    [] => {
+                        return RouterDecision::Reject {
+                            best: ranked[0].0,
+                            score: ranked[0].1,
+                        }
+                    }
                     [single] => single,
                     _ => return RouterDecision::Clarify { candidates },
                 }
@@ -322,10 +333,19 @@ pub fn route_utterance(
         }
         TieBreakOutcome::Undecided(r) => {
             if thresholds.delta > 0.0 && ranked.len() >= 2 {
-                let candidates: Vec<(Route, f32)> = ranked.iter().take(2)
-                    .filter(|(_, s)| *s >= thresholds.tau_reject).copied().collect();
+                let candidates: Vec<(Route, f32)> = ranked
+                    .iter()
+                    .take(2)
+                    .filter(|(_, s)| *s >= thresholds.tau_reject)
+                    .copied()
+                    .collect();
                 match candidates[..] {
-                    [] => return RouterDecision::Reject { best: ranked[0].0, score: ranked[0].1 },
+                    [] => {
+                        return RouterDecision::Reject {
+                            best: ranked[0].0,
+                            score: ranked[0].1,
+                        }
+                    }
                     [single] => single,
                     _ => return RouterDecision::Clarify { candidates },
                 }
@@ -335,7 +355,7 @@ pub fn route_utterance(
         }
     };
 
-   if score >= thresholds.tau_reject {
+    if score >= thresholds.tau_reject {
         let needs_confirm = score < thresholds.tau_confirm;
         RouterDecision::Accept {
             route: winner,
@@ -343,7 +363,7 @@ pub fn route_utterance(
             needs_confirm,
             raw_near_miss,
         }
-   } else {
+    } else {
         RouterDecision::Reject {
             best: winner,
             score,
@@ -401,11 +421,7 @@ mod tests {
     #[test]
     fn a_route_scores_as_its_single_closest_exemplar() {
         let index = two_route_index();
-        let ranked = rank_routes(
-            &index,
-            &unit([0.0, 0.9, 0.1, 0.0]),
-            HelmMode::AllowEdit,
-        );
+        let ranked = rank_routes(&index, &unit([0.0, 0.9, 0.1, 0.0]), HelmMode::AllowEdit);
 
         assert_eq!(ranked[0].0, Route::PauseAnimation);
         assert!(
@@ -451,11 +467,7 @@ mod tests {
             ("pause_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
             ("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
         ]);
-        let ranked = rank_routes(
-            &index,
-            &unit([1.0, 0.0, 0.0, 0.0]),
-            HelmMode::AllowEdit,
-        );
+        let ranked = rank_routes(&index, &unit([1.0, 0.0, 0.0, 0.0]), HelmMode::AllowEdit);
 
         assert_eq!(ranked[0].0, Route::PauseAnimation);
         assert_eq!(ranked[1].0, Route::PlayAnimation);
@@ -467,11 +479,7 @@ mod tests {
             ("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])]),
             ("list_objects", vec![unit([0.0, 1.0, 0.0, 0.0])]),
         ]);
-        let ranked = rank_routes(
-            &index,
-            &unit([1.0, 0.0, 0.0, 0.0]),
-            HelmMode::ReadOnly,
-        );
+        let ranked = rank_routes(&index, &unit([1.0, 0.0, 0.0, 0.0]), HelmMode::ReadOnly);
 
         assert_eq!(ranked, vec![(Route::ListObjects, 0.0)]);
     }
@@ -479,7 +487,7 @@ mod tests {
     #[test]
     fn a_mode_that_allows_nothing_yields_no_candidate() {
         let index = load(&[("play_animation", vec![unit([1.0, 0.0, 0.0, 0.0])])]);
-       let decision = route_utterance(
+        let decision = route_utterance(
             RoutingRequest {
                 utterance: "play it",
                 query_vector: &unit([1.0, 0.0, 0.0, 0.0]),
@@ -525,7 +533,7 @@ mod tests {
         );
     }
 
-   /// The threshold must see the promoted route's own score. Reading the leader's
+    /// The threshold must see the promoted route's own score. Reading the leader's
     /// instead would let a swap smuggle a route past a threshold it never met.
     #[test]
     fn a_promoted_runner_up_is_thresholded_on_its_own_score() {
@@ -543,9 +551,19 @@ mod tests {
         let ranked = rank_routes(&index, &query, HelmMode::AllowEdit);
         let runner_up_score = ranked[1].1;
 
-       assert_eq!(ranked[0].0, Route::SeekTime(SeekPosition::NextKey));
+        assert_eq!(ranked[0].0, Route::SeekTime(SeekPosition::NextKey));
         assert_eq!(
-            route_utterance(request, &index, RouterThresholds { tau_reject: 0.0, delta: 0.0, tau_confirm: 0.0, tau_raw: 0.0, tau_raw_nearmiss: 0.0 }),
+            route_utterance(
+                request,
+                &index,
+                RouterThresholds {
+                    tau_reject: 0.0,
+                    delta: 0.0,
+                    tau_confirm: 0.0,
+                    tau_raw: 0.0,
+                    tau_raw_nearmiss: 0.0
+                }
+            ),
             RouterDecision::Accept {
                 route: Route::SeekTime(SeekPosition::PrevKey),
                 score: runner_up_score,
@@ -687,7 +705,12 @@ mod tests {
         // single survivor = start -> Accept with start's score
 
         match decision {
-          RouterDecision::Accept { route, score, needs_confirm, .. } => {
+            RouterDecision::Accept {
+                route,
+                score,
+                needs_confirm,
+                ..
+            } => {
                 assert_eq!(route, Route::SeekTime(SeekPosition::Start));
                 assert!((score - 0.995).abs() < 1e-4, "score = {}", score);
                 assert!(!needs_confirm);
@@ -764,11 +787,24 @@ mod tests {
 
         match decision {
             RouterDecision::Clarify { candidates } => {
-                assert_eq!(candidates.len(), 2, "expected 2 candidates, got {:?}", candidates);
+                assert_eq!(
+                    candidates.len(),
+                    2,
+                    "expected 2 candidates, got {:?}",
+                    candidates
+                );
                 assert_eq!(candidates[0].0, Route::SeekTime(SeekPosition::Start));
-                assert!((candidates[0].1 - 1.0).abs() < 1e-6, "expected score ~1.0, got {}", candidates[0].1);
+                assert!(
+                    (candidates[0].1 - 1.0).abs() < 1e-6,
+                    "expected score ~1.0, got {}",
+                    candidates[0].1
+                );
                 assert_eq!(candidates[1].0, Route::SeekTime(SeekPosition::End));
-                assert!((candidates[1].1 - 0.7).abs() < 1e-2, "expected score ~0.7, got {}", candidates[1].1);
+                assert!(
+                    (candidates[1].1 - 0.7).abs() < 1e-2,
+                    "expected score ~0.7, got {}",
+                    candidates[1].1
+                );
             }
             other => panic!("expected Clarify, got {:?}", other),
         }
@@ -786,7 +822,7 @@ mod tests {
         // Query very close to play_animation
         let query = unit([1.0, 0.0, 0.0, 0.0]);
 
-      let decision = route_utterance(
+        let decision = route_utterance(
             RoutingRequest {
                 utterance: "play it",
                 query_vector: &query,

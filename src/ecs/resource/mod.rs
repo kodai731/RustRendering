@@ -28,6 +28,8 @@ mod graphics;
 mod grid_state;
 #[cfg(feature = "text-to-motion")]
 mod grpc_server_process;
+mod helm_batch;
+mod helm_state;
 mod hierarchy_state;
 #[cfg(feature = "ml")]
 mod inference_actor_state;
@@ -57,8 +59,6 @@ mod tone_mapping;
 mod transform_gizmo_state;
 mod view_mode;
 mod weight_heatmap;
-mod helm_state;
-mod helm_batch;
 
 pub use billboard::*;
 pub use gizmo::*;
@@ -90,6 +90,8 @@ pub use graphics::*;
 pub use grid_state::*;
 #[cfg(feature = "text-to-motion")]
 pub use grpc_server_process::*;
+pub use helm_batch::*;
+pub use helm_state::*;
 pub use hierarchy_state::*;
 #[cfg(feature = "ml")]
 pub use inference_actor_state::*;
@@ -119,5 +121,3 @@ pub use tone_mapping::*;
 pub use transform_gizmo_state::*;
 pub use view_mode::*;
 pub use weight_heatmap::*;
-pub use helm_state::*;
-pub use helm_batch::*;

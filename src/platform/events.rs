@@ -336,11 +336,7 @@ fn build_ui_windows(
         );
     }
 
-    crate::platform::ui::build_command_bar(
-        ui,
-        command_bar_state,
-        &app.data.ecs_world,
-    );
+    crate::platform::ui::build_command_bar(ui, command_bar_state, &app.data.ecs_world);
 
     consume_needs_focus(app);
 }

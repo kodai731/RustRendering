@@ -24,25 +24,29 @@ fn feedback_text(feedback: &crate::ecs::resource::CommandFeedback) -> String {
         crate::ecs::resource::CommandFeedback::Executed(report) => format!("実行済み: {}", report),
         crate::ecs::resource::CommandFeedback::DispatchError(err) => format!("エラー: {}", err),
         crate::ecs::resource::CommandFeedback::Unavailable(s) => s.clone(),
-        crate::ecs::resource::CommandFeedback::Router(orch_feedback) => {
-            match orch_feedback {
-                crate::helm::systems::resolution::HelmFeedback::Rejected { best, .. } => {
-                    format!("未実行: {:?} の可能性 — 言い換えるか候補を確認してください", best)
-                }
-                crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(_) => {
-                    "複数の候補があります。下のボタンから選択してください".to_string()
-                }
-                crate::helm::systems::resolution::HelmFeedback::MissingObjectName { .. } => {
-                    "対象オブジェクト名が見つかりません。名前を含めて言い直してください".to_string()
-                }
-                crate::helm::systems::resolution::HelmFeedback::AmbiguousObjectName { candidates } => {
-                    format!("曖昧な名前: {:?} — 特定の名前を指定してください", candidates)
-                }
-                crate::helm::systems::resolution::HelmFeedback::NoCandidate => {
-                    "一致する候補が見つかりませんでした".to_string()
-                }
+        crate::ecs::resource::CommandFeedback::Router(orch_feedback) => match orch_feedback {
+            crate::helm::systems::resolution::HelmFeedback::Rejected { best, .. } => {
+                format!(
+                    "未実行: {:?} の可能性 — 言い換えるか候補を確認してください",
+                    best
+                )
             }
-        }
+            crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(_) => {
+                "複数の候補があります。下のボタンから選択してください".to_string()
+            }
+            crate::helm::systems::resolution::HelmFeedback::MissingObjectName { .. } => {
+                "対象オブジェクト名が見つかりません。名前を含めて言い直してください".to_string()
+            }
+            crate::helm::systems::resolution::HelmFeedback::AmbiguousObjectName { candidates } => {
+                format!(
+                    "曖昧な名前: {:?} — 特定の名前を指定してください",
+                    candidates
+                )
+            }
+            crate::helm::systems::resolution::HelmFeedback::NoCandidate => {
+                "一致する候補が見つかりませんでした".to_string()
+            }
+        },
     }
 }
 
@@ -86,7 +90,8 @@ pub fn build_command_bar(ui: &Ui, state_ui: &mut CommandBarState, world: &World)
     // ③ ClarifyOptions: candidate buttons
     let options_snapshot = if let Some(crate::ecs::resource::CommandFeedback::Router(
         crate::helm::systems::resolution::HelmFeedback::ClarifyOptions(options),
-    )) = &helm_state.feedback {
+    )) = &helm_state.feedback
+    {
         Some(options.clone())
     } else {
         None
