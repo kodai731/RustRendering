@@ -98,6 +98,9 @@ fn main() -> Result<()> {
                     temperature_tip_k: 1100.0 - 150.0 * i as f32,
                     ..FlameEffect::default()
                 };
+                if let Some(name) = overrides.flame_preset.as_deref() {
+                    thyllore_render_core::apply_flame_preset(&mut effect, name);
+                }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
                 app.data.ecs_world.insert_component(e, effect);
@@ -112,6 +115,9 @@ fn main() -> Result<()> {
         let entities: Vec<_> = app.data.ecs_world.query_flames();
         for e in entities {
             if let Some(mut effect) = app.data.ecs_world.get_component_mut::<FlameEffect>(e) {
+                if let Some(name) = overrides.flame_preset.as_deref() {
+                    thyllore_render_core::apply_flame_preset(&mut effect, name);
+                }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
             }
@@ -145,6 +151,28 @@ fn main() -> Result<()> {
         });
     }
 
+    // Apply flame_motion override: insert MotionPath component on first flame entity
+    if let Some((radius, angular_speed)) = overrides.flame_motion {
+        let entities: Vec<_> = app.data.ecs_world.query_flames();
+        if let Some(&first) = entities.first() {
+            let center = app
+                .data
+                .ecs_world
+                .get_component::<FlameEffect>(first)
+                .map(|e| e.position)
+                .unwrap_or(cgmath::Vector3::new(0.0, 0.0, 0.0));
+            app.data.ecs_world.insert_component(
+                first,
+                thyllore_animation::ecs::component::MotionPath {
+                    center,
+                    radius,
+                    angular_speed,
+                    phase_offset: 0.0,
+                    enabled: true,
+                },
+            );
+        }
+    }
     // Apply batch_play override: start timeline playback for deterministic batch clip runs
     if overrides.batch_play {
         let first = {

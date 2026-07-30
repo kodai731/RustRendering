@@ -30,6 +30,7 @@ impl App {
                 time,
                 delta_time,
                 image_index,
+                frame_slot: self.frame % crate::app::init::MAX_FRAMES_IN_FLIGHT,
                 swapchain_extent: viewport_extent,
                 graphics: &mut self.data.graphics_resources,
                 raytracing: &mut self.data.raytracing,

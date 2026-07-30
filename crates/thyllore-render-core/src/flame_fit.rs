@@ -182,6 +182,78 @@ pub fn fit_envelope_from_profile(
     Some((best_p, best_v0, best_q))
 }
 
+pub fn fit_envelope_from_profile_saturated(
+    profile: &[f32],
+    taper_tip: f32,
+    taper_power: f32,
+) -> Option<(f32, f32, f32, f32)> {
+    if profile.len() < 4 || profile.iter().all(|&v| v.abs() < 1e-9) {
+        return None;
+    }
+
+    let n = profile.len();
+    let k_values: [f64; 6] = [0.0, 0.5, 1.0, 2.0, 4.0, 8.0];
+
+    let mut best_sse = f32::INFINITY;
+    let mut best_p = 0.05f32;
+    let mut best_v0 = 0.0f32;
+    let mut best_q = 0.5f32;
+    let mut best_k = 0.0f32;
+
+    for &k in &k_values {
+        for p_i in 1..=16 {
+            let p = p_i as f32 * 0.05;
+            for v0_i in 0..=19 {
+                let v0 = v0_i as f32 * 0.05;
+                for q_i in 2..=16 {
+                    let q = q_i as f32 * 0.25;
+
+                    // Build model samples and normalize to max 1
+                    let mut model: Vec<f64> = Vec::with_capacity(n);
+                    for i in 0..n {
+                        let h = i as f64 / (n - 1) as f64;
+                        let envelope = crate::flame::parametric_height_falloff(
+                            h, p as f64, v0 as f64, q as f64,
+                        );
+                        let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
+                        model.push(envelope * taper);
+                    }
+
+                    let model_max = model.iter().cloned().fold(0.0f64, f64::max);
+                    if model_max < 1e-9 {
+                        continue;
+                    }
+
+                    // SSE against profile with Beer-Lambert saturation
+                    let mut sse = 0.0f32;
+                    for i in 0..n {
+                        let normalized = (model[i] / model_max) as f32;
+                        let predicted = if k > 0.0 {
+                            let ek = (-k * normalized as f64).exp();
+                            let denom = 1.0 - (-k).exp();
+                            ((1.0 - ek) / denom) as f32
+                        } else {
+                            normalized
+                        };
+                        let diff = profile[i] - predicted;
+                        sse += diff * diff;
+                    }
+
+                    if sse < best_sse {
+                        best_sse = sse;
+                        best_p = p;
+                        best_v0 = v0;
+                        best_q = q;
+                        best_k = k as f32;
+                    }
+                }
+            }
+        }
+    }
+
+    Some((best_p, best_v0, best_q, best_k))
+}
+
 /// Least-squares grid search over tip_ratio and power for the taper portion of a flame profile.
 /// Only uses rows with h >= the h of the widest row (the taper applies above the bulge).
 /// Grid: tip_ratio in 0.05..=0.6 (step 0.05), power in 0.5..=3.0 (step 0.1).
@@ -784,5 +856,161 @@ mod tests {
         let profile = [0.0, 0.5, 0.0];
         let cropped = crop_profile_to_span(&profile, 0.05);
         assert_eq!(cropped, Some(vec![0.5]));
+    }
+
+    #[test]
+    fn test_fit_envelope_from_profile_saturated_linear_matches() {
+        // Synthesize a linear (k=0) profile from known parameters: p=0.25, v0=0.05, q=1.25
+        let samples = 64;
+        let true_p: f64 = 0.25;
+        let true_v0: f64 = 0.05;
+        let true_q: f64 = 1.25;
+        let taper_tip: f32 = 0.10;
+        let taper_power: f32 = 1.4;
+
+        let mut model: Vec<f64> = Vec::with_capacity(samples);
+        for i in 0..samples {
+            let h = i as f64 / (samples - 1) as f64;
+            let envelope = crate::flame::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
+            model.push(envelope * taper);
+        }
+
+        let model_max = model.iter().cloned().fold(0.0f64, f64::max);
+        let profile: Vec<f32> = model.iter().map(|&v| (v / model_max) as f32).collect();
+
+        // Saturated fit should choose k=0 and match the linear fit
+        let sat_result = fit_envelope_from_profile_saturated(&profile, taper_tip, taper_power);
+        assert!(sat_result.is_some(), "saturated fit should return Some");
+        let (sat_p, sat_v0, sat_q, sat_k) = sat_result.unwrap();
+
+        // Linear fit for comparison
+        let lin_result = fit_envelope_from_profile(&profile, taper_tip, taper_power);
+        assert!(lin_result.is_some(), "linear fit should return Some");
+        let (lin_p, lin_v0, lin_q) = lin_result.unwrap();
+
+        // Saturated version should choose k=0
+        assert_eq!(
+            sat_k, 0.0,
+            "saturated fit should choose k=0 for linear profile"
+        );
+
+        // Should return same (peak, base, tail) as linear fit
+        assert!(
+            (sat_p - lin_p).abs() < 1e-6,
+            "peak mismatch: {} vs {}",
+            sat_p,
+            lin_p
+        );
+        assert!(
+            (sat_v0 - lin_v0).abs() < 1e-6,
+            "base mismatch: {} vs {}",
+            sat_v0,
+            lin_v0
+        );
+        assert!(
+            (sat_q - lin_q).abs() < 1e-6,
+            "tail mismatch: {} vs {}",
+            sat_q,
+            lin_q
+        );
+    }
+
+    #[test]
+    fn test_fit_envelope_from_profile_saturated_better_than_linear() {
+        // Synthesize a profile with k=4 saturation from known parameters: p=0.25, v0=0.05, q=1.25
+        let samples = 64;
+        let true_p: f64 = 0.25;
+        let true_v0: f64 = 0.05;
+        let true_q: f64 = 1.25;
+        let taper_tip: f32 = 0.10;
+        let taper_power: f32 = 1.4;
+        let k_sat: f64 = 4.0;
+
+        let mut model: Vec<f64> = Vec::with_capacity(samples);
+        for i in 0..samples {
+            let h = i as f64 / (samples - 1) as f64;
+            let envelope = crate::flame::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
+            model.push(envelope * taper);
+        }
+
+        let model_max = model.iter().cloned().fold(0.0f64, f64::max);
+        // Apply Beer-Lambert saturation to create the profile
+        let profile: Vec<f32> = model
+            .iter()
+            .map(|&v| {
+                let normalized = (v / model_max) as f32;
+                let ek = (-k_sat * normalized as f64).exp();
+                let denom = 1.0 - (-k_sat).exp();
+                ((1.0 - ek) / denom) as f32
+            })
+            .collect();
+
+        // Compute error of linear fit's (peak, base, tail) against true values
+        let lin_result = fit_envelope_from_profile(&profile, taper_tip, taper_power);
+        assert!(lin_result.is_some(), "linear fit should return Some");
+        let (lin_p, lin_v0, lin_q) = lin_result.unwrap();
+        let lin_error = (lin_p - true_p as f32).abs()
+            + (lin_v0 - true_v0 as f32).abs()
+            + (lin_q - true_q as f32).abs();
+
+        // Compute error of saturated fit's (peak, base, tail) against true values
+        let sat_result = fit_envelope_from_profile_saturated(&profile, taper_tip, taper_power);
+        assert!(sat_result.is_some(), "saturated fit should return Some");
+        let (sat_p, sat_v0, sat_q, _) = sat_result.unwrap();
+        let sat_error = (sat_p - true_p as f32).abs()
+            + (sat_v0 - true_v0 as f32).abs()
+            + (sat_q - true_q as f32).abs();
+
+        // Saturated version's error should be <= linear version's error
+        assert!(
+            sat_error <= lin_error,
+            "saturated error ({:.4}) should be <= linear error ({:.4})",
+            sat_error,
+            lin_error
+        );
+    }
+
+    #[test]
+    fn test_fit_envelope_from_profile_saturated_k_choice() {
+        // Synthesize a profile with k=4 saturation from known parameters: p=0.25, v0=0.05, q=1.25
+        let samples = 64;
+        let true_p: f64 = 0.25;
+        let true_v0: f64 = 0.05;
+        let true_q: f64 = 1.25;
+        let taper_tip: f32 = 0.10;
+        let taper_power: f32 = 1.4;
+        let k_sat: f64 = 4.0;
+
+        let mut model: Vec<f64> = Vec::with_capacity(samples);
+        for i in 0..samples {
+            let h = i as f64 / (samples - 1) as f64;
+            let envelope = crate::flame::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
+            model.push(envelope * taper);
+        }
+
+        let model_max = model.iter().cloned().fold(0.0f64, f64::max);
+        // Apply Beer-Lambert saturation to create the profile
+        let profile: Vec<f32> = model
+            .iter()
+            .map(|&v| {
+                let normalized = (v / model_max) as f32;
+                let ek = (-k_sat * normalized as f64).exp();
+                let denom = 1.0 - (-k_sat).exp();
+                ((1.0 - ek) / denom) as f32
+            })
+            .collect();
+
+        // Saturated fit should choose k >= 2 for a k=4 synthesized profile
+        let sat_result = fit_envelope_from_profile_saturated(&profile, taper_tip, taper_power);
+        assert!(sat_result.is_some(), "saturated fit should return Some");
+        let (_, _, _, sat_k) = sat_result.unwrap();
+        assert!(
+            sat_k >= 2.0,
+            "saturated fit should choose k >= 2 for k=4 synthesis, got {}",
+            sat_k
+        );
     }
 }

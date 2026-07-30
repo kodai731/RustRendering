@@ -651,6 +651,7 @@ impl App {
             gizmo_create_buffers(
                 &mut gizmo_data.mesh,
                 &mut backend,
+                0,
                 crate::render::BufferMemoryType::DeviceLocal,
             )
             .expect("Failed to create gizmo buffers");
@@ -672,6 +673,7 @@ impl App {
             gizmo_create_buffers(
                 &mut light_gizmo_data.mesh,
                 &mut backend,
+                0,
                 crate::render::BufferMemoryType::HostVisible,
             )
             .expect("Failed to create light gizmo buffers");
@@ -929,15 +931,16 @@ impl App {
         let (mut grid_mesh, xz_only_index_count) = create_grid_mesh();
         let grid_scale = create_default_grid_scale();
 
-        grid_mesh.vertex_buffer_handle = data.buffer_registry.create_vertex_buffer(
+        grid_mesh.vertex_buffer_handles[0] = data.buffer_registry.create_vertex_buffer(
             instance,
             rrdevice,
             rrcommand_pool,
             &grid_mesh.vertices,
             crate::render::BufferMemoryType::DeviceLocal,
         )?;
+        grid_mesh.last_written_slot = 0;
 
-        grid_mesh.index_buffer_handle = data.buffer_registry.create_index_buffer(
+        grid_mesh.index_buffer_handles[0] = data.buffer_registry.create_index_buffer(
             instance,
             rrdevice,
             rrcommand_pool,

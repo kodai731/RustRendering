@@ -3,6 +3,7 @@ mod billboard;
 mod buffer_handle;
 mod flame;
 pub mod flame_fit;
+mod flame_presets;
 mod flame_radial;
 pub mod flame_sdf;
 mod flame_shell;
@@ -25,6 +26,7 @@ pub use flame::{
     refresh_flame_coefficients, FlameCoefficients, FlameEffect, FlameProfile, FlameRenderSettings,
     FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
 };
+pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
 pub use flame_radial::{
     evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_gaussian_scale,
     integrate_radial_emission, FlameRadialTaper, FLAME_RADIAL_BAND_COUNT,
@@ -40,7 +42,7 @@ pub use gizmo::{
     TransformGizmoHandle,
 };
 pub use gizmo_data::{BoneGizmoData, ConstraintGizmoData, GridMeshData, LightGizmoData};
-pub use mesh::{DynamicMesh, GpuMeshRef, LineMesh, MeshScale, RenderInfo};
+pub use mesh::{DynamicMesh, GpuMeshRef, LineMesh, MeshScale, RenderInfo, FRAMES_IN_FLIGHT};
 pub use projection::{DistanceAttenuation, ProjectionData};
 pub use render_data::{MeshHandle, ObjectIndex, RenderData, SkeletonHandle};
 pub use settings::{

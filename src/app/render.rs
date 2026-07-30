@@ -1306,7 +1306,7 @@ impl App {
         let vertex_buffer = match self
             .data
             .buffer_registry
-            .get_vertex_buffer(billboard.mesh.vertex_buffer_handle)
+            .get_vertex_buffer(billboard.mesh.current_vertex_buffer_handle())
         {
             Some(b) => b,
             None => return,
@@ -1314,7 +1314,7 @@ impl App {
         let index_buffer = match self
             .data
             .buffer_registry
-            .get_index_buffer(billboard.mesh.index_buffer_handle)
+            .get_index_buffer(billboard.mesh.current_index_buffer_handle())
         {
             Some(b) => b,
             None => return,

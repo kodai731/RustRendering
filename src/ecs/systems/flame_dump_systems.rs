@@ -47,7 +47,8 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
         "envelope_base": effect.envelope_base,
         "envelope_tail": effect.envelope_tail,
         "radial_sharpness": effect.radial_sharpness,
-        "occlusion_lum_ref": effect.occlusion_lum_ref
+        "occlusion_lum_ref": effect.occlusion_lum_ref,
+        "contour_wiggle_amp": effect.contour_wiggle_amp
     })
 }
 

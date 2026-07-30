@@ -20,6 +20,8 @@ const BATCH_FLAME_COUNT_FLAG: &str = "--batch-flame-count";
 const BATCH_FLAME_TRAIL_FLAG: &str = "--batch-flame-trail";
 const BATCH_FLAME_ORBIT_FLAG: &str = "--batch-flame-orbit";
 const BATCH_FLAME_BONE_FLAG: &str = "--batch-flame-bone";
+const BATCH_FLAME_PRESET_FLAG: &str = "--batch-flame-preset";
+const BATCH_FLAME_MOTION_FLAG: &str = "--batch-flame-motion";
 const BATCH_FLAME_SDF_FLAG: &str = "--batch-flame-sdf";
 const BATCH_FLAME_SET_FLAG: &str = "--batch-flame-set";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
@@ -39,9 +41,11 @@ pub struct EngineCliOverrides {
     pub gpu_timings_path: Option<String>,
     pub exposure_dump_path: Option<String>,
     pub flame_count: Option<usize>,
+    pub flame_preset: Option<String>,
     pub flame_set: Vec<(String, f32)>,
     pub flame_trail: Option<f32>,
     pub flame_orbit: Option<(f32, f32)>,
+    pub flame_motion: Option<(f32, f32)>,
     pub flame_bone: Option<String>,
     pub flame_sdf: Option<String>,
     pub batch_play: bool,
@@ -57,9 +61,11 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         gpu_timings_path: gpu_timings_path_resolve_from_args(args)?,
         exposure_dump_path: exposure_dump_path_resolve_from_args(args)?,
         flame_count: flame_count_resolve_from_args(args)?,
+        flame_preset: flame_preset_resolve_from_args(args)?,
         flame_set: flame_set_resolve_from_args(args)?,
         flame_trail: flame_trail_resolve_from_args(args)?,
         flame_orbit: flame_orbit_resolve_from_args(args)?,
+        flame_motion: flame_motion_resolve_from_args(args)?,
         flame_bone: flame_bone_resolve_from_args(args)?,
         flame_sdf: flame_sdf_resolve_from_args(args)?,
         batch_play: args.iter().any(|a| a == "--batch-play"),
@@ -243,6 +249,7 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "noise_aniso_y",
     "warp_y_scale",
     "occlusion_lum_ref",
+    "contour_wiggle_amp",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -288,6 +295,23 @@ fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
     Ok(pairs)
 }
 
+fn flame_preset_resolve_from_args(args: &[String]) -> Result<Option<String>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_PRESET_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_FLAME_PRESET_FLAG} requires <name>");
+    };
+    if !thyllore_render_core::FLAME_PRESET_NAMES.contains(&value.as_str()) {
+        bail!(
+            "unknown flame preset '{}'. Valid presets: {}",
+            value,
+            thyllore_render_core::FLAME_PRESET_NAMES.join(", ")
+        );
+    }
+    Ok(Some(value.clone()))
+}
+
 fn flame_trail_resolve_from_args(args: &[String]) -> Result<Option<f32>> {
     let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_TRAIL_FLAG) else {
         return Ok(None);
@@ -329,6 +353,30 @@ fn flame_orbit_resolve_from_args(args: &[String]) -> Result<Option<(f32, f32)>> 
     Ok(Some((radius, period)))
 }
 
+fn flame_motion_resolve_from_args(args: &[String]) -> Result<Option<(f32, f32)>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_MOTION_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_FLAME_MOTION_FLAG} requires <radius>,<angular_speed>");
+    };
+    let parts: Vec<&str> = value.split(',').collect();
+    if parts.len() != 2 {
+        bail!("{BATCH_FLAME_MOTION_FLAG} expects 2 comma-separated values, got '{value}'");
+    }
+    let radius: f32 = parts[0]
+        .trim()
+        .parse::<f32>()
+        .map_err(|_| anyhow::anyhow!("invalid {BATCH_FLAME_MOTION_FLAG} radius in '{value}'"))?;
+    let angular_speed: f32 = parts[1].trim().parse::<f32>().map_err(|_| {
+        anyhow::anyhow!("invalid {BATCH_FLAME_MOTION_FLAG} angular_speed in '{value}'")
+    })?;
+    if !radius.is_finite() || radius < 0.0 || !angular_speed.is_finite() {
+        bail!("{BATCH_FLAME_MOTION_FLAG} radius must be >= 0 and angular_speed finite: '{value}'");
+    }
+    Ok(Some((radius, angular_speed)))
+}
+
 fn flame_bone_resolve_from_args(args: &[String]) -> Result<Option<String>> {
     let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_BONE_FLAG) else {
         return Ok(None);
@@ -366,19 +414,10 @@ pub fn compute_orbit_offset(radius: f32, period_seconds: f32, t_seconds: f32) ->
 }
 
 /// Update flame entity Transform positions based on BatchFlameOrbit resource.
-/// Saves initial position on first run, then applies circular orbit offset each frame.
+/// On first run (initial is None), determines the initial position from the first flame's
+/// Transform.translation (or (0,0,0) if missing) and inserts MotionPath components for all
+/// flame entities. Subsequent calls are no-ops — position updates are handled by sync_motion_paths.
 pub fn batch_run_update_orbit(world: &mut World) {
-    // Extract frames_rendered first to avoid holding an immutable borrow on world
-    let frames_rendered = match world.get_resource::<BatchRun>() {
-        Some(b) => b.frames_rendered,
-        None => return,
-    };
-
-    let flame_entities: Vec<_> = world.query_flames();
-    if flame_entities.is_empty() {
-        return;
-    }
-
     // Extract orbit params and initial from resource, then drop the borrow before mutating components
     let (radius, period_seconds, initial) = {
         let mut orbit = match world.get_resource_mut::<crate::ecs::resource::BatchFlameOrbit>() {
@@ -387,38 +426,39 @@ pub fn batch_run_update_orbit(world: &mut World) {
         };
         let radius = orbit.radius;
         let period_seconds = orbit.period_seconds;
-        let initial = if orbit.initial.is_none() {
+        // Only act when initial is None (first run)
+        if orbit.initial.is_some() {
+            return;
+        }
+        let flame_entities: Vec<_> = world.query_flames();
+        let pos = if flame_entities.is_empty() {
+            cgmath::Vector3::new(0.0, 0.0, 0.0)
+        } else {
             let first = flame_entities[0];
-            let pos = world
+            world
                 .get_component::<crate::ecs::world::Transform>(first)
                 .map(|t| t.translation)
-                .unwrap_or(cgmath::Vector3::new(0.0, 0.0, 0.0));
-            orbit.initial = Some(pos);
-            pos
-        } else {
-            orbit.initial.unwrap()
+                .unwrap_or(cgmath::Vector3::new(0.0, 0.0, 0.0))
         };
-        (radius, period_seconds, initial)
+        orbit.initial = Some(pos);
+        (radius, period_seconds, pos)
     };
 
-    let t = frames_rendered as f32 * (1.0 / 60.0);
-    let offset = compute_orbit_offset(radius, period_seconds, t);
-    let new_pos = cgmath::Vector3::new(
-        initial.x + offset[0],
-        initial.y + offset[1],
-        initial.z + offset[2],
-    );
+    // Guard: period_seconds <= 0 means no motion (degenerate orbit), so insert nothing
+    if period_seconds <= 0.0 {
+        return;
+    }
 
+    let flame_entities: Vec<_> = world.query_flames();
     for &e in &flame_entities {
-        if let Some(mut transform) = world.get_component_mut::<crate::ecs::world::Transform>(e) {
-            transform.translation = new_pos;
-        } else {
-            let transform = crate::ecs::world::Transform {
-                translation: new_pos,
-                ..Default::default()
-            };
-            world.insert_component(e, transform);
-        }
+        let path = crate::ecs::component::MotionPath {
+            center: initial,
+            radius,
+            angular_speed: 2.0 * std::f32::consts::PI / period_seconds,
+            phase_offset: 0.0,
+            enabled: true,
+        };
+        world.insert_component(e, path);
     }
 }
 
@@ -466,6 +506,7 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "ring_major_radius" => effect.ring_major_radius = *value,
             "ring_angular_speed" => effect.ring_angular_speed = *value,
             "occlusion_lum_ref" => effect.occlusion_lum_ref = *value,
+            "contour_wiggle_amp" => effect.contour_wiggle_amp = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }
@@ -806,12 +847,35 @@ mod tests {
         });
 
         // Call once: initializes `initial` from the (missing) Transform to (0,0,0)
-        // and applies orbit offset, inserting Transform if missing
+        // and inserts MotionPath component for the flame entity
         batch_run_update_orbit(&mut world);
 
-        // Assert that the entity now has a Transform component
+        // Assert that the entity now has a MotionPath component
+        let motion_path = world.get_component::<crate::ecs::component::MotionPath>(e);
+        assert!(
+            motion_path.is_some(),
+            "MotionPath should have been inserted"
+        );
+
+        let motion_path = motion_path.unwrap();
+        assert_eq!(motion_path.center, cgmath::Vector3::new(0.0, 0.0, 0.0));
+        assert!((motion_path.radius - 2.0).abs() < 1e-5);
+        assert!(
+            (motion_path.angular_speed - 2.0 * std::f32::consts::PI / 4.0).abs() < 1e-5,
+            "angular_speed: got {}, expected {}",
+            motion_path.angular_speed,
+            2.0 * std::f32::consts::PI / 4.0
+        );
+
+        // Call sync_motion_paths to update Transform from MotionPath
+        crate::ecs::systems::sync_motion_paths(&mut world);
+
+        // Assert that the entity now has a Transform component (inserted by sync_motion_paths)
         let transform = world.get_component::<crate::ecs::world::Transform>(e);
-        assert!(transform.is_some(), "Transform should have been inserted");
+        assert!(
+            transform.is_some(),
+            "Transform should have been inserted by sync_motion_paths"
+        );
 
         let transform = transform.unwrap();
         let offset = compute_orbit_offset(2.0, 4.0, 1.0 / 60.0);
@@ -828,5 +892,88 @@ mod tests {
             transform.translation.z,
             offset[2]
         );
+    }
+
+    #[test]
+    fn test_flame_preset_resolve_valid() {
+        let args = vec![String::from("--batch-flame-preset"), String::from("candle")];
+        let result = flame_preset_resolve_from_args(&args).unwrap();
+        assert_eq!(result, Some(String::from("candle")));
+    }
+
+    #[test]
+    fn test_flame_preset_then_override_order() {
+        // "candle" preset sets height=0.28, radius=0.07, intensity=2.0, etc.
+        let mut effect = FlameEffect::default();
+        thyllore_render_core::apply_flame_preset(&mut effect, "candle");
+
+        // Now apply an individual override for height via flame_set
+        let overrides: Vec<(String, f32)> = vec![(String::from("height"), 1.5)];
+        apply_flame_overrides(&mut effect, &overrides);
+
+        // The override should be final (1.5), not the preset value (0.28)
+        assert!(
+            (effect.height - 1.5).abs() < 1e-5,
+            "height should be overridden to 1.5, got {}",
+            effect.height
+        );
+        // Other candle preset values should remain
+        assert!(
+            (effect.radius - 0.07).abs() < 1e-5,
+            "radius should still be candle's 0.07, got {}",
+            effect.radius
+        );
+    }
+
+    #[test]
+    fn test_orbit_motion_path_equivalence() {
+        use crate::ecs::component::{motion_path_position, MotionPath};
+        use std::f32::consts::PI;
+
+        let center = cgmath::Vector3::new(1.0, 2.0, 3.0);
+        let radius = 1.5;
+        let period = 2.0;
+        let path = MotionPath {
+            center,
+            radius,
+            angular_speed: 2.0 * PI / period,
+            phase_offset: 0.0,
+            enabled: true,
+        };
+
+        for &t in &[0.0, 0.7, 1.9, 3.3] {
+            let mp_pos = motion_path_position(&path, t);
+            let offset = compute_orbit_offset(radius, period, t);
+            let orbit_pos = cgmath::Vector3::new(
+                center.x + offset[0],
+                center.y + offset[1],
+                center.z + offset[2],
+            );
+
+            assert!(
+                (mp_pos.x - orbit_pos.x).abs() < 1e-5,
+                "t={}: x diff {} (mp={}, orbit={})",
+                t,
+                (mp_pos.x - orbit_pos.x).abs(),
+                mp_pos.x,
+                orbit_pos.x
+            );
+            assert!(
+                (mp_pos.y - orbit_pos.y).abs() < 1e-5,
+                "t={}: y diff {} (mp={}, orbit={})",
+                t,
+                (mp_pos.y - orbit_pos.y).abs(),
+                mp_pos.y,
+                orbit_pos.y
+            );
+            assert!(
+                (mp_pos.z - orbit_pos.z).abs() < 1e-5,
+                "t={}: z diff {} (mp={}, orbit={})",
+                t,
+                (mp_pos.z - orbit_pos.z).abs(),
+                mp_pos.z,
+                orbit_pos.z
+            );
+        }
     }
 }

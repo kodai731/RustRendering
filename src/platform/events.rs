@@ -235,6 +235,7 @@ fn handle_redraw_requested(
     let mut overlay_state = SceneOverlayState {
         model_path: model_state.model_path.clone(),
         load_status: model_state.load_status.clone(),
+        flame_preset_index: model_state.flame_preset_index,
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
         #[cfg(feature = "auto-rig")]
@@ -254,6 +255,9 @@ fn handle_redraw_requested(
         #[cfg(feature = "auto-rig")]
         text_to_animation_dialog,
     );
+
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_preset_index = overlay_state.flame_preset_index;
 
     #[cfg(debug_assertions)]
     {

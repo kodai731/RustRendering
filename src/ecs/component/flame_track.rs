@@ -1,3 +1,4 @@
+use thyllore_anim_core::editable::{EditableKeyframe, InterpolationType, KeyframeId};
 use thyllore_anim_core::{Interpolation, Keyframe};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -23,7 +24,8 @@ pub enum FlameParam {
 #[derive(Clone, Debug)]
 pub struct FlameChannel {
     pub param: FlameParam,
-    pub keys: Vec<Keyframe<f32>>,
+    pub keys: Vec<EditableKeyframe>,
+    pub next_keyframe_id: KeyframeId,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -32,50 +34,39 @@ pub struct FlameTrack {
 }
 
 /// Sample a channel at `time`. Returns `None` if keys are empty.
-/// Clamps `time` to the range of first and last keyframes.
-/// Uses binary search to find the interval, then interpolates linearly
-/// (treats CubicSpline as Linear).
-pub fn sample_channel(keys: &[Keyframe<f32>], time: f32) -> Option<f32> {
-    if keys.is_empty() {
-        return None;
-    }
+/// Delegates to the editable curve_ops keyframes_sample (clamped to first/last key).
+pub fn sample_channel(keys: &[EditableKeyframe], time: f32) -> Option<f32> {
+    thyllore_anim_core::editable::keyframes_sample(keys, time)
+}
 
-    let clamped_time = time
-        .max(keys.first().unwrap().time)
-        .min(keys.last().unwrap().time);
+/// Insert a key into the channel. Allocates an id from `next_keyframe_id`, inserts
+/// in time-sorted order, and returns the new keyframe's id.
+pub fn channel_insert_key(
+    channel: &mut FlameChannel,
+    time: f32,
+    value: f32,
+    interpolation: InterpolationType,
+) -> KeyframeId {
+    let id = channel.next_keyframe_id;
+    channel.next_keyframe_id += 1;
+    let mut kf = EditableKeyframe::new(id, time, value);
+    kf.interpolation = interpolation;
+    channel.keys.push(kf);
+    channel
+        .keys
+        .sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+    id
+}
 
-    // Binary search for the interval [keys[i], keys[i+1]] containing clamped_time
-    let mut lo: usize = 0;
-    let mut hi = keys.len() - 1;
-
-    while lo < hi {
-        let mid = lo + (hi - lo) / 2;
-        if keys[mid].time < clamped_time {
-            lo = mid + 1;
-        } else {
-            hi = mid;
-        }
-    }
-
-    // lo is now the index of the first keyframe with time >= clamped_time
-    if lo == 0 || (keys[lo].time - clamped_time).abs() < 1e-9 {
-        return Some(keys[lo].value);
-    }
-
-    let prev = &keys[lo - 1];
-    let curr = &keys[lo];
-
-    // Determine interpolation mode from the previous keyframe
-    let interp = &prev.interpolation;
-
-    match interp {
-        Interpolation::Step => Some(prev.value),
-        Interpolation::Linear | Interpolation::CubicSpline => {
-            let t = (clamped_time - prev.time) / (curr.time - prev.time);
-            let clamped_t = t.max(0.0).min(1.0);
-            Some(prev.value + (curr.value - prev.value) * clamped_t)
-        }
-    }
+/// Convert an old `Keyframe<f32>` (legacy curve format) to the editable keyframe fields.
+/// Interpolation::Linear and CubicSpline -> InterpolationType::Linear (CubicSpline treated
+/// as Linear is the current behavior), Step -> Stepped.
+pub fn convert_legacy_key(key: &Keyframe<f32>) -> (f32, f32, InterpolationType) {
+    let interpolation = match key.interpolation {
+        Interpolation::Linear | Interpolation::CubicSpline => InterpolationType::Linear,
+        Interpolation::Step => InterpolationType::Stepped,
+    };
+    (key.time, key.value, interpolation)
 }
 
 /// Apply a `FlameTrack` at `time` to the mutable `FlameEffect`.
@@ -126,60 +117,97 @@ mod tests {
         Keyframe::with_interpolation(time, value, Interpolation::Step)
     }
 
+    fn cubic_key(time: f32, value: f32) -> Keyframe<f32> {
+        Keyframe::with_interpolation(time, value, Interpolation::CubicSpline)
+    }
+
     #[test]
     fn test_sample_empty() {
-        let keys: Vec<Keyframe<f32>> = vec![];
+        let keys: Vec<EditableKeyframe> = vec![];
         assert_eq!(sample_channel(&keys, 0.0), None);
     }
 
     #[test]
     fn test_sample_single_key() {
-        let keys = vec![linear_key(1.0, 5.0)];
-        assert_eq!(sample_channel(&keys, 1.0), Some(5.0));
+        let mut channel = FlameChannel {
+            param: FlameParam::Height,
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        channel_insert_key(&mut channel, 1.0, 5.0, InterpolationType::Linear);
+        assert_eq!(sample_channel(&channel.keys, 1.0), Some(5.0));
         // Clamped to the single key
-        assert_eq!(sample_channel(&keys, 0.0), Some(5.0));
-        assert_eq!(sample_channel(&keys, 2.0), Some(5.0));
+        assert_eq!(sample_channel(&channel.keys, 0.0), Some(5.0));
+        assert_eq!(sample_channel(&channel.keys, 2.0), Some(5.0));
     }
 
     #[test]
     fn test_sample_two_keys_linear_midpoint() {
-        let keys = vec![linear_key(0.0, 1.0), linear_key(2.0, 3.0)];
-        assert_eq!(sample_channel(&keys, 1.0), Some(2.0));
+        let mut channel = FlameChannel {
+            param: FlameParam::Height,
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        channel_insert_key(&mut channel, 0.0, 1.0, InterpolationType::Linear);
+        channel_insert_key(&mut channel, 2.0, 3.0, InterpolationType::Linear);
+        assert_eq!(sample_channel(&channel.keys, 1.0), Some(2.0));
     }
 
     #[test]
     fn test_sample_two_keys_linear_step_hold() {
-        let keys = vec![step_key(0.0, 1.0), step_key(2.0, 3.0)];
+        let mut channel = FlameChannel {
+            param: FlameParam::Height,
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        channel_insert_key(&mut channel, 0.0, 1.0, InterpolationType::Stepped);
+        channel_insert_key(&mut channel, 2.0, 3.0, InterpolationType::Linear);
         // At time 0, should be first key's value
-        assert_eq!(sample_channel(&keys, 0.0), Some(1.0));
+        assert_eq!(sample_channel(&channel.keys, 0.0), Some(1.0));
         // Between keys, step holds the previous value
-        assert_eq!(sample_channel(&keys, 1.0), Some(1.0));
+        assert_eq!(sample_channel(&channel.keys, 1.0), Some(1.0));
         // At last key, should be last key's value
-        assert_eq!(sample_channel(&keys, 2.0), Some(3.0));
+        assert_eq!(sample_channel(&channel.keys, 2.0), Some(3.0));
     }
 
     #[test]
     fn test_sample_clamp_before_first() {
-        let keys = vec![linear_key(1.0, 1.0), linear_key(2.0, 2.0)];
-        assert_eq!(sample_channel(&keys, 0.0), Some(1.0));
+        let mut channel = FlameChannel {
+            param: FlameParam::Height,
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        channel_insert_key(&mut channel, 1.0, 1.0, InterpolationType::Linear);
+        channel_insert_key(&mut channel, 2.0, 2.0, InterpolationType::Linear);
+        assert_eq!(sample_channel(&channel.keys, 0.0), Some(1.0));
     }
 
     #[test]
     fn test_sample_clamp_after_last() {
-        let keys = vec![linear_key(1.0, 1.0), linear_key(2.0, 2.0)];
-        assert_eq!(sample_channel(&keys, 3.0), Some(2.0));
+        let mut channel = FlameChannel {
+            param: FlameParam::Height,
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        channel_insert_key(&mut channel, 1.0, 1.0, InterpolationType::Linear);
+        channel_insert_key(&mut channel, 2.0, 2.0, InterpolationType::Linear);
+        assert_eq!(sample_channel(&channel.keys, 3.0), Some(2.0));
     }
 
     #[test]
     fn test_apply_flame_track_integration() {
         let mut effect = crate::ecs::resource::FlameEffect::default();
-        let original_height = effect.height;
+
+        let mut channel = FlameChannel {
+            param: FlameParam::Height,
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        channel_insert_key(&mut channel, 0.0, 1.0, InterpolationType::Linear);
+        channel_insert_key(&mut channel, 2.0, 2.0, InterpolationType::Linear);
 
         let track = FlameTrack {
-            channels: vec![FlameChannel {
-                param: FlameParam::Height,
-                keys: vec![linear_key(0.0, 1.0), linear_key(2.0, 2.0)],
-            }],
+            channels: vec![channel],
         };
 
         apply_flame_track(&track, 1.0, &mut effect);
@@ -194,5 +222,138 @@ mod tests {
             effect.radius,
             crate::ecs::resource::FlameEffect::default().radius
         );
+    }
+
+    /// Behavior-preserving test: Linear legacy keys converted and evaluated match old semantics.
+    #[test]
+    fn test_legacy_linear_behavior_preserved() {
+        let legacy_keys = vec![linear_key(0.0, 1.0), linear_key(2.0, 3.0)];
+        let duration = 2.0;
+        let sample_count = 100;
+
+        for i in 0..sample_count {
+            let t = duration * (i as f32) / (sample_count - 1) as f32;
+
+            // Old semantics: linear interpolation, clamped to first/last
+            let expected = {
+                let clamped_t = t.max(0.0).min(2.0);
+                if clamped_t <= 0.0 {
+                    1.0
+                } else if clamped_t >= 2.0 {
+                    3.0
+                } else {
+                    let frac = (clamped_t - 0.0) / (2.0 - 0.0);
+                    1.0 + (3.0 - 1.0) * frac
+                }
+            };
+
+            // New evaluation via convert_legacy_key + keyframes_sample
+            let mut channel = FlameChannel {
+                param: FlameParam::Height,
+                keys: vec![],
+                next_keyframe_id: 1,
+            };
+            for k in &legacy_keys {
+                let (time, value, interp) = convert_legacy_key(k);
+                channel_insert_key(&mut channel, time, value, interp);
+            }
+            let actual = sample_channel(&channel.keys, t).unwrap();
+
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "Linear: at time {} expected {} got {}",
+                t,
+                expected,
+                actual
+            );
+        }
+    }
+
+    /// Behavior-preserving test: Step legacy keys converted and evaluated match old semantics.
+    #[test]
+    fn test_legacy_step_behavior_preserved() {
+        let legacy_keys = vec![step_key(0.0, 1.0), step_key(2.0, 3.0)];
+        let duration = 2.0;
+        let sample_count = 100;
+
+        for i in 0..sample_count {
+            let t = duration * (i as f32) / (sample_count - 1) as f32;
+
+            // Old semantics: step holds previous value, clamped to first/last
+            let expected = {
+                let clamped_t = t.max(0.0).min(2.0);
+                if clamped_t < 2.0 {
+                    1.0
+                } else {
+                    3.0
+                }
+            };
+
+            // New evaluation via convert_legacy_key + keyframes_sample
+            let mut channel = FlameChannel {
+                param: FlameParam::Height,
+                keys: vec![],
+                next_keyframe_id: 1,
+            };
+            for k in &legacy_keys {
+                let (time, value, interp) = convert_legacy_key(k);
+                channel_insert_key(&mut channel, time, value, interp);
+            }
+            let actual = sample_channel(&channel.keys, t).unwrap();
+
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "Step: at time {} expected {} got {}",
+                t,
+                expected,
+                actual
+            );
+        }
+    }
+
+    /// Behavior-preserving test: CubicSpline legacy keys converted and evaluated match old semantics.
+    /// (CubicSpline is treated as Linear in both old and new code.)
+    #[test]
+    fn test_legacy_cubic_spline_behavior_preserved() {
+        let legacy_keys = vec![cubic_key(0.0, 1.0), cubic_key(2.0, 3.0)];
+        let duration = 2.0;
+        let sample_count = 100;
+
+        for i in 0..sample_count {
+            let t = duration * (i as f32) / (sample_count - 1) as f32;
+
+            // Old semantics: CubicSpline treated as Linear interpolation, clamped to first/last
+            let expected = {
+                let clamped_t = t.max(0.0).min(2.0);
+                if clamped_t <= 0.0 {
+                    1.0
+                } else if clamped_t >= 2.0 {
+                    3.0
+                } else {
+                    let frac = (clamped_t - 0.0) / (2.0 - 0.0);
+                    1.0 + (3.0 - 1.0) * frac
+                }
+            };
+
+            // New evaluation via convert_legacy_key + keyframes_sample
+            let mut channel = FlameChannel {
+                param: FlameParam::Height,
+                keys: vec![],
+                next_keyframe_id: 1,
+            };
+            for k in &legacy_keys {
+                let (time, value, interp) = convert_legacy_key(k);
+                channel_insert_key(&mut channel, time, value, interp);
+            }
+            let actual = sample_channel(&channel.keys, t).unwrap();
+
+            assert!(
+                (actual - expected).abs() < 1e-5,
+                "CubicSpline: at time {} expected {} got {}",
+                t,
+                expected,
+                actual
+            );
+        }
     }
 }

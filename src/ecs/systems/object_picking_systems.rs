@@ -78,6 +78,6 @@ fn sync_curve_editor_on_mesh_select(world: &World, assets: &AssetStorage, entity
 
     if let Some(bone_id) = bone_id {
         let mut editor = world.resource_mut::<CurveEditorState>();
-        editor.selected_bone_id = Some(bone_id);
+        editor.select_bone(bone_id);
     }
 }

@@ -1000,7 +1000,7 @@ fn sync_curve_editor_bone(ctx: &mut EcsContext, new_active_bone: Option<BoneId>)
 
     if has_track {
         let mut editor = ctx.world.resource_mut::<CurveEditorState>();
-        editor.selected_bone_id = Some(bone_id);
+        editor.select_bone(bone_id);
     }
 }
 

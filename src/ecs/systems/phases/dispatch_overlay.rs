@@ -1,4 +1,4 @@
-use crate::ecs::component::{FlameChannel, FlameParam, FlameTrack, FlameTrail};
+use crate::ecs::component::{channel_insert_key, FlameChannel, FlameParam, FlameTrack, FlameTrail};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
@@ -7,6 +7,7 @@ use crate::ecs::resource::{
     SelectedFlameInstance, TimelineState, TransformGizmoState, WeightHeatmapState,
 };
 use crate::ecs::world::{Animator, World};
+use thyllore_anim_core::editable::InterpolationType;
 
 pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
     for event in events {
@@ -183,24 +184,31 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                             }
                         }
                         if !inserted {
-                            use thyllore_anim_core::Keyframe;
-                            channel.keys.push(Keyframe::new(current_time, *value));
-                            channel
-                                .keys
-                                .sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+                            channel_insert_key(
+                                channel,
+                                current_time,
+                                *value,
+                                InterpolationType::Linear,
+                            );
                         }
                         found = true;
                         break;
                     }
                 }
                 if !found {
-                    use thyllore_anim_core::Keyframe;
-                    track.channels.push(FlameChannel {
+                    let mut channel = FlameChannel {
                         param: *param,
-                        keys: vec![Keyframe::new(current_time, *value)],
-                    });
+                        keys: vec![],
+                        next_keyframe_id: 1,
+                    };
+                    channel_insert_key(
+                        &mut channel,
+                        current_time,
+                        *value,
+                        InterpolationType::Linear,
+                    );
+                    track.channels.push(channel);
                 }
-                world.insert_component(target, track);
             }
             UIEvent::DeleteFlameKeysAt { time } => {
                 let flames = world.query_flames();
@@ -333,11 +341,12 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                             }
                         }
                         if !inserted {
-                            use thyllore_anim_core::Keyframe;
-                            channel.keys.push(Keyframe::new(clamped_time, *new_value));
-                            channel
-                                .keys
-                                .sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
+                            channel_insert_key(
+                                channel,
+                                clamped_time,
+                                *new_value,
+                                InterpolationType::Linear,
+                            );
                         }
                         found_channel = true;
                         break;
@@ -345,11 +354,18 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
                 if !found_channel {
                     // Channel doesn't exist yet, create it with the new key
-                    use thyllore_anim_core::Keyframe;
-                    track.channels.push(FlameChannel {
+                    let mut channel = FlameChannel {
                         param: *param,
-                        keys: vec![Keyframe::new(new_time.max(0.0), *new_value)],
-                    });
+                        keys: vec![],
+                        next_keyframe_id: 1,
+                    };
+                    channel_insert_key(
+                        &mut channel,
+                        new_time.max(0.0),
+                        *new_value,
+                        InterpolationType::Linear,
+                    );
+                    track.channels.push(channel);
                 }
                 world.insert_component(target, track);
             }

@@ -199,7 +199,7 @@ fn build_track_list(
 
     for bone_id in sorted_bone_ids {
         if let Some(track) = clip.tracks.get(&bone_id) {
-            let is_selected = editor_state.selected_bone_id == Some(bone_id);
+            let is_selected = editor_state.selected_bone_id() == Some(bone_id);
             let is_spring_bone = timeline_state.baked_bone_ids.contains(&bone_id);
             let label = if is_spring_bone {
                 let name = if track.bone_name.len() > 13 {
@@ -215,7 +215,7 @@ fn build_track_list(
             };
 
             if ui.selectable_config(&label).selected(is_selected).build() {
-                editor_state.selected_bone_id = Some(bone_id);
+                editor_state.select_bone(bone_id);
                 editor_state.view_initialized = false;
             }
 
@@ -283,7 +283,7 @@ fn build_curve_view(
         return;
     };
 
-    let Some(bone_id) = editor_state.selected_bone_id else {
+    let Some(bone_id) = editor_state.selected_bone_id() else {
         ui.text("Select a bone from the list");
         return;
     };
@@ -846,7 +846,7 @@ fn handle_mouse_release(
             if let CurveInteractionMode::DraggingTangent(ref dragging) =
                 editor_state.interaction.clone()
             {
-                if let Some(bone_id) = editor_state.selected_bone_id {
+                if let Some(bone_id) = editor_state.selected_bone_id() {
                     let (in_tangent, out_tangent) =
                         compute_dragged_tangent(dragging, mouse_pos, curves_to_draw, vt);
                     ui_events.send(UIEvent::TimelineSetKeyframeTangent {
@@ -861,7 +861,7 @@ fn handle_mouse_release(
                 editor_state.interaction,
                 CurveInteractionMode::DraggingKeyframe
             ) {
-                if let Some(bone_id) = editor_state.selected_bone_id {
+                if let Some(bone_id) = editor_state.selected_bone_id() {
                     let time_delta = vt.x_to_time(mouse_pos[0])
                         - vt.x_to_time(editor_state.drag_start_mouse_pos[0]);
                     let value_delta = vt.y_to_value(mouse_pos[1])

@@ -433,6 +433,32 @@ pub enum UIEvent {
     ToggleFlameCurveParam {
         param: FlameParam,
     },
+    FlameCurveAddKey {
+        param: FlameParam,
+        time: f32,
+        value: f32,
+    },
+    FlameCurveMoveKey {
+        param: FlameParam,
+        keyframe_id: KeyframeId,
+        new_time: f32,
+        new_value: f32,
+    },
+    FlameCurveDeleteKey {
+        param: FlameParam,
+        keyframe_id: KeyframeId,
+    },
+    FlameCurveSetInterpolation {
+        param: FlameParam,
+        keyframe_id: KeyframeId,
+        interpolation: InterpolationType,
+    },
+    FlameCurveSetTangent {
+        param: FlameParam,
+        keyframe_id: KeyframeId,
+        in_tangent: BezierHandle,
+        out_tangent: BezierHandle,
+    },
 }
 
 #[derive(Default)]

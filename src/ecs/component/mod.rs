@@ -13,6 +13,7 @@ mod glb_source;
 mod inference_actor;
 mod marker;
 pub mod mesh;
+mod motion_path;
 mod render;
 mod spring_bone;
 
@@ -31,5 +32,6 @@ pub use glb_source::*;
 pub use inference_actor::*;
 pub use marker::*;
 pub use mesh::*;
+pub use motion_path::*;
 pub use render::*;
 pub use spring_bone::*;

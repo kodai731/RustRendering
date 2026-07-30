@@ -273,6 +273,17 @@ pub struct FlameSceneData {
     pub effect: FlameEffectData,
     #[serde(default)]
     pub channels: Vec<FlameChannelData>,
+    #[serde(default)]
+    pub motion_path: Option<MotionPathData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MotionPathData {
+    pub center: [f32; 3],
+    pub radius: f32,
+    pub angular_speed: f32,
+    pub phase_offset: f32,
+    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +326,8 @@ pub struct FlameEffectData {
     pub radial_sharpness: f32,
     #[serde(default = "default_occlusion_lum_ref")]
     pub occlusion_lum_ref: f32,
+    #[serde(default = "default_contour_wiggle_amp")]
+    pub contour_wiggle_amp: f32,
 }
 
 fn default_envelope_peak() -> f32 {
@@ -332,6 +345,9 @@ fn default_radial_sharpness() -> f32 {
 fn default_occlusion_lum_ref() -> f32 {
     1.0
 }
+fn default_contour_wiggle_amp() -> f32 {
+    0.3
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameChannelData {
@@ -343,7 +359,15 @@ pub struct FlameChannelData {
 pub struct FlameKeyData {
     pub time: f32,
     pub value: f32,
+    #[serde(default = "default_flame_interpolation")]
     pub interpolation: String,
+    pub in_tangent: Option<[f32; 2]>,
+    pub out_tangent: Option<[f32; 2]>,
+    pub weight_mode: Option<String>,
+}
+
+fn default_flame_interpolation() -> String {
+    "Linear".to_string()
 }
 
 /// Convert a `FlameParam` variant to its string representation.
@@ -400,6 +424,17 @@ pub fn interpolation_to_string(interp: thyllore_anim_core::Interpolation) -> Str
     }
 }
 
+/// Convert an editable `InterpolationType` variant to its string representation.
+fn editable_interpolation_to_string(
+    interp: thyllore_anim_core::editable::InterpolationType,
+) -> String {
+    match interp {
+        thyllore_anim_core::editable::InterpolationType::Stepped => "Step".to_string(),
+        thyllore_anim_core::editable::InterpolationType::Linear => "Linear".to_string(),
+        thyllore_anim_core::editable::InterpolationType::Bezier => "Bezier".to_string(),
+    }
+}
+
 /// Convert a string back to an `Interpolation` variant. Unknown strings default to Linear.
 pub fn interpolation_from_string(s: &str) -> thyllore_anim_core::Interpolation {
     match s {
@@ -417,27 +452,48 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
 
     let effect = world.get_component::<crate::ecs::resource::FlameEffect>(*entity)?;
 
-    let channels: Vec<FlameChannelData> =
-        if let Some(track) = world.get_component::<crate::ecs::component::FlameTrack>(*entity) {
-            track
-                .channels
-                .iter()
-                .map(|ch| FlameChannelData {
-                    param: flame_param_to_string(ch.param),
-                    keys: ch
-                        .keys
-                        .iter()
-                        .map(|k| FlameKeyData {
-                            time: k.time,
-                            value: k.value,
-                            interpolation: interpolation_to_string(k.interpolation.clone()),
-                        })
-                        .collect(),
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
+    let channels: Vec<FlameChannelData> = if let Some(track) =
+        world.get_component::<crate::ecs::component::FlameTrack>(*entity)
+    {
+        track
+            .channels
+            .iter()
+            .map(|ch| FlameChannelData {
+                param: flame_param_to_string(ch.param),
+                keys: ch
+                    .keys
+                    .iter()
+                    .map(|k| FlameKeyData {
+                        time: k.time,
+                        value: k.value,
+                        interpolation: editable_interpolation_to_string(k.interpolation),
+                        in_tangent: Some([k.in_tangent.time_offset, k.in_tangent.value_offset]),
+                        out_tangent: Some([k.out_tangent.time_offset, k.out_tangent.value_offset]),
+                        weight_mode: Some(match k.weight_mode {
+                            thyllore_anim_core::editable::TangentWeightMode::NonWeighted => {
+                                "NonWeighted".to_string()
+                            }
+                            thyllore_anim_core::editable::TangentWeightMode::Weighted => {
+                                "Weighted".to_string()
+                            }
+                        }),
+                    })
+                    .collect(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    let motion_path = world
+        .get_component::<crate::ecs::component::MotionPath>(*entity)
+        .map(|mp| MotionPathData {
+            center: [mp.center.x, mp.center.y, mp.center.z],
+            radius: mp.radius,
+            angular_speed: mp.angular_speed,
+            phase_offset: mp.phase_offset,
+            enabled: mp.enabled,
+        });
 
     Some(FlameSceneData {
         effect: FlameEffectData {
@@ -479,8 +535,10 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             envelope_tail: effect.envelope_tail,
             radial_sharpness: effect.radial_sharpness,
             occlusion_lum_ref: effect.occlusion_lum_ref,
+            contour_wiggle_amp: effect.contour_wiggle_amp,
         },
         channels,
+        motion_path,
     })
 }
 
@@ -539,6 +597,7 @@ pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &
         effect.envelope_tail = flame.effect.envelope_tail;
         effect.radial_sharpness = flame.effect.radial_sharpness;
         effect.occlusion_lum_ref = flame.effect.occlusion_lum_ref;
+        effect.contour_wiggle_amp = flame.effect.contour_wiggle_amp;
         thyllore_render_core::refresh_flame_coefficients(&mut effect);
     }
 
@@ -548,26 +607,57 @@ pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &
         let Some(param) = flame_param_from_string(&ch.param) else {
             continue;
         };
-        channels.push(crate::ecs::component::FlameChannel {
+        let mut channel = crate::ecs::component::FlameChannel {
             param,
-            keys: ch
-                .keys
-                .iter()
-                .map(|k| thyllore_anim_core::Keyframe {
-                    time: k.time,
-                    value: k.value,
-                    interpolation: interpolation_from_string(&k.interpolation),
-                    in_tangent: None,
-                    out_tangent: None,
-                })
-                .collect(),
-        });
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        for k in ch.keys.iter() {
+            let interp = match k.interpolation.as_str() {
+                "Bezier" => thyllore_anim_core::editable::InterpolationType::Bezier,
+                "Step" => thyllore_anim_core::editable::InterpolationType::Stepped,
+                _ => thyllore_anim_core::editable::InterpolationType::Linear,
+            };
+            let id =
+                crate::ecs::component::channel_insert_key(&mut channel, k.time, k.value, interp);
+            // apply them to the key just inserted (looked up by id — insert sorts by time)
+            let last = channel.keys.iter_mut().find(|kf| kf.id == id).unwrap();
+            if let Some([t, v]) = k.in_tangent {
+                last.in_tangent.time_offset = t;
+                last.in_tangent.value_offset = v;
+            }
+            if let Some([t, v]) = k.out_tangent {
+                last.out_tangent.time_offset = t;
+                last.out_tangent.value_offset = v;
+            }
+            if let Some(wm) = &k.weight_mode {
+                last.weight_mode = match wm.as_str() {
+                    "Weighted" => thyllore_anim_core::editable::TangentWeightMode::Weighted,
+                    _ => thyllore_anim_core::editable::TangentWeightMode::NonWeighted,
+                };
+            }
+        }
+        channels.push(channel);
     }
     let track = crate::ecs::component::FlameTrack { channels };
 
     // Remove existing track first (if any) to avoid duplicate
     world.remove_component::<crate::ecs::component::FlameTrack>(entity);
     world.insert_component(entity, track);
+
+    // Insert MotionPath component if present in scene data
+    if let Some(mp) = &flame.motion_path {
+        world.insert_component(
+            entity,
+            crate::ecs::component::MotionPath {
+                center: cgmath::Vector3::new(mp.center[0], mp.center[1], mp.center[2]),
+                radius: mp.radius,
+                angular_speed: mp.angular_speed,
+                phase_offset: mp.phase_offset,
+                enabled: mp.enabled,
+            },
+        );
+    }
 }
 
 #[cfg(test)]
@@ -657,6 +747,7 @@ mod tests {
                 envelope_tail: 1.6,
                 radial_sharpness: 4.0,
                 occlusion_lum_ref: 1.0,
+                contour_wiggle_amp: 0.3,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
@@ -665,14 +756,21 @@ mod tests {
                         time: 0.0,
                         value: 1.0,
                         interpolation: "Linear".to_string(),
+                        in_tangent: Some([0.0, 0.0]),
+                        out_tangent: Some([0.0, 0.0]),
+                        weight_mode: Some("NonWeighted".to_string()),
                     },
                     FlameKeyData {
                         time: 2.0,
                         value: 2.0,
                         interpolation: "Linear".to_string(),
+                        in_tangent: Some([0.0, 0.0]),
+                        out_tangent: Some([0.0, 0.0]),
+                        weight_mode: Some("NonWeighted".to_string()),
                     },
                 ],
             }],
+            motion_path: None,
         };
 
         let json = serde_json::to_string(&scene).expect("Failed to serialize FlameSceneData");
@@ -742,6 +840,456 @@ mod tests {
             assert_eq!(k1.time, k2.time);
             assert_eq!(k1.value, k2.value);
             assert_eq!(k1.interpolation, k2.interpolation);
+            assert_eq!(k1.in_tangent, k2.in_tangent);
+            assert_eq!(k1.out_tangent, k2.out_tangent);
+            assert_eq!(k1.weight_mode, k2.weight_mode);
         }
+    }
+
+    #[test]
+    fn test_flame_key_data_bezier_roundtrip() {
+        let scene = FlameSceneData {
+            effect: FlameEffectData {
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                height: 1.0,
+                radius: 0.5,
+                sigma_t: 0.3,
+                intensity: 1.0,
+                color_base: [1.0, 0.5, 0.0],
+                color_tip: [1.0, 1.0, 1.0],
+                temperature_base_k: 3200.0,
+                temperature_tip_k: 1500.0,
+                use_blackbody: true,
+                noise_amplitude: 0.1,
+                noise_frequency: 1.0,
+                noise_scroll_speed: 0.0,
+                time_scale: 1.0,
+                time_offset: 0.0,
+                warp_amp: 0.05,
+                warp_freq: 2.0,
+                rise_speed: 1.0,
+                taper_power: 1.0,
+                radius_tip_ratio: 0.10,
+                edge_low: 0.3,
+                edge_high: 0.7,
+                white_boost: 0.0,
+                wind_direction: [0.0, 0.0],
+                bend_amount: 0.0,
+                bend_power: 2.0,
+                self_shadow_strength: 0.0,
+                envelope_peak: 0.35,
+                envelope_base: 0.45,
+                envelope_tail: 1.6,
+                radial_sharpness: 4.0,
+                occlusion_lum_ref: 1.0,
+                contour_wiggle_amp: 0.3,
+            },
+            channels: vec![FlameChannelData {
+                param: "Height".to_string(),
+                keys: vec![
+                    FlameKeyData {
+                        time: 0.0,
+                        value: 1.0,
+                        interpolation: "Bezier".to_string(),
+                        in_tangent: Some([0.0, 0.0]),
+                        out_tangent: Some([0.5, 0.3]),
+                        weight_mode: Some("Weighted".to_string()),
+                    },
+                    FlameKeyData {
+                        time: 2.0,
+                        value: 3.0,
+                        interpolation: "Bezier".to_string(),
+                        in_tangent: Some([-0.4, -0.2]),
+                        out_tangent: Some([0.0, 0.0]),
+                        weight_mode: Some("NonWeighted".to_string()),
+                    },
+                ],
+            }],
+            motion_path: None,
+        };
+
+        let json = serde_json::to_string(&scene).expect("Failed to serialize");
+        let restored: FlameSceneData = serde_json::from_str(&json).expect("Failed to deserialize");
+
+        assert_eq!(scene.channels.len(), restored.channels.len());
+        assert_eq!(
+            scene.channels[0].keys.len(),
+            restored.channels[0].keys.len()
+        );
+        for (k1, k2) in scene.channels[0]
+            .keys
+            .iter()
+            .zip(restored.channels[0].keys.iter())
+        {
+            assert_eq!(k1.time, k2.time);
+            assert_eq!(k1.value, k2.value);
+            assert_eq!(k1.interpolation, k2.interpolation);
+            assert_eq!(k1.in_tangent, k2.in_tangent);
+            assert_eq!(k1.out_tangent, k2.out_tangent);
+            assert_eq!(k1.weight_mode, k2.weight_mode);
+        }
+    }
+
+    #[test]
+    fn test_flame_key_data_old_format_load() {
+        // JSON with no tangent fields (old format) — should load with None defaults
+        let json = r#"{
+            "effect": {
+                "position": [0.0, 0.0, 0.0],
+                "rotation": [0.0, 0.0, 0.0, 1.0],
+                "height": 1.0,
+                "radius": 0.5,
+                "sigma_t": 0.3,
+                "intensity": 1.0,
+                "color_base": [1.0, 0.5, 0.0],
+                "color_tip": [1.0, 1.0, 1.0],
+                "temperature_base_k": 3200.0,
+                "temperature_tip_k": 1500.0,
+                "use_blackbody": true,
+                "noise_amplitude": 0.1,
+                "noise_frequency": 1.0,
+                "noise_scroll_speed": 0.0,
+                "time_scale": 1.0,
+                "time_offset": 0.0,
+                "warp_amp": 0.05,
+                "warp_freq": 2.0,
+                "rise_speed": 1.0,
+                "taper_power": 1.0,
+                "radius_tip_ratio": 0.10,
+                "edge_low": 0.3,
+                "edge_high": 0.7,
+                "white_boost": 0.0,
+                "wind_direction": [0.0, 0.0],
+                "bend_amount": 0.0,
+                "bend_power": 2.0,
+                "self_shadow_strength": 0.0,
+                "envelope_peak": 0.35,
+                "envelope_base": 0.45,
+                "envelope_tail": 1.6,
+                "radial_sharpness": 4.0,
+                "occlusion_lum_ref": 1.0,
+                "contour_wiggle_amp": 0.3
+            },
+            "channels": [
+                {
+                    "param": "Height",
+                    "keys": [
+                        {"time": 0.0, "value": 1.0},
+                        {"time": 2.0, "value": 2.0}
+                    ]
+                }
+            ]
+        }"#;
+
+        let scene: FlameSceneData =
+            serde_json::from_str(json).expect("Failed to deserialize old format");
+
+        assert_eq!(scene.channels.len(), 1);
+        assert_eq!(scene.channels[0].keys.len(), 2);
+        // Old format keys should have None for tangent fields and default interpolation
+        for k in &scene.channels[0].keys {
+            assert_eq!(k.in_tangent, None);
+            assert_eq!(k.out_tangent, None);
+            assert_eq!(k.weight_mode, None);
+            assert_eq!(k.interpolation, "Linear");
+        }
+    }
+
+    #[test]
+    fn test_flame_track_world_roundtrip_bezier() {
+        use thyllore_anim_core::editable::{BezierHandle, TangentWeightMode};
+
+        // Build a world with a flame entity + FlameTrack containing Bezier keys
+        let mut world = crate::ecs::world::World::new();
+        let entity = world.spawn();
+        world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+
+        let mut channel = crate::ecs::component::FlameChannel {
+            param: crate::ecs::component::FlameParam::Height,
+            keys: vec![],
+            next_keyframe_id: 1,
+        };
+        // Insert two Bezier keys with non-trivial tangent values + Weighted mode
+        crate::ecs::component::channel_insert_key(
+            &mut channel,
+            0.0,
+            1.0,
+            thyllore_anim_core::editable::InterpolationType::Bezier,
+        );
+        let k0 = channel.keys.last_mut().unwrap();
+        k0.out_tangent = BezierHandle {
+            time_offset: 0.5,
+            value_offset: 0.3,
+        };
+        k0.weight_mode = TangentWeightMode::Weighted;
+
+        crate::ecs::component::channel_insert_key(
+            &mut channel,
+            2.0,
+            3.0,
+            thyllore_anim_core::editable::InterpolationType::Bezier,
+        );
+        let k1 = channel.keys.last_mut().unwrap();
+        k1.in_tangent = BezierHandle {
+            time_offset: -0.4,
+            value_offset: -0.2,
+        };
+        k1.weight_mode = TangentWeightMode::NonWeighted;
+
+        let track = crate::ecs::component::FlameTrack {
+            channels: vec![channel],
+        };
+        world.insert_component(entity, track);
+
+        // Save: build FlameSceneData from world
+        let scene_data = build_flame_scene_data(&world).expect("build_flame_scene_data failed");
+
+        // Serialize to JSON and back (simulating file roundtrip)
+        let json = serde_json::to_string(&scene_data).expect("serialize failed");
+        let restored: FlameSceneData = serde_json::from_str(&json).expect("deserialize failed");
+
+        // Load: apply back to a fresh world
+        let mut world2 = crate::ecs::world::World::new();
+        let entity2 = world2.spawn();
+        world2.insert_component(entity2, crate::ecs::resource::FlameEffect::default());
+        apply_flame_state_to_world(&mut world2, &restored);
+
+        // Verify: get the FlameTrack from world2 and compare keys (except id)
+        let track2 = world2
+            .get_component::<crate::ecs::component::FlameTrack>(entity2)
+            .expect("FlameTrack not found");
+        assert_eq!(track2.channels.len(), 1);
+        let ch = &track2.channels[0];
+        assert_eq!(ch.keys.len(), 2);
+
+        // Key 0: time=0.0, value=1.0, Bezier, out_tangent=(0.5,0.3), Weighted
+        let k0 = &ch.keys[0];
+        assert_eq!(k0.time, 0.0);
+        assert_eq!(k0.value, 1.0);
+        assert_eq!(
+            k0.interpolation,
+            thyllore_anim_core::editable::InterpolationType::Bezier
+        );
+        assert_eq!(k0.out_tangent.time_offset, 0.5);
+        assert_eq!(k0.out_tangent.value_offset, 0.3);
+        assert_eq!(k0.weight_mode, TangentWeightMode::Weighted);
+
+        // Key 1: time=2.0, value=3.0, Bezier, in_tangent=(-0.4,-0.2), NonWeighted
+        let k1 = &ch.keys[1];
+        assert_eq!(k1.time, 2.0);
+        assert_eq!(k1.value, 3.0);
+        assert_eq!(
+            k1.interpolation,
+            thyllore_anim_core::editable::InterpolationType::Bezier
+        );
+        assert_eq!(k1.in_tangent.time_offset, -0.4);
+        assert_eq!(k1.in_tangent.value_offset, -0.2);
+        assert_eq!(k1.weight_mode, TangentWeightMode::NonWeighted);
+    }
+
+    #[test]
+    fn test_flame_track_load_descending_time_tangent_association() {
+        use thyllore_anim_core::editable::{BezierHandle, TangentWeightMode};
+
+        // Build a FlameSceneData with keys in DESCENDING time order (2.0 before 0.0).
+        // channel_insert_key sorts by time after insertion, so keys.last_mut() would
+        // point to the wrong key. The fix looks up by id instead.
+        let scene_data = FlameSceneData {
+            effect: FlameEffectData {
+                position: [0.0, 0.0, 0.0],
+                rotation: [0.0, 0.0, 0.0, 1.0],
+                height: 1.0,
+                radius: 0.5,
+                sigma_t: 0.5,
+                intensity: 1.0,
+                color_base: [1.0, 0.5, 0.0],
+                color_tip: [1.0, 1.0, 1.0],
+                temperature_base_k: 1500.0,
+                temperature_tip_k: 800.0,
+                use_blackbody: false,
+                noise_amplitude: 0.0,
+                noise_frequency: 1.0,
+                noise_scroll_speed: 0.0,
+                time_scale: 1.0,
+                time_offset: 0.0,
+                warp_amp: 0.0,
+                warp_freq: 1.0,
+                rise_speed: 1.0,
+                taper_power: 2.0,
+                radius_tip_ratio: 0.0,
+                edge_low: 0.0,
+                edge_high: 1.0,
+                white_boost: 0.0,
+                wind_direction: [0.0, 0.0],
+                bend_amount: 0.0,
+                bend_power: 1.0,
+                self_shadow_strength: 0.0,
+                envelope_peak: 1.0,
+                envelope_base: 1.0,
+                envelope_tail: 1.6,
+                radial_sharpness: 4.0,
+                occlusion_lum_ref: 1.0,
+                contour_wiggle_amp: 0.3,
+            },
+            channels: vec![FlameChannelData {
+                param: "Height".to_string(),
+                keys: vec![
+                    FlameKeyData {
+                        time: 2.0,
+                        value: 3.0,
+                        interpolation: "Bezier".to_string(),
+                        in_tangent: Some([-0.4, -0.2]),
+                        out_tangent: None,
+                        weight_mode: Some("NonWeighted".to_string()),
+                    },
+                    FlameKeyData {
+                        time: 0.0,
+                        value: 1.0,
+                        interpolation: "Bezier".to_string(),
+                        in_tangent: None,
+                        out_tangent: Some([0.5, 0.3]),
+                        weight_mode: Some("Weighted".to_string()),
+                    },
+                ],
+            }],
+            motion_path: None,
+        };
+
+        // Load: apply to a fresh world
+        let mut world = crate::ecs::world::World::new();
+        let entity = world.spawn();
+        world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+        apply_flame_state_to_world(&mut world, &scene_data);
+
+        // Verify: the FlameTrack keys are sorted by time (0.0 first, 2.0 second)
+        let track = world
+            .get_component::<crate::ecs::component::FlameTrack>(entity)
+            .expect("FlameTrack not found");
+        assert_eq!(track.channels.len(), 1);
+        let ch = &track.channels[0];
+        assert_eq!(ch.keys.len(), 2);
+
+        // Key at index 0: time=0.0, value=1.0 — should have out_tangent=(0.5,0.3), Weighted
+        let k0 = &ch.keys[0];
+        assert_eq!(k0.time, 0.0);
+        assert_eq!(k0.value, 1.0);
+        assert_eq!(k0.out_tangent.time_offset, 0.5);
+        assert_eq!(k0.out_tangent.value_offset, 0.3);
+        assert_eq!(k0.weight_mode, TangentWeightMode::Weighted);
+
+        // Key at index 1: time=2.0, value=3.0 — should have in_tangent=(-0.4,-0.2), NonWeighted
+        let k1 = &ch.keys[1];
+        assert_eq!(k1.time, 2.0);
+        assert_eq!(k1.value, 3.0);
+        assert_eq!(k1.in_tangent.time_offset, -0.4);
+        assert_eq!(k1.in_tangent.value_offset, -0.2);
+        assert_eq!(k1.weight_mode, TangentWeightMode::NonWeighted);
+    }
+
+    #[test]
+    fn test_motion_path_world_roundtrip() {
+        // Build a world with a flame entity + MotionPath with non-trivial values
+        let mut world = crate::ecs::world::World::new();
+        let entity = world.spawn();
+        world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+        world.insert_component(
+            entity,
+            crate::ecs::component::MotionPath {
+                center: cgmath::Vector3::new(1.0, 2.0, 3.0),
+                radius: 5.0,
+                angular_speed: 0.7,
+                phase_offset: 1.5,
+                enabled: true,
+            },
+        );
+
+        // Save: build FlameSceneData from world
+        let scene_data = build_flame_scene_data(&world).expect("build_flame_scene_data failed");
+
+        // Serialize to JSON and back (simulating file roundtrip)
+        let json = serde_json::to_string(&scene_data).expect("serialize failed");
+        let restored: FlameSceneData = serde_json::from_str(&json).expect("deserialize failed");
+
+        // Verify motion_path is Some with correct values
+        let mp = restored
+            .motion_path
+            .as_ref()
+            .expect("motion_path should be Some");
+        assert_eq!(mp.center, [1.0, 2.0, 3.0]);
+        assert_eq!(mp.radius, 5.0);
+        assert_eq!(mp.angular_speed, 0.7);
+        assert_eq!(mp.phase_offset, 1.5);
+        assert!(mp.enabled);
+
+        // Load: apply back to a fresh world
+        let mut world2 = crate::ecs::world::World::new();
+        let entity2 = world2.spawn();
+        world2.insert_component(entity2, crate::ecs::resource::FlameEffect::default());
+        apply_flame_state_to_world(&mut world2, &restored);
+
+        // Verify MotionPath component was inserted with correct values
+        let loaded_mp = world2
+            .get_component::<crate::ecs::component::MotionPath>(entity2)
+            .expect("MotionPath should be inserted");
+        assert_eq!(loaded_mp.center.x, 1.0);
+        assert_eq!(loaded_mp.center.y, 2.0);
+        assert_eq!(loaded_mp.center.z, 3.0);
+        assert_eq!(loaded_mp.radius, 5.0);
+        assert_eq!(loaded_mp.angular_speed, 0.7);
+        assert_eq!(loaded_mp.phase_offset, 1.5);
+        assert!(loaded_mp.enabled);
+    }
+
+    #[test]
+    fn test_old_json_without_motion_path_loads() {
+        // Old JSON format without motion_path field should deserialize with motion_path = None
+        let json = r#"{
+            "effect": {
+                "position": [0.0, 0.0, 0.0],
+                "rotation": [1.0, 0.0, 0.0, 0.0],
+                "height": 1.0,
+                "radius": 0.5,
+                "sigma_t": 0.3,
+                "intensity": 1.0,
+                "color_base": [1.0, 0.5, 0.0],
+                "color_tip": [1.0, 1.0, 1.0],
+                "temperature_base_k": 3200.0,
+                "temperature_tip_k": 1500.0,
+                "use_blackbody": true,
+                "noise_amplitude": 0.1,
+                "noise_frequency": 1.0,
+                "noise_scroll_speed": 0.0,
+                "time_scale": 1.0,
+                "time_offset": 0.0,
+                "warp_amp": 0.05,
+                "warp_freq": 2.0,
+                "rise_speed": 1.0,
+                "taper_power": 1.0,
+                "radius_tip_ratio": 0.10,
+                "edge_low": 0.3,
+                "edge_high": 0.7,
+                "white_boost": 0.0,
+                "wind_direction": [0.0, 0.0],
+                "bend_amount": 0.0,
+                "bend_power": 2.0,
+                "self_shadow_strength": 0.0,
+                "envelope_peak": 0.35,
+                "envelope_base": 0.45,
+                "envelope_tail": 1.6,
+                "radial_sharpness": 4.0,
+                "occlusion_lum_ref": 1.0,
+                "contour_wiggle_amp": 0.3
+            },
+            "channels": []
+        }"#;
+
+        let scene: FlameSceneData = serde_json::from_str(json)
+            .expect("Failed to deserialize old format without motion_path");
+
+        assert!(
+            scene.motion_path.is_none(),
+            "motion_path should be None for old format"
+        );
     }
 }

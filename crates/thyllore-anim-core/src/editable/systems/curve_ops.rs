@@ -78,33 +78,41 @@ pub fn curve_resample_at_fps(curve: &mut PropertyCurve, duration: f32, fps: f32)
 }
 
 pub fn curve_sample(curve: &PropertyCurve, time: f32) -> Option<f32> {
-    if curve.keyframes.is_empty() {
+    keyframes_sample(&curve.keyframes, time)
+}
+
+/// Sample a list of keyframes at `time`. Returns `None` if keyframes are empty.
+/// Clamps `time` to the range of first and last keyframes.
+/// Uses binary search (partition_point) to find the interval, then interpolates
+/// linearly (or bezier if either endpoint is Bezier). Stepped holds the previous value.
+pub fn keyframes_sample(keyframes: &[EditableKeyframe], time: f32) -> Option<f32> {
+    if keyframes.is_empty() {
         return None;
     }
 
-    if curve.keyframes.len() == 1 {
-        return Some(curve.keyframes[0].value);
+    if keyframes.len() == 1 {
+        return Some(keyframes[0].value);
     }
 
-    if time <= curve.keyframes[0].time {
-        return Some(curve.keyframes[0].value);
+    if time <= keyframes[0].time {
+        return Some(keyframes[0].value);
     }
 
-    if let Some(last) = curve.keyframes.last() {
+    if let Some(last) = keyframes.last() {
         if time >= last.time {
             return Some(last.value);
         }
     }
 
-    let idx = curve.keyframes.partition_point(|kf| kf.time <= time);
+    let idx = keyframes.partition_point(|kf| kf.time <= time);
     let i = if idx == 0 {
         0
     } else {
-        (idx - 1).min(curve.keyframes.len().saturating_sub(2))
+        (idx - 1).min(keyframes.len().saturating_sub(2))
     };
 
-    let k0 = &curve.keyframes[i];
-    let k1 = &curve.keyframes[i + 1];
+    let k0 = &keyframes[i];
+    let k1 = &keyframes[i + 1];
 
     if k0.interpolation == InterpolationType::Stepped {
         return Some(k0.value);

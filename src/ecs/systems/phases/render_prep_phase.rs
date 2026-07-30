@@ -51,13 +51,15 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     let t = Instant::now();
     crate::ecs::systems::batch_run_update_orbit(&mut ctx.world);
     sub.insert("orbit".to_string(), t.elapsed().as_secs_f32() * 1000.0);
+    let t = Instant::now();
+    crate::ecs::systems::motion_path_sync(ctx);
+    sub.insert(
+        "motion_path".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    );
 
     let t = Instant::now();
     crate::ecs::systems::flame_bone_attach_sync(ctx);
-    sub.insert(
-        "bone_attach".to_string(),
-        t.elapsed().as_secs_f32() * 1000.0,
-    );
 
     let t = Instant::now();
     crate::ecs::systems::flame_time_advance(ctx);
@@ -477,9 +479,10 @@ unsafe fn update_transform_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
     }
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut line_mesh_clone)?;
-        backend.update_or_create_line_buffers(&mut solid_mesh_clone)?;
+        backend.update_or_create_line_buffers(&mut line_mesh_clone, frame_slot)?;
+        backend.update_or_create_line_buffers(&mut solid_mesh_clone, frame_slot)?;
     }
 
     {
@@ -631,14 +634,16 @@ unsafe fn update_stick_bone_mesh(
     };
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut mesh_clone)?;
+        backend.update_or_create_line_buffers(&mut mesh_clone, frame_slot)?;
     }
 
     {
         let mut bone_gizmo = ctx.world.resource_mut::<BoneGizmoData>();
-        bone_gizmo.stick_mesh.vertex_buffer_handle = mesh_clone.vertex_buffer_handle;
-        bone_gizmo.stick_mesh.index_buffer_handle = mesh_clone.index_buffer_handle;
+        bone_gizmo.stick_mesh.vertex_buffer_handles = mesh_clone.vertex_buffer_handles;
+        bone_gizmo.stick_mesh.index_buffer_handles = mesh_clone.index_buffer_handles;
+        bone_gizmo.stick_mesh.last_written_slot = mesh_clone.last_written_slot;
     }
 
     Ok(())
@@ -678,9 +683,10 @@ unsafe fn update_octahedral_bone_mesh(
     );
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut solid_mesh)?;
-        backend.update_or_create_line_buffers(&mut wire_mesh)?;
+        backend.update_or_create_line_buffers(&mut solid_mesh, frame_slot)?;
+        backend.update_or_create_line_buffers(&mut wire_mesh, frame_slot)?;
     }
 
     {
@@ -726,9 +732,10 @@ unsafe fn update_box_bone_mesh(
     );
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut solid_mesh)?;
-        backend.update_or_create_line_buffers(&mut wire_mesh)?;
+        backend.update_or_create_line_buffers(&mut solid_mesh, frame_slot)?;
+        backend.update_or_create_line_buffers(&mut wire_mesh, frame_slot)?;
     }
 
     {
@@ -759,10 +766,10 @@ unsafe fn update_sphere_bone_mesh(
 
     {
         let bone_gizmo = ctx.world.resource::<BoneGizmoData>();
-        solid_mesh.vertex_buffer_handle = bone_gizmo.solid_mesh.vertex_buffer_handle;
-        solid_mesh.index_buffer_handle = bone_gizmo.solid_mesh.index_buffer_handle;
-        wire_mesh.vertex_buffer_handle = bone_gizmo.wire_mesh.vertex_buffer_handle;
-        wire_mesh.index_buffer_handle = bone_gizmo.wire_mesh.index_buffer_handle;
+        solid_mesh.vertex_buffer_handles[0] = bone_gizmo.solid_mesh.vertex_buffer_handles[0];
+        solid_mesh.index_buffer_handles[0] = bone_gizmo.solid_mesh.index_buffer_handles[0];
+        wire_mesh.vertex_buffer_handles[0] = bone_gizmo.wire_mesh.vertex_buffer_handles[0];
+        wire_mesh.index_buffer_handles[0] = bone_gizmo.wire_mesh.index_buffer_handles[0];
     }
 
     build_sphere_bone_meshes_with_selection(
@@ -778,9 +785,10 @@ unsafe fn update_sphere_bone_mesh(
     );
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut solid_mesh)?;
-        backend.update_or_create_line_buffers(&mut wire_mesh)?;
+        backend.update_or_create_line_buffers(&mut solid_mesh, frame_slot)?;
+        backend.update_or_create_line_buffers(&mut wire_mesh, frame_slot)?;
     }
 
     {
@@ -840,8 +848,8 @@ unsafe fn update_constraint_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
 
     {
         let cg = ctx.world.resource::<ConstraintGizmoData>();
-        wire_mesh.vertex_buffer_handle = cg.wire_mesh.vertex_buffer_handle;
-        wire_mesh.index_buffer_handle = cg.wire_mesh.index_buffer_handle;
+        wire_mesh.vertex_buffer_handles[0] = cg.wire_mesh.vertex_buffer_handles[0];
+        wire_mesh.index_buffer_handles[0] = cg.wire_mesh.index_buffer_handles[0];
     }
 
     build_constraint_gizmo_mesh(
@@ -854,8 +862,9 @@ unsafe fn update_constraint_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
     );
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut wire_mesh)?;
+        backend.update_or_create_line_buffers(&mut wire_mesh, frame_slot)?;
     }
 
     {
@@ -906,15 +915,16 @@ unsafe fn update_spring_bone_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
 
     {
         let sg = ctx.world.resource::<SpringBoneGizmoData>();
-        wire_mesh.vertex_buffer_handle = sg.wire_mesh.vertex_buffer_handle;
-        wire_mesh.index_buffer_handle = sg.wire_mesh.index_buffer_handle;
+        wire_mesh.vertex_buffer_handles[0] = sg.wire_mesh.vertex_buffer_handles[0];
+        wire_mesh.index_buffer_handles[0] = sg.wire_mesh.index_buffer_handles[0];
     }
 
     build_spring_bone_gizmo_mesh(&setup, &transforms, &offsets, mesh_scale, &mut wire_mesh);
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut wire_mesh)?;
+        backend.update_or_create_line_buffers(&mut wire_mesh, frame_slot)?;
     }
 
     {

@@ -181,7 +181,7 @@ pub fn dispatch_buffer_events(events: &[UIEvent], world: &mut World) {
                 let curve_editor = world.resource::<CurveEditorState>();
                 let mut curve_buffer = world.resource_mut::<CurveEditorBuffer>();
 
-                if let Some(bone_id) = curve_editor.selected_bone_id {
+                if let Some(bone_id) = curve_editor.selected_bone_id() {
                     if let Some(clip_id) = timeline_state.current_clip_id {
                         if let Some(clip) = clip_library.get(clip_id) {
                             crate::ecs::systems::curve_editor_capture_buffer(
@@ -206,7 +206,7 @@ pub fn dispatch_buffer_events(events: &[UIEvent], world: &mut World) {
                 let clip_id = timeline_state.current_clip_id;
                 let before_clip = clip_id.and_then(|id| clip_library.get(id).cloned());
 
-                if let Some(bone_id) = curve_editor.selected_bone_id {
+                if let Some(bone_id) = curve_editor.selected_bone_id() {
                     if let Some(cid) = clip_id {
                         if let Some(clip) = clip_library.get_mut(cid) {
                             crate::ecs::systems::curve_editor_swap_buffer(
@@ -217,7 +217,6 @@ pub fn dispatch_buffer_events(events: &[UIEvent], world: &mut World) {
                         }
                     }
                 }
-
                 if let (Some(cid), Some(before)) = (clip_id, before_clip) {
                     if let Some(after) = clip_library.get(cid).cloned() {
                         drop(clip_library);

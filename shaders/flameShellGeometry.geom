@@ -43,6 +43,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 trailMeta;
     vec4 trailSamples[16];
     vec4 emitterParams;
+    vec4 contourParams;
 } flame;
 
 layout(location = 0) in vec3 geomLocalCorner[];

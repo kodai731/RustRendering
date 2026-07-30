@@ -80,7 +80,7 @@ vec2 flameRayPointAtHeight(vec3 o, vec2 q, float height) {
     return o.xz + (height - o.y) * q;
 }
 
-float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
+float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar, float w) {
     if (tFar <= tNear) {
         return 0.0;
     }
@@ -93,7 +93,7 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         || heightHi - heightLo < FLAME_RADIAL_MIN_HEIGHT_SPAN) {
         float midHeight = clamp(o.y + 0.5 * (tNear + tFar) * d.y, 0.0, 1.0);
         return integrateRadialEmissionAlongRay(
-            o, d, tNear, tFar, flameRadialExponentScale(midHeight));
+            o, d, tNear, tFar, flameRadialExponentScale(midHeight) / (w * w));
     }
 
     // Only the slope is carried: monomial coefficients in h would grow as 1/d.y^2 and cancel away.
@@ -101,7 +101,7 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
     float quadratic = dot(q, q);
 
     // Trim to the Gaussian support so grazing rays do not spend bands on empty range.
-    float baseScale = flameRadialExponentScale(0.0);
+    float baseScale = flameRadialExponentScale(0.0) / (w * w);
     if (quadratic * baseScale > 1e-12) {
         float support = FLAME_RADIAL_SUPPORT_SIGMA / sqrt(quadratic * baseScale);
         float closestApproachHeight = o.y - dot(o.xz, q) / quadratic;
@@ -121,7 +121,7 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         float falloffMid = evaluateHeightFalloff(center);
         float falloffHi = evaluateHeightFalloff(center + halfWidth);
 
-        float k = flameRadialExponentScale(center);
+        float k = flameRadialExponentScale(center) / (w * w);
         vec2 p = flameRayPointAtHeight(o, q, center);
         vec3 moments = flameGaussianMoments(
             k * quadratic, 2.0 * k * dot(p, q), k * dot(p, p), halfWidth);

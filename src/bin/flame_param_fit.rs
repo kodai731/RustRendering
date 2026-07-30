@@ -161,6 +161,15 @@ fn process_image(path: &std::path::Path) -> io::Result<serde_json::Value> {
         None => (None, None, None),
     };
 
+    // Saturated envelope estimate (for black_bg images)
+    let saturated_envelope_estimate =
+        fit_envelope_from_profile_saturated(&envelope_profile, env_tip, env_power);
+    let (envelope_peak_sat, envelope_base_sat, envelope_tail_sat, saturation_k) =
+        match saturated_envelope_estimate {
+            Some((p, v0, q, k)) => (Some(p), Some(v0), Some(q), Some(k)),
+            None => (None, None, None, None),
+        };
+
     if bg_class == "white_bg" {
         // Compute alpha = 1 - min_channel(linear srgb) and report alpha_p50/p95
         let mut alphas: Vec<f32> = linear_rgb
@@ -224,6 +233,10 @@ fn process_image(path: &std::path::Path) -> io::Result<serde_json::Value> {
             "envelope_peak": envelope_peak,
             "envelope_base": envelope_base,
             "envelope_tail": envelope_tail,
+            "envelope_peak_sat": envelope_peak_sat,
+            "envelope_base_sat": envelope_base_sat,
+            "envelope_tail_sat": envelope_tail_sat,
+            "saturation_k": saturation_k,
         }))
     }
 }

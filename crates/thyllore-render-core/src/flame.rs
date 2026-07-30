@@ -250,6 +250,7 @@ pub struct FlameEffect {
     pub ring_major_radius: f32,
     pub ring_angular_speed: f32,
     pub occlusion_lum_ref: f32,
+    pub contour_wiggle_amp: f32,
 }
 
 impl Default for FlameEffect {
@@ -298,6 +299,7 @@ impl Default for FlameEffect {
             ring_major_radius: 1.0,
             ring_angular_speed: 0.6,
             occlusion_lum_ref: 1.0,
+            contour_wiggle_amp: 0.3,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -443,6 +445,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.ring_angular_speed,
             if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
         ),
+        contour_params: [effect.contour_wiggle_amp, 0.0, 0.0, 0.0],
     }
 }
 
@@ -691,6 +694,7 @@ pub fn build_flame_ubo_with_trail(
             effect.ring_angular_speed,
             if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
         ),
+        contour_params: [effect.contour_wiggle_amp, 0.0, 0.0, 0.0],
     }
 }
 
@@ -731,6 +735,7 @@ pub struct FlameUBO {
     pub trail_meta: Vector4<f32>,
     pub trail_samples: [[f32; 4]; 16],
     pub emitter_params: Vector4<f32>,
+    pub contour_params: [f32; 4],
 }
 
 impl Default for FlameUBO {
@@ -1030,7 +1035,7 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 752);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 768);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 

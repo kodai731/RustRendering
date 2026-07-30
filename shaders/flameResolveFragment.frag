@@ -46,6 +46,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 trailMeta;
     vec4 trailSamples[16];
     vec4 emitterParams;
+    vec4 contourParams;
 } flame;
 
 layout(set = 1, binding = 2) uniform sampler2D flameAccumSampler;
@@ -208,6 +209,7 @@ struct FlameRaySegment {
     float boundaryHeightIntegral;
     FlameDepthClamp depthClamp;
     bool cylinderDomain;
+    float contourW;
 };
 
 // The closed form and the shell clamp both assume the plain cylinder domain.
@@ -380,13 +382,23 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
         }
     }
 
+    // Contour wiggle: per-ray w from fbm at the midpoint height of the integration interval
+    segment.contourW = 1.0;
+    if (flame.contourParams.x != 0.0) {
+        float tMid = 0.5 * (segment.tNear + segment.tFar);
+        vec3 pMid = segment.localOrigin + tMid * segment.localDir;
+        float hMid = clamp(pMid.y, 0.0, 1.0);
+        float theta = atan(pMid.z, pMid.x);
+        segment.contourW = 1.0 + flame.contourParams.x * (fbm3(vec3(cos(theta), hMid - flame.styleParams0.z * flame.time, sin(theta)) * flame.noiseFrequency) * (2.0 / 0.875) - 1.0);
+    }
+
     return segment;
 }
 
 float integrateEmissionAnalytic(FlameRaySegment segment) {
     if (segment.cylinderDomain) {
         return max(integrateRadialEmission(
-            segment.localOrigin, segment.localDir, segment.tNear, segment.tFar), 0.0);
+            segment.localOrigin, segment.localDir, segment.tNear, segment.tFar, segment.contourW), 0.0);
     }
     return max(segment.boundaryHeightIntegral, 0.0);
 }
@@ -402,7 +414,7 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
         vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(
             evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
-        float radial = segment.cylinderDomain ? flameRadialDensityFactor(p, h) : 1.0;
+        float radial = segment.cylinderDomain ? flameRadialDensityFactor(vec3(p.x / segment.contourW, p.y, p.z / segment.contourW), h) : 1.0;
         sum += evaluateHeightFalloff(h) * radial * flameNoiseErosionFactor(p, h);
     }
     return sum * dt;

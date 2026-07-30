@@ -1,9 +1,9 @@
 use imgui::{Condition, DrawListMut};
 
-use crate::animation::Interpolation;
 use crate::ecs::component::{FlameParam, FlameTrack};
 use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::FlameCurveWindowState;
+use thyllore_anim_core::editable::InterpolationType;
 
 const PALETTE: [[f32; 4]; 16] = [
     [1.0, 0.3, 0.3, 1.0],
@@ -46,7 +46,7 @@ fn param_color(param: &FlameParam) -> [f32; 4] {
     PALETTE[idx]
 }
 
-fn channel_value_range(keys: &[crate::animation::Keyframe<f32>]) -> (f32, f32) {
+fn channel_value_range(keys: &[thyllore_anim_core::editable::EditableKeyframe]) -> (f32, f32) {
     let min = keys.iter().map(|k| k.value).fold(f32::INFINITY, f32::min);
     let max = keys
         .iter()
@@ -172,7 +172,7 @@ pub fn build_flame_curve_window(
                         // Check interpolation of the previous key
                         let prev_key = &channel.keys[i - 1];
                         match prev_key.interpolation {
-                            Interpolation::Step => {
+                            InterpolationType::Stepped => {
                                 // Horizontal then vertical: draw L-shape
                                 draw_list
                                     .add_line([px, py], [kx, py], color)
@@ -183,7 +183,7 @@ pub fn build_flame_curve_window(
                                     .thickness(1.0)
                                     .build();
                             }
-                            Interpolation::Linear | Interpolation::CubicSpline => {
+                            InterpolationType::Linear | InterpolationType::Bezier => {
                                 draw_list
                                     .add_line([px, py], [kx, ky], color)
                                     .thickness(1.0)

@@ -126,12 +126,12 @@ fn build_transport_controls(
         curve_editor_state.is_open = true;
         curve_editor_state.needs_focus = true;
         let previous_bone_exists = current_clip
-            .zip(curve_editor_state.selected_bone_id)
+            .zip(curve_editor_state.selected_bone_id())
             .is_some_and(|(c, id)| c.tracks.contains_key(&id));
 
         if !previous_bone_exists {
             if let Some(first_bone_id) = current_clip.and_then(|c| c.tracks.keys().min().copied()) {
-                curve_editor_state.selected_bone_id = Some(first_bone_id);
+                curve_editor_state.select_bone(first_bone_id);
             }
         }
         curve_editor_state.view_initialized = false;
@@ -1149,13 +1149,14 @@ fn open_curve_editor_for_clip(
 
     if let Some(clip) = clip_library.get(source_id) {
         let previous_bone_exists = curve_editor_state
-            .selected_bone_id
+            .selected_bone_id()
             .is_some_and(|id| clip.tracks.contains_key(&id));
 
         if !previous_bone_exists {
             let target_bone = mesh_bone_id.filter(|id| clip.tracks.contains_key(id));
-            curve_editor_state.selected_bone_id =
-                target_bone.or_else(|| clip.tracks.keys().min().copied());
+            if let Some(bone_id) = target_bone.or_else(|| clip.tracks.keys().min().copied()) {
+                curve_editor_state.select_bone(bone_id);
+            }
         }
 
         curve_editor_state.view_initialized = false;

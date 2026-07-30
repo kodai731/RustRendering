@@ -16,6 +16,7 @@ const OVERLAY_WIDTH: f32 = 280.0;
 pub struct SceneOverlayState {
     pub model_path: String,
     pub load_status: String,
+    pub flame_preset_index: usize,
     #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
     #[cfg(feature = "auto-rig")]
@@ -61,7 +62,7 @@ pub fn build_scene_overlay(
 
             build_onion_skinning_section(ui, ui_events, ecs_world);
 
-            build_flame_section(ui, ui_events, ecs_world);
+            build_flame_section(ui, ui_events, overlay_state, ecs_world);
         });
 }
 
@@ -433,7 +434,12 @@ fn build_onion_skinning_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ec
     }
 }
 
-fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: &World) {
+fn build_flame_section(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    overlay_state: &mut SceneOverlayState,
+    ecs_world: &World,
+) {
     use crate::ecs::resource::{FlameEffect, FlameRenderSettings, FlameShadingMode};
 
     if ui.collapsing_header("Flame", imgui::TreeNodeFlags::empty()) {
@@ -500,11 +506,32 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
             }
         }
 
+        // Flame Preset selector
+        let presets: Vec<String> = thyllore_render_core::FLAME_PRESET_NAMES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        {
+            let mut preset_index = overlay_state.flame_preset_index;
+            ui.combo_simple_string("Flame Preset", &mut preset_index, &presets);
+            overlay_state.flame_preset_index = preset_index;
+            ui.same_line();
+            if ui.small_button("Apply Preset") {
+                if let Some(selected_flame) = flames.get(clamped_index).copied() {
+                    if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
+                        let mut effect_copy = effect.clone();
+                        let preset_name = presets[preset_index].as_str();
+                        thyllore_render_core::apply_flame_preset(&mut effect_copy, preset_name);
+                        ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
+                    }
+                }
+            }
+        }
+
         if let Some(selected_flame) = flames.get(clamped_index).copied() {
             if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
                 let mut effect_copy = effect.clone();
                 drop(effect);
-
                 let mut position = [
                     effect_copy.position.x,
                     effect_copy.position.y,
@@ -626,6 +653,9 @@ fn build_flame_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_world: 
 
                 ui.slider_config("Occlusion Lum", 0.05, 4.0)
                     .build(&mut effect_copy.occlusion_lum_ref);
+
+                ui.slider_config("Contour Wiggle", 0.0, 1.0)
+                    .build(&mut effect_copy.contour_wiggle_amp);
 
                 ui.slider_config("Warp Amp", 0.0, 3.0)
                     .build(&mut effect_copy.warp_amp);

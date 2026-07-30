@@ -34,10 +34,10 @@ pub unsafe fn record_line_mesh_draw<V>(
     cmd: vk::CommandBuffer,
 ) -> Result<bool> {
     let buffers: &GpuBufferRegistry = ctx.buffers;
-    let Some(vertex_buffer) = buffers.get_vertex_buffer(mesh.vertex_buffer_handle) else {
+    let Some(vertex_buffer) = buffers.get_vertex_buffer(mesh.current_vertex_buffer_handle()) else {
         return Ok(false);
     };
-    let Some(index_buffer) = buffers.get_index_buffer(mesh.index_buffer_handle) else {
+    let Some(index_buffer) = buffers.get_index_buffer(mesh.current_index_buffer_handle()) else {
         return Ok(false);
     };
     let pipeline_id = options

@@ -63,11 +63,10 @@ impl CollectedSceneState {
         let editor = world
             .get_resource::<CurveEditorState>()
             .map(|e| EditorState {
-                selected_bone_id: e.selected_bone_id,
+                selected_bone_id: e.selected_bone_id(),
                 curve_editor_open: e.is_open,
             })
             .unwrap_or_default();
-
         let panel_layout = world
             .get_resource::<PanelLayout>()
             .map(|l| PanelLayoutState {
@@ -435,7 +434,9 @@ fn apply_timeline_state(
 
 fn apply_editor_state(editor: &EditorState, world: &mut World) {
     if let Some(mut curve_editor) = world.get_resource_mut::<CurveEditorState>() {
-        curve_editor.selected_bone_id = editor.selected_bone_id;
+        if let Some(id) = editor.selected_bone_id {
+            curve_editor.select_bone(id);
+        }
         curve_editor.is_open = editor.curve_editor_open;
     }
 }

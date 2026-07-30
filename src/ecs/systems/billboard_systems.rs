@@ -56,8 +56,9 @@ pub fn create_billboard() -> BillboardData {
         mesh: BillboardMesh {
             vertices,
             indices,
-            vertex_buffer_handle: Default::default(),
-            index_buffer_handle: Default::default(),
+            vertex_buffer_handles: [Default::default(); 2],
+            index_buffer_handles: [Default::default(); 2],
+            last_written_slot: 0,
         },
         transform: None,
         render_info: RenderInfo::default(),

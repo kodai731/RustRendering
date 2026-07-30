@@ -1,5 +1,5 @@
 use crate::animation::editable::{EditableAnimationClip, SourceClip, SourceClipId};
-use crate::ecs::component::ClipSchedule;
+use crate::ecs::component::{ClipSchedule, FlameTrack};
 use crate::ecs::world::Entity;
 
 #[derive(Clone, Debug)]
@@ -21,6 +21,12 @@ pub enum EditCommand {
     ClipRemoved {
         clip_id: SourceClipId,
         removed: SourceClip,
+        description: &'static str,
+    },
+    FlameTrackModified {
+        entity: Entity,
+        before: FlameTrack,
+        after: FlameTrack,
         description: &'static str,
     },
 }
@@ -175,6 +181,7 @@ impl EditHistory {
             EditCommand::ScheduleModified { description, .. } => description,
             EditCommand::ClipAdded { description, .. } => description,
             EditCommand::ClipRemoved { description, .. } => description,
+            EditCommand::FlameTrackModified { description, .. } => description,
         }
     }
 }
