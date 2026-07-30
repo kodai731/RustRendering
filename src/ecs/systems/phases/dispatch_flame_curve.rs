@@ -1,14 +1,13 @@
 use crate::ecs::component::{channel_insert_key, FlameChannel, FlameParam, FlameTrack};
 use crate::ecs::events::UIEvent;
-use crate::ecs::resource::{
-    EditCommand, EditCommandAfter, EditEntry, EditHistory, SelectedFlameInstance,
-};
+use crate::ecs::resource::{EditCommand, EditCommandAfter, EditEntry, EditHistory};
+use crate::ecs::systems::resolve_selected_flame;
 use crate::ecs::world::World;
 use thyllore_anim_core::editable::{BezierHandle, InterpolationType, KeyframeId};
 
 pub fn dispatch_flame_curve_events(events: &[UIEvent], world: &mut World) {
     for event in events {
-        let target_entity = match resolve_target_entity(world) {
+        let target_entity = match resolve_selected_flame(world) {
             Some(e) => e,
             None => continue,
         };
@@ -83,19 +82,6 @@ pub fn dispatch_flame_curve_events(events: &[UIEvent], world: &mut World) {
             edit_history.push_to_undo(entry);
         }
     }
-}
-
-fn resolve_target_entity(world: &World) -> Option<u64> {
-    let flames = world.query_flames();
-    if flames.is_empty() {
-        return None;
-    }
-    let selected = world
-        .get_resource::<SelectedFlameInstance>()
-        .map(|s| s.0)
-        .unwrap_or(0);
-    let idx = selected.min(flames.len() - 1);
-    Some(flames[idx])
 }
 
 fn apply_add_key(world: &mut World, entity: u64, param: FlameParam, time: f32, value: f32) {
@@ -264,8 +250,11 @@ mod tests {
 
     fn make_world_with_flame() -> World {
         let mut world = World::new();
-        let entity = world.spawn();
-        world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+        let entity = crate::ecs::systems::spawn_flame(
+            &mut world,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
         world.insert_component(
             entity,
             FlameTrack {

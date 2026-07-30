@@ -4,8 +4,9 @@ use anyhow::{bail, Context, Result};
 
 use cgmath::Vector2;
 
+use crate::ecs::component::FlameEffect;
 use crate::ecs::events::{UIEvent, UIEventQueue};
-use crate::ecs::resource::{BatchRun, BatchRunState, FlameEffect, FlameShadingMode};
+use crate::ecs::resource::{BatchRun, BatchRunState, FlameShadingMode};
 use crate::ecs::world::World;
 
 const BATCH_SCREENSHOT_FLAG: &str = "--batch-screenshot";

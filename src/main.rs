@@ -7,10 +7,10 @@
 
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
-use thyllore_animation::ecs::component::FlameTrail;
+use thyllore_animation::ecs::component::{FlameEffect, FlameTrail};
 use thyllore_animation::ecs::resource::{
-    BatchFlameOrbit, BatchRun, Camera, ExposureDumpSink, FlameDumpSink, FlameEffect,
-    FlameRenderSettings, GpuTimingsSink,
+    BatchFlameOrbit, BatchRun, Camera, ExposureDumpSink, FlameDumpSink, FlameRenderSettings,
+    GpuTimingsSink,
 };
 use thyllore_animation::ecs::systems::{
     apply_flame_overrides, batch_run_report, resolve_engine_cli_overrides,
@@ -89,7 +89,6 @@ fn main() -> Result<()> {
     if let Some(n) = overrides.flame_count {
         if n >= 2 {
             for i in 1..n {
-                let e = app.data.ecs_world.spawn();
                 let mut effect = FlameEffect {
                     position: cgmath::Vector3::new(1.5 * i as f32, 0.0, 0.0),
                     radius: 0.7,
@@ -103,10 +102,10 @@ fn main() -> Result<()> {
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
-                app.data.ecs_world.insert_component(e, effect);
-                app.data.ecs_world.insert_component(
-                    e,
-                    thyllore_animation::ecs::world::Name(format!("Flame {}", i + 1)),
+                thyllore_animation::ecs::systems::spawn_flame(
+                    &mut app.data.ecs_world,
+                    &format!("Flame {}", i + 1),
+                    effect,
                 );
             }
         }

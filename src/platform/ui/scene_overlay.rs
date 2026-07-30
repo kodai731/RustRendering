@@ -440,7 +440,8 @@ fn build_flame_section(
     overlay_state: &mut SceneOverlayState,
     ecs_world: &World,
 ) {
-    use crate::ecs::resource::{FlameEffect, FlameRenderSettings, FlameShadingMode};
+    use crate::ecs::component::FlameEffect;
+    use crate::ecs::resource::{FlameRenderSettings, FlameShadingMode};
 
     if ui.collapsing_header("Flame", imgui::TreeNodeFlags::empty()) {
         if let Some(settings) = ecs_world.get_resource::<FlameRenderSettings>() {
@@ -482,11 +483,10 @@ fn build_flame_section(
         }
 
         let flames = ecs_world.query_flames();
-        let selected_index = ecs_world
-            .get_resource::<crate::ecs::resource::SelectedFlameInstance>()
-            .map(|r| r.0)
+        let selected_flame_entity = crate::ecs::systems::resolve_selected_flame(ecs_world);
+        let clamped_index = selected_flame_entity
+            .and_then(|entity| flames.iter().position(|&e| e == entity))
             .unwrap_or(0);
-        let clamped_index = selected_index.min(flames.len().saturating_sub(1));
 
         // Instance selector combo (when >1 flame)
         if flames.len() > 1 {
@@ -517,7 +517,7 @@ fn build_flame_section(
             overlay_state.flame_preset_index = preset_index;
             ui.same_line();
             if ui.small_button("Apply Preset") {
-                if let Some(selected_flame) = flames.get(clamped_index).copied() {
+                if let Some(selected_flame) = selected_flame_entity {
                     if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
                         let mut effect_copy = effect.clone();
                         let preset_name = presets[preset_index].as_str();
@@ -528,7 +528,7 @@ fn build_flame_section(
             }
         }
 
-        if let Some(selected_flame) = flames.get(clamped_index).copied() {
+        if let Some(selected_flame) = selected_flame_entity {
             if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
                 let mut effect_copy = effect.clone();
                 drop(effect);

@@ -1,6 +1,7 @@
 use cgmath::Matrix4;
 
-use super::{FlameEffect, FlameRenderSettings};
+use super::FlameRenderSettings;
+use crate::ecs::component::FlameEffect;
 
 /// The frame state that history reuse depends on. Any difference between two
 /// consecutive frames invalidates the accumulated history.

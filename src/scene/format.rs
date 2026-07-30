@@ -450,7 +450,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
     let entities: Vec<_> = world.query_flames();
     let entity = entities.first()?;
 
-    let effect = world.get_component::<crate::ecs::resource::FlameEffect>(*entity)?;
+    let effect = world.get_component::<crate::ecs::component::FlameEffect>(*entity)?;
 
     let channels: Vec<FlameChannelData> = if let Some(track) =
         world.get_component::<crate::ecs::component::FlameTrack>(*entity)
@@ -551,7 +551,8 @@ pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &
     };
 
     // Write effect fields onto the existing FlameEffect component
-    if let Some(mut effect) = world.get_component_mut::<crate::ecs::resource::FlameEffect>(entity) {
+    if let Some(mut effect) = world.get_component_mut::<crate::ecs::component::FlameEffect>(entity)
+    {
         effect.position = cgmath::Vector3::new(
             flame.effect.position[0],
             flame.effect.position[1],
@@ -600,6 +601,22 @@ pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &
         effect.contour_wiggle_amp = flame.effect.contour_wiggle_amp;
         thyllore_render_core::refresh_flame_coefficients(&mut effect);
     }
+
+    crate::ecs::systems::write_flame_transform(
+        world,
+        entity,
+        cgmath::Vector3::new(
+            flame.effect.position[0],
+            flame.effect.position[1],
+            flame.effect.position[2],
+        ),
+        cgmath::Quaternion::new(
+            flame.effect.rotation[0],
+            flame.effect.rotation[1],
+            flame.effect.rotation[2],
+            flame.effect.rotation[3],
+        ),
+    );
 
     // Insert/update the FlameTrack component
     let mut channels: Vec<crate::ecs::component::FlameChannel> = Vec::new();
@@ -1002,8 +1019,11 @@ mod tests {
 
         // Build a world with a flame entity + FlameTrack containing Bezier keys
         let mut world = crate::ecs::world::World::new();
-        let entity = world.spawn();
-        world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+        let entity = crate::ecs::systems::spawn_flame(
+            &mut world,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
 
         let mut channel = crate::ecs::component::FlameChannel {
             param: crate::ecs::component::FlameParam::Height,
@@ -1051,8 +1071,11 @@ mod tests {
 
         // Load: apply back to a fresh world
         let mut world2 = crate::ecs::world::World::new();
-        let entity2 = world2.spawn();
-        world2.insert_component(entity2, crate::ecs::resource::FlameEffect::default());
+        let entity2 = crate::ecs::systems::spawn_flame(
+            &mut world2,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
         apply_flame_state_to_world(&mut world2, &restored);
 
         // Verify: get the FlameTrack from world2 and compare keys (except id)
@@ -1158,8 +1181,11 @@ mod tests {
 
         // Load: apply to a fresh world
         let mut world = crate::ecs::world::World::new();
-        let entity = world.spawn();
-        world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+        let entity = crate::ecs::systems::spawn_flame(
+            &mut world,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
         apply_flame_state_to_world(&mut world, &scene_data);
 
         // Verify: the FlameTrack keys are sorted by time (0.0 first, 2.0 second)
@@ -1191,8 +1217,11 @@ mod tests {
     fn test_motion_path_world_roundtrip() {
         // Build a world with a flame entity + MotionPath with non-trivial values
         let mut world = crate::ecs::world::World::new();
-        let entity = world.spawn();
-        world.insert_component(entity, crate::ecs::resource::FlameEffect::default());
+        let entity = crate::ecs::systems::spawn_flame(
+            &mut world,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
         world.insert_component(
             entity,
             crate::ecs::component::MotionPath {
@@ -1224,8 +1253,11 @@ mod tests {
 
         // Load: apply back to a fresh world
         let mut world2 = crate::ecs::world::World::new();
-        let entity2 = world2.spawn();
-        world2.insert_component(entity2, crate::ecs::resource::FlameEffect::default());
+        let entity2 = crate::ecs::systems::spawn_flame(
+            &mut world2,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
         apply_flame_state_to_world(&mut world2, &restored);
 
         // Verify MotionPath component was inserted with correct values

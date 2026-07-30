@@ -75,7 +75,7 @@ pub fn convert_legacy_key(key: &Keyframe<f32>) -> (f32, f32, InterpolationType) 
 pub fn apply_flame_track(
     track: &FlameTrack,
     time: f32,
-    effect: &mut crate::ecs::resource::FlameEffect,
+    effect: &mut crate::ecs::component::FlameEffect,
 ) {
     for channel in &track.channels {
         if let Some(value) = sample_channel(&channel.keys, time) {
@@ -196,7 +196,7 @@ mod tests {
 
     #[test]
     fn test_apply_flame_track_integration() {
-        let mut effect = crate::ecs::resource::FlameEffect::default();
+        let mut effect = crate::ecs::component::FlameEffect::default();
 
         let mut channel = FlameChannel {
             param: FlameParam::Height,
@@ -220,7 +220,7 @@ mod tests {
         // Other fields should be unchanged
         assert_eq!(
             effect.radius,
-            crate::ecs::resource::FlameEffect::default().radius
+            crate::ecs::component::FlameEffect::default().radius
         );
     }
 

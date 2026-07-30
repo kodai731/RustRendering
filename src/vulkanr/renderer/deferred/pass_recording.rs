@@ -597,11 +597,11 @@ pub unsafe fn record_flame_passes(
             let effect_a = app
                 .data
                 .ecs_world
-                .get_component::<crate::ecs::resource::FlameEffect>(*a);
+                .get_component::<crate::ecs::component::FlameEffect>(*a);
             let effect_b = app
                 .data
                 .ecs_world
-                .get_component::<crate::ecs::resource::FlameEffect>(*b);
+                .get_component::<crate::ecs::component::FlameEffect>(*b);
             match (effect_a, effect_b) {
                 (Some(ea), Some(eb)) => {
                     let pos_a = Vector3::new(ea.position[0], ea.position[1], ea.position[2]);
@@ -636,7 +636,7 @@ pub unsafe fn record_flame_passes(
         if let Some(effect) = app
             .data
             .ecs_world
-            .get_component::<crate::ecs::resource::FlameEffect>(*first)
+            .get_component::<crate::ecs::component::FlameEffect>(*first)
         {
             (effect.frame_index as usize) & 1
         } else {
@@ -652,7 +652,7 @@ pub unsafe fn record_flame_passes(
         let effect = app
             .data
             .ecs_world
-            .get_component::<crate::ecs::resource::FlameEffect>(flame)
+            .get_component::<crate::ecs::component::FlameEffect>(flame)
             .ok_or_else(|| anyhow::anyhow!("Missing FlameEffect for instance {}", i))?;
 
         // Build UBO for this instance (trail-aware)

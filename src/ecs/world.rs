@@ -465,7 +465,7 @@ impl World {
 
     pub fn query_flames(&self) -> Vec<Entity> {
         let mut entities: Vec<Entity> = self
-            .iter_components::<crate::ecs::resource::FlameEffect>()
+            .iter_components::<crate::ecs::component::FlameEffect>()
             .map(|(e, _)| e)
             .collect();
         entities.sort();
@@ -675,6 +675,11 @@ impl<'a> EntityBuilder<'a> {
 
     pub fn with_constrained(self) -> Self {
         self.world.insert_component(self.entity, Constrained);
+        self
+    }
+
+    pub fn with_flame(self, effect: crate::ecs::component::FlameEffect) -> Self {
+        self.world.insert_component(self.entity, effect);
         self
     }
 

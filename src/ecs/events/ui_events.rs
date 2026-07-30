@@ -8,14 +8,14 @@ use crate::animation::BoneId;
 use crate::animation::{ConstraintId, ConstraintType};
 use crate::app::data::LightMoveTarget;
 use crate::ecs::component::{
-    ColliderShape, FlameParam, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
-    SpringColliderGroupId, SpringColliderId, SpringJointParam,
+    ColliderShape, FlameEffect, FlameParam, SpringChain, SpringChainId, SpringColliderDef,
+    SpringColliderGroup, SpringColliderGroupId, SpringColliderId, SpringJointParam,
 };
 use crate::ecs::resource::gizmo::BoneDisplayStyle;
 use crate::ecs::resource::{
-    AutoExposure, CoordinateSpace, DepthOfField, FlameEffect, FlameRenderSettings,
-    HierarchyDisplayMode, OnionSkinningConfig, PhysicalCameraParameters, SelectedKeyframe,
-    SelectionModifier, TransformGizmoMode, TransformGizmoState,
+    AutoExposure, CoordinateSpace, DepthOfField, FlameRenderSettings, HierarchyDisplayMode,
+    OnionSkinningConfig, PhysicalCameraParameters, SelectedKeyframe, SelectionModifier,
+    TransformGizmoMode, TransformGizmoState,
 };
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;

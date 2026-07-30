@@ -87,11 +87,11 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     ) {
         let t = Instant::now();
         let flame_entities: Vec<_> = ctx.world.query_flames();
-        let effects: Vec<crate::ecs::resource::FlameEffect> = flame_entities
+        let effects: Vec<crate::ecs::component::FlameEffect> = flame_entities
             .iter()
             .filter_map(|e| {
                 ctx.world
-                    .get_component::<crate::ecs::resource::FlameEffect>(*e)
+                    .get_component::<crate::ecs::component::FlameEffect>(*e)
                     .cloned()
             })
             .collect();

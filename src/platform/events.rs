@@ -471,22 +471,13 @@ fn build_timeline_and_fixed_overlays(
         query_clip_tracks(&app.data.ecs_world, &*clip_library, &app.data.ecs_assets)
     };
 
-    let flame_track: Option<crate::ecs::component::FlameTrack> = {
-        let entities: Vec<_> = app.data.ecs_world.query_flames();
-        let selected = app
-            .data
-            .ecs_world
-            .get_resource::<crate::ecs::resource::SelectedFlameInstance>()
-            .map(|s| s.0)
-            .unwrap_or(0);
-        let idx = selected.min(entities.len().saturating_sub(1));
-        entities.get(idx).and_then(|e| {
+    let flame_track: Option<crate::ecs::component::FlameTrack> =
+        crate::ecs::systems::resolve_selected_flame(&app.data.ecs_world).and_then(|entity| {
             app.data
                 .ecs_world
-                .get_component::<crate::ecs::component::FlameTrack>(*e)
+                .get_component::<crate::ecs::component::FlameTrack>(entity)
                 .cloned()
-        })
-    };
+        });
 
     {
         let mut timeline_state = app.data.ecs_world.resource_mut::<TimelineState>();

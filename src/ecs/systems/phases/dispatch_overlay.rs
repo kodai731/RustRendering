@@ -1,11 +1,14 @@
-use crate::ecs::component::{channel_insert_key, FlameChannel, FlameParam, FlameTrack, FlameTrail};
+use crate::ecs::component::{
+    channel_insert_key, FlameChannel, FlameEffect, FlameTrack, FlameTrail,
+};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
-    AutoExposure, DepthOfField, FlameCurveWindowState, FlameEffect, FlameRenderSettings,
-    GridMeshData, HierarchyState, MessageLog, OnionSkinningConfig, PhysicalCameraParameters,
-    SelectedFlameInstance, TimelineState, TransformGizmoState, WeightHeatmapState,
+    AutoExposure, DepthOfField, FlameCurveWindowState, FlameRenderSettings, GridMeshData,
+    HierarchyState, MessageLog, OnionSkinningConfig, PhysicalCameraParameters, TimelineState,
+    TransformGizmoState, WeightHeatmapState,
 };
+use crate::ecs::systems::{resolve_selected_flame, write_flame_transform};
 use crate::ecs::world::{Animator, World};
 use thyllore_anim_core::editable::InterpolationType;
 
@@ -64,31 +67,18 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
             }
             UIEvent::UpdateFlameEffect(effect) => {
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
+                write_flame_transform(world, target, effect.position, effect.rotation);
                 if let Some(mut current) = world.get_component_mut::<FlameEffect>(target) {
                     *current = effect.as_ref().clone();
                 }
             }
             UIEvent::UpdateFlameTrailEnabled(enabled) => {
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
                 if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
                     trail.state.enabled = *enabled;
                 } else {
@@ -105,16 +95,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
             }
             UIEvent::UpdateFlameTrailFade(fade) => {
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
                 if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
                     trail.state.fade_seconds = *fade;
                 } else {
@@ -131,20 +114,14 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
             }
             UIEvent::AddFlame => {
-                let flames = world.query_flames();
-                if flames.len() < thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES {
-                    let e = world.spawn();
-                    world.insert_component(
-                        e,
-                        FlameEffect {
-                            position: cgmath::Vector3::new(1.5 * flames.len() as f32, 0.0, 0.0),
-                            ..FlameEffect::default()
-                        },
-                    );
-                    world.insert_component(
-                        e,
-                        crate::ecs::world::Name(format!("Flame {}", flames.len() + 1)),
-                    );
+                let flame_count = world.query_flames().len();
+                if flame_count < thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES {
+                    let effect = FlameEffect {
+                        position: cgmath::Vector3::new(1.5 * flame_count as f32, 0.0, 0.0),
+                        ..FlameEffect::default()
+                    };
+                    let name = format!("Flame {}", flame_count + 1);
+                    crate::ecs::systems::spawn_flame(world, &name, effect);
                 }
             }
             UIEvent::InsertFlameKey { param, value } => {
@@ -152,16 +129,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     .get_resource::<TimelineState>()
                     .map(|t| t.current_time)
                     .unwrap_or(0.0);
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
                 let mut track =
                     if let Some(existing) = world.get_component_mut::<FlameTrack>(target) {
                         let mut track = existing.clone();
@@ -211,16 +181,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
             }
             UIEvent::DeleteFlameKeysAt { time } => {
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
                 let mut track = match world.get_component_mut::<FlameTrack>(target) {
                     Some(existing) => {
                         let mut track = existing.clone();
@@ -246,16 +209,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
             }
             UIEvent::ClearFlameKeys => {
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
                 world.remove_component::<FlameTrack>(target);
             }
             UIEvent::SelectFlameInstance(index) => {
@@ -264,8 +220,8 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     continue;
                 }
                 let clamped = (*index as usize).min(flames.len() - 1);
-                if let Some(mut selected) = world.get_resource_mut::<SelectedFlameInstance>() {
-                    selected.0 = clamped;
+                if let Some(mut hierarchy) = world.get_resource_mut::<HierarchyState>() {
+                    hierarchy.selected_entity = Some(flames[clamped]);
                 }
             }
             UIEvent::UpdateFlameRenderSettings(new_settings) => {
@@ -304,16 +260,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 new_time,
                 new_value,
             } => {
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
                 let mut track = match world.get_component_mut::<FlameTrack>(target) {
                     Some(existing) => {
                         let mut track = existing.clone();
@@ -370,16 +319,9 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 world.insert_component(target, track);
             }
             UIEvent::DeleteFlameKeyExact { param, time } => {
-                let flames = world.query_flames();
-                if flames.is_empty() {
+                let Some(target) = resolve_selected_flame(world) else {
                     continue;
-                }
-                let selected = world
-                    .get_resource::<SelectedFlameInstance>()
-                    .map(|s| s.0)
-                    .unwrap_or(0);
-                let idx = selected.min(flames.len() - 1);
-                let target = flames[idx];
+                };
                 let mut track = match world.get_component_mut::<FlameTrack>(target) {
                     Some(existing) => {
                         let mut track = existing.clone();
