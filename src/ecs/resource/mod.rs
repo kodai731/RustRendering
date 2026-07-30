@@ -9,6 +9,7 @@ mod viewport_input;
 mod auto_exposure;
 #[cfg(feature = "auto-rig")]
 mod auto_rig_state;
+mod batch_pick;
 mod batch_run;
 mod bloom;
 mod bone_pose_override;
@@ -82,6 +83,7 @@ pub use auto_exposure::*;
 #[cfg(feature = "auto-rig")]
 pub use auto_rig_state::*;
 pub use batch_flame_orbit::*;
+pub use batch_pick::BatchPickRequest;
 pub use batch_run::*;
 pub use bloom::*;
 pub use bone_pose_override::*;

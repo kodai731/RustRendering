@@ -3,6 +3,7 @@ mod billboard;
 mod buffer_handle;
 mod flame;
 pub mod flame_fit;
+mod flame_pick;
 mod flame_presets;
 mod flame_radial;
 pub mod flame_sdf;
@@ -25,6 +26,10 @@ pub use flame::{
     fit_flame_coefficients, integrate_emission_segment, profile_from_effect,
     refresh_flame_coefficients, FlameCoefficients, FlameEffect, FlameProfile, FlameRenderSettings,
     FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
+};
+pub use flame_pick::{
+    flame_bend_offset, flame_local_bounds, flame_local_bounds_corners, intersect_flame_bounds,
+    intersect_flame_proxy, FlameLocalBounds,
 };
 pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
 pub use flame_radial::{

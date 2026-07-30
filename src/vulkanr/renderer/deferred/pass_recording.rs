@@ -760,17 +760,9 @@ fn compute_flame_scissor(
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    use thyllore_render_core::flame_shell_outer_radius;
-    let shell_radius = flame_shell_outer_radius(0.0).max(flame_shell_outer_radius(1.0));
-    let x_min = -shell_radius + bend_offset[0].min(0.0);
-    let x_max = shell_radius + bend_offset[0].max(0.0);
-    let z_min = -shell_radius + bend_offset[1].min(0.0);
-    let z_max = shell_radius + bend_offset[1].max(0.0);
-    for corner_index in 0..8 {
-        let x = if corner_index & 1 == 0 { x_min } else { x_max };
-        let y = if corner_index & 2 == 0 { 0.0 } else { 1.0 };
-        let z = if corner_index & 4 == 0 { z_min } else { z_max };
-        let clip = view_proj * model * cgmath::vec4(x, y, z, 1.0);
+    let bounds = thyllore_render_core::flame_local_bounds(bend_offset);
+    for corner in thyllore_render_core::flame_local_bounds_corners(&bounds) {
+        let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
         if clip.w <= 0.0 {
             return Some(full_extent_scissor(extent));
         }

@@ -89,6 +89,7 @@ impl App {
             readback.pending_pixel = None;
             readback.copy_in_flight = false;
             readback.last_read_object_id = None;
+            readback.last_read_world_position = None;
         }
 
         Ok(())
@@ -654,22 +655,27 @@ impl App {
             .map_memory(
                 gbuffer.readback_staging_memory,
                 0,
-                std::mem::size_of::<u32>() as u64,
+                thyllore_vulkan_core::resource::READBACK_STAGING_SIZE,
                 vk::MemoryMapFlags::empty(),
             )
             .ok();
 
-        let object_id = memory.map(|ptr| {
-            let value = *(ptr as *const u32);
+        let picked = memory.map(|ptr| {
+            let object_id = *(ptr as *const u32);
+            let position_ptr = (ptr as *const u8)
+                .add(thyllore_vulkan_core::resource::READBACK_POSITION_OFFSET as usize)
+                as *const f32;
+            let world_position = [*position_ptr, *position_ptr.add(1), *position_ptr.add(2)];
             self.rrdevice
                 .device
                 .unmap_memory(gbuffer.readback_staging_memory);
-            value
+            (object_id, world_position)
         });
 
-        if let Some(value) = object_id {
+        if let Some((object_id, world_position)) = picked {
             let mut readback = self.data.ecs_world.resource_mut::<ObjectIdReadback>();
-            readback.last_read_object_id = Some(value);
+            readback.last_read_object_id = Some(object_id);
+            readback.last_read_world_position = (object_id != 0).then_some(world_position);
             readback.copy_in_flight = false;
         }
     }

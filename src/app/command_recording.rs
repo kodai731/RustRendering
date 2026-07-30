@@ -364,6 +364,7 @@ impl App {
         };
 
         let object_id_image = gbuffer.object_id_image;
+        let position_image = gbuffer.position_image;
         let staging_buffer = gbuffer.readback_staging_buffer;
 
         let subresource_range = vk::ImageSubresourceRange {
@@ -384,6 +385,18 @@ impl App {
             .src_access_mask(vk::AccessFlags::SHADER_READ)
             .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
 
+        // The position image stays in GENERAL for the deferred pass, so it only needs the
+        // write-before-read dependency, not a layout change.
+        let position_to_transfer = vk::ImageMemoryBarrier::builder()
+            .old_layout(vk::ImageLayout::GENERAL)
+            .new_layout(vk::ImageLayout::GENERAL)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(position_image)
+            .subresource_range(subresource_range)
+            .src_access_mask(vk::AccessFlags::SHADER_READ)
+            .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
+
         self.rrdevice.device.cmd_pipeline_barrier(
             command_buffer,
             vk::PipelineStageFlags::FRAGMENT_SHADER,
@@ -391,36 +404,49 @@ impl App {
             vk::DependencyFlags::empty(),
             &[] as &[vk::MemoryBarrier],
             &[] as &[vk::BufferMemoryBarrier],
-            &[barrier_to_transfer.build()],
+            &[barrier_to_transfer.build(), position_to_transfer.build()],
         );
 
-        let region = vk::BufferImageCopy::builder()
-            .buffer_offset(0)
-            .buffer_row_length(0)
-            .buffer_image_height(0)
-            .image_subresource(vk::ImageSubresourceLayers {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                mip_level: 0,
-                base_array_layer: 0,
-                layer_count: 1,
-            })
-            .image_offset(vk::Offset3D {
-                x: px as i32,
-                y: py as i32,
-                z: 0,
-            })
-            .image_extent(vk::Extent3D {
-                width: 1,
-                height: 1,
-                depth: 1,
-            });
+        let picked_texel = |buffer_offset: vk::DeviceSize| {
+            vk::BufferImageCopy::builder()
+                .buffer_offset(buffer_offset)
+                .buffer_row_length(0)
+                .buffer_image_height(0)
+                .image_subresource(vk::ImageSubresourceLayers {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    mip_level: 0,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                })
+                .image_offset(vk::Offset3D {
+                    x: px as i32,
+                    y: py as i32,
+                    z: 0,
+                })
+                .image_extent(vk::Extent3D {
+                    width: 1,
+                    height: 1,
+                    depth: 1,
+                })
+                .build()
+        };
 
         self.rrdevice.device.cmd_copy_image_to_buffer(
             command_buffer,
             object_id_image,
             vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
             staging_buffer,
-            &[region.build()],
+            &[picked_texel(0)],
+        );
+
+        self.rrdevice.device.cmd_copy_image_to_buffer(
+            command_buffer,
+            position_image,
+            vk::ImageLayout::GENERAL,
+            staging_buffer,
+            &[picked_texel(
+                thyllore_vulkan_core::resource::READBACK_POSITION_OFFSET,
+            )],
         );
 
         let barrier_to_shader = vk::ImageMemoryBarrier::builder()
@@ -433,6 +459,16 @@ impl App {
             .src_access_mask(vk::AccessFlags::TRANSFER_READ)
             .dst_access_mask(vk::AccessFlags::SHADER_READ);
 
+        let position_to_shader = vk::ImageMemoryBarrier::builder()
+            .old_layout(vk::ImageLayout::GENERAL)
+            .new_layout(vk::ImageLayout::GENERAL)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .image(position_image)
+            .subresource_range(subresource_range)
+            .src_access_mask(vk::AccessFlags::TRANSFER_READ)
+            .dst_access_mask(vk::AccessFlags::SHADER_READ);
+
         self.rrdevice.device.cmd_pipeline_barrier(
             command_buffer,
             vk::PipelineStageFlags::TRANSFER,
@@ -440,7 +476,7 @@ impl App {
             vk::DependencyFlags::empty(),
             &[] as &[vk::MemoryBarrier],
             &[] as &[vk::BufferMemoryBarrier],
-            &[barrier_to_shader.build()],
+            &[barrier_to_shader.build(), position_to_shader.build()],
         );
 
         let mut readback = self.data.ecs_world.resource_mut::<ObjectIdReadback>();

@@ -172,6 +172,11 @@ fn main() -> Result<()> {
             );
         }
     }
+    if let Some(pixel) = overrides.pick_pixel {
+        app.data.ecs_world.insert_resource(
+            thyllore_animation::ecs::resource::BatchPickRequest::new(pixel),
+        );
+    }
     // Apply batch_play override: start timeline playback for deterministic batch clip runs
     if overrides.batch_play {
         let first = {

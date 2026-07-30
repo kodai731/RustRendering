@@ -58,6 +58,8 @@ pub fn run_input_phase(ctx: &mut EcsContext) -> Result<()> {
         }
     }
 
+    request_batch_pick(ctx);
+
     sync_transform_gizmo_to_bone(ctx);
 
     let capture_active = ctx.pointer_capture().active;
@@ -484,10 +486,65 @@ fn request_mesh_selection(ctx: &mut EcsContext) {
     let is_ctrl = modifiers.ctrl;
     drop(modifiers);
 
+    let pick_ray = build_pick_ray(ctx, px, py, gbuffer_w, gbuffer_h);
+
     let mut readback = ctx.object_id_readback_mut();
     readback.pending_pixel = Some((px, py));
+    readback.pick_ray = Some(pick_ray);
     readback.is_shift = is_shift;
     readback.is_ctrl = is_ctrl;
+}
+
+fn request_batch_pick(ctx: &mut EcsContext) {
+    use crate::ecs::resource::BatchPickRequest;
+
+    let Some(request) = ctx.world.get_resource::<BatchPickRequest>().map(|r| *r) else {
+        return;
+    };
+    if request.fired {
+        return;
+    }
+
+    let (px, py) = request.pixel;
+    let pick_ray = build_pick_ray(ctx, px, py, ctx.swapchain_extent.0, ctx.swapchain_extent.1);
+
+    let mut readback = ctx.object_id_readback_mut();
+    readback.pending_pixel = Some((
+        px.min(ctx.swapchain_extent.0.saturating_sub(1)),
+        py.min(ctx.swapchain_extent.1.saturating_sub(1)),
+    ));
+    readback.pick_ray = Some(pick_ray);
+    drop(readback);
+
+    ctx.world
+        .get_resource_mut::<BatchPickRequest>()
+        .map(|mut r| r.fired = true);
+}
+
+fn build_pick_ray(
+    ctx: &EcsContext,
+    px: u32,
+    py: u32,
+    width: u32,
+    height: u32,
+) -> crate::ecs::resource::PickRay {
+    use crate::math::coordinate_system::perspective_infinite_reverse;
+
+    let camera = ctx.camera();
+    let camera_pos = crate::ecs::compute_camera_position(&camera);
+    let camera_dir = crate::ecs::compute_camera_direction(&camera);
+    let camera_up = crate::ecs::compute_camera_up(&camera);
+    let fov_y = camera.fov_y;
+    let near_plane = camera.near_plane;
+    drop(camera);
+
+    let view = unsafe { crate::math::view(camera_pos, camera_dir, camera_up) };
+    let proj = perspective_infinite_reverse(fov_y, width as f32 / height as f32, near_plane);
+    let pixel_center = cgmath::Vector2::new(px as f32 + 0.5, py as f32 + 0.5);
+    let screen_size = cgmath::Vector2::new(width as f32, height as f32);
+
+    let (origin, direction) = screen_to_world_ray(pixel_center, screen_size, view, proj);
+    crate::ecs::resource::PickRay { origin, direction }
 }
 
 fn process_transform_gizmo_interaction(ctx: &mut EcsContext) -> Result<bool> {

@@ -25,6 +25,7 @@ const BATCH_FLAME_PRESET_FLAG: &str = "--batch-flame-preset";
 const BATCH_FLAME_MOTION_FLAG: &str = "--batch-flame-motion";
 const BATCH_FLAME_SDF_FLAG: &str = "--batch-flame-sdf";
 const BATCH_FLAME_SET_FLAG: &str = "--batch-flame-set";
+const BATCH_PICK_FLAG: &str = "--batch-pick";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BatchCameraPose {
@@ -49,6 +50,7 @@ pub struct EngineCliOverrides {
     pub flame_motion: Option<(f32, f32)>,
     pub flame_bone: Option<String>,
     pub flame_sdf: Option<String>,
+    pub pick_pixel: Option<(u32, u32)>,
     pub batch_play: bool,
 }
 
@@ -68,6 +70,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         flame_orbit: flame_orbit_resolve_from_args(args)?,
         flame_motion: flame_motion_resolve_from_args(args)?,
         flame_bone: flame_bone_resolve_from_args(args)?,
+        pick_pixel: pick_pixel_resolve_from_args(args)?,
         flame_sdf: flame_sdf_resolve_from_args(args)?,
         batch_play: args.iter().any(|a| a == "--batch-play"),
     })
@@ -354,6 +357,30 @@ fn flame_orbit_resolve_from_args(args: &[String]) -> Result<Option<(f32, f32)>> 
     Ok(Some((radius, period)))
 }
 
+/// Drives one viewport click from the command line so the picking readback path can be exercised
+/// headlessly, where there is no mouse to press.
+fn pick_pixel_resolve_from_args(args: &[String]) -> Result<Option<(u32, u32)>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_PICK_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_PICK_FLAG} requires <x>,<y>");
+    };
+    let parts: Vec<&str> = value.split(',').collect();
+    if parts.len() != 2 {
+        bail!("{BATCH_PICK_FLAG} expects 2 comma-separated values, got '{value}'");
+    }
+    let x: u32 = parts[0]
+        .trim()
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid {BATCH_PICK_FLAG} x in '{value}'"))?;
+    let y: u32 = parts[1]
+        .trim()
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid {BATCH_PICK_FLAG} y in '{value}'"))?;
+    Ok(Some((x, y)))
+}
+
 fn flame_motion_resolve_from_args(args: &[String]) -> Result<Option<(f32, f32)>> {
     let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_MOTION_FLAG) else {
         return Ok(None);
@@ -601,6 +628,25 @@ mod tests {
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn pick_pixel_is_absent_without_the_flag() {
+        assert_eq!(pick_pixel_resolve_from_args(&args(&["bin"])).unwrap(), None);
+    }
+
+    #[test]
+    fn pick_pixel_parses_a_pixel_pair() {
+        assert_eq!(
+            pick_pixel_resolve_from_args(&args(&["bin", "--batch-pick", "947,150"])).unwrap(),
+            Some((947, 150))
+        );
+    }
+
+    #[test]
+    fn pick_pixel_rejects_a_malformed_pair() {
+        assert!(pick_pixel_resolve_from_args(&args(&["bin", "--batch-pick", "947"])).is_err());
+        assert!(pick_pixel_resolve_from_args(&args(&["bin", "--batch-pick", "a,b"])).is_err());
     }
 
     #[test]

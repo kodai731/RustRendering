@@ -22,7 +22,7 @@ pub use buffer_registry::GpuBufferRegistry;
 pub use dof_buffer::DofBuffer;
 pub use dynamic_buffer::*;
 pub use flame_buffer::FlameBuffer;
-pub use gbuffer::RRGBuffer;
+pub use gbuffer::{RRGBuffer, READBACK_POSITION_OFFSET, READBACK_STAGING_SIZE};
 pub use graphics_resource::GraphicsResources;
 pub use hdr_buffer::HdrBuffer;
 pub use image::*;
