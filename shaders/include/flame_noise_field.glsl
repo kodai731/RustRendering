@@ -10,6 +10,16 @@ vec3 flameNoiseAdvect() {
     return vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y) * flame.time;
 }
 
+// Internal helper: anisotropic compression along the advection axis.
+vec3 flameAnisoCompress(vec3 v, float axialScale) {
+    vec3 adv = vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y);
+    vec3 axis = vec3(0.0, 1.0, 0.0);
+    if (flame.contourParams.y > 0.0 && dot(adv, adv) > 1e-8) {
+        axis = normalize(mix(axis, normalize(adv), clamp(flame.contourParams.y, 0.0, 1.0)));
+    }
+    return v - dot(v, axis) * axis * (1.0 - axialScale);
+}
+
 // Internal helper: compute the warped coordinate q from world position p and height h.
 // This is the single source of truth for the domain-warp chain:
 //   bendOffset -> pb -> advect -> aniso -> wp -> w -> q
@@ -19,8 +29,7 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
     vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
 
     // Domain warp with upward advection
-    vec3 aniso = vec3(1.0, 0.35, 1.0);
-    vec3 wp = (pb * aniso) * flame.styleParams0.y - flameNoiseAdvect();
+    vec3 wp = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
     vec2 w = vec2(fbm3(wp), fbm3(wp + vec3(19.1, 7.7, 3.3))) * 2.0 - 1.0;
     float wy = fbm3(wp + vec3(41.3, 23.7, 11.9)) * 2.0 - 1.0;
     vec3 q = pb + flame.styleParams0.x * mix(0.15, 1.0, h) * vec3(w.x, wy * flame.temporalData.w, w.y);
@@ -29,9 +38,7 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
 }
 // Internal helper: compute erosion value from warped coordinate q and height h.
 float flameNoiseErosionAt(vec3 q, float h) {
-    vec3 aniso = vec3(1.0, flame.temporalData.z, 1.0);
-    return flame.noiseAmplitude * mix(0.2, 1.0, h)
-        * (fbm3((q * aniso) * flame.noiseFrequency - flameNoiseAdvect()) - 0.35);
+    return flame.noiseAmplitude * mix(0.2, 1.0, h) * (fbm3(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect()) - 0.35);
 }
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {

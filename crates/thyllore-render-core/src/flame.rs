@@ -251,6 +251,14 @@ pub struct FlameEffect {
     pub ring_angular_speed: f32,
     pub occlusion_lum_ref: f32,
     pub contour_wiggle_amp: f32,
+    /// 0=world-Y axis (current) / 1=advect direction axis
+    pub aniso_axis_advect: f32,
+    /// mode0 の RTE 離散化帯数。1 以下 = legacy 線形放射経路、2 以上 = 帯ごと Beer-Lambert 合成
+    pub rte_bands: f32,
+    /// RTE 吸収の波長分散。0=グレー体 (旧一致)、1=Rayleigh 1/λ 比
+    pub sigma_dispersion: f32,
+    /// RTE 帯色を外縁 (r̂≈1) で tip 色へ寄せる薄い項。0=現行
+    pub edge_temperature_blend: f32,
 }
 
 impl Default for FlameEffect {
@@ -300,6 +308,10 @@ impl Default for FlameEffect {
             ring_angular_speed: 0.6,
             occlusion_lum_ref: 1.0,
             contour_wiggle_amp: 0.3,
+            aniso_axis_advect: 0.0,
+            rte_bands: 4.0,
+            sigma_dispersion: 1.0,
+            edge_temperature_blend: 0.0,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -401,7 +413,12 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.occlusion_lum_ref,
         ),
         color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
-        color_tip: Vector4::new(color_tip[0], color_tip[1], color_tip[2], 1.0),
+        color_tip: Vector4::new(
+            color_tip[0],
+            color_tip[1],
+            color_tip[2],
+            effect.edge_temperature_blend,
+        ),
         temporal_data: Vector4::new(
             effect.temporal_weight,
             (effect.frame_index % 16384) as f32,
@@ -445,7 +462,12 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.ring_angular_speed,
             if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
         ),
-        contour_params: [effect.contour_wiggle_amp, 0.0, 0.0, 0.0],
+        contour_params: [
+            effect.contour_wiggle_amp,
+            effect.aniso_axis_advect,
+            effect.rte_bands,
+            effect.sigma_dispersion,
+        ],
     }
 }
 
@@ -650,7 +672,12 @@ pub fn build_flame_ubo_with_trail(
             effect.occlusion_lum_ref,
         ),
         color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
-        color_tip: Vector4::new(color_tip[0], color_tip[1], color_tip[2], 1.0),
+        color_tip: Vector4::new(
+            color_tip[0],
+            color_tip[1],
+            color_tip[2],
+            effect.edge_temperature_blend,
+        ),
         temporal_data: Vector4::new(
             effect.temporal_weight,
             (effect.frame_index % 16384) as f32,
@@ -694,7 +721,12 @@ pub fn build_flame_ubo_with_trail(
             effect.ring_angular_speed,
             if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
         ),
-        contour_params: [effect.contour_wiggle_amp, 0.0, 0.0, 0.0],
+        contour_params: [
+            effect.contour_wiggle_amp,
+            effect.aniso_axis_advect,
+            effect.rte_bands,
+            effect.sigma_dispersion,
+        ],
     }
 }
 

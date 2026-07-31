@@ -12,12 +12,13 @@
 
 const float FLAME_SHELL_BASE_RADIUS = 0.5;
 const float FLAME_SHELL_TAPER_TIP_SCALE = 1.0;
-const float FLAME_SHELL_CIRCUMSCRIBE = 1.0823922; // 1/cos(pi/8): circumscribe octagon over unit cylinder
+const float FLAME_SHELL_CIRCUMSCRIBE = 1.0195911; // 1/cos(pi/16): circumscribe 16-gon over unit cylinder
+const float FLAME_SHELL_SUPPORT_HEADROOM = 1.5; // density support r̂max until proxy doesn't cut
 
 // Multiplier on the base half-extent. Includes the circumscribe factor, so a cone built
 // from it encloses the rasterized octagon rather than cutting its corners.
 float flameShellRadiusScale(float height01) {
-    return FLAME_SHELL_CIRCUMSCRIBE * mix(1.0, FLAME_SHELL_TAPER_TIP_SCALE, height01);
+    return FLAME_SHELL_SUPPORT_HEADROOM * FLAME_SHELL_CIRCUMSCRIBE * mix(1.0, FLAME_SHELL_TAPER_TIP_SCALE, height01);
 }
 
 // Outer radius of the shell in flame-local units.

@@ -861,6 +861,36 @@ pub unsafe fn record_tonemap_to_offscreen(
 
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
+    // Query for first entity with both FlameEffect and HeatPlume to build plume push constants
+    let plume_data: Option<([f32; 4], [f32; 4], [f32; 4], [f32; 4])> = {
+        let flame_entities: Vec<_> = app.data.ecs_world.query_flames();
+        flame_entities.into_iter().find_map(|e| {
+            let effect = app
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::component::FlameEffect>(e)?;
+            let plume = app
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::component::HeatPlume>(e)?;
+            Some((
+                [effect.position.x, effect.position.y, effect.position.z, 1.0],
+                [
+                    plume.plume_temperature,
+                    plume.width_base,
+                    plume.width_slope,
+                    plume.distortion_gain,
+                ],
+                [plume.plume_height, effect.time, plume.turbulence_amp, 0.0],
+                [
+                    effect.wind_direction.x,
+                    effect.rise_speed,
+                    effect.wind_direction.y,
+                    0.0,
+                ],
+            ))
+        })
+    };
     thyllore_vulkan_core::renderer::begin_tonemap_render_pass(
         &ctx,
         render_pass,
@@ -878,6 +908,7 @@ pub unsafe fn record_tonemap_to_offscreen(
         bloom_ref,
         extent,
         command_buffer,
+        plume_data,
     )?;
     // Grid is already drawn inside record_composite_to_hdr, before the flame composite.
     // Drawing it again here would put it on top of the flame.

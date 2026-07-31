@@ -18,6 +18,7 @@ use crate::pipeline::{
 use crate::raytracing::RRAccelerationStructure;
 use crate::render::RRRender;
 use crate::renderer::push_constants::{GBufferPushConstants, OnionSkinPushConstants};
+use crate::renderer::tonemap::ToneMapPushConstants;
 use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
@@ -598,7 +599,7 @@ impl RayTracingData {
         .push_constants(PushConstantConfig {
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             offset: 0,
-            size: 24,
+            size: std::mem::size_of::<ToneMapPushConstants>() as u32,
         })
         .build(rrdevice, rrrender, Some(offscreen_extent))?;
 

@@ -4,10 +4,12 @@ mod buffer_handle;
 mod flame;
 pub mod flame_fit;
 mod flame_pick;
+pub mod flame_plume;
 mod flame_presets;
 mod flame_radial;
 pub mod flame_sdf;
 mod flame_shell;
+mod flame_texture_fit;
 pub mod flame_trail;
 mod gizmo;
 mod gizmo_data;
@@ -41,6 +43,7 @@ pub use flame_shell::{
     FLAME_SHELL_BASE_RADIUS, FLAME_SHELL_RING_SEGMENTS, FLAME_SHELL_STACKS,
     FLAME_SHELL_TAPER_TIP_SCALE,
 };
+pub use flame_texture_fit::*;
 pub use flame_trail::*;
 pub use gizmo::{
     BoneDisplayStyle, ColorVertex, GizmoAxis, GizmoDraggable, GizmoPosition, GizmoSelectable,

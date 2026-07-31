@@ -1,3 +1,4 @@
+use std::io::Cursor;
 use std::path::{Path, PathBuf};
 
 use anyhow::{bail, Context, Result};
@@ -25,6 +26,8 @@ const BATCH_FLAME_PRESET_FLAG: &str = "--batch-flame-preset";
 const BATCH_FLAME_MOTION_FLAG: &str = "--batch-flame-motion";
 const BATCH_FLAME_SDF_FLAG: &str = "--batch-flame-sdf";
 const BATCH_FLAME_SET_FLAG: &str = "--batch-flame-set";
+const BATCH_FLAME_TEXTURE_FLAG: &str = "--batch-flame-texture";
+const BATCH_HEAT_PLUME_FLAG: &str = "--batch-heat-plume";
 const BATCH_PICK_FLAG: &str = "--batch-pick";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -48,10 +51,13 @@ pub struct EngineCliOverrides {
     pub flame_trail: Option<f32>,
     pub flame_orbit: Option<(f32, f32)>,
     pub flame_motion: Option<(f32, f32)>,
-    pub flame_bone: Option<String>,
     pub flame_sdf: Option<String>,
     pub pick_pixel: Option<(u32, u32)>,
+    pub flame_bone: Option<String>,
+    pub flame_texture_fit: Option<(String, f32)>,
+    pub heat_plume: Option<(f32, f32)>,
     pub batch_play: bool,
+    pub scene_path: Option<String>,
 }
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
@@ -72,7 +78,10 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         flame_bone: flame_bone_resolve_from_args(args)?,
         pick_pixel: pick_pixel_resolve_from_args(args)?,
         flame_sdf: flame_sdf_resolve_from_args(args)?,
+        flame_texture_fit: flame_texture_fit_resolve_from_args(args)?,
+        heat_plume: heat_plume_resolve_from_args(args)?,
         batch_play: args.iter().any(|a| a == "--batch-play"),
+        scene_path: scene_path_resolve_from_args(args)?,
     })
 }
 
@@ -254,6 +263,10 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "warp_y_scale",
     "occlusion_lum_ref",
     "contour_wiggle_amp",
+    "aniso_axis_advect",
+    "rte_bands",
+    "sigma_dispersion",
+    "edge_temperature_blend",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -313,6 +326,82 @@ fn flame_preset_resolve_from_args(args: &[String]) -> Result<Option<String>> {
             thyllore_render_core::FLAME_PRESET_NAMES.join(", ")
         );
     }
+    Ok(Some(value.clone()))
+}
+
+fn flame_texture_fit_resolve_from_args(args: &[String]) -> Result<Option<(String, f32)>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_TEXTURE_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_FLAME_TEXTURE_FLAG} requires <path>[,<blend>]");
+    };
+    let parts: Vec<&str> = value.split(',').collect();
+    let path = parts[0].trim().to_string();
+    let blend = if parts.len() > 1 {
+        parts[1].trim().parse::<f32>().map_err(|_| {
+            anyhow::anyhow!(
+                "invalid {BATCH_FLAME_TEXTURE_FLAG} blend value '{}'",
+                parts[1]
+            )
+        })?
+    } else {
+        1.0
+    };
+    if !blend.is_finite() || blend < 0.0 || blend > 1.0 {
+        bail!("{BATCH_FLAME_TEXTURE_FLAG} blend must be in [0, 1] and finite: '{value}'");
+    }
+    Ok(Some((path, blend)))
+}
+
+fn heat_plume_resolve_from_args(args: &[String]) -> Result<Option<(f32, f32)>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_HEAT_PLUME_FLAG) else {
+        return Ok(None);
+    };
+    let next = args.get(position + 1);
+    let value = match next {
+        None => "10.0,0.5",
+        Some(value) if value.starts_with("--") => "10.0,0.5",
+        Some(value) => value.as_str(),
+    };
+    let parts: Vec<&str> = value.split(',').collect();
+    let (gain, amp) = match parts.len() {
+        1 => {
+            let gain: f32 = parts[0]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid {BATCH_HEAT_PLUME_FLAG} value '{value}'"))?;
+            if !gain.is_finite() || gain < 0.0 {
+                bail!("{BATCH_HEAT_PLUME_FLAG} gain must be >= 0 and finite: '{value}'");
+            }
+            (gain, 0.5)
+        }
+        2 => {
+            let gain: f32 = parts[0]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid {BATCH_HEAT_PLUME_FLAG} value '{value}'"))?;
+            let amp: f32 = parts[1]
+                .parse()
+                .map_err(|_| anyhow::anyhow!("invalid {BATCH_HEAT_PLUME_FLAG} value '{value}'"))?;
+            if !gain.is_finite() || gain < 0.0 {
+                bail!("{BATCH_HEAT_PLUME_FLAG} gain must be >= 0 and finite: '{value}'");
+            }
+            if !amp.is_finite() || amp < 0.0 {
+                bail!("{BATCH_HEAT_PLUME_FLAG} amp must be >= 0 and finite: '{value}'");
+            }
+            (gain, amp)
+        }
+        _ => bail!("{BATCH_HEAT_PLUME_FLAG} expects <gain>[,<amp>] but got '{value}'"),
+    };
+    Ok(Some((gain, amp)))
+}
+
+fn scene_path_resolve_from_args(args: &[String]) -> Result<Option<String>> {
+    let Some(position) = args.iter().position(|arg| arg == "--batch-scene") else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("--batch-scene requires <path>");
+    };
     Ok(Some(value.clone()))
 }
 
@@ -535,6 +624,10 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "ring_angular_speed" => effect.ring_angular_speed = *value,
             "occlusion_lum_ref" => effect.occlusion_lum_ref = *value,
             "contour_wiggle_amp" => effect.contour_wiggle_amp = *value,
+            "aniso_axis_advect" => effect.aniso_axis_advect = *value,
+            "rte_bands" => effect.rte_bands = *value,
+            "sigma_dispersion" => effect.sigma_dispersion = *value,
+            "edge_temperature_blend" => effect.edge_temperature_blend = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }
@@ -620,6 +713,86 @@ pub fn batch_run_report(batch: &BatchRun) -> (bool, String) {
                 .to_string(),
         ),
     }
+}
+
+pub fn apply_texture_fit_from_path(effect: &mut FlameEffect, path: &str, blend: f32) {
+    let bytes = match std::fs::read(path) {
+        Ok(b) => b,
+        Err(e) => {
+            eprintln!(
+                "warning: failed to read texture fit image '{}': {}",
+                path, e
+            );
+            return;
+        }
+    };
+
+    let decoder = png::Decoder::new(Cursor::new(&bytes));
+    let mut reader = match decoder.read_info() {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!(
+                "warning: failed to decode texture fit image '{}': {}",
+                path, e
+            );
+            return;
+        }
+    };
+
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = match reader.next_frame(&mut buf) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!(
+                "warning: failed to read texture fit image frame '{}': {}",
+                path, e
+            );
+            return;
+        }
+    };
+
+    let width = info.width as usize;
+    let height = info.height as usize;
+    let bytes_per_pixel = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        _ => {
+            eprintln!(
+                "warning: unsupported PNG color type in texture fit image '{}'",
+                path
+            );
+            return;
+        }
+    };
+
+    let buf = &buf[..info.buffer_size()];
+    let total_pixels = width * height;
+    let mut pixels: Vec<[f32; 3]> = Vec::with_capacity(total_pixels);
+    for i in (0..buf.len()).step_by(bytes_per_pixel) {
+        let r = buf[i] as f32 / 255.0;
+        let g = buf[i + 1] as f32 / 255.0;
+        let b = buf[i + 2] as f32 / 255.0;
+        pixels.push([
+            thyllore_render_core::flame_fit::srgb_to_linear(r),
+            thyllore_render_core::flame_fit::srgb_to_linear(g),
+            thyllore_render_core::flame_fit::srgb_to_linear(b),
+        ]);
+    }
+
+    let fit = match thyllore_render_core::fit_flame_texture(&pixels, width, height, effect) {
+        Some(f) => f,
+        None => {
+            eprintln!("warning: texture fit failed for image '{}'", path);
+            return;
+        }
+    };
+
+    thyllore_render_core::apply_texture_fit(
+        effect,
+        &fit,
+        thyllore_render_core::TextureFitGroups::default(),
+        blend,
+    );
 }
 
 #[cfg(test)]
@@ -1022,5 +1195,41 @@ mod tests {
                 orbit_pos.z
             );
         }
+    }
+
+    #[test]
+    fn flame_texture_fit_path_only_defaults_blend_to_one() {
+        let resolved = flame_texture_fit_resolve_from_args(&args(&[
+            "bin",
+            "--batch-flame-texture",
+            "image.png",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(resolved.0, "image.png");
+        assert!((resolved.1 - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn flame_texture_fit_path_with_blend() {
+        let resolved = flame_texture_fit_resolve_from_args(&args(&[
+            "bin",
+            "--batch-flame-texture",
+            "image.png,0.4",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(resolved.0, "image.png");
+        assert!((resolved.1 - 0.4).abs() < 1e-6);
+    }
+
+    #[test]
+    fn flame_texture_fit_invalid_blend_is_err() {
+        assert!(flame_texture_fit_resolve_from_args(&args(&[
+            "bin",
+            "--batch-flame-texture",
+            "image.png,abc"
+        ]))
+        .is_err());
     }
 }

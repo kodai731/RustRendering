@@ -17,6 +17,9 @@ pub struct SceneOverlayState {
     pub model_path: String,
     pub load_status: String,
     pub flame_preset_index: usize,
+    pub texture_fit_path: String,
+    pub texture_fit_blend: f32,
+    pub texture_fit_groups: [bool; 4],
     #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
     #[cfg(feature = "auto-rig")]
@@ -526,298 +529,337 @@ fn build_flame_section(
                     }
                 }
             }
-        }
 
-        if let Some(selected_flame) = selected_flame_entity {
-            if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
-                let mut effect_copy = effect.clone();
-                drop(effect);
-                let mut position = [
-                    effect_copy.position.x,
-                    effect_copy.position.y,
-                    effect_copy.position.z,
-                ];
-                if ui.input_float3("Position", &mut position).build() {
-                    effect_copy.position =
-                        cgmath::Vector3::new(position[0], position[1], position[2]);
-                }
-
-                let emitter_labels: [&str; 3] = ["Cylinder", "Ring", "Mesh SDF"];
-                let mut emitter_selected = effect_copy.emitter_kind as usize;
-                if ui.combo_simple_string("Emitter", &mut emitter_selected, &emitter_labels) {
-                    effect_copy.emitter_kind = emitter_selected as u32;
-                }
-
-                if effect_copy.emitter_kind == 1 {
-                    ui.slider_config("Ring Radius", 0.2, 5.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.ring_major_radius);
-                    ui.same_line();
-                    let mut ring_speed = effect_copy.ring_angular_speed;
-                    ui.slider_config("Ring Speed", 0.0, 6.28)
-                        .display_format("%.2f")
-                        .build(&mut ring_speed);
-                    effect_copy.ring_angular_speed = ring_speed;
-                }
-
-                ui.slider_config("Height", 0.05, 10.0)
-                    .display_format("%.2f")
-                    .build(&mut effect_copy.height);
-                ui.same_line();
-                if ui.small_button("K##Height") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::Height,
-                        value: effect_copy.height,
-                    });
-                }
-
-                ui.slider_config("Radius", 0.05, 10.0)
-                    .display_format("%.2f")
-                    .build(&mut effect_copy.radius);
-                ui.same_line();
-                if ui.small_button("K##Radius") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::Radius,
-                        value: effect_copy.radius,
-                    });
-                }
-
-                ui.slider_config("Intensity", 0.0, 10.0)
-                    .build(&mut effect_copy.intensity);
-                ui.same_line();
-                if ui.small_button("K##Intensity") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::Intensity,
-                        value: effect_copy.intensity,
-                    });
-                }
-
-                ui.slider_config("Sigma T", 0.01, 10.0)
-                    .display_format("%.2f")
-                    .build(&mut effect_copy.sigma_t);
-                ui.same_line();
-                if ui.small_button("K##SigmaT") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::SigmaT,
-                        value: effect_copy.sigma_t,
-                    });
-                }
-
-                ui.checkbox("Use Blackbody", &mut effect_copy.use_blackbody);
-
-                let mut temp_base = effect_copy.temperature_base_k as i32;
-                ui.slider_config("Base Temp (K)", 800, 3000)
-                    .build(&mut temp_base);
-                effect_copy.temperature_base_k = temp_base as f32;
-                ui.same_line();
-                if ui.small_button("K##BaseTemp") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::TemperatureBaseK,
-                        value: effect_copy.temperature_base_k,
-                    });
-                }
-
-                let mut temp_tip = effect_copy.temperature_tip_k as i32;
-                ui.slider_config("Tip Temp (K)", 800, 3000)
-                    .build(&mut temp_tip);
-                effect_copy.temperature_tip_k = temp_tip as f32;
-                ui.same_line();
-                if ui.small_button("K##TipTemp") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::TemperatureTipK,
-                        value: effect_copy.temperature_tip_k,
-                    });
-                }
-
-                ui.color_edit3("Base Color", &mut effect_copy.color_base);
-                ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
-
-                ui.slider_config("Noise Amplitude", 0.0, 3.0)
-                    .build(&mut effect_copy.noise_amplitude);
-                ui.same_line();
-                if ui.small_button("K##NoiseAmplitude") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::NoiseAmplitude,
-                        value: effect_copy.noise_amplitude,
-                    });
-                }
-
-                ui.slider_config("Noise Frequency", 0.5, 32.0)
-                    .build(&mut effect_copy.noise_frequency);
-
-                ui.slider_config("Noise Scroll Speed", 0.0, 10.0)
-                    .build(&mut effect_copy.noise_scroll_speed);
-
-                ui.slider_config("Self Shadow", 0.0, 1.0)
-                    .build(&mut effect_copy.self_shadow_strength);
-
-                ui.slider_config("Occlusion Lum", 0.05, 4.0)
-                    .build(&mut effect_copy.occlusion_lum_ref);
-
-                ui.slider_config("Contour Wiggle", 0.0, 1.0)
-                    .build(&mut effect_copy.contour_wiggle_amp);
-
-                ui.slider_config("Warp Amp", 0.0, 3.0)
-                    .build(&mut effect_copy.warp_amp);
-                ui.same_line();
-                if ui.small_button("K##WarpAmp") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::WarpAmp,
-                        value: effect_copy.warp_amp,
-                    });
-                }
-
-                ui.slider_config("Warp Freq", 0.5, 16.0)
-                    .build(&mut effect_copy.warp_freq);
-                ui.same_line();
-                if ui.small_button("K##WarpFreq") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::WarpFreq,
-                        value: effect_copy.warp_freq,
-                    });
-                }
-
-                ui.slider_config("Rise Speed", 0.0, 5.0)
-                    .build(&mut effect_copy.rise_speed);
-                ui.same_line();
-                if ui.small_button("K##RiseSpeed") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::RiseSpeed,
-                        value: effect_copy.rise_speed,
-                    });
-                }
-
-                ui.slider_config("Taper Power", 0.3, 3.0)
-                    .build(&mut effect_copy.taper_power);
-
-                ui.slider_config("Tip Radius", 0.05, 1.0)
-                    .display_format("%.2f")
-                    .build(&mut effect_copy.radius_tip_ratio);
-
-                ui.slider_config("Edge Low", 0.0, 1.0)
-                    .build(&mut effect_copy.edge_low);
-                ui.same_line();
-                if ui.small_button("K##EdgeLow") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::EdgeLow,
-                        value: effect_copy.edge_low,
-                    });
-                }
-
-                ui.slider_config("Edge High", 0.0, 1.0)
-                    .build(&mut effect_copy.edge_high);
-                ui.same_line();
-                if ui.small_button("K##EdgeHigh") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::EdgeHigh,
-                        value: effect_copy.edge_high,
-                    });
-                }
-
-                ui.slider_config("White Boost", 0.0, 8.0)
-                    .build(&mut effect_copy.white_boost);
-                ui.same_line();
-                if ui.small_button("K##WhiteBoost") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::WhiteBoost,
-                        value: effect_copy.white_boost,
-                    });
-                }
-
-                ui.slider_config("Wind X", -1.0, 1.0)
-                    .build(&mut effect_copy.wind_direction.x);
-                ui.same_line();
-                if ui.small_button("K##WindX") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::WindX,
-                        value: effect_copy.wind_direction.x,
-                    });
-                }
-
-                ui.slider_config("Wind Z", -1.0, 1.0)
-                    .build(&mut effect_copy.wind_direction.y);
-                ui.same_line();
-                if ui.small_button("K##WindZ") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::WindZ,
-                        value: effect_copy.wind_direction.y,
-                    });
-                }
-
-                ui.slider_config("Bend Amount", 0.0, 2.0)
-                    .build(&mut effect_copy.bend_amount);
-                ui.same_line();
-                if ui.small_button("K##BendAmount") {
-                    ui_events.send(UIEvent::InsertFlameKey {
-                        param: FlameParam::BendAmount,
-                        value: effect_copy.bend_amount,
-                    });
-                }
-
-                ui.slider_config("Bend Power", 0.5, 4.0)
-                    .build(&mut effect_copy.bend_power);
-
-                ui.slider_config("Time Scale", 0.0, 4.0)
-                    .build(&mut effect_copy.time_scale);
-
-                ui.slider_config("Time Offset", -10.0, 10.0)
-                    .build(&mut effect_copy.time_offset);
-
-                ui.slider_config("Envelope Peak", 0.05, 0.8)
-                    .display_format("%.2f")
-                    .build(&mut effect_copy.envelope_peak);
-
-                ui.slider_config("Envelope Base", 0.0, 0.95)
-                    .display_format("%.2f")
-                    .build(&mut effect_copy.envelope_base);
-
-                ui.slider_config("Envelope Tail", 0.5, 4.0)
-                    .display_format("%.1f")
-                    .build(&mut effect_copy.envelope_tail);
-
-                ui.slider_config("Radial Sharpness", 1.0, 12.0)
-                    .display_format("%.1f")
-                    .build(&mut effect_copy.radial_sharpness);
-
-                if ui.button("Clear Flame Keys") {
-                    ui_events.send(UIEvent::ClearFlameKeys);
-                }
-                if ui.button("Curves") {
-                    ui_events.send(UIEvent::ToggleFlameCurves);
-                }
-                if ui.button("Add Flame") {
-                    ui_events.send(UIEvent::AddFlame);
-                }
-
-                // Trail checkbox and slider
-                let trail_state = ecs_world
-                    .get_component::<crate::ecs::component::flame_trail::FlameTrail>(selected_flame)
-                    .map(|t| (t.state.enabled, t.state.fade_seconds))
-                    .unwrap_or((false, 0.8));
-                let mut trail_enabled = trail_state.0;
-                let mut trail_fade = trail_state.1;
-                if ui.checkbox("Trail", &mut trail_enabled) {
-                    ui_events.send(UIEvent::UpdateFlameTrailEnabled(trail_enabled));
-                }
-                ui.slider_config("Trail Fade", 0.1, 5.0)
-                    .build(&mut trail_fade);
-                if (trail_fade - trail_state.1).abs() > 0.01 {
-                    ui_events.send(UIEvent::UpdateFlameTrailFade(trail_fade));
-                }
-
-                // GPU Timings section (read-only)
-                let timings = ecs_world.get_resource::<crate::ecs::resource::GpuPassTimings>();
-                if let Some(timings) = timings {
-                    if !timings.passes.is_empty() {
-                        ui.separator();
-                        ui.text("GPU Timings");
-                        for (label, ms) in &timings.passes {
-                            ui.text(format!("  {} {:.3} ms", label, ms));
-                        }
+            ui.separator();
+            ui.text("Texture Fit");
+            ui.input_text("Fit Image (png)", &mut overlay_state.texture_fit_path);
+            ui.slider("Fit Blend", 0.0, 1.0, &mut overlay_state.texture_fit_blend);
+            let mut groups = thyllore_render_core::TextureFitGroups::default();
+            ui.checkbox("Silhouette", &mut overlay_state.texture_fit_groups[0]);
+            if overlay_state.texture_fit_groups[0] {
+                groups.silhouette = true;
+            }
+            ui.checkbox("Color", &mut overlay_state.texture_fit_groups[1]);
+            if overlay_state.texture_fit_groups[1] {
+                groups.color = true;
+            }
+            ui.checkbox("Turbulence", &mut overlay_state.texture_fit_groups[2]);
+            if overlay_state.texture_fit_groups[2] {
+                groups.turbulence = true;
+            }
+            ui.checkbox("Tilt", &mut overlay_state.texture_fit_groups[3]);
+            if overlay_state.texture_fit_groups[3] {
+                groups.tilt = true;
+            }
+            if ui.button("Apply Texture Fit") {
+                let path = overlay_state.texture_fit_path.clone();
+                let blend = overlay_state.texture_fit_blend;
+                if let Some(selected_flame) = selected_flame_entity {
+                    if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
+                        let mut effect_copy = effect.clone();
+                        crate::ecs::systems::apply_texture_fit_from_path(
+                            &mut effect_copy,
+                            &path,
+                            blend,
+                        );
+                        ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
                     }
                 }
+            }
 
-                ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
+            if let Some(selected_flame) = selected_flame_entity {
+                if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
+                    let mut effect_copy = effect.clone();
+
+                    let mut position = [
+                        effect_copy.position.x,
+                        effect_copy.position.y,
+                        effect_copy.position.z,
+                    ];
+                    if ui.input_float3("Position", &mut position).build() {
+                        effect_copy.position =
+                            cgmath::Vector3::new(position[0], position[1], position[2]);
+                    }
+
+                    let emitter_labels: [&str; 3] = ["Cylinder", "Ring", "Mesh SDF"];
+                    let mut emitter_selected = effect_copy.emitter_kind as usize;
+                    if ui.combo_simple_string("Emitter", &mut emitter_selected, &emitter_labels) {
+                        effect_copy.emitter_kind = emitter_selected as u32;
+                    }
+
+                    if effect_copy.emitter_kind == 1 {
+                        ui.slider_config("Ring Radius", 0.2, 5.0)
+                            .display_format("%.2f")
+                            .build(&mut effect_copy.ring_major_radius);
+                        ui.same_line();
+                        let mut ring_speed = effect_copy.ring_angular_speed;
+                        ui.slider_config("Ring Speed", 0.0, 6.28)
+                            .display_format("%.2f")
+                            .build(&mut ring_speed);
+                        effect_copy.ring_angular_speed = ring_speed;
+                    }
+
+                    ui.slider_config("Height", 0.05, 10.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.height);
+                    ui.same_line();
+                    if ui.small_button("K##Height") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::Height,
+                            value: effect_copy.height,
+                        });
+                    }
+
+                    ui.slider_config("Radius", 0.05, 10.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.radius);
+                    ui.same_line();
+                    if ui.small_button("K##Radius") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::Radius,
+                            value: effect_copy.radius,
+                        });
+                    }
+
+                    ui.slider_config("Intensity", 0.0, 10.0)
+                        .build(&mut effect_copy.intensity);
+                    ui.same_line();
+                    if ui.small_button("K##Intensity") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::Intensity,
+                            value: effect_copy.intensity,
+                        });
+                    }
+
+                    ui.slider_config("Sigma T", 0.01, 10.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.sigma_t);
+                    ui.same_line();
+                    if ui.small_button("K##SigmaT") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::SigmaT,
+                            value: effect_copy.sigma_t,
+                        });
+                    }
+
+                    ui.checkbox("Use Blackbody", &mut effect_copy.use_blackbody);
+
+                    let mut temp_base = effect_copy.temperature_base_k as i32;
+                    ui.slider_config("Base Temp (K)", 800, 3000)
+                        .build(&mut temp_base);
+                    effect_copy.temperature_base_k = temp_base as f32;
+                    ui.same_line();
+                    if ui.small_button("K##BaseTemp") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::TemperatureBaseK,
+                            value: effect_copy.temperature_base_k,
+                        });
+                    }
+
+                    let mut temp_tip = effect_copy.temperature_tip_k as i32;
+                    ui.slider_config("Tip Temp (K)", 800, 3000)
+                        .build(&mut temp_tip);
+                    effect_copy.temperature_tip_k = temp_tip as f32;
+                    ui.same_line();
+                    if ui.small_button("K##TipTemp") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::TemperatureTipK,
+                            value: effect_copy.temperature_tip_k,
+                        });
+                    }
+
+                    ui.color_edit3("Base Color", &mut effect_copy.color_base);
+                    ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
+
+                    ui.slider_config("Noise Amplitude", 0.0, 3.0)
+                        .build(&mut effect_copy.noise_amplitude);
+                    ui.same_line();
+                    if ui.small_button("K##NoiseAmplitude") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::NoiseAmplitude,
+                            value: effect_copy.noise_amplitude,
+                        });
+                    }
+
+                    ui.slider_config("Noise Frequency", 0.5, 32.0)
+                        .build(&mut effect_copy.noise_frequency);
+
+                    ui.slider_config("Noise Scroll Speed", 0.0, 10.0)
+                        .build(&mut effect_copy.noise_scroll_speed);
+
+                    ui.slider_config("Self Shadow", 0.0, 1.0)
+                        .build(&mut effect_copy.self_shadow_strength);
+
+                    ui.slider_config("Occlusion Lum", 0.05, 4.0)
+                        .build(&mut effect_copy.occlusion_lum_ref);
+
+                    ui.slider_config("Contour Wiggle", 0.0, 1.0)
+                        .build(&mut effect_copy.contour_wiggle_amp);
+
+                    ui.slider_config("Warp Amp", 0.0, 3.0)
+                        .build(&mut effect_copy.warp_amp);
+                    ui.same_line();
+                    if ui.small_button("K##WarpAmp") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::WarpAmp,
+                            value: effect_copy.warp_amp,
+                        });
+                    }
+
+                    ui.slider_config("Warp Freq", 0.5, 16.0)
+                        .build(&mut effect_copy.warp_freq);
+                    ui.same_line();
+                    if ui.small_button("K##WarpFreq") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::WarpFreq,
+                            value: effect_copy.warp_freq,
+                        });
+                    }
+
+                    ui.slider_config("Rise Speed", 0.0, 5.0)
+                        .build(&mut effect_copy.rise_speed);
+                    ui.same_line();
+                    if ui.small_button("K##RiseSpeed") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::RiseSpeed,
+                            value: effect_copy.rise_speed,
+                        });
+                    }
+
+                    ui.slider_config("Taper Power", 0.3, 3.0)
+                        .build(&mut effect_copy.taper_power);
+
+                    ui.slider_config("Tip Radius", 0.05, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.radius_tip_ratio);
+
+                    ui.slider_config("Edge Low", 0.0, 1.0)
+                        .build(&mut effect_copy.edge_low);
+                    ui.same_line();
+                    if ui.small_button("K##EdgeLow") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::EdgeLow,
+                            value: effect_copy.edge_low,
+                        });
+                    }
+
+                    ui.slider_config("Edge High", 0.0, 1.0)
+                        .build(&mut effect_copy.edge_high);
+                    ui.same_line();
+                    if ui.small_button("K##EdgeHigh") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::EdgeHigh,
+                            value: effect_copy.edge_high,
+                        });
+                    }
+
+                    ui.slider_config("White Boost", 0.0, 8.0)
+                        .build(&mut effect_copy.white_boost);
+                    ui.same_line();
+                    if ui.small_button("K##WhiteBoost") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::WhiteBoost,
+                            value: effect_copy.white_boost,
+                        });
+                    }
+
+                    ui.slider_config("Wind X", -1.0, 1.0)
+                        .build(&mut effect_copy.wind_direction.x);
+                    ui.same_line();
+                    if ui.small_button("K##WindX") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::WindX,
+                            value: effect_copy.wind_direction.x,
+                        });
+                    }
+
+                    ui.slider_config("Wind Z", -1.0, 1.0)
+                        .build(&mut effect_copy.wind_direction.y);
+                    ui.same_line();
+                    if ui.small_button("K##WindZ") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::WindZ,
+                            value: effect_copy.wind_direction.y,
+                        });
+                    }
+
+                    ui.slider_config("Bend Amount", 0.0, 2.0)
+                        .build(&mut effect_copy.bend_amount);
+                    ui.same_line();
+                    if ui.small_button("K##BendAmount") {
+                        ui_events.send(UIEvent::InsertFlameKey {
+                            param: FlameParam::BendAmount,
+                            value: effect_copy.bend_amount,
+                        });
+                    }
+
+                    ui.slider_config("Bend Power", 0.5, 4.0)
+                        .build(&mut effect_copy.bend_power);
+
+                    ui.slider_config("Time Scale", 0.0, 4.0)
+                        .build(&mut effect_copy.time_scale);
+
+                    ui.slider_config("Time Offset", -10.0, 10.0)
+                        .build(&mut effect_copy.time_offset);
+
+                    ui.slider_config("Envelope Peak", 0.05, 0.8)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.envelope_peak);
+
+                    ui.slider_config("Envelope Base", 0.0, 0.95)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.envelope_base);
+
+                    ui.slider_config("Envelope Tail", 0.5, 4.0)
+                        .display_format("%.1f")
+                        .build(&mut effect_copy.envelope_tail);
+
+                    ui.slider_config("Radial Sharpness", 1.0, 12.0)
+                        .display_format("%.1f")
+                        .build(&mut effect_copy.radial_sharpness);
+
+                    if ui.button("Clear Flame Keys") {
+                        ui_events.send(UIEvent::ClearFlameKeys);
+                    }
+                    if ui.button("Curves") {
+                        ui_events.send(UIEvent::ToggleFlameCurves);
+                    }
+                    if ui.button("Add Flame") {
+                        ui_events.send(UIEvent::AddFlame);
+                    }
+
+                    // Trail checkbox and slider
+                    let trail_state = ecs_world
+                        .get_component::<crate::ecs::component::flame_trail::FlameTrail>(
+                            selected_flame,
+                        )
+                        .map(|t| (t.state.enabled, t.state.fade_seconds))
+                        .unwrap_or((false, 0.8));
+                    let mut trail_enabled = trail_state.0;
+                    let mut trail_fade = trail_state.1;
+                    if ui.checkbox("Trail", &mut trail_enabled) {
+                        ui_events.send(UIEvent::UpdateFlameTrailEnabled(trail_enabled));
+                    }
+                    ui.slider_config("Trail Fade", 0.1, 5.0)
+                        .build(&mut trail_fade);
+                    if (trail_fade - trail_state.1).abs() > 0.01 {
+                        ui_events.send(UIEvent::UpdateFlameTrailFade(trail_fade));
+                    }
+
+                    // GPU Timings section (read-only)
+                    let timings = ecs_world.get_resource::<crate::ecs::resource::GpuPassTimings>();
+                    if let Some(timings) = timings {
+                        if !timings.passes.is_empty() {
+                            ui.separator();
+                            ui.text("GPU Timings");
+                            for (label, ms) in &timings.passes {
+                                ui.text(format!("  {} {:.3} ms", label, ms));
+                            }
+                        }
+                    }
+
+                    ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
+                }
             }
         }
     }

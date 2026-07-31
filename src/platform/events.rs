@@ -236,6 +236,9 @@ fn handle_redraw_requested(
         model_path: model_state.model_path.clone(),
         load_status: model_state.load_status.clone(),
         flame_preset_index: model_state.flame_preset_index,
+        texture_fit_path: model_state.texture_fit_path.clone(),
+        texture_fit_blend: model_state.texture_fit_blend,
+        texture_fit_groups: model_state.texture_fit_groups,
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
         #[cfg(feature = "auto-rig")]
@@ -258,6 +261,12 @@ fn handle_redraw_requested(
 
     app.resource_mut::<crate::ecs::ModelState>()
         .flame_preset_index = overlay_state.flame_preset_index;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_path = overlay_state.texture_fit_path;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_blend = overlay_state.texture_fit_blend;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_groups = overlay_state.texture_fit_groups;
 
     #[cfg(debug_assertions)]
     {

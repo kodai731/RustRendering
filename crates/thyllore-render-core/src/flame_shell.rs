@@ -3,18 +3,21 @@ use cgmath::Vector3;
 // Verification-only mirror of shaders/flameShellGeometry.geom.
 // Constants and vertex ordering must stay identical to the geometry shader;
 // the winding/closure unit tests are the machine check for that contract.
-pub const FLAME_SHELL_RING_SEGMENTS: usize = 8;
+pub const FLAME_SHELL_RING_SEGMENTS: usize = 16;
 pub const FLAME_SHELL_STACKS: usize = 8;
 pub const FLAME_SHELL_BASE_RADIUS: f32 = 0.5;
 pub const FLAME_SHELL_TAPER_TIP_SCALE: f32 = 1.0;
-pub const FLAME_SHELL_CIRCUMSCRIBE: f32 = 1.0823922; // 1/cos(pi/8): circumscribe octagon over unit cylinder
+pub const FLAME_SHELL_CIRCUMSCRIBE: f32 = 1.0195911; // 1/cos(pi/16): circumscribe 16-gon over unit cylinder
+pub const FLAME_SHELL_SUPPORT_HEADROOM: f32 = 1.5;
 const R: f32 = FLAME_SHELL_BASE_RADIUS;
 const QUAD_CORNERS: [[f32; 3]; 4] = [[-R, 0.0, -R], [R, 0.0, -R], [R, 0.0, R], [-R, 0.0, R]];
 
 /// Multiplier on the shell's base half-extent at a normalized height. Includes the
 /// circumscribe factor, so a cone built from it encloses the rasterized octagon.
 pub fn flame_shell_radius_scale(height01: f32) -> f32 {
-    FLAME_SHELL_CIRCUMSCRIBE * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01)
+    FLAME_SHELL_SUPPORT_HEADROOM
+        * FLAME_SHELL_CIRCUMSCRIBE
+        * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01)
 }
 
 /// Outer radius of the shell in flame-local units. Linear in height, so callers that
@@ -307,8 +310,9 @@ mod tests {
         let bend_power = 2.0;
 
         let height01 = 0.5;
-        let radial =
-            FLAME_SHELL_CIRCUMSCRIBE * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01);
+        let radial = FLAME_SHELL_SUPPORT_HEADROOM
+            * FLAME_SHELL_CIRCUMSCRIBE
+            * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01);
         let bend = height01.powf(bend_power);
         let expected_x = radial + bend;
         let expected_z = bend;

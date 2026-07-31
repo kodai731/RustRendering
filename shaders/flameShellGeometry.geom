@@ -51,7 +51,7 @@ layout(location = 0) in vec3 geomLocalCorner[];
 layout(location = 0) out vec3 fragWorldPos;
 layout(location = 1) out vec2 fragShellUv;
 
-const int RING_SEGMENTS = 8;
+const int RING_SEGMENTS = 16;
 const int STACKS = 8;
 const float TWO_PI = 6.283185307179586;
 

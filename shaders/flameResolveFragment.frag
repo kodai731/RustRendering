@@ -202,14 +202,13 @@ struct FlameDepthClamp {
 };
 
 struct FlameRaySegment {
-    float tNear;
+   float tNear;
     float tFar;
     vec3 localOrigin;
     vec3 localDir;
     float boundaryHeightIntegral;
     FlameDepthClamp depthClamp;
     bool cylinderDomain;
-    float contourW;
 };
 
 // The closed form and the shell clamp both assume the plain cylinder domain.
@@ -379,17 +378,7 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
             vec3 d = segment.localDir;
             segment.boundaryHeightIntegral = evaluateChebyshev8(flame.heightCoefficients[0], flame.heightCoefficients[1],
                 clamp(o.y + 0.5 * (segment.tNear + segment.tFar) * d.y, 0.0, 1.0)) * (segment.tFar - segment.tNear);
-        }
-    }
-
-    // Contour wiggle: per-ray w from fbm at the midpoint height of the integration interval
-    segment.contourW = 1.0;
-    if (flame.contourParams.x != 0.0) {
-        float tMid = 0.5 * (segment.tNear + segment.tFar);
-        vec3 pMid = segment.localOrigin + tMid * segment.localDir;
-        float hMid = clamp(pMid.y, 0.0, 1.0);
-        float theta = atan(pMid.z, pMid.x);
-        segment.contourW = 1.0 + flame.contourParams.x * (fbm3(vec3(cos(theta), hMid - flame.styleParams0.z * flame.time, sin(theta)) * flame.noiseFrequency) * (2.0 / 0.875) - 1.0);
+       }
     }
 
     return segment;
@@ -398,7 +387,7 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
 float integrateEmissionAnalytic(FlameRaySegment segment) {
     if (segment.cylinderDomain) {
         return max(integrateRadialEmission(
-            segment.localOrigin, segment.localDir, segment.tNear, segment.tFar, segment.contourW), 0.0);
+            segment.localOrigin, segment.localDir, segment.tNear, segment.tFar), 0.0);
     }
     return max(segment.boundaryHeightIntegral, 0.0);
 }
@@ -414,10 +403,51 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
         vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(
             evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
-        float radial = segment.cylinderDomain ? flameRadialDensityFactor(vec3(p.x / segment.contourW, p.y, p.z / segment.contourW), h) : 1.0;
+        float w = flameContourWiggle(p, h);
+        float radial = segment.cylinderDomain ? flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h) : 1.0;
         sum += evaluateHeightFalloff(h) * radial * flameNoiseErosionFactor(p, h);
     }
     return sum * dt;
+}
+
+vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
+    float dt = (segment.tFar - segment.tNear) / float(stepCount);
+    if (dt <= 0.0) {
+        return vec4(0.0);
+    }
+    float total = 0.0;
+    float heightMean = 0.0;
+    for (int i = 0; i < stepCount; ++i) {
+        float t = segment.tNear + (float(i) + 0.5) * dt;
+        vec3 p = segment.localOrigin + t * segment.localDir;
+        float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
+        float w = flameContourWiggle(p, h);
+        float rho = evaluateHeightFalloff(h)
+            * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
+            * flameNoiseErosionFactor(p, h);
+        total += rho * dt;
+        heightMean += rho * dt * h;
+    }
+    heightMean = total > 1e-6 ? heightMean / total : 0.0;
+    float tempNorm = clamp(total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
+    float boost = 1.0 + flame.styleParams1.w * tempNorm * tempNorm;
+
+    vec3 radiance = vec3(0.0);
+    vec3 sigmaRgb = flame.sigmaT * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
+    vec3 transmittance = vec3(1.0);
+    for (int i = 0; i < stepCount; ++i) {
+        float t = segment.tNear + (float(i) + 0.5) * dt;
+        vec3 p = segment.localOrigin + t * segment.localDir;
+        float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
+        float w = flameContourWiggle(p, h);
+        float rho = evaluateHeightFalloff(h)
+            * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
+            * flameNoiseErosionFactor(p, h);
+        vec3 tau = sigmaRgb * rho * dt;
+        radiance += transmittance * flameRampColor(h) * flame.intensity * boost * (vec3(1.0) - exp(-tau));
+        transmittance *= exp(-tau);
+    }
+    return vec4(radiance, 1.0 - dot(transmittance, vec3(1.0 / 3.0)));
 }
 
 
@@ -546,32 +576,47 @@ void main() {
             trans *= 1.0 - a;
         }
     } else {
-        // Modes 0/1: legacy path via emission scalar + shadeEmission
-        float emission;
-        if (push.mode == 1) {
-            emission = integrateEmissionRaymarch(segment, push.stepCount);
+        if (segment.cylinderDomain && flame.contourParams.z >= 2.0) {
+            vec4 rte = push.mode == 1
+                ? integrateRTERaymarch(segment, push.stepCount)
+                : integrateRadialRTE(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
+            if (flame.lightData.w > 0.0) {
+                vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
+                rte.rgb *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+            }
+            L = rte.rgb;
+            trans = 1.0 - rte.a;
         } else {
-            emission = integrateEmissionAnalytic(segment);
-            // Mode 0: multiply emission by weighted average of flameNoiseErosionFactor
-            // evaluated at tNear, midpoint, and tFar (weights 0.25, 0.5, 0.25)
-            float tMid = 0.5 * (segment.tNear + segment.tFar);
-            vec3 pNear = segment.localOrigin + segment.tNear * segment.localDir;
-            vec3 pMid = segment.localOrigin + tMid * segment.localDir;
-            vec3 pFar = segment.localOrigin + segment.tFar * segment.localDir;
-            float hNear = clamp(pNear.y, 0.0, 1.0);
-            float hMid = clamp(pMid.y, 0.0, 1.0);
-            float hFar = clamp(pFar.y, 0.0, 1.0);
-            emission *= 0.25 * flameNoiseErosionFactor(pNear, hNear)
-                   + 0.5 * flameNoiseErosionFactor(pMid, hMid)
-                    + 0.25 * flameNoiseErosionFactor(pFar, hFar);
+            // Modes 0/1: legacy path via emission scalar + shadeEmission
+            float emission;
+            if (push.mode == 1) {
+                emission = integrateEmissionRaymarch(segment, push.stepCount);
+            } else {
+                emission = integrateEmissionAnalytic(segment);
+                // Mode 0: multiply emission by weighted average of flameNoiseErosionFactor
+                // evaluated at tNear, midpoint, and tFar (weights 0.25, 0.5, 0.25)
+                // Only for non-cylinder domain — cylinder domain already applies erosion per-band in integrateRadialEmission
+                if (!segment.cylinderDomain) {
+                    float tMid = 0.5 * (segment.tNear + segment.tFar);
+                    vec3 pNear = segment.localOrigin + segment.tNear * segment.localDir;
+                    vec3 pMid = segment.localOrigin + tMid * segment.localDir;
+                    vec3 pFar = segment.localOrigin + segment.tFar * segment.localDir;
+                    float hNear = clamp(pNear.y, 0.0, 1.0);
+                    float hMid = clamp(pMid.y, 0.0, 1.0);
+                    float hFar = clamp(pFar.y, 0.0, 1.0);
+                    emission *= 0.25 * flameNoiseErosionFactor(pNear, hNear)
+                           + 0.5 * flameNoiseErosionFactor(pMid, hMid)
+                            + 0.25 * flameNoiseErosionFactor(pFar, hFar);
+                }
+            }
+            if (flame.lightData.w > 0.0) {
+                vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
+                emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+            }
+            vec4 shaded = shadeEmission(segment, emission, deltaT);
+            L = shaded.rgb;
+            trans = 1.0 - shaded.a;
         }
-        if (flame.lightData.w > 0.0) {
-            vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-            emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
-        }
-        vec4 shaded = shadeEmission(segment, emission, deltaT);
-        L = shaded.rgb;
-        trans = 1.0 - shaded.a;
     }
 
     // Self-shadow midpoint multiply on L (mode 3)

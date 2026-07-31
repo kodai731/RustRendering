@@ -1314,6 +1314,31 @@ impl App {
 
         // let default_model_path = "assets/models/stickman/stickman.glb".to_string();
 
+        // Check for --batch-scene flag in command line arguments
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(pos) = args.iter().position(|a| a == "--batch-scene") {
+            if let Some(path_str) = args.get(pos + 1) {
+                let scene_path = std::path::PathBuf::from(path_str);
+                if scene_path.exists() {
+                    match load_scene(&scene_path) {
+                        Ok(loaded) => {
+                            let model_path = loaded.scene.model.path.clone();
+                            let clips = loaded.clips.clone();
+                            log!("Loaded batch scene from: {}", scene_path.display());
+                            return (model_path, Some((scene_path, loaded, clips)));
+                        }
+                        Err(e) => {
+                            log_error!("Failed to load batch scene: {:?}", e);
+                        }
+                    }
+                } else {
+                    log_error!("Batch scene path does not exist: {}", scene_path.display());
+                }
+            } else {
+                log_error!("--batch-scene flag is missing the path argument");
+            }
+        }
+
         if let Some(scene_path) = find_default_scene() {
             match load_scene(&scene_path) {
                 Ok(loaded) => {

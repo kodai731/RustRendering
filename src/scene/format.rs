@@ -328,6 +328,21 @@ pub struct FlameEffectData {
     pub occlusion_lum_ref: f32,
     #[serde(default = "default_contour_wiggle_amp")]
     pub contour_wiggle_amp: f32,
+    #[serde(default)]
+    pub aniso_axis_advect: f32,
+    #[serde(default = "default_rte_bands")]
+    pub rte_bands: f32,
+    #[serde(default = "default_sigma_dispersion")]
+    pub sigma_dispersion: f32,
+    #[serde(default)]
+    pub edge_temperature_blend: f32,
+}
+
+fn default_rte_bands() -> f32 {
+    4.0
+}
+fn default_sigma_dispersion() -> f32 {
+    1.0
 }
 
 fn default_envelope_peak() -> f32 {
@@ -536,6 +551,10 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             radial_sharpness: effect.radial_sharpness,
             occlusion_lum_ref: effect.occlusion_lum_ref,
             contour_wiggle_amp: effect.contour_wiggle_amp,
+            aniso_axis_advect: effect.aniso_axis_advect,
+            rte_bands: effect.rte_bands,
+            sigma_dispersion: effect.sigma_dispersion,
+            edge_temperature_blend: effect.edge_temperature_blend,
         },
         channels,
         motion_path,
@@ -596,9 +615,11 @@ pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &
         effect.envelope_peak = flame.effect.envelope_peak;
         effect.envelope_base = flame.effect.envelope_base;
         effect.envelope_tail = flame.effect.envelope_tail;
-        effect.radial_sharpness = flame.effect.radial_sharpness;
         effect.occlusion_lum_ref = flame.effect.occlusion_lum_ref;
         effect.contour_wiggle_amp = flame.effect.contour_wiggle_amp;
+        effect.aniso_axis_advect = flame.effect.aniso_axis_advect;
+        effect.rte_bands = flame.effect.rte_bands;
+        effect.sigma_dispersion = flame.effect.sigma_dispersion;
         thyllore_render_core::refresh_flame_coefficients(&mut effect);
     }
 
@@ -765,6 +786,10 @@ mod tests {
                 radial_sharpness: 4.0,
                 occlusion_lum_ref: 1.0,
                 contour_wiggle_amp: 0.3,
+                aniso_axis_advect: 0.0,
+                rte_bands: 4.0,
+                sigma_dispersion: 1.0,
+                edge_temperature_blend: 0.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
@@ -901,6 +926,10 @@ mod tests {
                 radial_sharpness: 4.0,
                 occlusion_lum_ref: 1.0,
                 contour_wiggle_amp: 0.3,
+                aniso_axis_advect: 0.0,
+                rte_bands: 4.0,
+                sigma_dispersion: 1.0,
+                edge_temperature_blend: 0.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
@@ -1154,6 +1183,10 @@ mod tests {
                 radial_sharpness: 4.0,
                 occlusion_lum_ref: 1.0,
                 contour_wiggle_amp: 0.3,
+                aniso_axis_advect: 0.0,
+                rte_bands: 4.0,
+                sigma_dispersion: 1.0,
+                edge_temperature_blend: 0.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),

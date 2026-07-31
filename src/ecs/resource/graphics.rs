@@ -41,6 +41,9 @@ pub struct ModelState {
     pub model_path: String,
     pub load_status: String,
     pub flame_preset_index: usize,
+    pub texture_fit_path: String,
+    pub texture_fit_blend: f32,
+    pub texture_fit_groups: [bool; 4],
 }
 
 impl Default for ModelState {
@@ -50,6 +53,9 @@ impl Default for ModelState {
             model_path: String::new(),
             load_status: String::from("No model loaded"),
             flame_preset_index: 0,
+            texture_fit_path: String::new(),
+            texture_fit_blend: 1.0,
+            texture_fit_groups: [true; 4],
         }
     }
 }

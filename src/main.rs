@@ -7,13 +7,15 @@
 
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
 use thyllore_animation::app::App;
-use thyllore_animation::ecs::component::{FlameEffect, FlameTrail};
+use thyllore_animation::ecs::component::{FlameEffect, FlameTrail, HeatPlume};
+use thyllore_animation::ecs::events::{UIEvent, UIEventQueue};
 use thyllore_animation::ecs::resource::{
     BatchFlameOrbit, BatchRun, Camera, ExposureDumpSink, FlameDumpSink, FlameRenderSettings,
     GpuTimingsSink,
 };
 use thyllore_animation::ecs::systems::{
-    apply_flame_overrides, batch_run_report, resolve_engine_cli_overrides,
+    apply_flame_overrides, apply_texture_fit_from_path, batch_run_report,
+    resolve_engine_cli_overrides,
 };
 use thyllore_animation::platform;
 
@@ -100,6 +102,9 @@ fn main() -> Result<()> {
                 if let Some(name) = overrides.flame_preset.as_deref() {
                     thyllore_render_core::apply_flame_preset(&mut effect, name);
                 }
+                if let Some((ref path, blend)) = overrides.flame_texture_fit {
+                    apply_texture_fit_from_path(&mut effect, path, blend);
+                }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
                 thyllore_animation::ecs::systems::spawn_flame(
@@ -116,6 +121,9 @@ fn main() -> Result<()> {
             if let Some(mut effect) = app.data.ecs_world.get_component_mut::<FlameEffect>(e) {
                 if let Some(name) = overrides.flame_preset.as_deref() {
                     thyllore_render_core::apply_flame_preset(&mut effect, name);
+                }
+                if let Some((ref path, blend)) = overrides.flame_texture_fit {
+                    apply_texture_fit_from_path(&mut effect, path, blend);
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
@@ -138,6 +146,36 @@ fn main() -> Result<()> {
                     ..Default::default()
                 },
             );
+        }
+    }
+
+    // Apply heat_plume override: insert HeatPlume component on all flame entities
+    if let Some((gain, amp)) = overrides.heat_plume {
+        let entities: Vec<_> = app.data.ecs_world.query_flames();
+        for e in entities {
+            app.data.ecs_world.insert_component(
+                e,
+                HeatPlume {
+                    distortion_gain: gain,
+                    turbulence_amp: amp,
+                    ..Default::default()
+                },
+            );
+        }
+    }
+
+    // Auto-load model when scene_path override is provided: if the scene restored a model path
+    // (via apply_loaded_scene -> ModelState), send UIEvent::LoadModel to load it.
+    if let Some(ref _scene_path) = overrides.scene_path {
+        let model_state = app
+            .data
+            .ecs_world
+            .resource::<thyllore_animation::ecs::resource::ModelState>();
+        if !model_state.model_path.is_empty() && model_state.model_path != "Generated Mesh" {
+            let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
+            ui_events.send(UIEvent::LoadModel {
+                path: model_state.model_path.clone(),
+            });
         }
     }
 
