@@ -1,12 +1,14 @@
 use std::collections::HashSet;
 
+use super::timeline_state::CurveTrackRef;
 use crate::animation::editable::{BezierHandle, KeyframeId, PropertyType};
 use crate::animation::BoneId;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum CurveEditorTarget {
     Bone(BoneId),
-    Flame(crate::ecs::component::FlameParam),
+    /// Clip-level scalar curves (`PropertyType::Custom`), e.g. flame parameters.
+    Scalars,
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +83,18 @@ impl CurveEditorState {
 
     pub fn select_bone(&mut self, bone_id: BoneId) {
         self.selected_target = Some(CurveEditorTarget::Bone(bone_id));
+    }
+
+    pub fn select_scalars(&mut self) {
+        self.selected_target = Some(CurveEditorTarget::Scalars);
+    }
+
+    pub fn selected_track_ref(&self) -> Option<CurveTrackRef> {
+        match self.selected_target {
+            Some(CurveEditorTarget::Bone(id)) => Some(CurveTrackRef::Bone(id)),
+            Some(CurveEditorTarget::Scalars) => Some(CurveTrackRef::Scalar),
+            None => None,
+        }
     }
 }
 

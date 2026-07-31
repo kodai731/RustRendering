@@ -14,7 +14,7 @@ use super::dispatch_constraint::{
     dispatch_debug_constraint_events,
 };
 use super::dispatch_edit_history::dispatch_edit_history_events;
-use super::dispatch_flame_curve::dispatch_flame_curve_events;
+use super::dispatch_flame_curve::dispatch_flame_clip_events;
 use super::dispatch_hierarchy::dispatch_hierarchy_events;
 use super::dispatch_overlay::dispatch_overlay_events;
 use super::dispatch_pose_library::dispatch_pose_library_events;
@@ -59,7 +59,7 @@ pub fn run_event_dispatch_phase(
     dispatch_buffer_events(&events, world);
     dispatch_clip_instance_events(&events, world);
     dispatch_edit_history_events(&events, world);
-    dispatch_flame_curve_events(&events, world);
+    dispatch_flame_clip_events(&events, world, assets);
     dispatch_scene_events(&events, world);
     dispatch_scene_events(&events, world);
     dispatch_overlay_events(&events, world);

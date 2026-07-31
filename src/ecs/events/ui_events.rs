@@ -13,9 +13,9 @@ use crate::ecs::component::{
 };
 use crate::ecs::resource::gizmo::BoneDisplayStyle;
 use crate::ecs::resource::{
-    AutoExposure, CoordinateSpace, DepthOfField, FlameRenderSettings, HierarchyDisplayMode,
-    OnionSkinningConfig, PhysicalCameraParameters, SelectedKeyframe, SelectionModifier,
-    TransformGizmoMode, TransformGizmoState,
+    AutoExposure, CoordinateSpace, CurveTrackRef, DepthOfField, FlameRenderSettings,
+    HierarchyDisplayMode, OnionSkinningConfig, PhysicalCameraParameters, SelectedKeyframe,
+    SelectionModifier, TransformGizmoMode, TransformGizmoState,
 };
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;
@@ -86,21 +86,18 @@ pub enum UIEvent {
     TimelineExpandTrack(BoneId),
     TimelineCollapseTrack(BoneId),
     TimelineSelectKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         modifier: SelectionModifier,
     },
     TimelineAddKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         time: f32,
         value: f32,
     },
     TimelineDeleteSelectedKeyframes,
-    DeleteFlameKeysAt {
-        time: f32,
-    },
     TimelineMoveSelectedKeyframes {
         time_delta: f32,
     },
@@ -109,39 +106,39 @@ pub enum UIEvent {
         modifier: SelectionModifier,
     },
     TimelineDeleteKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
     },
     TimelineMoveKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         new_time: f32,
         new_value: f32,
     },
     TimelineSetKeyframeInterpolation {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         interpolation: InterpolationType,
     },
     TimelineSetKeyframeTangent {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         in_tangent: BezierHandle,
         out_tangent: BezierHandle,
     },
     TimelineSetTangentType {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         tangent_type: TangentType,
     },
 
     TimelineSetTangentWeightMode {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         weight_mode: TangentWeightMode,
@@ -418,47 +415,11 @@ pub enum UIEvent {
         value: f32,
     },
     ClearFlameKeys,
+    InsertFlameDebugKeys {
+        seed: u64,
+    },
     SelectFlameInstance(usize),
-    ToggleFlameCurves,
-    MoveFlameKey {
-        param: FlameParam,
-        old_time: f32,
-        new_time: f32,
-        new_value: f32,
-    },
-    DeleteFlameKeyExact {
-        param: FlameParam,
-        time: f32,
-    },
-    ToggleFlameCurveParam {
-        param: FlameParam,
-    },
-    FlameCurveAddKey {
-        param: FlameParam,
-        time: f32,
-        value: f32,
-    },
-    FlameCurveMoveKey {
-        param: FlameParam,
-        keyframe_id: KeyframeId,
-        new_time: f32,
-        new_value: f32,
-    },
-    FlameCurveDeleteKey {
-        param: FlameParam,
-        keyframe_id: KeyframeId,
-    },
-    FlameCurveSetInterpolation {
-        param: FlameParam,
-        keyframe_id: KeyframeId,
-        interpolation: InterpolationType,
-    },
-    FlameCurveSetTangent {
-        param: FlameParam,
-        keyframe_id: KeyframeId,
-        in_tangent: BezierHandle,
-        out_tangent: BezierHandle,
-    },
+    OpenFlameCurveEditor,
 }
 
 #[derive(Default)]

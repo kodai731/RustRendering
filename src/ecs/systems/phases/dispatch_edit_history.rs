@@ -1,5 +1,5 @@
 use crate::animation::editable::{EditableAnimationClip, SourceClip};
-use crate::ecs::component::{ClipSchedule, FlameTrack};
+use crate::ecs::component::ClipSchedule;
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{ClipLibrary, EditCommand, EditCommandAfter, EditEntry, EditHistory};
 use crate::ecs::world::{Entity, World};
@@ -124,29 +124,6 @@ fn dispatch_undo(world: &mut World) {
             world.resource_mut::<EditHistory>().push_to_redo(redo_entry);
             log!("Undo: {}", description);
         }
-
-        EditCommand::FlameTrackModified {
-            entity,
-            before,
-            after,
-            description,
-        } => {
-            if let Some(track) = world.get_component_mut::<FlameTrack>(*entity) {
-                *track = before.clone();
-            }
-            let redo_entry = EditEntry {
-                command: EditCommand::FlameTrackModified {
-                    entity: *entity,
-                    before: before.clone(),
-                    after: after.clone(),
-                    description,
-                },
-                after: EditCommandAfter::Empty,
-            };
-
-            world.resource_mut::<EditHistory>().push_to_redo(redo_entry);
-            log!("Undo: {}", description);
-        }
     }
 }
 
@@ -202,27 +179,6 @@ fn dispatch_redo(world: &mut World) {
             EditCommandAfter::Empty,
         ) => {
             redo_clip_removed(world, *clip_id, removed, description);
-        }
-
-        (
-            EditCommand::FlameTrackModified {
-                entity,
-                before: _,
-                after,
-                description,
-            },
-            EditCommandAfter::Empty,
-        ) => {
-            if let Some(track) = world.get_component_mut::<FlameTrack>(*entity) {
-                *track = after.clone();
-            }
-            let undo_entry = EditEntry {
-                command: entry.command.clone(),
-                after: EditCommandAfter::Empty,
-            };
-
-            world.resource_mut::<EditHistory>().push_to_undo(undo_entry);
-            log!("Redo: {}", description);
         }
 
         _ => {}

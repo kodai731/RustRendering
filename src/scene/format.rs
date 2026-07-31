@@ -460,45 +460,16 @@ pub fn interpolation_from_string(s: &str) -> thyllore_anim_core::Interpolation {
     }
 }
 
-/// Build FlameSceneData from the first flame entity's FlameEffect (+FlameTrack if present).
+/// Build FlameSceneData from the first flame entity's FlameEffect, with keyframe
+/// channels read from the flame's scheduled clip (scalar curves). The on-disk
+/// FlameChannelData format is unchanged, so pre-clip scenes stay compatible.
 pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameSceneData> {
     let entities: Vec<_> = world.query_flames();
     let entity = entities.first()?;
 
     let effect = world.get_component::<crate::ecs::component::FlameEffect>(*entity)?;
 
-    let channels: Vec<FlameChannelData> = if let Some(track) =
-        world.get_component::<crate::ecs::component::FlameTrack>(*entity)
-    {
-        track
-            .channels
-            .iter()
-            .map(|ch| FlameChannelData {
-                param: flame_param_to_string(ch.param),
-                keys: ch
-                    .keys
-                    .iter()
-                    .map(|k| FlameKeyData {
-                        time: k.time,
-                        value: k.value,
-                        interpolation: editable_interpolation_to_string(k.interpolation),
-                        in_tangent: Some([k.in_tangent.time_offset, k.in_tangent.value_offset]),
-                        out_tangent: Some([k.out_tangent.time_offset, k.out_tangent.value_offset]),
-                        weight_mode: Some(match k.weight_mode {
-                            thyllore_anim_core::editable::TangentWeightMode::NonWeighted => {
-                                "NonWeighted".to_string()
-                            }
-                            thyllore_anim_core::editable::TangentWeightMode::Weighted => {
-                                "Weighted".to_string()
-                            }
-                        }),
-                    })
-                    .collect(),
-            })
-            .collect()
-    } else {
-        Vec::new()
-    };
+    let channels: Vec<FlameChannelData> = build_flame_channels_from_clip(world, *entity);
 
     let motion_path = world
         .get_component::<crate::ecs::component::MotionPath>(*entity)
@@ -561,8 +532,56 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
     })
 }
 
+fn build_flame_channels_from_clip(
+    world: &crate::ecs::world::World,
+    entity: crate::ecs::world::Entity,
+) -> Vec<FlameChannelData> {
+    let Some(clip_id) = crate::ecs::systems::find_flame_clip_id(world, entity) else {
+        return Vec::new();
+    };
+    let Some(lib) = world.get_resource::<crate::ecs::resource::ClipLibrary>() else {
+        return Vec::new();
+    };
+    let Some(clip) = lib.get(clip_id) else {
+        return Vec::new();
+    };
+
+    clip.scalar_curves
+        .iter()
+        .filter_map(|curve| {
+            let param = crate::ecs::component::FlameParam::from_property_type(curve.property_type)?;
+            Some(FlameChannelData {
+                param: flame_param_to_string(param),
+                keys: curve
+                    .keyframes
+                    .iter()
+                    .map(|k| FlameKeyData {
+                        time: k.time,
+                        value: k.value,
+                        interpolation: editable_interpolation_to_string(k.interpolation),
+                        in_tangent: Some([k.in_tangent.time_offset, k.in_tangent.value_offset]),
+                        out_tangent: Some([k.out_tangent.time_offset, k.out_tangent.value_offset]),
+                        weight_mode: Some(match k.weight_mode {
+                            thyllore_anim_core::editable::TangentWeightMode::NonWeighted => {
+                                "NonWeighted".to_string()
+                            }
+                            thyllore_anim_core::editable::TangentWeightMode::Weighted => {
+                                "Weighted".to_string()
+                            }
+                        }),
+                    })
+                    .collect(),
+            })
+        })
+        .collect()
+}
+
 /// Apply loaded flame state to the first flame entity in the world.
-pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &FlameSceneData) {
+pub fn apply_flame_state_to_world(
+    world: &mut crate::ecs::world::World,
+    assets: &mut crate::asset::AssetStorage,
+    flame: &FlameSceneData,
+) {
     let entities: Vec<_> = world.query_flames();
     let entity = match entities.first() {
         Some(e) => *e,
@@ -639,49 +658,66 @@ pub fn apply_flame_state_to_world(world: &mut crate::ecs::world::World, flame: &
         ),
     );
 
-    // Insert/update the FlameTrack component
-    let mut channels: Vec<crate::ecs::component::FlameChannel> = Vec::new();
+    // Rebuild the flame clip (scalar curves) from the scene channels. Loading is
+    // idempotent: any previously scheduled flame clip instance is replaced.
+    let mut editable = thyllore_anim_core::editable::EditableAnimationClip::new(
+        0,
+        crate::ecs::systems::FLAME_CLIP_NAME.to_string(),
+    );
     for ch in &flame.channels {
         let Some(param) = flame_param_from_string(&ch.param) else {
             continue;
         };
-        let mut channel = crate::ecs::component::FlameChannel {
-            param,
-            keys: vec![],
-            next_keyframe_id: 1,
-        };
+        let curve = editable.get_or_add_scalar_curve(param.property_type());
         for k in ch.keys.iter() {
             let interp = match k.interpolation.as_str() {
                 "Bezier" => thyllore_anim_core::editable::InterpolationType::Bezier,
                 "Step" => thyllore_anim_core::editable::InterpolationType::Stepped,
                 _ => thyllore_anim_core::editable::InterpolationType::Linear,
             };
-            let id =
-                crate::ecs::component::channel_insert_key(&mut channel, k.time, k.value, interp);
-            // apply them to the key just inserted (looked up by id — insert sorts by time)
-            let last = channel.keys.iter_mut().find(|kf| kf.id == id).unwrap();
+            let id = thyllore_anim_core::editable::curve_add_keyframe(curve, k.time, k.value);
+            let key = curve.get_keyframe_mut(id).expect("key just inserted");
+            key.interpolation = interp;
             if let Some([t, v]) = k.in_tangent {
-                last.in_tangent.time_offset = t;
-                last.in_tangent.value_offset = v;
+                key.in_tangent.time_offset = t;
+                key.in_tangent.value_offset = v;
             }
             if let Some([t, v]) = k.out_tangent {
-                last.out_tangent.time_offset = t;
-                last.out_tangent.value_offset = v;
+                key.out_tangent.time_offset = t;
+                key.out_tangent.value_offset = v;
             }
             if let Some(wm) = &k.weight_mode {
-                last.weight_mode = match wm.as_str() {
+                key.weight_mode = match wm.as_str() {
                     "Weighted" => thyllore_anim_core::editable::TangentWeightMode::Weighted,
                     _ => thyllore_anim_core::editable::TangentWeightMode::NonWeighted,
                 };
             }
         }
-        channels.push(channel);
     }
-    let track = crate::ecs::component::FlameTrack { channels };
+    thyllore_anim_core::editable::clip_recalculate_duration(&mut editable);
 
-    // Remove existing track first (if any) to avoid duplicate
-    world.remove_component::<crate::ecs::component::FlameTrack>(entity);
-    world.insert_component(entity, track);
+    world.remove_component::<crate::ecs::component::ClipSchedule>(entity);
+    if editable.has_scalar_keyframes() {
+        let clip_id = {
+            let mut clip_library = world.resource_mut::<crate::ecs::resource::ClipLibrary>();
+            crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
+                &mut clip_library,
+                assets,
+                editable,
+            )
+        };
+        let mut schedule = crate::ecs::component::ClipSchedule::new();
+        let instance_id = schedule.next_instance_id;
+        schedule.next_instance_id += 1;
+        schedule
+            .instances
+            .push(thyllore_anim_core::editable::ClipInstance::new(
+                instance_id,
+                clip_id,
+                0.0,
+            ));
+        world.insert_component(entity, schedule);
+    }
 
     // Insert MotionPath component if present in scene data
     if let Some(mp) = &flame.motion_path {
@@ -1042,11 +1078,38 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_flame_track_world_roundtrip_bezier() {
-        use thyllore_anim_core::editable::{BezierHandle, TangentWeightMode};
+    fn register_flame_clip_for_test(
+        world: &mut crate::ecs::world::World,
+        entity: crate::ecs::world::Entity,
+        assets: &mut crate::asset::AssetStorage,
+        clip: thyllore_anim_core::editable::EditableAnimationClip,
+    ) -> thyllore_anim_core::editable::SourceClipId {
+        world.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let clip_id = {
+            let mut lib = world.resource_mut::<crate::ecs::resource::ClipLibrary>();
+            crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
+                &mut lib, assets, clip,
+            )
+        };
+        let mut schedule = crate::ecs::component::ClipSchedule::new();
+        let instance_id = schedule.next_instance_id;
+        schedule.next_instance_id += 1;
+        schedule
+            .instances
+            .push(thyllore_anim_core::editable::ClipInstance::new(
+                instance_id,
+                clip_id,
+                0.0,
+            ));
+        world.insert_component(entity, schedule);
+        clip_id
+    }
 
-        // Build a world with a flame entity + FlameTrack containing Bezier keys
+    #[test]
+    fn test_flame_clip_world_roundtrip_bezier() {
+        use thyllore_anim_core::editable::{InterpolationType, TangentWeightMode};
+
+        // Build a world with a flame entity whose scheduled clip has Bezier scalar keys
         let mut world = crate::ecs::world::World::new();
         let entity = crate::ecs::systems::spawn_flame(
             &mut world,
@@ -1054,195 +1117,65 @@ mod tests {
             crate::ecs::component::FlameEffect::default(),
         );
 
-        let mut channel = crate::ecs::component::FlameChannel {
-            param: crate::ecs::component::FlameParam::Height,
-            keys: vec![],
-            next_keyframe_id: 1,
-        };
-        // Insert two Bezier keys with non-trivial tangent values + Weighted mode
-        crate::ecs::component::channel_insert_key(
-            &mut channel,
-            0.0,
-            1.0,
-            thyllore_anim_core::editable::InterpolationType::Bezier,
+        let mut clip = thyllore_anim_core::editable::EditableAnimationClip::new(
+            0,
+            crate::ecs::systems::FLAME_CLIP_NAME.to_string(),
         );
-        let k0 = channel.keys.last_mut().unwrap();
-        k0.out_tangent = BezierHandle {
-            time_offset: 0.5,
-            value_offset: 0.3,
-        };
-        k0.weight_mode = TangentWeightMode::Weighted;
+        {
+            let curve = clip
+                .get_or_add_scalar_curve(crate::ecs::component::FlameParam::Height.property_type());
+            let id0 = thyllore_anim_core::editable::curve_add_keyframe(curve, 0.0, 1.0);
+            let id1 = thyllore_anim_core::editable::curve_add_keyframe(curve, 2.0, 3.0);
+            for (id, wm) in [
+                (id0, TangentWeightMode::Weighted),
+                (id1, TangentWeightMode::NonWeighted),
+            ] {
+                let key = curve.get_keyframe_mut(id).unwrap();
+                key.interpolation = InterpolationType::Bezier;
+                key.in_tangent.time_offset = -0.4;
+                key.in_tangent.value_offset = -0.2;
+                key.out_tangent.time_offset = 0.5;
+                key.out_tangent.value_offset = 0.3;
+                key.weight_mode = wm;
+            }
+        }
+        let mut assets = crate::asset::AssetStorage::new();
+        register_flame_clip_for_test(&mut world, entity, &mut assets, clip);
 
-        crate::ecs::component::channel_insert_key(
-            &mut channel,
-            2.0,
-            3.0,
-            thyllore_anim_core::editable::InterpolationType::Bezier,
-        );
-        let k1 = channel.keys.last_mut().unwrap();
-        k1.in_tangent = BezierHandle {
-            time_offset: -0.4,
-            value_offset: -0.2,
-        };
-        k1.weight_mode = TangentWeightMode::NonWeighted;
+        // Save -> apply to a fresh world -> compare
+        let data = build_flame_scene_data(&world).expect("scene data");
+        assert_eq!(data.channels.len(), 1);
+        assert_eq!(data.channels[0].param, "Height");
 
-        let track = crate::ecs::component::FlameTrack {
-            channels: vec![channel],
-        };
-        world.insert_component(entity, track);
-
-        // Save: build FlameSceneData from world
-        let scene_data = build_flame_scene_data(&world).expect("build_flame_scene_data failed");
-
-        // Serialize to JSON and back (simulating file roundtrip)
-        let json = serde_json::to_string(&scene_data).expect("serialize failed");
-        let restored: FlameSceneData = serde_json::from_str(&json).expect("deserialize failed");
-
-        // Load: apply back to a fresh world
         let mut world2 = crate::ecs::world::World::new();
         let entity2 = crate::ecs::systems::spawn_flame(
             &mut world2,
             crate::ecs::systems::DEFAULT_FLAME_NAME,
             crate::ecs::component::FlameEffect::default(),
         );
-        apply_flame_state_to_world(&mut world2, &restored);
+        world2.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets2 = crate::asset::AssetStorage::new();
+        apply_flame_state_to_world(&mut world2, &mut assets2, &data);
 
-        // Verify: get the FlameTrack from world2 and compare keys (except id)
-        let track2 = world2
-            .get_component::<crate::ecs::component::FlameTrack>(entity2)
-            .expect("FlameTrack not found");
-        assert_eq!(track2.channels.len(), 1);
-        let ch = &track2.channels[0];
-        assert_eq!(ch.keys.len(), 2);
-
-        // Key 0: time=0.0, value=1.0, Bezier, out_tangent=(0.5,0.3), Weighted
-        let k0 = &ch.keys[0];
+        let clip_id2 =
+            crate::ecs::systems::find_flame_clip_id(&world2, entity2).expect("clip scheduled");
+        let lib2 = world2
+            .get_resource::<crate::ecs::resource::ClipLibrary>()
+            .unwrap();
+        let clip2 = lib2.get(clip_id2).expect("clip registered");
+        let curve2 = clip2
+            .get_scalar_curve(crate::ecs::component::FlameParam::Height.property_type())
+            .expect("scalar curve restored");
+        assert_eq!(curve2.keyframes.len(), 2);
+        let k0 = &curve2.keyframes[0];
         assert_eq!(k0.time, 0.0);
         assert_eq!(k0.value, 1.0);
-        assert_eq!(
-            k0.interpolation,
-            thyllore_anim_core::editable::InterpolationType::Bezier
-        );
-        assert_eq!(k0.out_tangent.time_offset, 0.5);
+        assert_eq!(k0.interpolation, InterpolationType::Bezier);
+        assert_eq!(k0.in_tangent.time_offset, -0.4);
         assert_eq!(k0.out_tangent.value_offset, 0.3);
         assert_eq!(k0.weight_mode, TangentWeightMode::Weighted);
-
-        // Key 1: time=2.0, value=3.0, Bezier, in_tangent=(-0.4,-0.2), NonWeighted
-        let k1 = &ch.keys[1];
+        let k1 = &curve2.keyframes[1];
         assert_eq!(k1.time, 2.0);
-        assert_eq!(k1.value, 3.0);
-        assert_eq!(
-            k1.interpolation,
-            thyllore_anim_core::editable::InterpolationType::Bezier
-        );
-        assert_eq!(k1.in_tangent.time_offset, -0.4);
-        assert_eq!(k1.in_tangent.value_offset, -0.2);
-        assert_eq!(k1.weight_mode, TangentWeightMode::NonWeighted);
-    }
-
-    #[test]
-    fn test_flame_track_load_descending_time_tangent_association() {
-        use thyllore_anim_core::editable::{BezierHandle, TangentWeightMode};
-
-        // Build a FlameSceneData with keys in DESCENDING time order (2.0 before 0.0).
-        // channel_insert_key sorts by time after insertion, so keys.last_mut() would
-        // point to the wrong key. The fix looks up by id instead.
-        let scene_data = FlameSceneData {
-            effect: FlameEffectData {
-                position: [0.0, 0.0, 0.0],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                height: 1.0,
-                radius: 0.5,
-                sigma_t: 0.5,
-                intensity: 1.0,
-                color_base: [1.0, 0.5, 0.0],
-                color_tip: [1.0, 1.0, 1.0],
-                temperature_base_k: 1500.0,
-                temperature_tip_k: 800.0,
-                use_blackbody: false,
-                noise_amplitude: 0.0,
-                noise_frequency: 1.0,
-                noise_scroll_speed: 0.0,
-                time_scale: 1.0,
-                time_offset: 0.0,
-                warp_amp: 0.0,
-                warp_freq: 1.0,
-                rise_speed: 1.0,
-                taper_power: 2.0,
-                radius_tip_ratio: 0.0,
-                edge_low: 0.0,
-                edge_high: 1.0,
-                white_boost: 0.0,
-                wind_direction: [0.0, 0.0],
-                bend_amount: 0.0,
-                bend_power: 1.0,
-                self_shadow_strength: 0.0,
-                envelope_peak: 1.0,
-                envelope_base: 1.0,
-                envelope_tail: 1.6,
-                radial_sharpness: 4.0,
-                occlusion_lum_ref: 1.0,
-                contour_wiggle_amp: 0.3,
-                aniso_axis_advect: 0.0,
-                rte_bands: 4.0,
-                sigma_dispersion: 1.0,
-                edge_temperature_blend: 0.0,
-            },
-            channels: vec![FlameChannelData {
-                param: "Height".to_string(),
-                keys: vec![
-                    FlameKeyData {
-                        time: 2.0,
-                        value: 3.0,
-                        interpolation: "Bezier".to_string(),
-                        in_tangent: Some([-0.4, -0.2]),
-                        out_tangent: None,
-                        weight_mode: Some("NonWeighted".to_string()),
-                    },
-                    FlameKeyData {
-                        time: 0.0,
-                        value: 1.0,
-                        interpolation: "Bezier".to_string(),
-                        in_tangent: None,
-                        out_tangent: Some([0.5, 0.3]),
-                        weight_mode: Some("Weighted".to_string()),
-                    },
-                ],
-            }],
-            motion_path: None,
-        };
-
-        // Load: apply to a fresh world
-        let mut world = crate::ecs::world::World::new();
-        let entity = crate::ecs::systems::spawn_flame(
-            &mut world,
-            crate::ecs::systems::DEFAULT_FLAME_NAME,
-            crate::ecs::component::FlameEffect::default(),
-        );
-        apply_flame_state_to_world(&mut world, &scene_data);
-
-        // Verify: the FlameTrack keys are sorted by time (0.0 first, 2.0 second)
-        let track = world
-            .get_component::<crate::ecs::component::FlameTrack>(entity)
-            .expect("FlameTrack not found");
-        assert_eq!(track.channels.len(), 1);
-        let ch = &track.channels[0];
-        assert_eq!(ch.keys.len(), 2);
-
-        // Key at index 0: time=0.0, value=1.0 — should have out_tangent=(0.5,0.3), Weighted
-        let k0 = &ch.keys[0];
-        assert_eq!(k0.time, 0.0);
-        assert_eq!(k0.value, 1.0);
-        assert_eq!(k0.out_tangent.time_offset, 0.5);
-        assert_eq!(k0.out_tangent.value_offset, 0.3);
-        assert_eq!(k0.weight_mode, TangentWeightMode::Weighted);
-
-        // Key at index 1: time=2.0, value=3.0 — should have in_tangent=(-0.4,-0.2), NonWeighted
-        let k1 = &ch.keys[1];
-        assert_eq!(k1.time, 2.0);
-        assert_eq!(k1.value, 3.0);
-        assert_eq!(k1.in_tangent.time_offset, -0.4);
-        assert_eq!(k1.in_tangent.value_offset, -0.2);
         assert_eq!(k1.weight_mode, TangentWeightMode::NonWeighted);
     }
 
@@ -1291,7 +1224,9 @@ mod tests {
             crate::ecs::systems::DEFAULT_FLAME_NAME,
             crate::ecs::component::FlameEffect::default(),
         );
-        apply_flame_state_to_world(&mut world2, &restored);
+        world2.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets2 = crate::asset::AssetStorage::new();
+        apply_flame_state_to_world(&mut world2, &mut assets2, &restored);
 
         // Verify MotionPath component was inserted with correct values
         let loaded_mp = world2

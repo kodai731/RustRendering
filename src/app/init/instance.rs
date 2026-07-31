@@ -895,7 +895,12 @@ impl App {
         if let Some((scene_path, scene, clips)) = loaded_scene {
             let clips_with_ids =
                 Self::register_loaded_clips(&mut data.ecs_world, &mut data.ecs_assets, clips);
-            crate::scene::apply_loaded_scene_to_world(&scene, &mut data.ecs_world, &clips_with_ids);
+            crate::scene::apply_loaded_scene_to_world(
+                &scene,
+                &mut data.ecs_world,
+                &mut data.ecs_assets,
+                &clips_with_ids,
+            );
 
             let active_clip_id = {
                 let timeline = data.ecs_world.resource::<TimelineState>();
@@ -1181,7 +1186,6 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::AutoExposure>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
-        Self::insert_default_if_missing::<crate::ecs::resource::FlameCurveWindowState>(data);
         if data.ecs_world.query_flames().is_empty() {
             crate::ecs::systems::spawn_flame(
                 &mut data.ecs_world,

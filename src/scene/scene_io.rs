@@ -372,6 +372,7 @@ fn sanitize_filename(name: &str) -> String {
 pub fn apply_loaded_scene_to_world(
     loaded: &LoadedScene,
     world: &mut World,
+    assets: &mut crate::asset::AssetStorage,
     clips_with_ids: &[(SourceClipId, String)],
 ) {
     apply_camera_state(&loaded.scene.camera, world);
@@ -380,7 +381,7 @@ pub fn apply_loaded_scene_to_world(
     apply_rendering_params(&loaded.scene.camera, world);
     apply_panel_layout(loaded.scene.panel_layout.as_ref(), world);
     if let Some(ref flame) = loaded.scene.flame {
-        apply_flame_state_to_world(world, flame);
+        apply_flame_state_to_world(world, assets, flame);
     }
 }
 

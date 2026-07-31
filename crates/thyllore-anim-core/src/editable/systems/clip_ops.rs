@@ -52,6 +52,11 @@ pub fn clip_recalculate_duration(clip: &mut EditableAnimationClip) {
             }
         }
     }
+    for curve in &clip.scalar_curves {
+        if let Some(last_kf) = curve.keyframes.last() {
+            max_time = max_time.max(last_kf.time);
+        }
+    }
 
     clip.duration = max_time;
 }

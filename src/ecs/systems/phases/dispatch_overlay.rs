@@ -1,16 +1,12 @@
-use crate::ecs::component::{
-    channel_insert_key, FlameChannel, FlameEffect, FlameTrack, FlameTrail,
-};
+use crate::ecs::component::{FlameEffect, FlameTrail};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
-    AutoExposure, DepthOfField, FlameCurveWindowState, FlameRenderSettings, GridMeshData,
-    HierarchyState, MessageLog, OnionSkinningConfig, PhysicalCameraParameters, TimelineState,
-    TransformGizmoState, WeightHeatmapState,
+    AutoExposure, DepthOfField, FlameRenderSettings, GridMeshData, HierarchyState, MessageLog,
+    OnionSkinningConfig, PhysicalCameraParameters, TransformGizmoState, WeightHeatmapState,
 };
 use crate::ecs::systems::{resolve_selected_flame, write_flame_transform};
 use crate::ecs::world::{Animator, World};
-use thyllore_anim_core::editable::InterpolationType;
 
 pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
     for event in events {
@@ -124,96 +120,6 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     crate::ecs::systems::spawn_flame(world, &name, effect);
                 }
             }
-            UIEvent::InsertFlameKey { param, value } => {
-                let current_time = world
-                    .get_resource::<TimelineState>()
-                    .map(|t| t.current_time)
-                    .unwrap_or(0.0);
-                let Some(target) = resolve_selected_flame(world) else {
-                    continue;
-                };
-                let mut track =
-                    if let Some(existing) = world.get_component_mut::<FlameTrack>(target) {
-                        let mut track = existing.clone();
-                        drop(existing);
-                        track
-                    } else {
-                        FlameTrack::default()
-                    };
-                // Find or create the channel for this param
-                let mut found = false;
-                for channel in &mut track.channels {
-                    if channel.param == *param {
-                        // Update existing key or insert new one
-                        let mut inserted = false;
-                        for k in &mut channel.keys {
-                            if (k.time - current_time).abs() < 1e-6 {
-                                k.value = *value;
-                                inserted = true;
-                                break;
-                            }
-                        }
-                        if !inserted {
-                            channel_insert_key(
-                                channel,
-                                current_time,
-                                *value,
-                                InterpolationType::Linear,
-                            );
-                        }
-                        found = true;
-                        break;
-                    }
-                }
-                if !found {
-                    let mut channel = FlameChannel {
-                        param: *param,
-                        keys: vec![],
-                        next_keyframe_id: 1,
-                    };
-                    channel_insert_key(
-                        &mut channel,
-                        current_time,
-                        *value,
-                        InterpolationType::Linear,
-                    );
-                    track.channels.push(channel);
-                }
-            }
-            UIEvent::DeleteFlameKeysAt { time } => {
-                let Some(target) = resolve_selected_flame(world) else {
-                    continue;
-                };
-                let mut track = match world.get_component_mut::<FlameTrack>(target) {
-                    Some(existing) => {
-                        let mut track = existing.clone();
-                        drop(existing);
-                        track
-                    }
-                    None => continue,
-                };
-                let mut to_remove: Vec<usize> = Vec::new();
-                for (i, channel) in track.channels.iter_mut().enumerate() {
-                    channel.keys.retain(|key| (key.time - time).abs() > 0.02);
-                    if channel.keys.is_empty() {
-                        to_remove.push(i);
-                    }
-                }
-                for i in to_remove.into_iter().rev() {
-                    track.channels.remove(i);
-                }
-                if track.channels.is_empty() {
-                    world.remove_component::<FlameTrack>(target);
-                } else {
-                    world.insert_component(target, track);
-                }
-            }
-            UIEvent::ClearFlameKeys => {
-                let Some(target) = resolve_selected_flame(world) else {
-                    continue;
-                };
-                world.remove_component::<FlameTrack>(target);
-            }
             UIEvent::SelectFlameInstance(index) => {
                 let flames = world.query_flames();
                 if flames.is_empty() {
@@ -238,115 +144,6 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 if let Some(mut log) = world.get_resource_mut::<MessageLog>() {
                     crate::ecs::systems::message_log_clear_buffer(&mut log);
                 }
-            }
-            UIEvent::ToggleFlameCurves => {
-                if let Some(mut state) = world.get_resource_mut::<FlameCurveWindowState>() {
-                    state.open = !state.open;
-                }
-            }
-            UIEvent::ToggleFlameCurveParam { param } => {
-                if let Some(mut state) = world.get_resource_mut::<FlameCurveWindowState>() {
-                    if state.hidden_params.remove(param) {
-                        // was hidden, now shown
-                    } else {
-                        // was shown, now hidden
-                        state.hidden_params.insert(*param);
-                    }
-                }
-            }
-            UIEvent::MoveFlameKey {
-                param,
-                old_time,
-                new_time,
-                new_value,
-            } => {
-                let Some(target) = resolve_selected_flame(world) else {
-                    continue;
-                };
-                let mut track = match world.get_component_mut::<FlameTrack>(target) {
-                    Some(existing) => {
-                        let mut track = existing.clone();
-                        drop(existing);
-                        track
-                    }
-                    None => continue,
-                };
-                // Find the channel for this param and remove the key within 1e-4 of old_time
-                let mut found_channel = false;
-                for channel in &mut track.channels {
-                    if channel.param == *param {
-                        channel
-                            .keys
-                            .retain(|key| (key.time - old_time).abs() > 1e-4);
-                        // Insert new key at (new_time.max(0.0), new_value), replacing any existing key within 1e-4 of new_time
-                        let clamped_time = new_time.max(0.0);
-                        let mut inserted = false;
-                        for k in &mut channel.keys {
-                            if (k.time - clamped_time).abs() <= 1e-4 {
-                                k.time = clamped_time;
-                                k.value = *new_value;
-                                inserted = true;
-                                break;
-                            }
-                        }
-                        if !inserted {
-                            channel_insert_key(
-                                channel,
-                                clamped_time,
-                                *new_value,
-                                InterpolationType::Linear,
-                            );
-                        }
-                        found_channel = true;
-                        break;
-                    }
-                }
-                if !found_channel {
-                    // Channel doesn't exist yet, create it with the new key
-                    let mut channel = FlameChannel {
-                        param: *param,
-                        keys: vec![],
-                        next_keyframe_id: 1,
-                    };
-                    channel_insert_key(
-                        &mut channel,
-                        new_time.max(0.0),
-                        *new_value,
-                        InterpolationType::Linear,
-                    );
-                    track.channels.push(channel);
-                }
-                world.insert_component(target, track);
-            }
-            UIEvent::DeleteFlameKeyExact { param, time } => {
-                let Some(target) = resolve_selected_flame(world) else {
-                    continue;
-                };
-                let mut track = match world.get_component_mut::<FlameTrack>(target) {
-                    Some(existing) => {
-                        let mut track = existing.clone();
-                        drop(existing);
-                        track
-                    }
-                    None => continue,
-                };
-                // Find the channel for this param and remove keys within 1e-4 of time
-                let mut found_channel = false;
-                let mut to_remove: Vec<usize> = Vec::new();
-                for (i, channel) in track.channels.iter_mut().enumerate() {
-                    if channel.param == *param {
-                        channel.keys.retain(|key| (key.time - time).abs() > 1e-4);
-                        found_channel = true;
-                    }
-                    if channel.keys.is_empty() {
-                        to_remove.push(i);
-                    }
-                }
-                for i in to_remove.into_iter().rev() {
-                    track.channels.remove(i);
-                }
-                // Keep the track component even if channels are empty (simpler than At variant)
-                world.insert_component(target, track);
             }
             _ => {}
         }

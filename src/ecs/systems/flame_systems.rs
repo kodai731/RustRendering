@@ -1,7 +1,5 @@
 use crate::app::FrameContext;
-use crate::ecs::component::{
-    apply_flame_track, EntityIcon, FlameBoneAttachment, FlameEffect, FlameTrack, FlameTrail,
-};
+use crate::ecs::component::{EntityIcon, FlameBoneAttachment, FlameEffect, FlameTrail};
 use crate::ecs::resource::{
     BatchRun, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState, HierarchyState,
     LightState, ProjectionData, TimelineState,
@@ -81,15 +79,21 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
         })
         .collect();
 
-    // Collect FlameTrack components to avoid borrow conflicts
-    let flame_tracks: Vec<(Entity, FlameTrack)> = flame_entities
-        .iter()
-        .filter_map(|&e| {
-            ctx.world
-                .get_component::<FlameTrack>(e)
-                .map(|t| (e, t.clone()))
-        })
-        .collect();
+    // Collect each flame's scheduled clip (scalar keyframe curves) up front to
+    // avoid borrow conflicts while mutating FlameEffect below.
+    let flame_clips: Vec<(Entity, crate::animation::editable::EditableAnimationClip)> = {
+        let clip_library = ctx
+            .world
+            .get_resource::<crate::ecs::resource::ClipLibrary>();
+        flame_entities
+            .iter()
+            .filter_map(|&e| {
+                let clip_id = super::flame_clip_systems::find_flame_clip_id(ctx.world, e)?;
+                let clip = clip_library.as_ref()?.get(clip_id)?;
+                Some((e, clip.clone()))
+            })
+            .collect()
+    };
 
     let has_batch_run = ctx.world.contains_resource::<BatchRun>();
     let timeline_current_time = if has_batch_run {
@@ -117,9 +121,13 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
                 effect.position = transform.translation;
                 effect.rotation = transform.rotation;
             }
-            // Apply FlameTrack keyframe channels if present
-            if let Some((_e, track)) = flame_tracks.iter().find(|(e, _)| *e == entity) {
-                apply_flame_track(track, effect.time, &mut effect);
+            // Apply scheduled clip scalar curves (flame keyframes) if present
+            if let Some((_e, clip)) = flame_clips.iter().find(|(e, _)| *e == entity) {
+                super::flame_clip_systems::apply_flame_scalar_curves(
+                    clip,
+                    effect.time,
+                    &mut effect,
+                );
             }
         }
     }

@@ -8,10 +8,12 @@ use crate::animation::editable::{
     TangentWeightMode,
 };
 use crate::animation::BoneId;
+use crate::ecs::component::FlameParam;
 use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::{
-    ClipLibrary, CurveEditorBuffer, CurveEditorState, CurveInteractionMode, CurveSelectedKeyframe,
-    DraggingTangent, PoseLibrary, TangentHandleType, TimelineState,
+    ClipLibrary, CurveEditorBuffer, CurveEditorState, CurveEditorTarget, CurveInteractionMode,
+    CurveSelectedKeyframe, CurveTrackRef, DraggingTangent, PoseLibrary, TangentHandleType,
+    TimelineState,
 };
 
 pub struct SuggestionOverlay {
@@ -191,6 +193,23 @@ fn build_track_list(
         return;
     };
 
+    if !clip.scalar_curves.is_empty() {
+        ui.text("Effects:");
+        ui.separator();
+        let is_selected = editor_state.selected_target == Some(CurveEditorTarget::Scalars);
+        if ui.selectable_config("Flame").selected(is_selected).build() {
+            editor_state.select_scalars();
+            for curve in &clip.scalar_curves {
+                editor_state.visible_curves.insert(curve.property_type);
+            }
+            editor_state.view_initialized = false;
+        }
+        if is_selected {
+            build_scalar_curve_selector_inline(ui, clip, editor_state);
+        }
+        ui.spacing();
+    }
+
     ui.text("Bones:");
     ui.separator();
 
@@ -224,6 +243,46 @@ fn build_track_list(
             }
         }
     }
+}
+
+fn build_scalar_curve_selector_inline(
+    ui: &imgui::Ui,
+    clip: &EditableAnimationClip,
+    editor_state: &mut CurveEditorState,
+) {
+    ui.indent();
+
+    for curve in &clip.scalar_curves {
+        if curve.is_empty() {
+            continue;
+        }
+        let (color, name) = scalar_curve_style(curve.property_type);
+        let mut visible = editor_state.visible_curves.contains(&curve.property_type);
+        ui.text_colored(color, "\u{25CF}");
+        ui.same_line();
+        if ui.checkbox(name, &mut visible) {
+            if visible {
+                editor_state.visible_curves.insert(curve.property_type);
+            } else {
+                editor_state.visible_curves.remove(&curve.property_type);
+            }
+        }
+    }
+
+    if ui.small_button("All##scalar") {
+        for curve in &clip.scalar_curves {
+            editor_state.visible_curves.insert(curve.property_type);
+        }
+    }
+    ui.same_line();
+    if ui.small_button("None##scalar") {
+        for curve in &clip.scalar_curves {
+            editor_state.visible_curves.remove(&curve.property_type);
+        }
+    }
+
+    ui.unindent();
+    ui.spacing();
 }
 
 fn build_curve_selector_inline(
@@ -283,13 +342,21 @@ fn build_curve_view(
         return;
     };
 
-    let Some(bone_id) = editor_state.selected_bone_id() else {
-        ui.text("Select a bone from the list");
-        return;
+    let curves_to_draw = match editor_state.selected_target {
+        Some(CurveEditorTarget::Bone(bone_id)) => {
+            let Some(track) = clip.tracks.get(&bone_id) else {
+                ui.text("Track not found");
+                return;
+            };
+            collect_visible_curves(track, editor_state)
+        }
+        Some(CurveEditorTarget::Scalars) => collect_visible_scalar_curves(clip, editor_state),
+        None => {
+            ui.text("Select a track from the list");
+            return;
+        }
     };
-
-    let Some(track) = clip.tracks.get(&bone_id) else {
-        ui.text("Track not found");
+    let Some(track_ref) = editor_state.selected_track_ref() else {
         return;
     };
 
@@ -300,8 +367,6 @@ fn build_curve_view(
     if curve_area_width <= 0.0 || curve_area_height <= 0.0 {
         return;
     }
-
-    let curves_to_draw = collect_visible_curves(track, editor_state);
     initialize_view_range(editor_state, &curves_to_draw, clip.duration);
     let cursor_pos = ui.cursor_screen_pos();
 
@@ -333,7 +398,7 @@ fn build_curve_view(
         &curves_to_draw,
         curve_buffer,
         suggestion_overlays,
-        bone_id,
+        track_ref,
         pose_library,
     );
 
@@ -352,13 +417,66 @@ fn build_curve_view(
         cursor_pos,
         curve_area_width,
         clip.duration,
-        bone_id,
+        track_ref,
     );
 
     ui.set_cursor_screen_pos([cursor_pos[0], cursor_pos[1] + total_height]);
 
     #[cfg(feature = "ml")]
-    handle_suggestion_keyboard(ui, ui_events, bone_id, editor_state, suggestion_overlays);
+    if let Some(bone_id) = track_ref.bone_id() {
+        handle_suggestion_keyboard(ui, ui_events, bone_id, editor_state, suggestion_overlays);
+    }
+}
+
+fn collect_visible_scalar_curves<'a>(
+    clip: &'a EditableAnimationClip,
+    editor_state: &CurveEditorState,
+) -> Vec<(&'a PropertyCurve, [f32; 4], &'static str)> {
+    let mut curves = Vec::new();
+    for curve in &clip.scalar_curves {
+        if !editor_state.visible_curves.contains(&curve.property_type) {
+            continue;
+        }
+        if curve.is_empty() {
+            continue;
+        }
+        let (color, name) = scalar_curve_style(curve.property_type);
+        curves.push((curve, color, name));
+    }
+    curves
+}
+
+fn scalar_curve_style(property_type: PropertyType) -> ([f32; 4], &'static str) {
+    match FlameParam::from_property_type(property_type) {
+        Some(param) => (flame_param_color(param), param.display_name()),
+        None => ([0.6, 0.6, 0.6, 1.0], "Custom"),
+    }
+}
+
+fn flame_param_color(param: FlameParam) -> [f32; 4] {
+    // Evenly spaced hues over the 16 params, alternating brightness for
+    // neighbor separability.
+    let index = param.code() as f32;
+    let hue = index / FlameParam::ALL.len() as f32;
+    let value = if param.code() % 2 == 0 { 1.0 } else { 0.75 };
+    hsv_to_rgba(hue, 0.75, value)
+}
+
+fn hsv_to_rgba(h: f32, s: f32, v: f32) -> [f32; 4] {
+    let i = (h * 6.0).floor();
+    let f = h * 6.0 - i;
+    let p = v * (1.0 - s);
+    let q = v * (1.0 - f * s);
+    let t = v * (1.0 - (1.0 - f) * s);
+    let (r, g, b) = match (i as i32).rem_euclid(6) {
+        0 => (v, t, p),
+        1 => (q, v, p),
+        2 => (p, v, t),
+        3 => (p, q, v),
+        4 => (t, p, v),
+        _ => (v, p, q),
+    };
+    [r, g, b, 1.0]
 }
 
 fn collect_visible_curves<'a>(
@@ -409,7 +527,7 @@ fn draw_curve_area(
     curves_to_draw: &[(&PropertyCurve, [f32; 4], &str)],
     curve_buffer: &CurveEditorBuffer,
     suggestion_overlays: &[SuggestionOverlay],
-    bone_id: BoneId,
+    track_ref: CurveTrackRef,
     pose_library: &PoseLibrary,
 ) {
     let draw_list = ui.get_window_draw_list();
@@ -454,7 +572,7 @@ fn draw_curve_area(
                 curves_to_draw,
                 curve_buffer,
                 suggestion_overlays,
-                bone_id,
+                track_ref,
                 pose_library,
             );
         },
@@ -472,7 +590,7 @@ fn draw_clipped_curve_content(
     curves_to_draw: &[(&PropertyCurve, [f32; 4], &str)],
     curve_buffer: &CurveEditorBuffer,
     suggestion_overlays: &[SuggestionOverlay],
-    bone_id: BoneId,
+    track_ref: CurveTrackRef,
     pose_library: &PoseLibrary,
 ) {
     draw_grid(draw_list, curve_area_width, curve_area_height, vt);
@@ -527,13 +645,15 @@ fn draw_clipped_curve_content(
         draw_tangent_drag_curve_preview(draw_list, dragging, ui.io().mouse_pos, curves_to_draw, vt);
     }
 
-    draw_buffer_curve_overlay(
-        draw_list,
-        curve_buffer,
-        bone_id,
-        &editor_state.visible_curves,
-        vt,
-    );
+    if let Some(bone_id) = track_ref.bone_id() {
+        draw_buffer_curve_overlay(
+            draw_list,
+            curve_buffer,
+            bone_id,
+            &editor_state.visible_curves,
+            vt,
+        );
+    }
 
     draw_suggestion_curve_overlay(
         draw_list,
@@ -552,7 +672,7 @@ fn handle_curve_view_interaction(
     cursor_pos: [f32; 2],
     curve_area_width: f32,
     clip_duration: f32,
-    bone_id: BoneId,
+    track_ref: CurveTrackRef,
 ) {
     let ruler_pos = [cursor_pos[0] + Y_AXIS_WIDTH + CURVE_PADDING, cursor_pos[1]];
 
@@ -584,15 +704,15 @@ fn handle_curve_view_interaction(
         }
     }
 
-    build_keyframe_context_menu(ui, ui_events, editor_state, bone_id);
-    build_curve_editor_context_menu(ui, ui_events, editor_state, bone_id);
+    build_keyframe_context_menu(ui, ui_events, editor_state, track_ref);
+    build_curve_editor_context_menu(ui, ui_events, editor_state, track_ref);
 }
 
 fn build_keyframe_context_menu(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
     editor_state: &mut CurveEditorState,
-    bone_id: BoneId,
+    track_ref: CurveTrackRef,
 ) {
     ui.popup("keyframe_context_menu", || {
         let ctx_kf = match editor_state.context_menu_keyframe.clone() {
@@ -604,7 +724,7 @@ fn build_keyframe_context_menu(
             if editor_state.selected_keyframes.len() > 1 {
                 for sel in &editor_state.selected_keyframes {
                     ui_events.send(UIEvent::TimelineDeleteKeyframe {
-                        bone_id,
+                        track: track_ref,
                         property_type: sel.property_type.clone(),
                         keyframe_id: sel.keyframe_id,
                     });
@@ -613,7 +733,7 @@ fn build_keyframe_context_menu(
                 editor_state.selection_anchor = None;
             } else {
                 ui_events.send(UIEvent::TimelineDeleteKeyframe {
-                    bone_id,
+                    track: track_ref,
                     property_type: ctx_kf.property_type.clone(),
                     keyframe_id: ctx_kf.keyframe_id,
                 });
@@ -630,7 +750,7 @@ fn build_keyframe_context_menu(
 
         if ui.selectable_config("  Linear").build() {
             ui_events.send(UIEvent::TimelineSetKeyframeInterpolation {
-                bone_id,
+                track: track_ref,
                 property_type: ctx_kf.property_type,
                 keyframe_id: ctx_kf.keyframe_id,
                 interpolation: InterpolationType::Linear,
@@ -639,7 +759,7 @@ fn build_keyframe_context_menu(
 
         if ui.selectable_config("  Bezier").build() {
             ui_events.send(UIEvent::TimelineSetKeyframeInterpolation {
-                bone_id,
+                track: track_ref,
                 property_type: ctx_kf.property_type,
                 keyframe_id: ctx_kf.keyframe_id,
                 interpolation: InterpolationType::Bezier,
@@ -648,7 +768,7 @@ fn build_keyframe_context_menu(
 
         if ui.selectable_config("  Stepped").build() {
             ui_events.send(UIEvent::TimelineSetKeyframeInterpolation {
-                bone_id,
+                track: track_ref,
                 property_type: ctx_kf.property_type,
                 keyframe_id: ctx_kf.keyframe_id,
                 interpolation: InterpolationType::Stepped,
@@ -671,7 +791,7 @@ fn build_keyframe_context_menu(
         for (label, tangent_type) in &tangent_options {
             if ui.selectable_config(label).build() {
                 ui_events.send(UIEvent::TimelineSetTangentType {
-                    bone_id,
+                    track: track_ref,
                     property_type: ctx_kf.property_type,
                     keyframe_id: ctx_kf.keyframe_id,
                     tangent_type: *tangent_type,
@@ -685,7 +805,7 @@ fn build_keyframe_context_menu(
 
         if ui.selectable_config("  Non-Weighted").build() {
             ui_events.send(UIEvent::TimelineSetTangentWeightMode {
-                bone_id,
+                track: track_ref,
                 property_type: ctx_kf.property_type,
                 keyframe_id: ctx_kf.keyframe_id,
                 weight_mode: TangentWeightMode::NonWeighted,
@@ -694,7 +814,7 @@ fn build_keyframe_context_menu(
 
         if ui.selectable_config("  Weighted").build() {
             ui_events.send(UIEvent::TimelineSetTangentWeightMode {
-                bone_id,
+                track: track_ref,
                 property_type: ctx_kf.property_type,
                 keyframe_id: ctx_kf.keyframe_id,
                 weight_mode: TangentWeightMode::Weighted,
@@ -707,28 +827,39 @@ fn build_curve_editor_context_menu(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
     editor_state: &CurveEditorState,
-    bone_id: BoneId,
+    track_ref: CurveTrackRef,
 ) {
     ui.popup("curve_editor_context_menu", || {
         if ui.selectable_config("Add Key").build() {
-            let visible: Vec<_> = editor_state.visible_curves.iter().copied().collect();
-            if visible.len() == 1 {
+            if let Some(property_type) = add_key_target_property(editor_state, track_ref) {
                 ui_events.send(UIEvent::TimelineAddKeyframe {
-                    bone_id,
-                    property_type: visible[0],
-                    time: editor_state.context_menu_click_time.max(0.0),
-                    value: editor_state.context_menu_click_value,
-                });
-            } else if let Some(&first) = visible.first() {
-                ui_events.send(UIEvent::TimelineAddKeyframe {
-                    bone_id,
-                    property_type: first,
+                    track: track_ref,
+                    property_type,
                     time: editor_state.context_menu_click_time.max(0.0),
                     value: editor_state.context_menu_click_value,
                 });
             }
         }
     });
+}
+
+/// The scalar target only accepts flame params: the visible set can still hold
+/// bone property types from a previous bone target, and letting one through
+/// would create a curve no flame param answers to (grey "Custom", never
+/// sampled). Lowest code wins so the choice is deterministic.
+fn add_key_target_property(
+    editor_state: &CurveEditorState,
+    track_ref: CurveTrackRef,
+) -> Option<PropertyType> {
+    match track_ref {
+        CurveTrackRef::Scalar => editor_state
+            .visible_curves
+            .iter()
+            .filter_map(|p| FlameParam::from_property_type(*p))
+            .min_by_key(|p| p.code())
+            .map(|p| p.property_type()),
+        CurveTrackRef::Bone(_) => editor_state.visible_curves.iter().copied().next(),
+    }
 }
 
 fn handle_mouse_interaction(
@@ -846,11 +977,11 @@ fn handle_mouse_release(
             if let CurveInteractionMode::DraggingTangent(ref dragging) =
                 editor_state.interaction.clone()
             {
-                if let Some(bone_id) = editor_state.selected_bone_id() {
+                if let Some(track_ref) = editor_state.selected_track_ref() {
                     let (in_tangent, out_tangent) =
                         compute_dragged_tangent(dragging, mouse_pos, curves_to_draw, vt);
                     ui_events.send(UIEvent::TimelineSetKeyframeTangent {
-                        bone_id,
+                        track: track_ref,
                         property_type: dragging.property_type,
                         keyframe_id: dragging.keyframe_id,
                         in_tangent,
@@ -861,7 +992,7 @@ fn handle_mouse_release(
                 editor_state.interaction,
                 CurveInteractionMode::DraggingKeyframe
             ) {
-                if let Some(bone_id) = editor_state.selected_bone_id() {
+                if let Some(track_ref) = editor_state.selected_track_ref() {
                     let time_delta = vt.x_to_time(mouse_pos[0])
                         - vt.x_to_time(editor_state.drag_start_mouse_pos[0]);
                     let value_delta = vt.y_to_value(mouse_pos[1])
@@ -869,7 +1000,7 @@ fn handle_mouse_release(
 
                     for sel in &editor_state.selected_keyframes {
                         ui_events.send(UIEvent::TimelineMoveKeyframe {
-                            bone_id,
+                            track: track_ref,
                             property_type: sel.property_type.clone(),
                             keyframe_id: sel.keyframe_id,
                             new_time: (sel.original_time + time_delta).max(0.0),

@@ -821,8 +821,16 @@ fn build_flame_section(
                     if ui.button("Clear Flame Keys") {
                         ui_events.send(UIEvent::ClearFlameKeys);
                     }
+                    ui.same_line();
+                    if ui.button("Random Keys (Debug)") {
+                        let seed = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_millis() as u64)
+                            .unwrap_or(0);
+                        ui_events.send(UIEvent::InsertFlameDebugKeys { seed });
+                    }
                     if ui.button("Curves") {
-                        ui_events.send(UIEvent::ToggleFlameCurves);
+                        ui_events.send(UIEvent::OpenFlameCurveEditor);
                     }
                     if ui.button("Add Flame") {
                         ui_events.send(UIEvent::AddFlame);

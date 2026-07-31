@@ -13,20 +13,42 @@ pub enum SelectionModifier {
     Toggle,
 }
 
+/// Which curve container inside the current clip a keyframe belongs to.
+/// `Bone` addresses a `BoneTrack` property curve, `Scalar` addresses the
+/// clip-level `scalar_curves` (identified by `PropertyType::Custom`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CurveTrackRef {
+    Bone(BoneId),
+    Scalar,
+}
+
+impl CurveTrackRef {
+    pub fn bone_id(self) -> Option<BoneId> {
+        match self {
+            CurveTrackRef::Bone(id) => Some(id),
+            CurveTrackRef::Scalar => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SelectedKeyframe {
-    pub bone_id: BoneId,
+    pub track: CurveTrackRef,
     pub property_type: PropertyType,
     pub keyframe_id: KeyframeId,
 }
 
 impl SelectedKeyframe {
-    pub fn new(bone_id: BoneId, property_type: PropertyType, keyframe_id: KeyframeId) -> Self {
+    pub fn new(track: CurveTrackRef, property_type: PropertyType, keyframe_id: KeyframeId) -> Self {
         Self {
-            bone_id,
+            track,
             property_type,
             keyframe_id,
         }
+    }
+
+    pub fn for_bone(bone_id: BoneId, property_type: PropertyType, keyframe_id: KeyframeId) -> Self {
+        Self::new(CurveTrackRef::Bone(bone_id), property_type, keyframe_id)
     }
 }
 

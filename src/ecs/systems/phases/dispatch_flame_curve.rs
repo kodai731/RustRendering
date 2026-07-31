@@ -1,383 +1,219 @@
-use crate::ecs::component::{channel_insert_key, FlameChannel, FlameParam, FlameTrack};
+use crate::asset::AssetStorage;
 use crate::ecs::events::UIEvent;
-use crate::ecs::resource::{EditCommand, EditCommandAfter, EditEntry, EditHistory};
+use crate::ecs::resource::{ClipLibrary, CurveEditorState, EditHistory, TimelineState};
+use crate::ecs::systems::flame_clip_systems::{
+    ensure_flame_clip, flame_clip_clear_keys, flame_clip_insert_debug_keys, flame_clip_insert_key,
+};
 use crate::ecs::systems::resolve_selected_flame;
 use crate::ecs::world::World;
-use thyllore_anim_core::editable::{BezierHandle, InterpolationType, KeyframeId};
+use thyllore_anim_core::editable::SourceClipId;
 
-pub fn dispatch_flame_curve_events(events: &[UIEvent], world: &mut World) {
+/// Flame keyframe events, applied to the flame entity's clip (scalar curves).
+/// Undo goes through the shared `ClipModified` path, so flame edits merge and
+/// revert exactly like bone clip edits.
+pub fn dispatch_flame_clip_events(
+    events: &[UIEvent],
+    world: &mut World,
+    assets: &mut AssetStorage,
+) {
     for event in events {
-        let target_entity = match resolve_selected_flame(world) {
-            Some(e) => e,
-            None => continue,
-        };
-
-        let before = world
-            .get_component::<FlameTrack>(target_entity)
-            .cloned()
-            .unwrap_or_default();
-
         match event {
-            UIEvent::FlameCurveAddKey { param, time, value } => {
-                apply_add_key(world, target_entity, *param, *time, *value);
+            UIEvent::InsertFlameKey { param, value } => {
+                let Some((clip_id, _)) = resolve_flame_clip(world, assets) else {
+                    continue;
+                };
+                let current_time = world
+                    .get_resource::<TimelineState>()
+                    .map(|t| t.current_time)
+                    .unwrap_or(0.0);
+                edit_clip(world, clip_id, "Flame key edit", |clip| {
+                    flame_clip_insert_key(clip, *param, current_time, *value);
+                });
             }
-            UIEvent::FlameCurveMoveKey {
-                param,
-                keyframe_id,
-                new_time,
-                new_value,
-            } => {
-                apply_move_key(
-                    world,
-                    target_entity,
-                    *param,
-                    *keyframe_id,
-                    *new_time,
-                    *new_value,
-                );
+            UIEvent::InsertFlameDebugKeys { seed } => {
+                let Some((clip_id, flame_entity)) = resolve_flame_clip(world, assets) else {
+                    continue;
+                };
+                edit_clip(world, clip_id, "Flame debug keys", |clip| {
+                    flame_clip_insert_debug_keys(
+                        clip,
+                        *seed,
+                        crate::ecs::systems::TIMELINE_FALLBACK_DURATION_SECONDS,
+                    );
+                });
+                extend_flame_instance_to_clip_duration(world, flame_entity, clip_id);
             }
-            UIEvent::FlameCurveDeleteKey { param, keyframe_id } => {
-                apply_delete_key(world, target_entity, *param, *keyframe_id);
+            UIEvent::ClearFlameKeys => {
+                let Some(clip_id) = existing_flame_clip(world) else {
+                    continue;
+                };
+                edit_clip(world, clip_id, "Flame keys clear", |clip| {
+                    flame_clip_clear_keys(clip);
+                });
             }
-            UIEvent::FlameCurveSetInterpolation {
-                param,
-                keyframe_id,
-                interpolation,
-            } => {
-                apply_set_interpolation(world, target_entity, *param, *keyframe_id, *interpolation);
-            }
-            UIEvent::FlameCurveSetTangent {
-                param,
-                keyframe_id,
-                in_tangent,
-                out_tangent,
-            } => {
-                apply_set_tangent(
-                    world,
-                    target_entity,
-                    *param,
-                    *keyframe_id,
-                    in_tangent.clone(),
-                    out_tangent.clone(),
-                );
+            UIEvent::OpenFlameCurveEditor => {
+                let Some((clip_id, _)) = resolve_flame_clip(world, assets) else {
+                    continue;
+                };
+                if let Some(mut timeline) = world.get_resource_mut::<TimelineState>() {
+                    timeline.current_clip_id = Some(clip_id);
+                    timeline.selected_keyframes.clear();
+                }
+                let scalar_props: Vec<_> = world
+                    .get_resource::<ClipLibrary>()
+                    .and_then(|lib| {
+                        lib.get(clip_id).map(|clip| {
+                            clip.scalar_curves.iter().map(|c| c.property_type).collect()
+                        })
+                    })
+                    .unwrap_or_default();
+                if let Some(mut editor) = world.get_resource_mut::<CurveEditorState>() {
+                    editor.is_open = true;
+                    editor.needs_focus = true;
+                    editor.select_scalars();
+                    for prop in scalar_props {
+                        editor.visible_curves.insert(prop);
+                    }
+                    editor.view_initialized = false;
+                }
             }
             _ => continue,
         }
+    }
+}
 
-        // Push edit history entry if EditHistory resource exists
-        if let Some(mut edit_history) = world.get_resource_mut::<EditHistory>() {
-            let after = world
-                .get_component::<FlameTrack>(target_entity)
-                .cloned()
-                .unwrap_or_default();
-            let entry = EditEntry {
-                command: EditCommand::FlameTrackModified {
-                    entity: target_entity,
-                    before,
-                    after,
-                    description: "Flame curve edit",
-                },
-                after: EditCommandAfter::Empty,
-            };
-            edit_history.push_to_undo(entry);
+fn resolve_flame_clip(world: &mut World, assets: &mut AssetStorage) -> Option<(SourceClipId, u64)> {
+    let flame_entity = resolve_selected_flame(world)?;
+    let clip_id = ensure_flame_clip(world, assets, flame_entity);
+    Some((clip_id, flame_entity))
+}
+
+fn extend_flame_instance_to_clip_duration(
+    world: &mut World,
+    flame_entity: crate::ecs::world::Entity,
+    clip_id: SourceClipId,
+) {
+    let Some(duration) = world
+        .get_resource::<ClipLibrary>()
+        .and_then(|lib| lib.get(clip_id).map(|clip| clip.duration))
+    else {
+        return;
+    };
+    if let Some(schedule) =
+        world.get_component_mut::<crate::ecs::component::ClipSchedule>(flame_entity)
+    {
+        for inst in schedule
+            .instances
+            .iter_mut()
+            .filter(|i| i.source_id == clip_id)
+        {
+            inst.clip_out = inst.clip_out.max(duration);
         }
     }
 }
 
-fn apply_add_key(world: &mut World, entity: u64, param: FlameParam, time: f32, value: f32) {
-    let mut track = match world.get_component_mut::<FlameTrack>(entity) {
-        Some(existing) => {
-            let mut track = existing.clone();
-            drop(existing);
-            track
-        }
-        None => FlameTrack::default(),
-    };
+fn existing_flame_clip(world: &World) -> Option<SourceClipId> {
+    let flame_entity = resolve_selected_flame(world)?;
+    super::super::flame_clip_systems::find_flame_clip_id(world, flame_entity)
+}
 
-    let mut found = false;
-    for channel in &mut track.channels {
-        if channel.param == param {
-            channel_insert_key(channel, time, value, InterpolationType::Linear);
-            found = true;
-            break;
-        }
-    }
-    if !found {
-        let mut channel = FlameChannel {
-            param,
-            keys: vec![],
-            next_keyframe_id: 1,
+fn edit_clip(
+    world: &mut World,
+    clip_id: SourceClipId,
+    description: &'static str,
+    apply: impl FnOnce(&mut crate::animation::editable::EditableAnimationClip),
+) {
+    let (before, after) = {
+        let mut clip_library = world.resource_mut::<ClipLibrary>();
+        let Some(before) = clip_library.get(clip_id).cloned() else {
+            return;
         };
-        channel_insert_key(&mut channel, time, value, InterpolationType::Linear);
-        track.channels.push(channel);
-    }
-
-    world.insert_component(entity, track);
-}
-
-fn apply_move_key(
-    world: &mut World,
-    entity: u64,
-    param: FlameParam,
-    keyframe_id: KeyframeId,
-    new_time: f32,
-    new_value: f32,
-) {
-    let mut track = match world.get_component_mut::<FlameTrack>(entity) {
-        Some(existing) => {
-            let mut track = existing.clone();
-            drop(existing);
-            track
-        }
-        None => return,
+        let Some(clip) = clip_library.get_mut(clip_id) else {
+            return;
+        };
+        apply(clip);
+        (before, clip.clone())
     };
 
-    for channel in &mut track.channels {
-        if channel.param == param {
-            for key in &mut channel.keys {
-                if key.id == keyframe_id {
-                    key.time = new_time;
-                    key.value = new_value;
-                    break;
-                }
-            }
-            channel
-                .keys
-                .sort_by(|a, b| a.time.partial_cmp(&b.time).unwrap());
-            break;
-        }
+    if let Some(mut history) = world.get_resource_mut::<EditHistory>() {
+        crate::ecs::systems::edit_history_systems::edit_history_push_clip_mergeable(
+            &mut history,
+            clip_id,
+            before,
+            after,
+            description,
+        );
     }
-
-    world.insert_component(entity, track);
-}
-
-fn apply_delete_key(world: &mut World, entity: u64, param: FlameParam, keyframe_id: KeyframeId) {
-    let mut track = match world.get_component_mut::<FlameTrack>(entity) {
-        Some(existing) => {
-            let mut track = existing.clone();
-            drop(existing);
-            track
-        }
-        None => return,
-    };
-
-    let mut found_channel = false;
-    let mut to_remove: Vec<usize> = Vec::new();
-    for (i, channel) in track.channels.iter_mut().enumerate() {
-        if channel.param == param {
-            channel.keys.retain(|key| key.id != keyframe_id);
-            found_channel = true;
-        }
-        if channel.keys.is_empty() {
-            to_remove.push(i);
-        }
-    }
-    for i in to_remove.into_iter().rev() {
-        track.channels.remove(i);
-    }
-
-    world.insert_component(entity, track);
-}
-
-fn apply_set_interpolation(
-    world: &mut World,
-    entity: u64,
-    param: FlameParam,
-    keyframe_id: KeyframeId,
-    interpolation: InterpolationType,
-) {
-    let mut track = match world.get_component_mut::<FlameTrack>(entity) {
-        Some(existing) => {
-            let mut track = existing.clone();
-            drop(existing);
-            track
-        }
-        None => return,
-    };
-
-    for channel in &mut track.channels {
-        if channel.param == param {
-            for key in &mut channel.keys {
-                if key.id == keyframe_id {
-                    key.interpolation = interpolation;
-                    break;
-                }
-            }
-            break;
-        }
-    }
-
-    world.insert_component(entity, track);
-}
-
-fn apply_set_tangent(
-    world: &mut World,
-    entity: u64,
-    param: FlameParam,
-    keyframe_id: KeyframeId,
-    in_tangent: BezierHandle,
-    out_tangent: BezierHandle,
-) {
-    let mut track = match world.get_component_mut::<FlameTrack>(entity) {
-        Some(existing) => {
-            let mut track = existing.clone();
-            drop(existing);
-            track
-        }
-        None => return,
-    };
-
-    for channel in &mut track.channels {
-        if channel.param == param {
-            for key in &mut channel.keys {
-                if key.id == keyframe_id {
-                    key.in_tangent = in_tangent;
-                    key.out_tangent = out_tangent;
-                    break;
-                }
-            }
-            break;
-        }
-    }
-
-    world.insert_component(entity, track);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::component::{FlameEffect, FlameParam};
+    use crate::ecs::systems::flame_clip_systems::find_flame_clip_id;
     use crate::ecs::systems::phases::dispatch_edit_history::dispatch_edit_history_events;
 
-    fn make_world_with_flame() -> World {
+    fn make_world_with_flame() -> (World, AssetStorage) {
         let mut world = World::new();
-        let entity = crate::ecs::systems::spawn_flame(
+        crate::ecs::systems::spawn_flame(
             &mut world,
             crate::ecs::systems::DEFAULT_FLAME_NAME,
-            crate::ecs::component::FlameEffect::default(),
+            FlameEffect::default(),
         );
-        world.insert_component(
-            entity,
-            FlameTrack {
-                channels: vec![FlameChannel {
-                    param: FlameParam::Height,
-                    keys: vec![],
-                    next_keyframe_id: 1,
-                }],
-            },
-        );
-        world
+        world.insert_resource(ClipLibrary::new());
+        world.insert_resource(TimelineState::new());
+        world.insert_resource(EditHistory::new(10));
+        (world, AssetStorage::new())
     }
 
     #[test]
-    fn test_add_move_undo_redo() {
-        let mut world = make_world_with_flame();
+    fn test_insert_key_creates_clip_and_schedule() {
+        let (mut world, mut assets) = make_world_with_flame();
         let entity = world.query_flames()[0];
 
-        // Insert EditHistory resource for undo/redo
-        world.insert_resource(EditHistory::new(10));
-
-        // Add a key at time=1.0, value=2.0 via dispatch
-        dispatch_flame_curve_events(
-            &[UIEvent::FlameCurveAddKey {
+        dispatch_flame_clip_events(
+            &[UIEvent::InsertFlameKey {
                 param: FlameParam::Height,
-                time: 1.0,
-                value: 2.0,
+                value: 2.5,
             }],
             &mut world,
+            &mut assets,
         );
 
-        // Get the actual keyframe id from the track
-        let track = world.get_component::<FlameTrack>(entity).unwrap();
-        let id = track.channels[0].keys[0].id;
+        let clip_id = find_flame_clip_id(&world, entity).expect("flame clip scheduled");
+        let lib = world.get_resource::<ClipLibrary>().unwrap();
+        let clip = lib.get(clip_id).expect("clip registered");
+        let curve = clip
+            .get_scalar_curve(FlameParam::Height.property_type())
+            .expect("scalar curve");
+        assert_eq!(curve.keyframes.len(), 1);
+        assert!((curve.keyframes[0].value - 2.5).abs() < 1e-6);
+    }
 
-        // Verify add was applied
-        let keys: Vec<_> = track.channels[0].keys.iter().collect();
-        assert_eq!(keys.len(), 1);
-        assert!((keys[0].time - 1.0).abs() < 1e-6);
-        assert!((keys[0].value - 2.0).abs() < 1e-6);
+    #[test]
+    fn test_insert_then_undo_restores_empty_clip() {
+        let (mut world, mut assets) = make_world_with_flame();
+        let entity = world.query_flames()[0];
 
-        // Move the key to time=3.0, value=4.0 via dispatch
-        dispatch_flame_curve_events(
-            &[UIEvent::FlameCurveMoveKey {
+        dispatch_flame_clip_events(
+            &[UIEvent::InsertFlameKey {
                 param: FlameParam::Height,
-                keyframe_id: id,
-                new_time: 3.0,
-                new_value: 4.0,
+                value: 2.5,
             }],
             &mut world,
+            &mut assets,
         );
+        let clip_id = find_flame_clip_id(&world, entity).unwrap();
 
-        // Verify move was applied
-        let track = world.get_component::<FlameTrack>(entity).unwrap();
-        let keys: Vec<_> = track.channels[0].keys.iter().collect();
-        assert_eq!(keys.len(), 1);
-        assert!((keys[0].time - 3.0).abs() < 1e-6);
-        assert!((keys[0].value - 4.0).abs() < 1e-6);
-
-        // Undo: should restore to after_add state (move undone)
         dispatch_edit_history_events(&[UIEvent::Undo], &mut world);
-        let track = world.get_component::<FlameTrack>(entity).unwrap();
-        let keys: Vec<_> = track.channels[0].keys.iter().collect();
-        assert_eq!(keys.len(), 1);
-        assert!((keys[0].time - 1.0).abs() < 1e-6);
-        assert!((keys[0].value - 2.0).abs() < 1e-6);
+        {
+            let lib = world.get_resource::<ClipLibrary>().unwrap();
+            assert!(lib.get(clip_id).unwrap().scalar_curves.is_empty());
+        }
 
-        // Redo: should reapply move
         dispatch_edit_history_events(&[UIEvent::Redo], &mut world);
-        let track = world.get_component::<FlameTrack>(entity).unwrap();
-        let keys: Vec<_> = track.channels[0].keys.iter().collect();
-        assert_eq!(keys.len(), 1);
-        assert!((keys[0].time - 3.0).abs() < 1e-6);
-        assert!((keys[0].value - 4.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_delete_undo_restoration() {
-        let mut world = make_world_with_flame();
-        let entity = world.query_flames()[0];
-
-        // Insert EditHistory resource for undo/redo
-        world.insert_resource(EditHistory::new(10));
-
-        // Add a key at time=1.0, value=2.0 via dispatch
-        dispatch_flame_curve_events(
-            &[UIEvent::FlameCurveAddKey {
-                param: FlameParam::Height,
-                time: 1.0,
-                value: 2.0,
-            }],
-            &mut world,
-        );
-
-        // Get the actual keyframe id from the track
-        let track = world.get_component::<FlameTrack>(entity).unwrap();
-        let id = track.channels[0].keys[0].id;
-
-        // Verify key exists
-        assert_eq!(track.channels[0].keys.len(), 1);
-        assert!((track.channels[0].keys[0].time - 1.0).abs() < 1e-6);
-
-        // Delete the key via dispatch
-        dispatch_flame_curve_events(
-            &[UIEvent::FlameCurveDeleteKey {
-                param: FlameParam::Height,
-                keyframe_id: id,
-            }],
-            &mut world,
-        );
-
-        // Verify key was deleted (channel removed since empty)
-        let track = world.get_component::<FlameTrack>(entity).unwrap();
-        assert!(track.channels.is_empty());
-
-        // Undo: should restore to before_delete state
-        dispatch_edit_history_events(&[UIEvent::Undo], &mut world);
-        let track = world.get_component::<FlameTrack>(entity).unwrap();
-
-        // Verify restoration
-        assert_eq!(track.channels.len(), 1);
-        assert_eq!(track.channels[0].keys.len(), 1);
-        assert!((track.channels[0].keys[0].time - 1.0).abs() < 1e-6);
-        assert!((track.channels[0].keys[0].value - 2.0).abs() < 1e-6);
+        let lib = world.get_resource::<ClipLibrary>().unwrap();
+        let clip = lib.get(clip_id).unwrap();
+        assert_eq!(clip.scalar_curves.len(), 1);
     }
 }

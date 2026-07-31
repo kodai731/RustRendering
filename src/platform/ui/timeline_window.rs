@@ -20,6 +20,7 @@ pub(crate) const PIXELS_PER_SECOND: f32 = 80.0;
 const PLAYHEAD_HANDLE_SIZE: f32 = 10.0;
 const CLIP_TRACK_HEIGHT: f32 = 28.0;
 const CLIP_EDGE_DRAG_WIDTH: f32 = 5.0;
+const CLIP_BLOCK_MIN_WIDTH: f32 = 12.0;
 const CLIP_BLOCK_COLORS: [[f32; 4]; 4] = [
     [0.3, 0.5, 0.8, 0.9],
     [0.5, 0.7, 0.3, 0.9],
@@ -35,7 +36,6 @@ pub fn build_timeline_window(
     clip_library: &ClipLibrary,
     curve_editor_state: &mut CurveEditorState,
     clip_track_snapshot: &ClipTrackSnapshot,
-    flame_track: Option<&crate::ecs::component::FlameTrack>,
     layout: &LayoutSnapshot,
 ) {
     ui.window("Timeline")
@@ -60,7 +60,6 @@ pub fn build_timeline_window(
                 clip_library,
                 curve_editor_state,
                 clip_track_snapshot,
-                flame_track,
             );
             let clip_duration = timeline_effective_duration(state, clip_library);
             handle_timeline_shortcuts(ui, ui_events, state);
@@ -186,7 +185,6 @@ fn build_timeline_content(
     clip_library: &ClipLibrary,
     curve_editor_state: &mut CurveEditorState,
     clip_track_snapshot: &ClipTrackSnapshot,
-    flame_track: Option<&crate::ecs::component::FlameTrack>,
 ) {
     let content_region = ui.content_region_avail();
     let visible_width = (content_region[0] - TRACK_LABEL_WIDTH).max(1.0);
@@ -238,99 +236,7 @@ fn build_timeline_content(
                     timeline_width,
                 );
             }
-            let ruler_start_x = ui.cursor_screen_pos()[0] + TRACK_LABEL_WIDTH;
-            build_flame_track_row(
-                ui,
-                ui_events,
-                flame_track,
-                pixels_per_second,
-                ruler_start_x,
-                state.current_time,
-            );
         });
-}
-
-fn build_flame_track_row(
-    ui: &imgui::Ui,
-    ui_events: &mut UIEventQueue,
-    flame_track: Option<&crate::ecs::component::FlameTrack>,
-    pixels_per_second: f32,
-    ruler_start_x: f32,
-    current_time: f32,
-) {
-    let track = match flame_track {
-        Some(t) if !t.channels.is_empty() => t,
-        _ => return,
-    };
-
-    // Collect all unique key times from all channels
-    let mut key_times: Vec<f32> = Vec::new();
-    for channel in &track.channels {
-        for key in &channel.keys {
-            if !key_times.contains(&key.time) {
-                key_times.push(key.time);
-            }
-        }
-    }
-
-    if key_times.is_empty() {
-        return;
-    }
-
-    let cursor_pos = ui.cursor_screen_pos();
-    let row_y = cursor_pos[1];
-    let row_height: f32 = 18.0;
-
-    // Draw label "Flame" on the left (same style as group headers)
-    ui.text_colored([0.7, 0.8, 1.0, 1.0], "Flame");
-    ui.same_line_with_pos(TRACK_LABEL_WIDTH);
-
-    let draw_list = ui.get_window_draw_list();
-
-    // Draw a background rect for the row area
-    draw_list
-        .add_rect(
-            [ruler_start_x, row_y],
-            [ruler_start_x + 1000.0, row_y + row_height],
-            [0.15, 0.15, 0.2, 1.0],
-        )
-        .filled(true)
-        .build();
-
-    // Draw diamond markers at each key position using circles
-    for (i, &key_time) in key_times.iter().enumerate() {
-        let x = ruler_start_x + key_time * pixels_per_second;
-        let y = row_y + row_height / 2.0;
-
-        // Color: white if any channel has a key within 0.02s of current_time, else amber
-        let is_under_playhead = (key_time - current_time).abs() < 0.02;
-        let color: [f32; 4] = if is_under_playhead {
-            [1.0, 1.0, 1.0, 1.0] // White
-        } else {
-            [1.0, 0.75, 0.375, 1.0] // Amber (0xFFC060FF)
-        };
-
-        draw_list
-            .add_circle([x, y], 4.0, color)
-            .filled(true)
-            .build();
-
-        // Interactive hit area: invisible button centered on the marker
-        let btn_size = [10.0, 10.0];
-        let btn_x = x - btn_size[0] / 2.0;
-        let btn_y = y - btn_size[1] / 2.0;
-        ui.set_cursor_screen_pos([btn_x, btn_y]);
-        let id = format!("flamekey##{}", i);
-        ui.invisible_button(&id, btn_size);
-
-        if ui.is_item_hovered() && ui.is_mouse_clicked(imgui::MouseButton::Left) {
-            ui_events.send(UIEvent::TimelineSetTime(key_time));
-        }
-
-        if ui.is_item_hovered() && ui.is_mouse_clicked(imgui::MouseButton::Right) {
-            ui_events.send(UIEvent::DeleteFlameKeysAt { time: key_time });
-        }
-    }
 }
 
 fn build_time_ruler_with_scrub(
@@ -545,7 +451,8 @@ fn build_clip_tracks_section(
 
         for (inst_idx, inst) in entry.instances.iter().enumerate() {
             let block_x = track_origin[0] + inst.start_time * pixels_per_second;
-            let block_w = (inst.end_time - inst.start_time) * pixels_per_second;
+            let block_w =
+                ((inst.end_time - inst.start_time) * pixels_per_second).max(CLIP_BLOCK_MIN_WIDTH);
             let block_min = [block_x, track_origin[1] + 2.0];
             let block_max = [block_x + block_w, track_origin[1] + CLIP_TRACK_HEIGHT - 2.0];
 
@@ -837,8 +744,16 @@ fn begin_clip_drag(
 ) {
     let near_left_edge = (mouse_pos[0] - block_min[0]).abs() < CLIP_EDGE_DRAG_WIDTH;
     let near_right_edge = (mouse_pos[0] - block_max[0]).abs() < CLIP_EDGE_DRAG_WIDTH;
+    let block_width = block_max[0] - block_min[0];
+    let block_narrower_than_edges = block_width <= CLIP_BLOCK_MIN_WIDTH;
 
-    let (drag_type, original_value) = if near_left_edge {
+    let (drag_type, original_value) = if block_narrower_than_edges {
+        if mouse_pos[0] >= (block_min[0] + block_max[0]) * 0.5 {
+            (ClipDragType::TrimEnd, inst.clip_out)
+        } else {
+            (ClipDragType::Move, inst.start_time)
+        }
+    } else if near_left_edge {
         (ClipDragType::TrimStart, inst.clip_in)
     } else if near_right_edge {
         (ClipDragType::TrimEnd, inst.clip_out)
@@ -1156,6 +1071,13 @@ fn open_curve_editor_for_clip(
             let target_bone = mesh_bone_id.filter(|id| clip.tracks.contains_key(id));
             if let Some(bone_id) = target_bone.or_else(|| clip.tracks.keys().min().copied()) {
                 curve_editor_state.select_bone(bone_id);
+            } else if clip.has_scalar_keyframes() {
+                curve_editor_state.select_scalars();
+                for curve in &clip.scalar_curves {
+                    curve_editor_state
+                        .visible_curves
+                        .insert(curve.property_type);
+                }
             }
         }
 
