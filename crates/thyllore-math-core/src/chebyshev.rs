@@ -60,6 +60,63 @@ pub fn fit_chebyshev(
     }
 }
 
+/// Interpolation at Gauss-Lobatto nodes (endpoints included), so the series value at
+/// the domain ends equals the sampled target there — the property C0 piecewise joints
+/// rely on. Coefficients follow the same convention as `fit_chebyshev` (c0 unhalved).
+pub fn fit_chebyshev_lobatto(
+    target: impl Fn(f64) -> f64,
+    domain: (f64, f64),
+    coefficient_count: usize,
+) -> ChebyshevSeries {
+    assert!(
+        coefficient_count >= 2,
+        "Lobatto interpolation needs both endpoints"
+    );
+    assert!(domain.1 > domain.0, "domain must satisfy min < max");
+
+    let order = coefficient_count - 1;
+    let center = 0.5 * (domain.0 + domain.1);
+    let half_width = 0.5 * (domain.1 - domain.0);
+    let samples: Vec<f64> = (0..=order)
+        .map(|j| target(center + half_width * (PI * j as f64 / order as f64).cos()))
+        .collect();
+
+    let coefficients = (0..=order)
+        .map(|i| {
+            let weighted_sum: f64 = samples
+                .iter()
+                .enumerate()
+                .map(|(j, sample)| {
+                    let endpoint_weight = if j == 0 || j == order { 0.5 } else { 1.0 };
+                    endpoint_weight * sample * (PI * (i * j) as f64 / order as f64).cos()
+                })
+                .sum();
+            let scale = if i == 0 || i == order { 1.0 } else { 2.0 } / order as f64;
+            (scale * weighted_sum) as f32
+        })
+        .collect();
+
+    ChebyshevSeries {
+        coefficients,
+        domain: (domain.0 as f32, domain.1 as f32),
+    }
+}
+
+/// Series values at the domain ends in closed form: `(sum (-1)^i c_i, sum c_i)`.
+pub fn chebyshev_endpoint_values(series: &ChebyshevSeries) -> (f32, f32) {
+    let mut at_min = 0.0f64;
+    let mut at_max = 0.0f64;
+    for (i, &coefficient) in series.coefficients.iter().enumerate() {
+        at_max += coefficient as f64;
+        at_min += if i % 2 == 0 {
+            coefficient as f64
+        } else {
+            -coefficient as f64
+        };
+    }
+    (at_min as f32, at_max as f32)
+}
+
 pub fn evaluate_chebyshev(series: &ChebyshevSeries, x: f32) -> f32 {
     let (min, max) = series.domain;
     let u = (2.0 * x - min - max) / (max - min);
@@ -158,6 +215,25 @@ mod tests {
         let target = |x: f64| x * x * (3.0 - 2.0 * x);
         let series = fit_chebyshev(target, (0.0, 1.0), 8);
         assert!(compute_max_fit_error(&series, target) < 1e-3);
+    }
+
+    #[test]
+    fn test_fit_chebyshev_lobatto_interpolates_endpoints() {
+        let target = |x: f64| (-4.0 * x * x).exp() + 0.3 * (3.0 * x).sin();
+        let series = fit_chebyshev_lobatto(target, (0.2, 1.3), 10);
+        let (at_min, at_max) = chebyshev_endpoint_values(&series);
+        assert!((at_min as f64 - target(0.2)).abs() < 1e-6);
+        assert!((at_max as f64 - target(1.3)).abs() < 1e-6);
+        // Clenshaw evaluation at the ends agrees with the closed-form sums.
+        assert!((evaluate_chebyshev(&series, 0.2) - at_min).abs() < 1e-6);
+        assert!((evaluate_chebyshev(&series, 1.3) - at_max).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_fit_chebyshev_lobatto_accuracy_matches_gauss_nodes() {
+        let target = |x: f64| (-4.0 * x * x).exp();
+        let series = fit_chebyshev_lobatto(target, (0.0, 1.0), 10);
+        assert!(compute_max_fit_error(&series, target) < 1e-4);
     }
 
     #[test]

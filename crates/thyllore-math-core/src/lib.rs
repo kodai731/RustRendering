@@ -1,4 +1,5 @@
 mod billboard;
+mod bridge_fit;
 mod chebyshev;
 mod compact_support;
 pub mod coordinate_system;
@@ -9,6 +10,7 @@ mod vector;
 mod winding;
 
 pub use billboard::*;
+pub use bridge_fit::*;
 pub use chebyshev::*;
 pub use compact_support::*;
 pub use coordinate_system::{

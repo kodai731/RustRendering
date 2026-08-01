@@ -18,7 +18,7 @@ pub fn approximate_erf(x: f32) -> f32 {
     erf64(x as f64) as f32
 }
 
-fn erf64(x: f64) -> f64 {
+pub(crate) fn erf64(x: f64) -> f64 {
     1.0 - erfc64(x)
 }
 
