@@ -109,6 +109,7 @@ pub fn build_curve_editor_window(
     curve_buffer: &CurveEditorBuffer,
     suggestion_overlays: &[SuggestionOverlay],
     pose_library: &mut PoseLibrary,
+    is_flame_clip: bool,
 ) {
     if !editor_state.is_open {
         return;
@@ -147,7 +148,14 @@ pub fn build_curve_editor_window(
             .size([TRACK_LIST_WIDTH, content_region[1]])
             .border(true)
             .build(|| {
-                build_track_list(ui, timeline_state, clip_library, editor_state);
+                build_track_list(
+                    ui,
+                    ui_events,
+                    timeline_state,
+                    clip_library,
+                    editor_state,
+                    is_flame_clip,
+                );
             });
 
         ui.same_line();
@@ -184,16 +192,18 @@ fn get_current_clip<'a>(
 
 fn build_track_list(
     ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
     timeline_state: &TimelineState,
     clip_library: &ClipLibrary,
     editor_state: &mut CurveEditorState,
+    is_flame_clip: bool,
 ) {
     let Some(clip) = get_current_clip(timeline_state, clip_library) else {
         ui.text("No clip selected");
         return;
     };
 
-    if !clip.scalar_curves.is_empty() {
+    if is_flame_clip || !clip.scalar_curves.is_empty() {
         ui.text("Effects:");
         ui.separator();
         let is_selected = editor_state.selected_target == Some(CurveEditorTarget::Scalars);
@@ -205,7 +215,7 @@ fn build_track_list(
             editor_state.view_initialized = false;
         }
         if is_selected {
-            build_scalar_curve_selector_inline(ui, clip, editor_state);
+            build_scalar_curve_selector_inline(ui, ui_events, clip, editor_state);
         }
         ui.spacing();
     }
@@ -245,39 +255,59 @@ fn build_track_list(
     }
 }
 
+/// Every flame param gets a row, keyed or not: `+` inserts a key at the
+/// playhead with the flame's current value (creating the curve on first use),
+/// so an empty clip opened in the editor still offers a keying path.
 fn build_scalar_curve_selector_inline(
     ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
     clip: &EditableAnimationClip,
     editor_state: &mut CurveEditorState,
 ) {
     ui.indent();
 
-    for curve in &clip.scalar_curves {
-        if curve.is_empty() {
-            continue;
-        }
-        let (color, name) = scalar_curve_style(curve.property_type);
-        let mut visible = editor_state.visible_curves.contains(&curve.property_type);
+    for param in FlameParam::ALL {
+        let property_type = param.property_type();
+        let key_count = clip
+            .get_scalar_curve(property_type)
+            .map(|curve| curve.keyframes.len())
+            .unwrap_or(0);
+
+        let (color, name) = scalar_curve_style(property_type);
+        let mut visible = editor_state.visible_curves.contains(&property_type);
         ui.text_colored(color, "\u{25CF}");
         ui.same_line();
-        if ui.checkbox(name, &mut visible) {
+        let label = if key_count > 0 {
+            format!("{name} ({key_count})")
+        } else {
+            name.to_string()
+        };
+        if ui.checkbox(&label, &mut visible) {
             if visible {
-                editor_state.visible_curves.insert(curve.property_type);
+                editor_state.visible_curves.insert(property_type);
             } else {
-                editor_state.visible_curves.remove(&curve.property_type);
+                editor_state.visible_curves.remove(&property_type);
             }
+        }
+        ui.same_line();
+        if ui.small_button(&format!("+##key_{}", param.cli_name())) {
+            ui_events.send(UIEvent::InsertFlameKeyAtPlayhead { param });
+            editor_state.visible_curves.insert(property_type);
+        }
+        if ui.is_item_hovered() {
+            ui.tooltip_text("Insert key at playhead (current value)");
         }
     }
 
     if ui.small_button("All##scalar") {
-        for curve in &clip.scalar_curves {
-            editor_state.visible_curves.insert(curve.property_type);
+        for param in FlameParam::ALL {
+            editor_state.visible_curves.insert(param.property_type());
         }
     }
     ui.same_line();
     if ui.small_button("None##scalar") {
-        for curve in &clip.scalar_curves {
-            editor_state.visible_curves.remove(&curve.property_type);
+        for param in FlameParam::ALL {
+            editor_state.visible_curves.remove(&param.property_type());
         }
     }
 

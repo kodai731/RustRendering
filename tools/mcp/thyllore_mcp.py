@@ -183,6 +183,11 @@ def anim_edit(
       random keys inside safe ranges (same as the UI "Random Keys (Debug)" button)
     - `key=<param>@<time>=<value>`: insert one key (param = snake_case name,
       e.g. height, intensity, temperature_base_k, wind_x)
+    - `key_at_playhead=<param>`: insert a key at the current playhead with the
+      flame's current value (the Curve Editor's per-property `+` button path;
+      creates the curve when the clip is empty)
+    - `trim_end=<seconds>`: set the flame clip instance's clip_out through the
+      real ClipInstanceTrimEnd event (what releasing a right-edge drag sends)
     - `clear`: remove all flame scalar curves
 
     Returns {"ok": true, "anim": {flames, clips, timeline}} — `anim.clips[].scalar_curves`

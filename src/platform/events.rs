@@ -528,6 +528,14 @@ fn build_timeline_and_fixed_overlays(
 }
 
 fn build_curve_editor(ui: &imgui::Ui, app: &mut App) {
+    let is_flame_clip = {
+        let world = &app.data.ecs_world;
+        let current = world.resource::<TimelineState>().current_clip_id;
+        current.is_some()
+            && world.query_flames().iter().any(|&flame| {
+                crate::ecs::systems::flame_clip_systems::find_flame_clip_id(world, flame) == current
+            })
+    };
     let timeline_state = app.data.ecs_world.resource::<TimelineState>();
     let clip_library = app.data.ecs_world.resource::<ClipLibrary>();
     let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
@@ -570,6 +578,7 @@ fn build_curve_editor(ui: &imgui::Ui, app: &mut App) {
         &*curve_buffer,
         &suggestion_overlays,
         &mut *pose_library,
+        is_flame_clip,
     );
 }
 

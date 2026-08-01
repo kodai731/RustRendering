@@ -414,6 +414,9 @@ pub enum UIEvent {
         param: FlameParam,
         value: f32,
     },
+    InsertFlameKeyAtPlayhead {
+        param: FlameParam,
+    },
     ClearFlameKeys,
     InsertFlameDebugKeys {
         seed: u64,

@@ -61,8 +61,16 @@ pub fn dispatch_timeline_events(events: &[UIEvent], world: &mut World, assets: &
                 );
                 drop(lib);
 
+                // Flame schedules play their own per-entity clip: timeline clip
+                // selection must never repoint them (or reset their trim).
                 let schedule_entities = world.component_entities::<ClipSchedule>();
                 for entity in &schedule_entities {
+                    if world
+                        .get_component::<crate::ecs::component::FlameEffect>(*entity)
+                        .is_some()
+                    {
+                        continue;
+                    }
                     if let Some(schedule) = world.get_component_mut::<ClipSchedule>(*entity) {
                         crate::ecs::systems::clip_schedule_systems::clip_schedule_switch_source(
                             schedule, *source_id, duration,
@@ -233,5 +241,82 @@ pub fn dispatch_buffer_events(events: &[UIEvent], world: &mut World) {
 
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ecs::component::FlameEffect;
+    use crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip;
+
+    #[test]
+    fn timeline_select_clip_leaves_flame_schedule_untouched() {
+        let mut world = World::new();
+        world.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        world.insert_resource(TimelineState::new());
+        let mut assets = AssetStorage::new();
+
+        let flame = spawn_flame_with_clip(&mut world, &mut assets, "Flame", FlameEffect::default());
+        let flame_clip = crate::ecs::systems::flame_clip_systems::find_flame_clip_id(&world, flame)
+            .expect("flame clip");
+
+        let model = world.spawn();
+        let model_clip = {
+            let mut lib = world.resource_mut::<crate::ecs::resource::ClipLibrary>();
+            let clip =
+                crate::animation::editable::EditableAnimationClip::new(0, "model_clip".to_string());
+            crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
+                &mut lib,
+                &mut assets,
+                clip,
+            )
+        };
+        let mut model_schedule = ClipSchedule::new();
+        model_schedule
+            .instances
+            .push(crate::animation::editable::ClipInstance::new(
+                1, model_clip, 1.5,
+            ));
+        world.insert_component(model, model_schedule);
+
+        // Drag-extended flame clip: clip_out = 3.0 while the clip itself is empty
+        world
+            .get_component_mut::<ClipSchedule>(flame)
+            .unwrap()
+            .instances[0]
+            .clip_out = 3.0;
+
+        // Double-click path: TimelineSelectClip on the flame clip
+        dispatch_timeline_events(
+            &[UIEvent::TimelineSelectClip(flame_clip)],
+            &mut world,
+            &assets,
+        );
+        let inst = world
+            .get_component::<ClipSchedule>(flame)
+            .unwrap()
+            .first_instance()
+            .cloned()
+            .unwrap();
+        assert!(
+            (inst.clip_out - 3.0).abs() < 1e-6,
+            "flame trim must survive double-click select"
+        );
+
+        // Selecting a model clip must not repoint the flame schedule either
+        dispatch_timeline_events(
+            &[UIEvent::TimelineSelectClip(model_clip)],
+            &mut world,
+            &assets,
+        );
+        let inst = world
+            .get_component::<ClipSchedule>(flame)
+            .unwrap()
+            .first_instance()
+            .cloned()
+            .unwrap();
+        assert_eq!(inst.source_id, flame_clip);
+        assert!((inst.clip_out - 3.0).abs() < 1e-6);
     }
 }

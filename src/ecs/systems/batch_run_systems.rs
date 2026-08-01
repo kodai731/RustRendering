@@ -81,6 +81,12 @@ pub enum BatchAnimEdit {
         time: f32,
         value: f32,
     },
+    KeyAtPlayhead {
+        param: FlameParam,
+    },
+    TrimEnd {
+        seconds: f32,
+    },
     Clear,
 }
 
@@ -93,6 +99,7 @@ pub enum BatchDebugAction {
     OpenFlameCurves,
     ViewMode(DebugViewMode),
     FlameClipPreview { end_seconds: f32 },
+    TimelineSelectFlameClip,
 }
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
@@ -852,7 +859,7 @@ fn anim_edits_resolve_from_args(args: &[String]) -> Result<Vec<BatchAnimEdit>> {
             continue;
         }
         let Some(spec) = args.get(i + 1).filter(|v| !v.starts_with("--")) else {
-            bail!("{BATCH_ANIM_EDIT_FLAG} requires a spec: debug_keys=<seed> | key=<param>@<time>=<value> | clear");
+            bail!("{BATCH_ANIM_EDIT_FLAG} requires a spec: debug_keys=<seed> | key=<param>@<time>=<value> | key_at_playhead=<param> | trim_end=<seconds> | clear");
         };
         edits.push(anim_edit_parse_spec(spec)?);
     }
@@ -870,6 +877,26 @@ fn anim_edit_parse_spec(spec: &str) -> Result<BatchAnimEdit> {
             .parse()
             .map_err(|_| anyhow::anyhow!("invalid debug_keys seed '{seed_str}': expected u64"))?;
         return Ok(BatchAnimEdit::DebugKeys { seed });
+    }
+    if let Some(param_str) = spec.strip_prefix("key_at_playhead=") {
+        let param = FlameParam::from_cli_name(param_str.trim()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown flame param '{}'. Valid params: {}",
+                param_str,
+                FlameParam::ALL.map(|p| p.cli_name()).join(", ")
+            )
+        })?;
+        return Ok(BatchAnimEdit::KeyAtPlayhead { param });
+    }
+    if let Some(seconds_str) = spec.strip_prefix("trim_end=") {
+        let seconds: f32 = seconds_str
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid trim_end seconds '{seconds_str}'"))?;
+        if !seconds.is_finite() || seconds < 0.0 {
+            bail!("trim_end seconds must be >= 0 and finite: '{spec}'");
+        }
+        return Ok(BatchAnimEdit::TrimEnd { seconds });
     }
     if let Some(rest) = spec.strip_prefix("key=") {
         let (param_str, rest) = rest.split_once('@').ok_or_else(|| {
@@ -898,7 +925,7 @@ fn anim_edit_parse_spec(spec: &str) -> Result<BatchAnimEdit> {
         }
         return Ok(BatchAnimEdit::Key { param, time, value });
     }
-    bail!("unknown anim edit spec '{spec}'. Expected debug_keys=<seed> | key=<param>@<time>=<value> | clear")
+    bail!("unknown anim edit spec '{spec}'. Expected debug_keys=<seed> | key=<param>@<time>=<value> | key_at_playhead=<param> | trim_end=<seconds> | clear")
 }
 
 /// Apply anim edits through the production flame-clip event dispatcher, so batch
@@ -938,6 +965,35 @@ pub fn batch_apply_anim_edits(
                 );
                 world.resource_mut::<TimelineState>().current_time = previous_time;
             }
+            BatchAnimEdit::KeyAtPlayhead { param } => {
+                dispatch_flame_clip_events(
+                    &[UIEvent::InsertFlameKeyAtPlayhead { param: *param }],
+                    world,
+                    assets,
+                );
+            }
+            BatchAnimEdit::TrimEnd { seconds } => {
+                let Some(&flame) = world.query_flames().first() else {
+                    continue;
+                };
+                let clip_id = super::flame_clip_systems::ensure_flame_clip(world, assets, flame);
+                let Some(instance_id) = world.get_component::<ClipSchedule>(flame).and_then(|s| {
+                    s.instances
+                        .iter()
+                        .find(|i| i.source_id == clip_id)
+                        .map(|i| i.instance_id)
+                }) else {
+                    continue;
+                };
+                super::timeline_systems::process_clip_instance_events(
+                    &[UIEvent::ClipInstanceTrimEnd {
+                        entity: flame,
+                        instance_id,
+                        new_clip_out: *seconds,
+                    }],
+                    world,
+                );
+            }
             BatchAnimEdit::Clear => {
                 dispatch_flame_clip_events(&[UIEvent::ClearFlameKeys], world, assets);
             }
@@ -953,6 +1009,7 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "open_flame_curves",
     "view_mode=<final|position|normal|shadow_mask|ndotl|light_direction|view_depth|object_id|selection_view|selection_ubo>",
     "flame_clip_preview=<end_seconds> (draw the first flame's clip block as a mid-drag TrimEnd preview, without committing)",
+    "timeline_select_flame_clip (enqueue TimelineSelectClip for the flame clip — the double-click path — to check it leaves the flame schedule's trim intact)",
 ];
 
 fn debug_view_mode_parse(name: &str) -> Option<DebugViewMode> {
@@ -1006,6 +1063,7 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
         return Ok(BatchDebugAction::FlameClipPreview { end_seconds });
     }
     match name {
+        "timeline_select_flame_clip" => Ok(BatchDebugAction::TimelineSelectFlameClip),
         "reset_camera" => Ok(BatchDebugAction::ResetCamera),
         "reset_camera_up" => Ok(BatchDebugAction::ResetCameraUp),
         "camera_to_model" => Ok(BatchDebugAction::CameraToModel),
@@ -1052,6 +1110,17 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
             }
             BatchDebugAction::FlameClipPreview { end_seconds } => {
                 apply_flame_clip_preview(world, *end_seconds);
+            }
+            BatchDebugAction::TimelineSelectFlameClip => {
+                let clip_id = world
+                    .query_flames()
+                    .first()
+                    .and_then(|&flame| super::flame_clip_systems::find_flame_clip_id(world, flame));
+                if let Some(clip_id) = clip_id {
+                    world
+                        .resource_mut::<UIEventQueue>()
+                        .send(UIEvent::TimelineSelectClip(clip_id));
+                }
             }
         }
     }

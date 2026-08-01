@@ -43,6 +43,26 @@ pub fn dispatch_flame_clip_events(
                     flame_clip_insert_key(clip, *param, current_time, *value);
                 });
             }
+            UIEvent::InsertFlameKeyAtPlayhead { param } => {
+                let Some((clip_id, flame_entity)) = resolve_flame_clip(world, assets) else {
+                    continue;
+                };
+                let current_time = world
+                    .get_resource::<TimelineState>()
+                    .map(|t| t.current_time)
+                    .unwrap_or(0.0);
+                let Some(value) = world
+                    .get_component::<crate::ecs::component::FlameEffect>(flame_entity)
+                    .map(|effect| {
+                        crate::ecs::systems::flame_clip_systems::flame_param_value(&effect, *param)
+                    })
+                else {
+                    continue;
+                };
+                edit_clip(world, clip_id, "Flame key edit", |clip| {
+                    flame_clip_insert_key(clip, *param, current_time, value);
+                });
+            }
             UIEvent::InsertFlameDebugKeys { seed } => {
                 let Some((clip_id, flame_entity)) = resolve_flame_clip(world, assets) else {
                     continue;
@@ -228,6 +248,37 @@ mod tests {
         let lib = world.get_resource::<ClipLibrary>().unwrap();
         let clip = lib.get(clip_id).unwrap();
         assert_eq!(clip.scalar_curves.len(), 1);
+    }
+
+    #[test]
+    fn test_insert_key_at_playhead_uses_current_effect_value_and_time() {
+        let (mut world, mut assets) = make_world_with_flame();
+        let entity = world.query_flames()[0];
+
+        world.resource_mut::<TimelineState>().current_time = 2.0;
+        world
+            .get_component_mut::<crate::ecs::component::FlameEffect>(entity)
+            .unwrap()
+            .intensity = 4.25;
+
+        dispatch_flame_clip_events(
+            &[UIEvent::InsertFlameKeyAtPlayhead {
+                param: FlameParam::Intensity,
+            }],
+            &mut world,
+            &mut assets,
+        );
+
+        let clip_id = find_flame_clip_id(&world, entity).expect("flame clip scheduled");
+        let lib = world.get_resource::<ClipLibrary>().unwrap();
+        let curve = lib
+            .get(clip_id)
+            .unwrap()
+            .get_scalar_curve(FlameParam::Intensity.property_type())
+            .expect("curve created from empty clip");
+        assert_eq!(curve.keyframes.len(), 1);
+        assert!((curve.keyframes[0].time - 2.0).abs() < 1e-6);
+        assert!((curve.keyframes[0].value - 4.25).abs() < 1e-6);
     }
 
     #[test]
