@@ -1,6 +1,7 @@
 use crate::flame_shell::FLAME_SHELL_BASE_RADIUS;
 use thyllore_math_core::{
-    biweight_profile, evaluate_chebyshev, integrate_powers, solve_support_interval, ChebyshevSeries,
+    approximate_erf, biweight_profile, evaluate_chebyshev, integrate_powers,
+    solve_support_interval, ChebyshevSeries,
 };
 
 // Mirror of shaders/include/flame_radial_integral.glsl; the accuracy tests below cover both.
@@ -53,21 +54,6 @@ fn support_inv_sq(height01: f32, taper: FlameRadialTaper, radial_sharpness: f32)
         * flame_radial_radius_scale(height01, taper))
     .max(1e-4);
     1.0 / (scale * scale)
-}
-
-/// Abramowitz-Stegun 7.1.26.
-pub fn approximate_erf(x: f32) -> f32 {
-    let magnitude = x.abs();
-    let t = 1.0 / (1.0 + 0.3275911 * magnitude);
-    let series = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t
-        + 0.254829592)
-        * t;
-    let value = 1.0 - series * (-magnitude * magnitude).exp();
-    if x < 0.0 {
-        -value
-    } else {
-        value
-    }
 }
 
 /// Radial density factor (1 - u^2)^2 at a flame-local point, zero outside the support.
@@ -378,23 +364,6 @@ mod tests {
             }
         }
         rays
-    }
-
-    #[test]
-    fn test_approximate_erf_matches_known_values() {
-        for (x, expected) in [
-            (0.0f32, 0.0f32),
-            (0.5, 0.520_499_9),
-            (1.0, 0.842_700_8),
-            (2.0, 0.995_322_3),
-            (-1.5, -0.966_105_1),
-        ] {
-            assert!(
-                (approximate_erf(x) - expected).abs() < 2e-6,
-                "erf({x}) = {}, expected {expected}",
-                approximate_erf(x)
-            );
-        }
     }
 
     #[test]

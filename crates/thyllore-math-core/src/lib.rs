@@ -2,6 +2,7 @@ mod billboard;
 mod chebyshev;
 mod compact_support;
 pub mod coordinate_system;
+mod erf_moments;
 mod matrix;
 mod quaternion;
 mod vector;
@@ -16,6 +17,7 @@ pub use coordinate_system::{
     ray_to_triangle_barycentric, ray_to_triangle_intersection, screen_to_world_ray, view,
     world_to_screen, world_y_axis, world_y_down,
 };
+pub use erf_moments::*;
 pub use matrix::*;
 pub use quaternion::*;
 pub use vector::*;

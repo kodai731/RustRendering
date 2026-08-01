@@ -76,6 +76,7 @@ float evaluateHeightFalloff(float height01) {
 }
 
 #include "include/flame_noise_field.glsl"
+#include "include/flame_erf_moments.glsl"
 #include "include/flame_radial_integral.glsl"
 
 float evaluateHeightPrimitive(float height01) {
