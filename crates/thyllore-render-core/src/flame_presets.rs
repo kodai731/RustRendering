@@ -1,18 +1,7 @@
-use crate::flame::{refresh_flame_coefficients, FlameEffect, FlameShadingMode};
+use crate::flame::{refresh_flame_coefficients, FlameEffect};
 use cgmath::{Quaternion, Vector2, Vector3};
 
 pub const FLAME_PRESET_NAMES: &[&str] = &["campfire", "candle", "torch", "inferno", "blue", "ring"];
-
-/// Shading mode the preset is calibrated for. Ring/inferno need the noise
-/// raymarch path: the analytic shell ignores the emitter kind entirely, so a
-/// ring preset rendered analytically looks like a plain column.
-pub fn flame_preset_recommended_mode(name: &str) -> Option<FlameShadingMode> {
-    match name {
-        "campfire" | "candle" | "torch" | "blue" => Some(FlameShadingMode::Analytic),
-        "inferno" | "ring" => Some(FlameShadingMode::NoiseRaymarch),
-        _ => None,
-    }
-}
 
 fn runtime_state(effect: &FlameEffect) -> (Vector3<f32>, Quaternion<f32>, f32, u64) {
     (
@@ -167,21 +156,6 @@ pub fn apply_flame_preset(effect: &mut FlameEffect, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_every_preset_has_a_recommended_mode() {
-        for name in FLAME_PRESET_NAMES {
-            assert!(
-                flame_preset_recommended_mode(name).is_some(),
-                "preset {name} lacks a recommended mode"
-            );
-        }
-        assert_eq!(
-            flame_preset_recommended_mode("ring"),
-            Some(FlameShadingMode::NoiseRaymarch)
-        );
-        assert_eq!(flame_preset_recommended_mode("no_such_preset"), None);
-    }
 
     #[test]
     fn test_all_presets_return_true_and_sanity_ranges() {

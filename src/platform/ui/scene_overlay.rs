@@ -534,17 +534,6 @@ fn build_flame_section(
                         // preset stamp also clears them (undo restores).
                         ui_events.send(UIEvent::ClearScalarKeys);
                         ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
-                        if let Some(mode) =
-                            thyllore_render_core::flame_preset_recommended_mode(preset_name)
-                        {
-                            if let Some(settings) = ecs_world
-                                .get_resource::<crate::ecs::resource::FlameRenderSettings>(
-                            ) {
-                                let mut settings_copy = *settings;
-                                settings_copy.shading_mode = mode;
-                                ui_events.send(UIEvent::UpdateFlameRenderSettings(settings_copy));
-                            }
-                        }
                         effect_applied_this_frame = true;
                     }
                 }
