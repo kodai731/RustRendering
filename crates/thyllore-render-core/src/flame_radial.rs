@@ -137,24 +137,34 @@ pub fn evaluate_biweight_band(
     (integral, first_moment)
 }
 
-/// Argument of the threshold response at band coordinate s: the eroded smooth field
-/// `x(s) = (f0 + f1 s + f2 s^2) (1 - g(s))^2 - erosion_band` with `g(s) = a s^2 + b s + c`.
-fn occupancy_argument(
-    a: f32,
-    b: f32,
-    c: f32,
-    f: (f32, f32, f32),
-    erosion_band: f32,
-    s: f32,
-) -> f32 {
+/// Envelope fade toward the support boundary, shared by the flooded-erosion
+/// argument and the unresolved-noise sigma of the band integrals (mirror of
+/// `flameEnvelopeFade`). `flood_fade_scale` is edge_high in the shader.
+pub fn envelope_fade(d_smooth: f32, flood_fade_scale: f32) -> f32 {
+    (d_smooth / flood_fade_scale.max(1e-3)).min(1.0)
+}
+
+/// Threshold argument with the flooded (negative) erosion faded by the envelope,
+/// so the field stays continuous across the support boundary (mirror of
+/// `flameErodedArgument`).
+pub fn eroded_argument(d_smooth: f32, erosion: f32, flood_fade_scale: f32) -> f32 {
+    d_smooth - (erosion.max(0.0) + erosion.min(0.0) * envelope_fade(d_smooth, flood_fade_scale))
+}
+
+/// Smooth field density at band coordinate s: `(f.0 + f.1 s + f.2 s^2) (1 - g(s))^2`
+/// with `g(s) = a s^2 + b s + c` (mirror of `flameOccupancyDensity`).
+fn occupancy_density(a: f32, b: f32, c: f32, f: (f32, f32, f32), s: f32) -> f32 {
     let g = (a * s + b) * s + c;
     let inside = (1.0 - g).max(0.0);
-    (f.0 + (f.1 + f.2 * s) * s) * inside * inside - erosion_band
+    (f.0 + (f.1 + f.2 * s) * s) * inside * inside
 }
 
 /// Occupancy integral and first moment of the smoothed threshold response
 /// `phi_sigma(x(s))` over the support part of `[-half_width, half_width]`, with the
-/// argument linearized on the two monotone halves split at the vertex of g.
+/// argument linearized on the two monotone halves split at the vertex of g and
+/// sigma faded toward the support boundary per piece (mean of the node envelope
+/// fades) — the unresolved fluctuation must vanish with the envelope, or the
+/// response keeps a positive floor at the clipped support surface.
 /// Mirror of `flameOccupancyBandIntegral` in shaders/include/flame_radial_integral.glsl.
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_occupancy_band(
@@ -166,6 +176,7 @@ pub fn evaluate_occupancy_band(
     f: (f32, f32, f32),
     half_width: f32,
     erosion_band: f32,
+    flood_fade_scale: f32,
 ) -> (f32, f32) {
     let Some((s_lo, s_hi)) = solve_support_interval(a, b, c, -half_width, half_width) else {
         return (0.0, 0.0);
@@ -175,20 +186,38 @@ pub fn evaluate_occupancy_band(
     } else {
         0.5 * (s_lo + s_hi)
     };
-    let value_lo = occupancy_argument(a, b, c, f, erosion_band, s_lo);
-    let value_mid = occupancy_argument(a, b, c, f, erosion_band, s_split);
-    let value_hi = occupancy_argument(a, b, c, f, erosion_band, s_hi);
+    let density_lo = occupancy_density(a, b, c, f, s_lo);
+    let density_mid = occupancy_density(a, b, c, f, s_split);
+    let density_hi = occupancy_density(a, b, c, f, s_hi);
+    let value_lo = eroded_argument(density_lo, erosion_band, flood_fade_scale);
+    let value_mid = eroded_argument(density_mid, erosion_band, flood_fade_scale);
+    let value_hi = eroded_argument(density_hi, erosion_band, flood_fade_scale);
+    let fade_lo = envelope_fade(density_lo, flood_fade_scale);
+    let fade_mid = envelope_fade(density_mid, flood_fade_scale);
+    let fade_hi = envelope_fade(density_hi, flood_fade_scale);
 
-    let piece = |s0: f32, s1: f32, start: f32, end: f32| {
+    let piece = |s0: f32, s1: f32, start: f32, end: f32, sigma_eff: f32| {
         let span = s1 - s0;
         if span < 1e-7 {
             return (0.0, 0.0);
         }
         let slope = (end - start) / span;
-        integrate_erf_response_linear(model, sigma, start - slope * s0, slope, s0, s1)
+        integrate_erf_response_linear(model, sigma_eff, start - slope * s0, slope, s0, s1)
     };
-    let first = piece(s_lo, s_split, value_lo, value_mid);
-    let second = piece(s_split, s_hi, value_mid, value_hi);
+    let first = piece(
+        s_lo,
+        s_split,
+        value_lo,
+        value_mid,
+        sigma * 0.5 * (fade_lo + fade_mid),
+    );
+    let second = piece(
+        s_split,
+        s_hi,
+        value_mid,
+        value_hi,
+        sigma * 0.5 * (fade_mid + fade_hi),
+    );
     (first.0 + second.0, first.1 + second.1)
 }
 
@@ -217,13 +246,15 @@ pub fn evaluate_ring_smooth_density(
 /// Occupancy integral and first moment in t of the smoothed threshold response over
 /// one t band, with the emitter density sampled at the segment nodes and the argument
 /// linear between them. Segments whose both node densities are zero lie outside the
-/// support and contribute nothing. Mirror of `flameOccupancyNodeBand`.
+/// support and contribute nothing; sigma fades toward the support boundary per
+/// segment like `evaluate_occupancy_band`. Mirror of `flameOccupancyNodeBand`.
 pub fn evaluate_occupancy_node_band(
     model: &ErfResponseModel,
     sigma: f32,
     t0: f32,
     t1: f32,
     erosion_band: f32,
+    flood_fade_scale: f32,
     density_at: impl Fn(f32) -> f32,
 ) -> (f32, f32) {
     let dt = (t1 - t0) / FLAME_OCCUPANCY_NODE_SEGMENTS as f32;
@@ -233,15 +264,21 @@ pub fn evaluate_occupancy_node_band(
     let mut total = (0.0, 0.0);
     let mut t_prev = t0;
     let mut density_prev = density_at(t0);
+    let mut argument_prev = eroded_argument(density_prev, erosion_band, flood_fade_scale);
     for segment in 1..=FLAME_OCCUPANCY_NODE_SEGMENTS {
         let t = t0 + segment as f32 * dt;
         let density = density_at(t);
+        let argument = eroded_argument(density, erosion_band, flood_fade_scale);
         if density_prev > 0.0 || density > 0.0 {
-            let slope = (density - density_prev) / dt;
+            let sigma_eff = sigma
+                * 0.5
+                * (envelope_fade(density_prev, flood_fade_scale)
+                    + envelope_fade(density, flood_fade_scale));
+            let slope = (argument - argument_prev) / dt;
             let piece = integrate_erf_response_linear(
                 model,
-                sigma,
-                density_prev - erosion_band - slope * t_prev,
+                sigma_eff,
+                argument_prev - slope * t_prev,
                 slope,
                 t_prev,
                 t,
@@ -251,8 +288,66 @@ pub fn evaluate_occupancy_node_band(
         }
         t_prev = t;
         density_prev = density;
+        argument_prev = argument;
     }
     total
+}
+
+/// Narrow `[t_near, t_far]` to the ray's crossing of the ring's outer support
+/// cylinder, conservative over height (widest taper) and contour wiggle
+/// (mirror of `flameRingSupportSpan`). The outer cylinder is convex, so the
+/// span is a single interval whose endpoints vary continuously with the ray —
+/// no per-pixel topology switches. `None` means the ray misses the support.
+#[allow(clippy::too_many_arguments)]
+pub fn ring_support_span(
+    origin_local: [f32; 3],
+    direction_local: [f32; 3],
+    t_near: f32,
+    t_far: f32,
+    ring_major_radius: f32,
+    taper: FlameRadialTaper,
+    radial_sharpness: f32,
+    wiggle_trim: f32,
+) -> Option<(f32, f32)> {
+    let minor_scale = (1.0 - ring_major_radius).max(1e-3);
+    let taper_max = taper.tip_ratio.max(1.0);
+    let r_out = ring_major_radius
+        + minor_scale * flame_radial_support_radius(radial_sharpness) * taper_max * wiggle_trim;
+
+    let a = direction_local[0] * direction_local[0] + direction_local[2] * direction_local[2];
+    let b = 2.0 * (origin_local[0] * direction_local[0] + origin_local[2] * direction_local[2]);
+    let c = origin_local[0] * origin_local[0] + origin_local[2] * origin_local[2] - r_out * r_out;
+    if a < 1e-12 {
+        return (c <= 0.0).then_some((t_near, t_far));
+    }
+    let discriminant = b * b - 4.0 * a * c;
+    if discriminant <= 0.0 {
+        return None;
+    }
+    let root = discriminant.sqrt();
+    let lo = ((-b - root) / (2.0 * a)).max(t_near);
+    let hi = ((-b + root) / (2.0 * a)).min(t_far);
+    (hi > lo).then_some((lo, hi))
+}
+
+/// Density-weighted node position of one t band (mirror of the erosion sample
+/// placement in `flameOccupancyNodeBand`): the frozen erosion is sampled where
+/// the band actually carries density, not at the band midpoint. Returns `None`
+/// when every node density is zero (empty band).
+pub fn density_weighted_node_t(t0: f32, t1: f32, density_at: impl Fn(f32) -> f32) -> Option<f32> {
+    let dt = (t1 - t0) / FLAME_OCCUPANCY_NODE_SEGMENTS as f32;
+    if dt <= 0.0 {
+        return None;
+    }
+    let mut weight_sum = 0.0f32;
+    let mut t_weighted = 0.0f32;
+    for node in 0..=FLAME_OCCUPANCY_NODE_SEGMENTS {
+        let t = t0 + node as f32 * dt;
+        let density = density_at(t);
+        weight_sum += density;
+        t_weighted += density * t;
+    }
+    (weight_sum > 0.0).then(|| t_weighted / weight_sum)
 }
 
 fn build_height_series(height_coefficients: &[[f32; 4]; 2]) -> ChebyshevSeries {
@@ -784,7 +879,7 @@ mod tests {
 
     mod occupancy {
         use super::super::*;
-        use super::default_taper;
+        use super::{default_taper, SHARPNESS};
         use crate::flame::FlameCoefficients;
         use thyllore_math_core::{evaluate_erf_response, fit_erf_response};
 
@@ -808,24 +903,42 @@ mod tests {
             ]
         }
 
-        fn linearized_argument(
+        fn node_argument(a: f32, b: f32, c: f32, f: (f32, f32, f32), erosion: f32, s: f32) -> f32 {
+            eroded_argument(occupancy_density(a, b, c, f, s), erosion, EDGE_HIGH)
+        }
+
+        fn node_fade(a: f32, b: f32, c: f32, f: (f32, f32, f32), s: f32) -> f32 {
+            envelope_fade(occupancy_density(a, b, c, f, s), EDGE_HIGH)
+        }
+
+        /// Piecewise-linearized argument and the per-piece effective sigma of the
+        /// closed form (sigma faded by the mean of the piece's node envelope fades).
+        #[allow(clippy::too_many_arguments)]
+        fn linearized_argument_and_sigma(
             a: f32,
             b: f32,
             c: f32,
             f: (f32, f32, f32),
             erosion: f32,
+            sigma: f32,
             s_lo: f32,
             s_split: f32,
             s_hi: f32,
             s: f32,
-        ) -> f32 {
-            let node = |at: f32| occupancy_argument(a, b, c, f, erosion, at);
+        ) -> (f32, f32) {
+            let node = |at: f32| node_argument(a, b, c, f, erosion, at);
             if s <= s_split {
                 let span = (s_split - s_lo).max(1e-12);
-                node(s_lo) + (node(s_split) - node(s_lo)) * (s - s_lo) / span
+                let x = node(s_lo) + (node(s_split) - node(s_lo)) * (s - s_lo) / span;
+                let sigma_eff =
+                    sigma * 0.5 * (node_fade(a, b, c, f, s_lo) + node_fade(a, b, c, f, s_split));
+                (x, sigma_eff)
             } else {
                 let span = (s_hi - s_split).max(1e-12);
-                node(s_split) + (node(s_hi) - node(s_split)) * (s - s_split) / span
+                let x = node(s_split) + (node(s_hi) - node(s_split)) * (s - s_split) / span;
+                let sigma_eff =
+                    sigma * 0.5 * (node_fade(a, b, c, f, s_split) + node_fade(a, b, c, f, s_hi));
+                (x, sigma_eff)
             }
         }
 
@@ -837,8 +950,9 @@ mod tests {
             let model = default_model();
             for sigma in [0.0f32, 0.05, 0.2] {
                 for (a, b, c, f, half, erosion) in band_cases() {
-                    let (integral, first_moment) =
-                        evaluate_occupancy_band(&model, sigma, a, b, c, f, half, erosion);
+                    let (integral, first_moment) = evaluate_occupancy_band(
+                        &model, sigma, a, b, c, f, half, erosion, EDGE_HIGH,
+                    );
                     let Some((s_lo, s_hi)) = solve_support_interval(a, b, c, -half, half) else {
                         assert_eq!(integral, 0.0);
                         continue;
@@ -854,9 +968,10 @@ mod tests {
                     let mut reference_first = 0.0f64;
                     for i in 0..steps {
                         let s = s_lo as f64 + (i as f64 + 0.5) * ds;
-                        let x =
-                            linearized_argument(a, b, c, f, erosion, s_lo, s_split, s_hi, s as f32);
-                        let value = evaluate_erf_response(&model, x, sigma) as f64;
+                        let (x, sigma_eff) = linearized_argument_and_sigma(
+                            a, b, c, f, erosion, sigma, s_lo, s_split, s_hi, s as f32,
+                        );
+                        let value = evaluate_erf_response(&model, x, sigma_eff) as f64;
                         reference += value * ds;
                         reference_first += s * value * ds;
                     }
@@ -880,7 +995,8 @@ mod tests {
         fn test_band_tracks_true_smoothstep_field() {
             let model = default_model();
             for (a, b, c, f, half, erosion) in band_cases() {
-                let (integral, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, erosion);
+                let (integral, _) =
+                    evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, erosion, EDGE_HIGH);
                 let Some((s_lo, s_hi)) = solve_support_interval(a, b, c, -half, half) else {
                     continue;
                 };
@@ -889,7 +1005,7 @@ mod tests {
                 let mut reference = 0.0f64;
                 for i in 0..steps {
                     let s = s_lo as f64 + (i as f64 + 0.5) * ds;
-                    let x = occupancy_argument(a, b, c, f, erosion, s as f32) as f64;
+                    let x = node_argument(a, b, c, f, erosion, s as f32) as f64;
                     let t = ((x - EDGE_LOW as f64) / (EDGE_HIGH - EDGE_LOW) as f64).clamp(0.0, 1.0);
                     reference += t * t * (3.0 - 2.0 * t) * ds;
                 }
@@ -911,15 +1027,16 @@ mod tests {
             let model = default_model();
             let (a, b, c, f, half) = (0.5f32, 0.2f32, 0.4f32, (0.8f32, 0.0f32, 0.0f32), 0.25f32);
             let (s_lo, s_hi) = solve_support_interval(a, b, c, -half, half).unwrap();
-            let (empty, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, 2.0);
+            let (empty, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, 2.0, EDGE_HIGH);
             assert!(empty.abs() < 1e-4, "eroded band should vanish: {empty}");
-            let (full, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, -2.0);
+            let (full, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, -2.0, EDGE_HIGH);
             let support = s_hi - s_lo;
             assert!(
                 (full - support).abs() < 0.02 * support,
                 "flooded band should fill the support: {full} vs {support}"
             );
-            let (outside, _) = evaluate_occupancy_band(&model, 0.0, 0.0, 0.0, 3.0, f, half, -2.0);
+            let (outside, _) =
+                evaluate_occupancy_band(&model, 0.0, 0.0, 0.0, 3.0, f, half, -2.0, EDGE_HIGH);
             assert_eq!(outside, 0.0, "no support, no occupancy even when flooded");
         }
 
@@ -929,8 +1046,8 @@ mod tests {
         fn test_sigma_flattens_the_band_smoothly() {
             let model = default_model();
             let (a, b, c, f, half) = (4.0f32, 0.0f32, 0.0f32, (0.9f32, 0.0f32, 0.0f32), 0.5f32);
-            let sharp = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, 0.0).0;
-            let soft = evaluate_occupancy_band(&model, 0.3, a, b, c, f, half, 0.0).0;
+            let sharp = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, 0.0, EDGE_HIGH).0;
+            let soft = evaluate_occupancy_band(&model, 0.3, a, b, c, f, half, 0.0, EDGE_HIGH).0;
             let (s_lo, s_hi) = solve_support_interval(a, b, c, -half, half).unwrap();
             let support = s_hi - s_lo;
             assert!(sharp > soft, "smoothing must not add occupancy here");
@@ -960,8 +1077,9 @@ mod tests {
                             let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
                             evaluate_ring_smooth_density(p, &height, taper, 4.0, ring_major, wiggle)
                         };
-                        let (integral, first_moment) =
-                            evaluate_occupancy_node_band(&model, sigma, *t0, *t1, erosion, &sample);
+                        let (integral, first_moment) = evaluate_occupancy_node_band(
+                            &model, sigma, *t0, *t1, erosion, EDGE_HIGH, &sample,
+                        );
                         // Reference: the response applied to the node-linearized argument.
                         let dt = (t1 - t0) / FLAME_OCCUPANCY_NODE_SEGMENTS as f32;
                         let steps = 40000;
@@ -978,8 +1096,13 @@ mod tests {
                             if da <= 0.0 && db <= 0.0 {
                                 continue;
                             }
-                            let x = da + (db - da) * ((t as f32 - ta) / dt) - erosion;
-                            let value = evaluate_erf_response(&model, x, sigma) as f64;
+                            let arg_a = eroded_argument(da, erosion, EDGE_HIGH);
+                            let arg_b = eroded_argument(db, erosion, EDGE_HIGH);
+                            let x = arg_a + (arg_b - arg_a) * ((t as f32 - ta) / dt);
+                            let sigma_eff = sigma
+                                * 0.5
+                                * (envelope_fade(da, EDGE_HIGH) + envelope_fade(db, EDGE_HIGH));
+                            let value = evaluate_erf_response(&model, x, sigma_eff) as f64;
                             reference += value * ds;
                             reference_first += t * value * ds;
                         }
@@ -1023,6 +1146,7 @@ mod tests {
                     band_start,
                     band_start + band_width,
                     0.0,
+                    EDGE_HIGH,
                     sample,
                 )
                 .0;
@@ -1050,18 +1174,151 @@ mod tests {
         fn test_node_band_outside_support_is_zero() {
             let model = default_model();
             let (integral, first_moment) =
-                evaluate_occupancy_node_band(&model, 0.0, 0.0, 1.0, -2.0, |_| 0.0);
+                evaluate_occupancy_node_band(&model, 0.0, 0.0, 1.0, -2.0, EDGE_HIGH, |_| 0.0);
             assert_eq!(integral, 0.0);
             assert_eq!(first_moment, 0.0);
+        }
+
+        /// The trim must be conservative: every t where the ring density is
+        /// positive lies inside the returned span, and the span stays inside
+        /// the query range.
+        #[test]
+        fn test_ring_support_span_covers_the_density() {
+            let coefficients = FlameCoefficients::default();
+            let height = build_height_series(&coefficients.height);
+            let taper = default_taper();
+            let ring_major = 0.75f32;
+            let rays: Vec<([f32; 3], [f32; 3], f32, f32)> = vec![
+                ([-1.4, 0.1, 0.0], [1.0, 0.05, 0.0], 0.0, 2.8), // through both walls
+                ([0.75, 0.0, -1.2], [0.0, 0.2, 1.0], 0.0, 2.4), // along one wall
+                ([0.0, 1.4, 0.0], [0.4, -1.0, 0.3], 0.4, 1.4),  // from above through the hole
+                ([0.0, 0.05, 0.0], [1.0, 0.02, 0.0], 0.0, 0.4), // inside the hole, short
+                ([0.0, -0.2, 0.0], [0.0, 1.0, 0.0], 0.0, 1.5),  // vertical through the hole
+                ([0.75, -0.2, 0.0], [0.0, 1.0, 0.0], 0.0, 1.5), // vertical inside the wall
+                ([-3.0, 0.5, 2.0], [1.0, 0.0, 0.0], 0.0, 6.0),  // missing the support
+            ];
+            for (o, d, t0, t1) in rays {
+                let span = ring_support_span(o, d, t0, t1, ring_major, taper, SHARPNESS, 1.0);
+                if let Some((lo, hi)) = span {
+                    assert!(lo >= t0 - 1e-5 && hi <= t1 + 1e-5, "span out of range");
+                }
+                let steps = 4000;
+                for i in 0..steps {
+                    let t = t0 + (i as f32 + 0.5) * (t1 - t0) / steps as f32;
+                    let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
+                    let density =
+                        evaluate_ring_smooth_density(p, &height, taper, SHARPNESS, ring_major, 1.0);
+                    if density > 0.0 {
+                        let covered = span.is_some_and(|(lo, hi)| t >= lo && t <= hi);
+                        assert!(
+                            covered,
+                            "o={o:?} d={d:?} t={t}: density {density} outside trim ({span:?})"
+                        );
+                    }
+                }
+            }
+        }
+
+        #[test]
+        fn test_density_weighted_node_t_follows_the_mass() {
+            let uniform = density_weighted_node_t(0.0, 1.0, |_| 0.5).unwrap();
+            assert!((uniform - 0.5).abs() < 1e-6, "uniform density -> midpoint");
+            let concentrated =
+                density_weighted_node_t(0.0, 1.0, |t| if t > 0.9 { 1.0 } else { 0.0 }).unwrap();
+            assert!((concentrated - 1.0).abs() < 1e-6, "mass at the end node");
+            assert!(density_weighted_node_t(0.0, 1.0, |_| 0.0).is_none());
+            assert!(density_weighted_node_t(1.0, 0.0, |_| 1.0).is_none());
+        }
+
+        /// The point of the flooded-erosion fade: with strongly negative erosion the
+        /// pointwise field must fall to zero continuously at the support boundary
+        /// instead of jumping from saturation to the mask cut.
+        #[test]
+        fn test_flooded_field_is_continuous_at_support_edge() {
+            let smoothstep = |x: f32| {
+                let t = ((x - EDGE_LOW) / (EDGE_HIGH - EDGE_LOW)).clamp(0.0, 1.0);
+                t * t * (3.0 - 2.0 * t)
+            };
+            for erosion in [-0.5f32, -2.0] {
+                let mut previous = 0.0f32;
+                for step in 0..=4000 {
+                    let d_smooth = step as f32 / 4000.0;
+                    let value = smoothstep(eroded_argument(d_smooth, erosion, EDGE_HIGH));
+                    assert!(
+                        (value - previous).abs() < 0.05,
+                        "e={erosion} d={d_smooth}: jump {previous} -> {value}"
+                    );
+                    previous = value;
+                }
+                assert!(
+                    smoothstep(eroded_argument(1e-4, erosion, EDGE_HIGH)) < 1e-3,
+                    "field must vanish with the envelope"
+                );
+            }
+        }
+
+        /// The point of the sigma boundary fade: where the envelope sits far below
+        /// the threshold (top of the flame, outskirts of the support), large
+        /// unresolved noise must not manufacture occupancy — a flat band sigma left
+        /// phi_sigma with a ~0.1-0.2 floor there, sliced off at the clipped support
+        /// surface as a flat swirling ceiling.
+        #[test]
+        fn test_large_sigma_leaves_no_floor_where_envelope_is_low() {
+            let model = default_model();
+            let (a, b, c, half) = (4.0f32, 0.0f32, 0.0f32, 0.5f32);
+            let f = (0.05f32, 0.0f32, 0.0f32);
+            let (s_lo, s_hi) = solve_support_interval(a, b, c, -half, half).unwrap();
+            let support = s_hi - s_lo;
+            for sigma in [0.24f32, 0.3] {
+                let (integral, _) =
+                    evaluate_occupancy_band(&model, sigma, a, b, c, f, half, 0.0, EDGE_HIGH);
+                assert!(
+                    integral < 0.01 * support,
+                    "sigma={sigma}: low-envelope band must stay empty, got {integral} over {support}"
+                );
+
+                let peak = 0.05f32;
+                let (node_integral, _) = evaluate_occupancy_node_band(
+                    &model,
+                    sigma,
+                    0.0,
+                    1.0,
+                    0.0,
+                    EDGE_HIGH,
+                    |t: f32| peak * (1.0 - (2.0 * t - 1.0) * (2.0 * t - 1.0)).max(0.0),
+                );
+                assert!(
+                    node_integral < 0.01,
+                    "sigma={sigma}: low-envelope node band must stay empty, got {node_integral}"
+                );
+            }
         }
 
         #[test]
         fn test_band_is_deterministic() {
             let model = default_model();
-            let first =
-                evaluate_occupancy_band(&model, 0.1, 0.5, 0.2, 0.4, (0.8, 0.3, -0.6), 0.25, 0.1);
-            let second =
-                evaluate_occupancy_band(&model, 0.1, 0.5, 0.2, 0.4, (0.8, 0.3, -0.6), 0.25, 0.1);
+            let first = evaluate_occupancy_band(
+                &model,
+                0.1,
+                0.5,
+                0.2,
+                0.4,
+                (0.8, 0.3, -0.6),
+                0.25,
+                0.1,
+                EDGE_HIGH,
+            );
+            let second = evaluate_occupancy_band(
+                &model,
+                0.1,
+                0.5,
+                0.2,
+                0.4,
+                (0.8, 0.3, -0.6),
+                0.25,
+                0.1,
+                EDGE_HIGH,
+            );
             assert_eq!(first.0.to_bits(), second.0.to_bits());
             assert_eq!(first.1.to_bits(), second.1.to_bits());
         }

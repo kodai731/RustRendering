@@ -87,12 +87,12 @@ float flameErosionSigma(float height01, float chordLength) {
         * FLAME_EROSION_NOISE_SIGMA * decorrelation;
 }
 
-// Argument of the threshold response at band coordinate s: the eroded smooth field
-// x(s) = (f.x + f.y s + f.z s^2) (1 - g(s))^2 - erosionBand with g(s) = a s^2 + b s + c.
-float flameOccupancyArgument(float a, float b, float c, vec3 f, float erosionBand, float s) {
+// Smooth field density at band coordinate s:
+// d(s) = (f.x + f.y s + f.z s^2) (1 - g(s))^2 with g(s) = a s^2 + b s + c.
+float flameOccupancyDensity(float a, float b, float c, vec3 f, float s) {
     float g = (a * s + b) * s + c;
     float inside = max(1.0 - g, 0.0);
-    return (f.x + (f.y + f.z * s) * s) * inside * inside - erosionBand;
+    return (f.x + (f.y + f.z * s) * s) * inside * inside;
 }
 
 vec2 flameOccupancyPiece(
@@ -109,6 +109,10 @@ vec2 flameOccupancyPiece(
 // phi_sigma(x(s)) over the support part of [-halfWidth, halfWidth]. The argument is
 // linearized on the two monotone halves split at the vertex of g, sharing the exact
 // node values, so the pieces join C0 and band edges agree with their neighbors.
+// Sigma fades toward the support boundary per piece (mean of the node envelope
+// fades): the unresolved fluctuation is of the *faded* erosion, so it must vanish
+// with the envelope like the argument does — a flat band sigma leaves phi_sigma
+// with a positive floor at the clipped support surface (the ceiling artifact).
 vec2 flameOccupancyBandIntegral(
     float a, float b, float c, vec3 f, float halfWidth, float erosionBand, float sigma) {
     vec2 interval = flameSupportInterval(a, b, c, halfWidth);
@@ -118,13 +122,22 @@ vec2 flameOccupancyBandIntegral(
     float sSplit = a > 1e-12
         ? clamp(-0.5 * b / a, interval.x, interval.y)
         : 0.5 * (interval.x + interval.y);
-    float valueLo = flameOccupancyArgument(a, b, c, f, erosionBand, interval.x);
-    float valueMid = flameOccupancyArgument(a, b, c, f, erosionBand, sSplit);
-    float valueHi = flameOccupancyArgument(a, b, c, f, erosionBand, interval.y);
+    float densityLo = flameOccupancyDensity(a, b, c, f, interval.x);
+    float densityMid = flameOccupancyDensity(a, b, c, f, sSplit);
+    float densityHi = flameOccupancyDensity(a, b, c, f, interval.y);
+    float valueLo = flameErodedArgument(densityLo, erosionBand);
+    float valueMid = flameErodedArgument(densityMid, erosionBand);
+    float valueHi = flameErodedArgument(densityHi, erosionBand);
+    float fadeLo = flameEnvelopeFade(densityLo);
+    float fadeMid = flameEnvelopeFade(densityMid);
+    float fadeHi = flameEnvelopeFade(densityHi);
 
-    FlameSmoothedResponse response = flameSmoothErosionResponse(sigma);
-    return flameOccupancyPiece(response, interval.x, sSplit, valueLo, valueMid)
-        + flameOccupancyPiece(response, sSplit, interval.y, valueMid, valueHi);
+    FlameSmoothedResponse responseLo =
+        flameSmoothErosionResponse(sigma * 0.5 * (fadeLo + fadeMid));
+    FlameSmoothedResponse responseHi =
+        flameSmoothErosionResponse(sigma * 0.5 * (fadeMid + fadeHi));
+    return flameOccupancyPiece(responseLo, interval.x, sSplit, valueLo, valueMid)
+        + flameOccupancyPiece(responseHi, sSplit, interval.y, valueMid, valueHi);
 }
 
 // Radius R(h) of the radial density profile, in flame-local units.
@@ -162,7 +175,7 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
     float dSmooth = evaluateHeightFalloff(h)
         * flameRadialDensityFactor(vec3(p.x / wiggle, p.y, p.z / wiggle), h);
     float erosion = flameNoiseErosionValue(p, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
 }
 
@@ -195,7 +208,7 @@ vec2 flameOccupancyAlongRay(
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
     float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle);
     float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h) : 0.0;
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
 }
 
@@ -206,32 +219,47 @@ const int FLAME_OCCUPANCY_NODE_SEGMENTS = 4;
 // argument linear between them. Segments whose both node densities are zero lie
 // outside the support and contribute nothing (exact membership at node resolution);
 // densities are sampled before the erosion fbm so empty bands cost no noise at all.
+// The frozen erosion and its sigma are sampled at the density-weighted node
+// position, not the band midpoint: the midpoint of a band that straddles empty
+// space (ring seen from inside) lands away from the wall, so the frozen
+// turbulence would be sampled where no density exists and sweep through world
+// space as the camera moves — the view-dependent shimmer of the band freeze.
+// Mirrored in thyllore-render-core/src/flame_radial.rs (density_weighted_node_t).
 vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand, float chord) {
     float dt = (t1 - t0) / float(FLAME_OCCUPANCY_NODE_SEGMENTS);
     float density[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
-    bool occupied = false;
+    float weightSum = 0.0;
+    float tWeighted = 0.0;
     for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
-        vec3 p = o + (t0 + float(node) * dt) * d;
+        float t = t0 + float(node) * dt;
+        vec3 p = o + t * d;
         density[node] = flameEmitterSmoothDensityAt(p, clamp(p.y, 0.0, 1.0), wiggleBand);
-        occupied = occupied || density[node] > 0.0;
+        weightSum += density[node];
+        tWeighted += density[node] * t;
     }
-    if (!occupied) {
+    if (weightSum <= 0.0) {
         return vec2(0.0);
     }
 
-    vec3 pMid = o + (t0 + 0.5 * (t1 - t0)) * d;
-    float hMid = clamp(pMid.y, 0.0, 1.0);
-    float erosionBand = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(pMid, hMid) : 0.0;
-    float sigma = flame.noiseAmplitude != 0.0 ? flameErosionSigma(hMid, chord) : 0.0;
-    FlameSmoothedResponse response = flameSmoothErosionResponse(sigma);
+    vec3 pSample = o + (tWeighted / weightSum) * d;
+    float hSample = clamp(pSample.y, 0.0, 1.0);
+    float erosionBand = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(pSample, hSample) : 0.0;
+    float sigma = flame.noiseAmplitude != 0.0 ? flameErosionSigma(hSample, chord) : 0.0;
+    float argument[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
+    for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
+        argument[node] = flameErodedArgument(density[node], erosionBand);
+    }
     vec2 total = vec2(0.0);
     for (int segment = 1; segment <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++segment) {
         if (density[segment - 1] > 0.0 || density[segment] > 0.0) {
+            // Per-segment sigma fade toward the support boundary (see
+            // flameOccupancyBandIntegral): the fluctuation vanishes with the envelope.
+            FlameSmoothedResponse response = flameSmoothErosionResponse(sigma * 0.5
+                * (flameEnvelopeFade(density[segment - 1]) + flameEnvelopeFade(density[segment])));
             float tPrev = t0 + float(segment - 1) * dt;
-            float slope = (density[segment] - density[segment - 1]) / dt;
+            float slope = (argument[segment] - argument[segment - 1]) / dt;
             total += flameErosionResponseLinearIntegral(
-                response, density[segment - 1] - erosionBand - slope * tPrev, slope, tPrev,
-                tPrev + dt);
+                response, argument[segment - 1] - slope * tPrev, slope, tPrev, tPrev + dt);
         }
     }
     return total;
@@ -471,13 +499,62 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
     return flameCompositeRteBands(bandEmission, bandHeight, bandEdge, reversed);
 }
 
+// Narrow [tNear, tFar] to the ray's crossing of the ring's outer support
+// cylinder, conservative over height (widest taper) and contour wiggle.
+// Trimming keeps the band layout attached to the flame body: the raw proxy
+// interval of an inside-the-ring ray extends past the support to wherever the
+// proxy exit lands, so the band layout would jump wherever that exit switches
+// between the top slab and the cone side — the visible horizontal seam where
+// the frozen-turbulence texture changes character with the view angle.
+// The outer cylinder is convex, so the trimmed span is a single interval whose
+// endpoints vary continuously with the ray — no per-pixel topology switches
+// (subtracting the inner hole would split the span in two and re-allocating
+// integer band counts between the parts creates new arc-shaped seams; the hole
+// only costs resolution, its bands stay empty by density gating). Returns
+// false when the ray misses the support entirely.
+// Mirrored in thyllore-render-core/src/flame_radial.rs (ring_support_span).
+bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
+    float rm = flame.emitterParams.y;
+    float minorScale = max(1.0 - rm, 1e-3);
+    float wTrim = 1.0 + max(flame.contourParams.x, 0.0);
+    float taperMax = max(1.0, flame.styleParams1.x);
+    float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim;
+
+    float a = dot(d.xz, d.xz);
+    float b = 2.0 * dot(o.xz, d.xz);
+    float c = dot(o.xz, o.xz) - rOut * rOut;
+    if (a < 1e-12) {
+        return c <= 0.0;
+    }
+    float discriminant = b * b - 4.0 * a * c;
+    if (discriminant <= 0.0) {
+        return false;
+    }
+    float root = sqrt(discriminant);
+    tNear = max((-b - root) / (2.0 * a), tNear);
+    tFar = min((-b + root) / (2.0 * a), tFar);
+    return tFar > tNear;
+}
+
 // Emitter-generic occupancy bands over t — the one band fill shared by the scalar
-// emission integral and the RTE composite. The t bands are camera-ordered.
+// emission integral and the RTE composite. The t bands are camera-ordered; for
+// the ring they cover the (convex) outer-support crossing instead of the raw
+// proxy interval.
 void flameEmitterOccupancyBands(
     vec3 o, vec3 d, float tNear, float tFar,
     out float bandEmission[FLAME_RADIAL_BAND_COUNT],
     out float bandHeight[FLAME_RADIAL_BAND_COUNT],
     out float bandEdge[FLAME_RADIAL_BAND_COUNT]) {
+    bool ringEmitter = flame.emitterParams.x >= 0.5 && flame.emitterParams.x < 1.5;
+    if (ringEmitter && !flameRingSupportSpan(o, d, tNear, tFar)) {
+        float hFallback = clamp(o.y + 0.5 * (tNear + tFar) * d.y, 0.0, 1.0);
+        for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
+            bandEmission[band] = 0.0;
+            bandHeight[band] = hFallback;
+            bandEdge[band] = 0.0;
+        }
+        return;
+    }
     float dt = (tFar - tNear) / float(FLAME_RADIAL_BAND_COUNT);
     float chord = dt * length(d);
     for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {

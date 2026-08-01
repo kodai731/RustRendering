@@ -51,6 +51,27 @@ float flameFieldSupportMask(float dSmooth) {
     return dSmooth > 0.0 ? 1.0 : 0.0;
 }
 
+// Envelope fade toward the support boundary, shared by the flooded-erosion
+// argument below and the unresolved-noise sigma of the analytic band integrals:
+// both the mean shift and the fluctuation of the erosion must shrink with the
+// envelope, or the smoothed response keeps a positive floor at the support
+// surface (a flat swirling ceiling where the integration domain is clipped).
+// Mirrored in thyllore-render-core/src/flame_radial.rs (envelope_fade).
+float flameEnvelopeFade(float dSmooth) {
+    return min(dSmooth / max(flame.styleParams1.z, 1e-3), 1.0);
+}
+
+// Threshold argument with the flooded (negative) erosion faded by the envelope.
+// Turbulence may only add density where the envelope still has support, so the
+// argument goes to zero together with dSmooth and the field stays continuous
+// across the support boundary — a bare [dSmooth > 0] cut used to slice the
+// flooded volume, a sharp world-space seam most visible looking down the flame.
+// Positive erosion (carving tongues) is untouched.
+// Mirrored in thyllore-render-core/src/flame_radial.rs (eroded_argument).
+float flameErodedArgument(float dSmooth, float erosion) {
+    return dSmooth - (max(erosion, 0.0) + min(erosion, 0.0) * flameEnvelopeFade(dSmooth));
+}
+
 // Internal helper: compute the warped coordinate q from world position p and height h.
 // This is the single source of truth for the domain-warp chain:
 //   bendOffset -> pb -> advect -> aniso -> wp -> w -> q
@@ -99,7 +120,7 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(p, h);
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
 }
 
@@ -130,7 +151,7 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(pr, h);
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
 }
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
@@ -139,7 +160,7 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(p, h);
     dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
 }
 
