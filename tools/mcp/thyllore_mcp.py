@@ -111,6 +111,137 @@ def screenshot(
     return _run_batch(args)
 
 
+def _read_json_file(path: str) -> dict | None:
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+
+
+def _run_batch_with_dump(args: list[str], keep_png: bool, png_path: str) -> str:
+    """Run a batch invocation that also wrote an anim dump; merge dump into result."""
+    dump_path = str(
+        Path(tempfile.gettempdir()) / f"thyllore_anim_dump_{int(time.time() * 1000)}.json"
+    )
+    args = [*args, "--batch-anim-dump", dump_path]
+    try:
+        result = _run_batch(args)
+        data = json.loads(result)
+        if not data.get("ok"):
+            return result
+        dump = _read_json_file(dump_path)
+        if dump is None:
+            return _error("engine succeeded but wrote no readable anim dump")
+        out = {"ok": True, "anim": dump}
+        if keep_png:
+            out["path"] = data.get("path")
+        return json.dumps(out, ensure_ascii=False)
+    finally:
+        try:
+            os.unlink(dump_path)
+        except OSError:
+            pass
+        if not keep_png:
+            try:
+                os.unlink(png_path)
+            except OSError:
+                pass
+
+
+def _batch_base_args(frames: int, camera: str, flame_mode: str, screenshot: bool) -> tuple[list[str], str]:
+    if screenshot:
+        out_dir = Path(tempfile.gettempdir()) / "thyllore_screenshots"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        png_path = str(out_dir / f"screenshot_batch_{int(time.time() * 1000)}.png")
+    else:
+        png_path = str(
+            Path(tempfile.gettempdir()) / f"thyllore_anim_{int(time.time() * 1000)}.png"
+        )
+    args = ["--batch-screenshot", png_path, "--batch-frames", str(max(1, frames))]
+    if camera:
+        args += ["--batch-camera", camera]
+    if flame_mode:
+        args += ["--batch-flame-mode", flame_mode]
+    return args, png_path
+
+
+@mcp.tool()
+def anim_edit(
+    edits: str,
+    frames: int = 120,
+    screenshot: bool = False,
+    camera: str = "",
+    flame_mode: str = "",
+) -> str:
+    """Apply flame animation edits through the engine's production event path,
+    render `frames` frames (batch time advances 1/60s per frame, so keyframed
+    params animate), and return the resulting animation state as JSON.
+
+    `edits` is a semicolon-separated list of specs:
+    - `debug_keys=<seed>`: fill all 16 flame param curves with 4 deterministic
+      random keys inside safe ranges (same as the UI "Random Keys (Debug)" button)
+    - `key=<param>@<time>=<value>`: insert one key (param = snake_case name,
+      e.g. height, intensity, temperature_base_k, wind_x)
+    - `clear`: remove all flame scalar curves
+
+    Returns {"ok": true, "anim": {flames, clips, timeline}} — `anim.clips[].scalar_curves`
+    holds every curve's keyframes, `anim.flames[].params` the sampled values at the
+    final rendered frame (time ≈ frames/60). Set `screenshot` to also keep a PNG
+    (path in result). `camera` and `flame_mode` work like in the screenshot tool."""
+    args, png_path = _batch_base_args(frames, camera, flame_mode, screenshot)
+    specs = [s.strip() for s in edits.split(";") if s.strip()]
+    if not specs:
+        return _error("edits must contain at least one spec")
+    for spec in specs:
+        args += ["--batch-anim-edit", spec]
+    return _run_batch_with_dump(args, screenshot, png_path)
+
+
+@mcp.tool()
+def anim_state(frames: int = 2, camera: str = "") -> str:
+    """Read the engine's animation state without editing anything: launch,
+    render `frames` frames, and return {"ok": true, "anim": {flames, clips,
+    timeline}}. `anim.flames[]` lists each flame entity with its clip schedule
+    and current param values; `anim.clips[]` lists every clip with duration,
+    bone track count, and scalar curves (flame keyframes). Use a small `frames`
+    (default 2) for a fast state peek, or larger to see values mid-animation."""
+    args, png_path = _batch_base_args(frames, camera, "", False)
+    return _run_batch_with_dump(args, False, png_path)
+
+
+@mcp.tool()
+def debug_action(
+    actions: str,
+    frames: int = 120,
+    screenshot: bool = True,
+    camera: str = "",
+) -> str:
+    """Execute debug-window actions headlessly and (by default) return a
+    screenshot so the effect is visible. `actions` is a semicolon-separated
+    list; run `list_debug_actions` for the full set. Examples:
+    `view_mode=normal` (G-buffer normal view), `view_mode=object_id`,
+    `reset_camera`, `camera_to_model`, `add_flame`, `open_flame_curves`.
+    View-mode actions write the same DebugViewState the imgui debug panel
+    edits; button actions enqueue the same UIEvents as their buttons.
+    Returns {"ok": true, "anim": {...}, "path": "<png>"} (path only when
+    `screenshot` is true)."""
+    args, png_path = _batch_base_args(frames, camera, "", screenshot)
+    names = [s.strip() for s in actions.split(";") if s.strip()]
+    if not names:
+        return _error("actions must contain at least one action name")
+    for name in names:
+        args += ["--batch-debug-action", name]
+    return _run_batch_with_dump(args, screenshot, png_path)
+
+
+@mcp.tool()
+def list_debug_actions() -> str:
+    """List the debug actions `debug_action` accepts, straight from the engine
+    binary (fast: exits before window creation)."""
+    return _run_batch(["--batch-list-debug-actions"])
+
+
 @mcp.tool()
 def status() -> str:
     """Report whether the engine binary is built and which one a call would use."""

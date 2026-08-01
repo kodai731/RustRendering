@@ -92,6 +92,27 @@ pub fn apply_flame_param_value(effect: &mut FlameEffect, param: FlameParam, valu
     }
 }
 
+pub fn flame_param_value(effect: &FlameEffect, param: FlameParam) -> f32 {
+    match param {
+        FlameParam::Height => effect.height,
+        FlameParam::Radius => effect.radius,
+        FlameParam::Intensity => effect.intensity,
+        FlameParam::SigmaT => effect.sigma_t,
+        FlameParam::TemperatureBaseK => effect.temperature_base_k,
+        FlameParam::TemperatureTipK => effect.temperature_tip_k,
+        FlameParam::WarpAmp => effect.warp_amp,
+        FlameParam::WarpFreq => effect.warp_freq,
+        FlameParam::RiseSpeed => effect.rise_speed,
+        FlameParam::NoiseAmplitude => effect.noise_amplitude,
+        FlameParam::WhiteBoost => effect.white_boost,
+        FlameParam::BendAmount => effect.bend_amount,
+        FlameParam::WindX => effect.wind_direction.x,
+        FlameParam::WindZ => effect.wind_direction.y,
+        FlameParam::EdgeLow => effect.edge_low,
+        FlameParam::EdgeHigh => effect.edge_high,
+    }
+}
+
 /// Insert (or overwrite, when a key already sits within `1e-6` of `time`) a
 /// key on the flame param's scalar curve.
 pub fn flame_clip_insert_key(
@@ -225,6 +246,19 @@ mod tests {
             let va: Vec<f32> = ka.iter().map(|k| k.value).collect();
             let vb: Vec<f32> = kb.iter().map(|k| k.value).collect();
             assert_eq!(va, vb);
+        }
+    }
+
+    #[test]
+    fn test_param_value_mirrors_apply_for_all_params() {
+        let mut effect = FlameEffect::default();
+        for (i, param) in FlameParam::ALL.into_iter().enumerate() {
+            let value = 10.0 + i as f32;
+            apply_flame_param_value(&mut effect, param, value);
+            assert!(
+                (flame_param_value(&effect, param) - value).abs() < 1e-6,
+                "{param:?}"
+            );
         }
     }
 

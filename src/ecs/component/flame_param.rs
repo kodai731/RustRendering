@@ -99,6 +99,35 @@ impl FlameParam {
         }
     }
 
+    /// Stable snake_case identifier used by batch CLI flags and anim dumps.
+    pub fn cli_name(self) -> &'static str {
+        match self {
+            FlameParam::Height => "height",
+            FlameParam::Radius => "radius",
+            FlameParam::Intensity => "intensity",
+            FlameParam::SigmaT => "sigma_t",
+            FlameParam::TemperatureBaseK => "temperature_base_k",
+            FlameParam::TemperatureTipK => "temperature_tip_k",
+            FlameParam::WarpAmp => "warp_amp",
+            FlameParam::WarpFreq => "warp_freq",
+            FlameParam::RiseSpeed => "rise_speed",
+            FlameParam::NoiseAmplitude => "noise_amplitude",
+            FlameParam::WhiteBoost => "white_boost",
+            FlameParam::BendAmount => "bend_amount",
+            FlameParam::WindX => "wind_x",
+            FlameParam::WindZ => "wind_z",
+            FlameParam::EdgeLow => "edge_low",
+            FlameParam::EdgeHigh => "edge_high",
+        }
+    }
+
+    pub fn from_cli_name(name: &str) -> Option<FlameParam> {
+        FlameParam::ALL
+            .iter()
+            .copied()
+            .find(|p| p.cli_name() == name)
+    }
+
     /// Conservative sub-range of each UI slider for generated debug keys.
     /// EdgeLow / EdgeHigh are disjoint so any drawn pair keeps low < high.
     pub fn debug_value_range(self) -> (f32, f32) {
@@ -141,6 +170,14 @@ mod tests {
             FlameParam::from_property_type(PropertyType::TranslationX),
             None
         );
+    }
+
+    #[test]
+    fn test_cli_name_roundtrip_all_params() {
+        for param in FlameParam::ALL {
+            assert_eq!(FlameParam::from_cli_name(param.cli_name()), Some(param));
+        }
+        assert_eq!(FlameParam::from_cli_name("no_such_param"), None);
     }
 
     #[test]

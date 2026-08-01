@@ -14,8 +14,9 @@ use thyllore_animation::ecs::resource::{
     GpuTimingsSink,
 };
 use thyllore_animation::ecs::systems::{
-    apply_flame_overrides, apply_texture_fit_from_path, batch_run_report,
-    resolve_engine_cli_overrides,
+    apply_flame_overrides, apply_texture_fit_from_path, batch_anim_dump_write,
+    batch_apply_anim_edits, batch_apply_debug_actions, batch_run_report, debug_actions_json,
+    resolve_engine_cli_overrides, BATCH_LIST_DEBUG_ACTIONS_FLAG,
 };
 use thyllore_animation::platform;
 
@@ -29,6 +30,10 @@ fn main() -> Result<()> {
     cleanup_old_screenshots()?;
 
     let args: Vec<String> = std::env::args().collect();
+    if args.iter().any(|a| a == BATCH_LIST_DEBUG_ACTIONS_FLAG) {
+        println!("{}", debug_actions_json());
+        return Ok(());
+    }
     let overrides = match resolve_engine_cli_overrides(&args) {
         Ok(overrides) => overrides,
         Err(e) => {
@@ -215,6 +220,17 @@ fn main() -> Result<()> {
             thyllore_animation::ecs::resource::BatchPickRequest::new(pixel),
         );
     }
+    if !overrides.anim_edits.is_empty() {
+        batch_apply_anim_edits(
+            &mut app.data.ecs_world,
+            &mut app.data.ecs_assets,
+            &overrides.anim_edits,
+        );
+    }
+    if !overrides.debug_actions.is_empty() {
+        batch_apply_debug_actions(&app.data.ecs_world, &overrides.debug_actions);
+    }
+
     // Apply batch_play override: start timeline playback for deterministic batch clip runs
     if overrides.batch_play {
         let first = {
@@ -333,6 +349,16 @@ fn main() -> Result<()> {
     }
 
     system.main_loop(&mut app);
+
+    if let Some(ref dump_path) = overrides.anim_dump_path {
+        if let Err(e) = batch_anim_dump_write(&app.data.ecs_world, dump_path) {
+            println!(
+                "{}",
+                serde_json::json!({"ok": false, "error": format!("anim dump failed: {e}")})
+            );
+            std::process::exit(1);
+        }
+    }
 
     if is_batch_mode {
         let batch = app.data.ecs_world.resource::<BatchRun>();

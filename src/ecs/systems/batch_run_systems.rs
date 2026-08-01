@@ -5,9 +5,13 @@ use anyhow::{bail, Context, Result};
 
 use cgmath::Vector2;
 
-use crate::ecs::component::FlameEffect;
+use crate::asset::AssetStorage;
+use crate::ecs::component::{ClipSchedule, FlameEffect, FlameParam};
 use crate::ecs::events::{UIEvent, UIEventQueue};
-use crate::ecs::resource::{BatchRun, BatchRunState, FlameShadingMode};
+use crate::ecs::resource::{
+    BatchRun, BatchRunState, ClipLibrary, DebugViewMode, DebugViewState, FlameShadingMode,
+    TimelineState,
+};
 use crate::ecs::world::World;
 
 const BATCH_SCREENSHOT_FLAG: &str = "--batch-screenshot";
@@ -29,6 +33,10 @@ const BATCH_FLAME_SET_FLAG: &str = "--batch-flame-set";
 const BATCH_FLAME_TEXTURE_FLAG: &str = "--batch-flame-texture";
 const BATCH_HEAT_PLUME_FLAG: &str = "--batch-heat-plume";
 const BATCH_PICK_FLAG: &str = "--batch-pick";
+const BATCH_ANIM_EDIT_FLAG: &str = "--batch-anim-edit";
+const BATCH_ANIM_DUMP_FLAG: &str = "--batch-anim-dump";
+const BATCH_DEBUG_ACTION_FLAG: &str = "--batch-debug-action";
+pub const BATCH_LIST_DEBUG_ACTIONS_FLAG: &str = "--batch-list-debug-actions";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BatchCameraPose {
@@ -58,6 +66,32 @@ pub struct EngineCliOverrides {
     pub heat_plume: Option<(f32, f32)>,
     pub batch_play: bool,
     pub scene_path: Option<String>,
+    pub anim_edits: Vec<BatchAnimEdit>,
+    pub anim_dump_path: Option<String>,
+    pub debug_actions: Vec<BatchDebugAction>,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum BatchAnimEdit {
+    DebugKeys {
+        seed: u64,
+    },
+    Key {
+        param: FlameParam,
+        time: f32,
+        value: f32,
+    },
+    Clear,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum BatchDebugAction {
+    ResetCamera,
+    ResetCameraUp,
+    CameraToModel,
+    AddFlame,
+    OpenFlameCurves,
+    ViewMode(DebugViewMode),
 }
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
@@ -82,7 +116,20 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         heat_plume: heat_plume_resolve_from_args(args)?,
         batch_play: args.iter().any(|a| a == "--batch-play"),
         scene_path: scene_path_resolve_from_args(args)?,
+        anim_edits: anim_edits_resolve_from_args(args)?,
+        anim_dump_path: flag_value_resolve_from_args(args, BATCH_ANIM_DUMP_FLAG)?,
+        debug_actions: debug_actions_resolve_from_args(args)?,
     })
+}
+
+fn flag_value_resolve_from_args(args: &[String], flag: &str) -> Result<Option<String>> {
+    let Some(position) = args.iter().position(|arg| arg == flag) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1).filter(|v| !v.starts_with("--")) else {
+        bail!("{flag} requires a value");
+    };
+    Ok(Some(value.clone()))
 }
 
 pub fn camera_pose_resolve_from_args(args: &[String]) -> Result<Option<BatchCameraPose>> {
@@ -795,6 +842,319 @@ pub fn apply_texture_fit_from_path(effect: &mut FlameEffect, path: &str, blend: 
     );
 }
 
+/// Parse repeated `--batch-anim-edit <spec>` flags. Specs:
+/// `debug_keys=<seed>` | `key=<param>@<time>=<value>` | `clear`.
+fn anim_edits_resolve_from_args(args: &[String]) -> Result<Vec<BatchAnimEdit>> {
+    let mut edits = Vec::new();
+    for i in 0..args.len() {
+        if args[i] != BATCH_ANIM_EDIT_FLAG {
+            continue;
+        }
+        let Some(spec) = args.get(i + 1).filter(|v| !v.starts_with("--")) else {
+            bail!("{BATCH_ANIM_EDIT_FLAG} requires a spec: debug_keys=<seed> | key=<param>@<time>=<value> | clear");
+        };
+        edits.push(anim_edit_parse_spec(spec)?);
+    }
+    Ok(edits)
+}
+
+fn anim_edit_parse_spec(spec: &str) -> Result<BatchAnimEdit> {
+    let spec = spec.trim();
+    if spec == "clear" {
+        return Ok(BatchAnimEdit::Clear);
+    }
+    if let Some(seed_str) = spec.strip_prefix("debug_keys=") {
+        let seed: u64 = seed_str
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid debug_keys seed '{seed_str}': expected u64"))?;
+        return Ok(BatchAnimEdit::DebugKeys { seed });
+    }
+    if let Some(rest) = spec.strip_prefix("key=") {
+        let (param_str, rest) = rest.split_once('@').ok_or_else(|| {
+            anyhow::anyhow!("key spec must be key=<param>@<time>=<value>, got '{spec}'")
+        })?;
+        let (time_str, value_str) = rest.split_once('=').ok_or_else(|| {
+            anyhow::anyhow!("key spec must be key=<param>@<time>=<value>, got '{spec}'")
+        })?;
+        let param = FlameParam::from_cli_name(param_str.trim()).ok_or_else(|| {
+            anyhow::anyhow!(
+                "unknown flame param '{}'. Valid params: {}",
+                param_str,
+                FlameParam::ALL.map(|p| p.cli_name()).join(", ")
+            )
+        })?;
+        let time: f32 = time_str
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid key time '{time_str}'"))?;
+        let value: f32 = value_str
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid key value '{value_str}'"))?;
+        if !time.is_finite() || time < 0.0 || !value.is_finite() {
+            bail!("key time must be >= 0 and value finite: '{spec}'");
+        }
+        return Ok(BatchAnimEdit::Key { param, time, value });
+    }
+    bail!("unknown anim edit spec '{spec}'. Expected debug_keys=<seed> | key=<param>@<time>=<value> | clear")
+}
+
+/// Apply anim edits through the production flame-clip event dispatcher, so batch
+/// runs exercise the same path as the UI (clip creation, undo history, schedule
+/// extension). Key edits temporarily move the timeline to the key's time because
+/// `InsertFlameKey` always keys at `TimelineState::current_time`.
+pub fn batch_apply_anim_edits(
+    world: &mut World,
+    assets: &mut AssetStorage,
+    edits: &[BatchAnimEdit],
+) {
+    use super::phases::dispatch_flame_curve::dispatch_flame_clip_events;
+
+    for edit in edits {
+        match edit {
+            BatchAnimEdit::DebugKeys { seed } => {
+                dispatch_flame_clip_events(
+                    &[UIEvent::InsertFlameDebugKeys { seed: *seed }],
+                    world,
+                    assets,
+                );
+            }
+            BatchAnimEdit::Key { param, time, value } => {
+                let previous_time = {
+                    let mut timeline = world.resource_mut::<TimelineState>();
+                    let previous = timeline.current_time;
+                    timeline.current_time = *time;
+                    previous
+                };
+                dispatch_flame_clip_events(
+                    &[UIEvent::InsertFlameKey {
+                        param: *param,
+                        value: *value,
+                    }],
+                    world,
+                    assets,
+                );
+                world.resource_mut::<TimelineState>().current_time = previous_time;
+            }
+            BatchAnimEdit::Clear => {
+                dispatch_flame_clip_events(&[UIEvent::ClearFlameKeys], world, assets);
+            }
+        }
+    }
+}
+
+pub const DEBUG_ACTION_NAMES: &[&str] = &[
+    "reset_camera",
+    "reset_camera_up",
+    "camera_to_model",
+    "add_flame",
+    "open_flame_curves",
+    "view_mode=<final|position|normal|shadow_mask|ndotl|light_direction|view_depth|object_id|selection_view|selection_ubo>",
+];
+
+fn debug_view_mode_parse(name: &str) -> Option<DebugViewMode> {
+    match name {
+        "final" => Some(DebugViewMode::Final),
+        "position" => Some(DebugViewMode::Position),
+        "normal" => Some(DebugViewMode::Normal),
+        "shadow_mask" => Some(DebugViewMode::ShadowMask),
+        "ndotl" => Some(DebugViewMode::NdotL),
+        "light_direction" => Some(DebugViewMode::LightDirection),
+        "view_depth" => Some(DebugViewMode::ViewDepth),
+        "object_id" => Some(DebugViewMode::ObjectID),
+        "selection_view" => Some(DebugViewMode::SelectionView),
+        "selection_ubo" => Some(DebugViewMode::SelectionUBO),
+        _ => None,
+    }
+}
+
+fn debug_actions_resolve_from_args(args: &[String]) -> Result<Vec<BatchDebugAction>> {
+    let mut actions = Vec::new();
+    for i in 0..args.len() {
+        if args[i] != BATCH_DEBUG_ACTION_FLAG {
+            continue;
+        }
+        let Some(name) = args.get(i + 1).filter(|v| !v.starts_with("--")) else {
+            bail!(
+                "{BATCH_DEBUG_ACTION_FLAG} requires an action. Valid actions: {}",
+                DEBUG_ACTION_NAMES.join(", ")
+            );
+        };
+        actions.push(debug_action_parse(name)?);
+    }
+    Ok(actions)
+}
+
+fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
+    let name = name.trim();
+    if let Some(mode_str) = name.strip_prefix("view_mode=") {
+        return debug_view_mode_parse(mode_str.trim())
+            .map(BatchDebugAction::ViewMode)
+            .ok_or_else(|| anyhow::anyhow!("unknown view_mode '{mode_str}'"));
+    }
+    match name {
+        "reset_camera" => Ok(BatchDebugAction::ResetCamera),
+        "reset_camera_up" => Ok(BatchDebugAction::ResetCameraUp),
+        "camera_to_model" => Ok(BatchDebugAction::CameraToModel),
+        "add_flame" => Ok(BatchDebugAction::AddFlame),
+        "open_flame_curves" => Ok(BatchDebugAction::OpenFlameCurves),
+        _ => bail!(
+            "unknown debug action '{name}'. Valid actions: {}",
+            DEBUG_ACTION_NAMES.join(", ")
+        ),
+    }
+}
+
+/// Execute debug-window actions headlessly: view-mode radios write the same
+/// `DebugViewState` resource the imgui panel edits, buttons enqueue the same
+/// `UIEvent`s so they run through the normal dispatch on the first frame.
+pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
+    for action in actions {
+        match action {
+            BatchDebugAction::ViewMode(mode) => {
+                world.resource_mut::<DebugViewState>().debug_view_mode = *mode;
+            }
+            BatchDebugAction::ResetCamera => {
+                world
+                    .resource_mut::<UIEventQueue>()
+                    .send(UIEvent::ResetCamera);
+            }
+            BatchDebugAction::ResetCameraUp => {
+                world
+                    .resource_mut::<UIEventQueue>()
+                    .send(UIEvent::ResetCameraUp);
+            }
+            BatchDebugAction::CameraToModel => {
+                world
+                    .resource_mut::<UIEventQueue>()
+                    .send(UIEvent::MoveCameraToModel);
+            }
+            BatchDebugAction::AddFlame => {
+                world.resource_mut::<UIEventQueue>().send(UIEvent::AddFlame);
+            }
+            BatchDebugAction::OpenFlameCurves => {
+                world
+                    .resource_mut::<UIEventQueue>()
+                    .send(UIEvent::OpenFlameCurveEditor);
+            }
+        }
+    }
+}
+
+pub fn debug_actions_json() -> String {
+    serde_json::json!({"ok": true, "actions": DEBUG_ACTION_NAMES}).to_string()
+}
+
+/// Serialize the animation-facing world state (flames, their scheduled clips,
+/// every clip's scalar curves, timeline) so agents can inspect edits without a
+/// window. Written once at engine exit; the file is the access surface.
+pub fn batch_anim_dump_json(world: &World) -> serde_json::Value {
+    use super::flame_clip_systems::{find_flame_clip_id, flame_param_value};
+
+    let flames: Vec<serde_json::Value> = world
+        .query_flames()
+        .into_iter()
+        .map(|entity| {
+            let effect = world.get_component::<FlameEffect>(entity);
+            let params: serde_json::Map<String, serde_json::Value> = effect
+                .map(|e| {
+                    FlameParam::ALL
+                        .into_iter()
+                        .map(|p| (p.cli_name().to_string(), flame_param_value(e, p).into()))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let schedule: Vec<serde_json::Value> = world
+                .get_component::<ClipSchedule>(entity)
+                .map(|s| {
+                    s.instances
+                        .iter()
+                        .map(|i| {
+                            serde_json::json!({
+                                "instance_id": i.instance_id,
+                                "source_id": i.source_id,
+                                "start_time": i.start_time,
+                                "clip_in": i.clip_in,
+                                "clip_out": i.clip_out,
+                                "speed": i.speed,
+                                "muted": i.muted,
+                            })
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            serde_json::json!({
+                "entity": entity,
+                "time": effect.map(|e| e.time),
+                "clip_id": find_flame_clip_id(world, entity),
+                "params": params,
+                "schedule": schedule,
+            })
+        })
+        .collect();
+
+    let clips: Vec<serde_json::Value> = world
+        .get_resource::<ClipLibrary>()
+        .map(|library| {
+            let mut ids: Vec<_> = library.all_clip_ids().copied().collect();
+            ids.sort_unstable();
+            ids.iter()
+                .filter_map(|&id| library.get(id))
+                .map(|clip| {
+                    let curves: Vec<serde_json::Value> = clip
+                        .scalar_curves
+                        .iter()
+                        .map(|curve| {
+                            let property = FlameParam::from_property_type(curve.property_type)
+                                .map(|p| p.cli_name().to_string())
+                                .unwrap_or_else(|| format!("{:?}", curve.property_type));
+                            let keyframes: Vec<serde_json::Value> = curve
+                                .keyframes
+                                .iter()
+                                .map(|k| serde_json::json!({"time": k.time, "value": k.value}))
+                                .collect();
+                            serde_json::json!({"property": property, "keyframes": keyframes})
+                        })
+                        .collect();
+                    serde_json::json!({
+                        "id": clip.id,
+                        "name": clip.name,
+                        "duration": clip.duration,
+                        "bone_track_count": clip.tracks.len(),
+                        "scalar_curves": curves,
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let timeline = world
+        .get_resource::<TimelineState>()
+        .map(|t| {
+            serde_json::json!({
+                "current_time": t.current_time,
+                "playing": t.playing,
+                "looping": t.looping,
+                "current_clip_id": t.current_clip_id,
+            })
+        })
+        .unwrap_or(serde_json::Value::Null);
+
+    serde_json::json!({"flames": flames, "clips": clips, "timeline": timeline})
+}
+
+pub fn batch_anim_dump_write(world: &World, path: &str) -> Result<()> {
+    let json = batch_anim_dump_json(world);
+    if let Some(parent) = Path::new(path).parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    std::fs::write(path, serde_json::to_string_pretty(&json)?)
+        .with_context(|| format!("failed to write anim dump to {path}"))?;
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1231,5 +1591,143 @@ mod tests {
             "image.png,abc"
         ]))
         .is_err());
+    }
+
+    #[test]
+    fn anim_edit_specs_parse_all_forms() {
+        let edits = anim_edits_resolve_from_args(&args(&[
+            "bin",
+            "--batch-anim-edit",
+            "debug_keys=42",
+            "--batch-anim-edit",
+            "key=height@1.5=2.25",
+            "--batch-anim-edit",
+            "clear",
+        ]))
+        .unwrap();
+        assert_eq!(edits[0], BatchAnimEdit::DebugKeys { seed: 42 });
+        assert_eq!(
+            edits[1],
+            BatchAnimEdit::Key {
+                param: FlameParam::Height,
+                time: 1.5,
+                value: 2.25
+            }
+        );
+        assert_eq!(edits[2], BatchAnimEdit::Clear);
+    }
+
+    #[test]
+    fn anim_edit_invalid_specs_are_err() {
+        for spec in [
+            "debug_keys=abc",
+            "key=height@1.5",
+            "key=no_such_param@1.0=2.0",
+            "key=height@-1.0=2.0",
+            "bogus",
+        ] {
+            assert!(
+                anim_edits_resolve_from_args(&args(&["bin", "--batch-anim-edit", spec])).is_err(),
+                "{spec} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn debug_actions_parse_names_and_view_mode() {
+        let actions = debug_actions_resolve_from_args(&args(&[
+            "bin",
+            "--batch-debug-action",
+            "reset_camera",
+            "--batch-debug-action",
+            "view_mode=normal",
+        ]))
+        .unwrap();
+        assert_eq!(actions[0], BatchDebugAction::ResetCamera);
+        assert_eq!(
+            actions[1],
+            BatchDebugAction::ViewMode(crate::ecs::resource::DebugViewMode::Normal)
+        );
+        assert!(
+            debug_actions_resolve_from_args(&args(&["bin", "--batch-debug-action", "bogus"]))
+                .is_err()
+        );
+    }
+
+    #[test]
+    fn anim_edits_apply_and_dump_reflect_clip_state() {
+        let mut world = World::new();
+        crate::ecs::systems::spawn_flame(
+            &mut world,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            FlameEffect::default(),
+        );
+        world.insert_resource(ClipLibrary::new());
+        world.insert_resource(TimelineState::new());
+        world.insert_resource(crate::ecs::resource::EditHistory::new(10));
+        let mut assets = AssetStorage::new();
+
+        batch_apply_anim_edits(
+            &mut world,
+            &mut assets,
+            &[
+                BatchAnimEdit::DebugKeys { seed: 7 },
+                BatchAnimEdit::Key {
+                    param: FlameParam::Height,
+                    time: 9.0,
+                    value: 3.5,
+                },
+            ],
+        );
+        assert!(
+            (world.resource::<TimelineState>().current_time).abs() < 1e-6,
+            "key edit must restore timeline time"
+        );
+
+        let dump = batch_anim_dump_json(&world);
+        let flames = dump["flames"].as_array().unwrap();
+        assert_eq!(flames.len(), 1);
+        let clip_id = flames[0]["clip_id"].as_u64().expect("flame clip scheduled");
+        let clips = dump["clips"].as_array().unwrap();
+        let clip = clips
+            .iter()
+            .find(|c| c["id"].as_u64() == Some(clip_id))
+            .expect("clip in dump");
+        let curves = clip["scalar_curves"].as_array().unwrap();
+        assert_eq!(curves.len(), FlameParam::ALL.len());
+        let height = curves
+            .iter()
+            .find(|c| c["property"] == "height")
+            .expect("height curve");
+        let keyframes = height["keyframes"].as_array().unwrap();
+        assert_eq!(
+            keyframes.len(),
+            crate::ecs::systems::flame_clip_systems::DEBUG_KEYS_PER_CURVE + 1
+        );
+        assert!(keyframes
+            .iter()
+            .any(|k| (k["time"].as_f64().unwrap() - 9.0).abs() < 1e-6
+                && (k["value"].as_f64().unwrap() - 3.5).abs() < 1e-6));
+        assert!((clip["duration"].as_f64().unwrap() - 9.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn debug_actions_apply_sets_view_mode_and_queues_events() {
+        let mut world = World::new();
+        world.insert_resource(DebugViewState::default());
+        world.insert_resource(UIEventQueue::new());
+        batch_apply_debug_actions(
+            &world,
+            &[
+                BatchDebugAction::ViewMode(crate::ecs::resource::DebugViewMode::Normal),
+                BatchDebugAction::ResetCamera,
+            ],
+        );
+        assert_eq!(
+            world.resource::<DebugViewState>().debug_view_mode,
+            crate::ecs::resource::DebugViewMode::Normal
+        );
+        let events: Vec<UIEvent> = world.resource_mut::<UIEventQueue>().drain().collect();
+        assert!(matches!(events[0], UIEvent::ResetCamera));
     }
 }
