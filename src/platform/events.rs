@@ -16,9 +16,9 @@ use super::ui::{build_click_debug_overlay, DebugWindowState};
 use crate::app::App;
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{
-    ClipBrowserState, ClipLibrary, CurveEditorBuffer, CurveEditorState, HierarchyState,
-    ImGuiInputCapture, KeyboardModifiers, MessageLog, MouseInput, PanelLayout, PoseLibrary,
-    TimelineInteractionState, TimelineState, ViewportInput,
+    CameraFlyInput, ClipBrowserState, ClipLibrary, CurveEditorBuffer, CurveEditorState,
+    HierarchyState, ImGuiInputCapture, KeyboardModifiers, MessageLog, MouseInput, PanelLayout,
+    PoseLibrary, TimelineInteractionState, TimelineState, ViewportInput,
 };
 use crate::ecs::systems::clip_track_systems::query_clip_tracks;
 use crate::ecs::systems::phases::run_event_dispatch_phase;
@@ -36,6 +36,39 @@ fn update_mouse_input(world: &crate::ecs::World, ui: &imgui::Ui) {
     let mut modifiers = world.resource_mut::<KeyboardModifiers>();
     modifiers.ctrl = io.key_ctrl;
     modifiers.shift = io.key_shift;
+    modifiers.alt = io.key_alt;
+    drop(modifiers);
+
+    update_camera_fly_input(world, ui);
+}
+
+fn update_camera_fly_input(world: &crate::ecs::World, ui: &imgui::Ui) {
+    let io = ui.io();
+    let mut fly = world.resource_mut::<CameraFlyInput>();
+    fly.delta_seconds = io.delta_time;
+
+    if io.want_text_input {
+        fly.forward = 0.0;
+        fly.right = 0.0;
+        fly.up = 0.0;
+        fly.boost = false;
+        return;
+    }
+
+    let axis = |negative: bool, positive: bool| (positive as i32 - negative as i32) as f32;
+    fly.forward = axis(
+        ui.is_key_down(imgui::Key::S),
+        ui.is_key_down(imgui::Key::W),
+    );
+    fly.right = axis(
+        ui.is_key_down(imgui::Key::A),
+        ui.is_key_down(imgui::Key::D),
+    );
+    fly.up = axis(
+        ui.is_key_down(imgui::Key::Q),
+        ui.is_key_down(imgui::Key::E),
+    );
+    fly.boost = io.key_shift;
 }
 
 impl System {
@@ -183,10 +216,12 @@ fn dispatch_keyboard_input(
     };
     drop(modifiers_res);
 
+    let camera_fly_active = app.data.ecs_world.resource::<MouseInput>().right_pressed;
+
     if let Some(ui_event) = dispatch_keyboard_shortcut(
         &event.logical_key,
         modifiers,
-        imgui.io().want_capture_keyboard,
+        imgui.io().want_capture_keyboard || camera_fly_active,
         bindings,
     ) {
         let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();

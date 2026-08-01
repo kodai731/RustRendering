@@ -10,8 +10,9 @@ use crate::ecs::resource::gizmo::transform_gizmo::TransformGizmoHandle;
 use crate::ecs::resource::gizmo::{BoneDisplayStyle, BoneGizmoData, TransformGizmoData};
 use crate::ecs::resource::CurveEditorState;
 use crate::ecs::resource::{
-    BonePoseOverride, ClipLibrary, HierarchyDisplayMode, ImGuiInputCapture, KeyboardModifiers,
-    MeshAssets, MouseInput, TimelineState, TransformGizmoMode, TransformGizmoState, ViewportInput,
+    BonePoseOverride, CameraFlyInput, ClipLibrary, HierarchyDisplayMode, ImGuiInputCapture,
+    KeyboardModifiers, MeshAssets, MouseInput, TimelineState, TransformGizmoMode,
+    TransformGizmoState, ViewportInput,
 };
 use crate::ecs::systems::{
     compute_local_override_from_global_rotation, compute_local_override_from_global_scale,
@@ -79,11 +80,15 @@ pub fn run_input_phase(ctx: &mut EcsContext) -> Result<()> {
             mouse_pos[1] - viewport_pos[1],
         ];
         let screen_size = [ctx.swapchain_extent.0 as f32, ctx.swapchain_extent.1 as f32];
+        let is_alt_held = ctx.world.resource::<KeyboardModifiers>().alt;
+        let fly = ctx.world.resource::<CameraFlyInput>().clone();
         let mut camera = ctx.camera_mut();
         crate::ecs::camera_input_system_inner(
             &mut *camera,
             is_right_clicked,
             is_wheel_clicked,
+            is_alt_held,
+            &fly,
             mouse_wheel,
             mouse_diff,
             local_mouse_pos,

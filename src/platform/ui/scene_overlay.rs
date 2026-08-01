@@ -276,13 +276,15 @@ fn build_transform_gizmo_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, e
             state_copy.mode = TransformGizmoMode::Scale;
         }
 
-        if ui.is_key_pressed(imgui::Key::W) && !ui.io().key_ctrl {
+        let gizmo_hotkeys_enabled =
+            !ui.io().key_ctrl && !ui.is_mouse_down(imgui::MouseButton::Right);
+        if ui.is_key_pressed(imgui::Key::W) && gizmo_hotkeys_enabled {
             state_copy.mode = TransformGizmoMode::Translate;
         }
-        if ui.is_key_pressed(imgui::Key::E) && !ui.io().key_ctrl {
+        if ui.is_key_pressed(imgui::Key::E) && gizmo_hotkeys_enabled {
             state_copy.mode = TransformGizmoMode::Rotate;
         }
-        if ui.is_key_pressed(imgui::Key::R) && !ui.io().key_ctrl {
+        if ui.is_key_pressed(imgui::Key::R) && gizmo_hotkeys_enabled {
             state_copy.mode = TransformGizmoMode::Scale;
         }
 

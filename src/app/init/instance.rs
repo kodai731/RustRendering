@@ -1149,6 +1149,7 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::UIEventQueue>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::MouseInput>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::KeyboardModifiers>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::CameraFlyInput>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::ViewportInput>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::ImGuiInputCapture>(data);
         Self::insert_default_if_missing::<HierarchyState>(data);
