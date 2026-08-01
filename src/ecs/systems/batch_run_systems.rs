@@ -5,8 +5,13 @@ use anyhow::{bail, Context, Result};
 
 use cgmath::Vector2;
 
+use thyllore_anim_core::editable::PropertyType;
+
 use crate::asset::AssetStorage;
-use crate::ecs::component::{ClipSchedule, FlameEffect, FlameParam};
+use crate::ecs::component::{
+    scalar_channel_domains, scalar_channel_for_cli_name, scalar_channel_for_property,
+    scalar_cli_names_joined, ClipSchedule, FlameEffect,
+};
 use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::{
     BatchRun, BatchRunState, ClipLibrary, DebugViewMode, DebugViewState, FlameShadingMode,
@@ -77,12 +82,12 @@ pub enum BatchAnimEdit {
         seed: u64,
     },
     Key {
-        param: FlameParam,
+        property_type: PropertyType,
         time: f32,
         value: f32,
     },
     KeyAtPlayhead {
-        param: FlameParam,
+        property_type: PropertyType,
     },
     TrimEnd {
         seconds: f32,
@@ -879,14 +884,16 @@ fn anim_edit_parse_spec(spec: &str) -> Result<BatchAnimEdit> {
         return Ok(BatchAnimEdit::DebugKeys { seed });
     }
     if let Some(param_str) = spec.strip_prefix("key_at_playhead=") {
-        let param = FlameParam::from_cli_name(param_str.trim()).ok_or_else(|| {
+        let (_, channel) = scalar_channel_for_cli_name(param_str.trim()).ok_or_else(|| {
             anyhow::anyhow!(
-                "unknown flame param '{}'. Valid params: {}",
+                "unknown scalar channel '{}'. Valid channels: {}",
                 param_str,
-                FlameParam::ALL.map(|p| p.cli_name()).join(", ")
+                scalar_cli_names_joined()
             )
         })?;
-        return Ok(BatchAnimEdit::KeyAtPlayhead { param });
+        return Ok(BatchAnimEdit::KeyAtPlayhead {
+            property_type: channel.property_type(),
+        });
     }
     if let Some(seconds_str) = spec.strip_prefix("trim_end=") {
         let seconds: f32 = seconds_str
@@ -905,11 +912,11 @@ fn anim_edit_parse_spec(spec: &str) -> Result<BatchAnimEdit> {
         let (time_str, value_str) = rest.split_once('=').ok_or_else(|| {
             anyhow::anyhow!("key spec must be key=<param>@<time>=<value>, got '{spec}'")
         })?;
-        let param = FlameParam::from_cli_name(param_str.trim()).ok_or_else(|| {
+        let (_, channel) = scalar_channel_for_cli_name(param_str.trim()).ok_or_else(|| {
             anyhow::anyhow!(
-                "unknown flame param '{}'. Valid params: {}",
+                "unknown scalar channel '{}'. Valid channels: {}",
                 param_str,
-                FlameParam::ALL.map(|p| p.cli_name()).join(", ")
+                scalar_cli_names_joined()
             )
         })?;
         let time: f32 = time_str
@@ -923,41 +930,50 @@ fn anim_edit_parse_spec(spec: &str) -> Result<BatchAnimEdit> {
         if !time.is_finite() || time < 0.0 || !value.is_finite() {
             bail!("key time must be >= 0 and value finite: '{spec}'");
         }
-        return Ok(BatchAnimEdit::Key { param, time, value });
+        return Ok(BatchAnimEdit::Key {
+            property_type: channel.property_type(),
+            time,
+            value,
+        });
     }
     bail!("unknown anim edit spec '{spec}'. Expected debug_keys=<seed> | key=<param>@<time>=<value> | key_at_playhead=<param> | trim_end=<seconds> | clear")
 }
 
-/// Apply anim edits through the production flame-clip event dispatcher, so batch
+/// Apply anim edits through the production scalar-clip event dispatcher, so batch
 /// runs exercise the same path as the UI (clip creation, undo history, schedule
 /// extension). Key edits temporarily move the timeline to the key's time because
-/// `InsertFlameKey` always keys at `TimelineState::current_time`.
+/// `InsertScalarKey` always keys at `TimelineState::current_time`.
 pub fn batch_apply_anim_edits(
     world: &mut World,
     assets: &mut AssetStorage,
     edits: &[BatchAnimEdit],
 ) {
-    use super::phases::dispatch_flame_curve::dispatch_flame_clip_events;
+    use super::phases::dispatch_scalar_curve::dispatch_scalar_clip_events;
+    use super::scalar_clip_systems::{ensure_entity_clip, resolve_selected_scalar_entity};
 
     for edit in edits {
         match edit {
             BatchAnimEdit::DebugKeys { seed } => {
-                dispatch_flame_clip_events(
-                    &[UIEvent::InsertFlameDebugKeys { seed: *seed }],
+                dispatch_scalar_clip_events(
+                    &[UIEvent::InsertScalarDebugKeys { seed: *seed }],
                     world,
                     assets,
                 );
             }
-            BatchAnimEdit::Key { param, time, value } => {
+            BatchAnimEdit::Key {
+                property_type,
+                time,
+                value,
+            } => {
                 let previous_time = {
                     let mut timeline = world.resource_mut::<TimelineState>();
                     let previous = timeline.current_time;
                     timeline.current_time = *time;
                     previous
                 };
-                dispatch_flame_clip_events(
-                    &[UIEvent::InsertFlameKey {
-                        param: *param,
+                dispatch_scalar_clip_events(
+                    &[UIEvent::InsertScalarKey {
+                        property_type: *property_type,
                         value: *value,
                     }],
                     world,
@@ -965,19 +981,21 @@ pub fn batch_apply_anim_edits(
                 );
                 world.resource_mut::<TimelineState>().current_time = previous_time;
             }
-            BatchAnimEdit::KeyAtPlayhead { param } => {
-                dispatch_flame_clip_events(
-                    &[UIEvent::InsertFlameKeyAtPlayhead { param: *param }],
+            BatchAnimEdit::KeyAtPlayhead { property_type } => {
+                dispatch_scalar_clip_events(
+                    &[UIEvent::InsertScalarKeyAtPlayhead {
+                        property_type: *property_type,
+                    }],
                     world,
                     assets,
                 );
             }
             BatchAnimEdit::TrimEnd { seconds } => {
-                let Some(&flame) = world.query_flames().first() else {
+                let Some((entity, domain)) = resolve_selected_scalar_entity(world) else {
                     continue;
                 };
-                let clip_id = super::flame_clip_systems::ensure_flame_clip(world, assets, flame);
-                let Some(instance_id) = world.get_component::<ClipSchedule>(flame).and_then(|s| {
+                let clip_id = ensure_entity_clip(world, assets, entity, domain);
+                let Some(instance_id) = world.get_component::<ClipSchedule>(entity).and_then(|s| {
                     s.instances
                         .iter()
                         .find(|i| i.source_id == clip_id)
@@ -987,7 +1005,7 @@ pub fn batch_apply_anim_edits(
                 };
                 super::timeline_systems::process_clip_instance_events(
                     &[UIEvent::ClipInstanceTrimEnd {
-                        entity: flame,
+                        entity,
                         instance_id,
                         new_clip_out: *seconds,
                     }],
@@ -995,7 +1013,7 @@ pub fn batch_apply_anim_edits(
                 );
             }
             BatchAnimEdit::Clear => {
-                dispatch_flame_clip_events(&[UIEvent::ClearFlameKeys], world, assets);
+                dispatch_scalar_clip_events(&[UIEvent::ClearScalarKeys], world, assets);
             }
         }
     }
@@ -1106,16 +1124,15 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
             BatchDebugAction::OpenFlameCurves => {
                 world
                     .resource_mut::<UIEventQueue>()
-                    .send(UIEvent::OpenFlameCurveEditor);
+                    .send(UIEvent::OpenScalarCurveEditor);
             }
             BatchDebugAction::FlameClipPreview { end_seconds } => {
                 apply_flame_clip_preview(world, *end_seconds);
             }
             BatchDebugAction::TimelineSelectFlameClip => {
-                let clip_id = world
-                    .query_flames()
-                    .first()
-                    .and_then(|&flame| super::flame_clip_systems::find_flame_clip_id(world, flame));
+                let clip_id = world.query_flames().first().and_then(|&flame| {
+                    super::scalar_clip_systems::find_entity_clip_id(world, flame)
+                });
                 if let Some(clip_id) = clip_id {
                     world
                         .resource_mut::<UIEventQueue>()
@@ -1167,46 +1184,47 @@ pub fn debug_actions_json() -> String {
 /// every clip's scalar curves, timeline) so agents can inspect edits without a
 /// window. Written once at engine exit; the file is the access surface.
 pub fn batch_anim_dump_json(world: &World) -> serde_json::Value {
-    use super::flame_clip_systems::{find_flame_clip_id, flame_param_value};
+    use super::scalar_clip_systems::find_entity_clip_id;
 
-    let flames: Vec<serde_json::Value> = world
-        .query_flames()
-        .into_iter()
-        .map(|entity| {
-            let effect = world.get_component::<FlameEffect>(entity);
-            let params: serde_json::Map<String, serde_json::Value> = effect
-                .map(|e| {
-                    FlameParam::ALL
-                        .into_iter()
-                        .map(|p| (p.cli_name().to_string(), flame_param_value(e, p).into()))
-                        .collect()
-                })
-                .unwrap_or_default();
-            let schedule: Vec<serde_json::Value> = world
-                .get_component::<ClipSchedule>(entity)
-                .map(|s| {
-                    s.instances
-                        .iter()
-                        .map(|i| {
-                            serde_json::json!({
-                                "instance_id": i.instance_id,
-                                "source_id": i.source_id,
-                                "start_time": i.start_time,
-                                "clip_in": i.clip_in,
-                                "clip_out": i.clip_out,
-                                "speed": i.speed,
-                                "muted": i.muted,
+    let entities: Vec<serde_json::Value> = scalar_channel_domains()
+        .iter()
+        .flat_map(|domain| {
+            (domain.entities)(world).into_iter().map(move |entity| {
+                let params: serde_json::Map<String, serde_json::Value> = domain
+                    .channels
+                    .iter()
+                    .filter_map(|channel| {
+                        (domain.read)(world, entity, channel.property_type())
+                            .map(|value| (channel.cli_name.to_string(), value.into()))
+                    })
+                    .collect();
+                let schedule: Vec<serde_json::Value> = world
+                    .get_component::<ClipSchedule>(entity)
+                    .map(|s| {
+                        s.instances
+                            .iter()
+                            .map(|i| {
+                                serde_json::json!({
+                                    "instance_id": i.instance_id,
+                                    "source_id": i.source_id,
+                                    "start_time": i.start_time,
+                                    "clip_in": i.clip_in,
+                                    "clip_out": i.clip_out,
+                                    "speed": i.speed,
+                                    "muted": i.muted,
+                                })
                             })
-                        })
-                        .collect()
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                serde_json::json!({
+                    "entity": entity,
+                    "domain": domain.name,
+                    "time": (domain.local_time)(world, entity),
+                    "clip_id": find_entity_clip_id(world, entity),
+                    "params": params,
+                    "schedule": schedule,
                 })
-                .unwrap_or_default();
-            serde_json::json!({
-                "entity": entity,
-                "time": effect.map(|e| e.time),
-                "clip_id": find_flame_clip_id(world, entity),
-                "params": params,
-                "schedule": schedule,
             })
         })
         .collect();
@@ -1223,8 +1241,8 @@ pub fn batch_anim_dump_json(world: &World) -> serde_json::Value {
                         .scalar_curves
                         .iter()
                         .map(|curve| {
-                            let property = FlameParam::from_property_type(curve.property_type)
-                                .map(|p| p.cli_name().to_string())
+                            let property = scalar_channel_for_property(curve.property_type)
+                                .map(|(_, c)| c.cli_name.to_string())
                                 .unwrap_or_else(|| format!("{:?}", curve.property_type));
                             let keyframes: Vec<serde_json::Value> = curve
                                 .keyframes
@@ -1272,7 +1290,7 @@ pub fn batch_anim_dump_json(world: &World) -> serde_json::Value {
         })
         .unwrap_or(serde_json::Value::Null);
 
-    serde_json::json!({"flames": flames, "clips": clips, "timeline": timeline})
+    serde_json::json!({"entities": entities, "clips": clips, "timeline": timeline})
 }
 
 pub fn batch_anim_dump_write(world: &World, path: &str) -> Result<()> {
@@ -1740,7 +1758,7 @@ mod tests {
         assert_eq!(
             edits[1],
             BatchAnimEdit::Key {
-                param: FlameParam::Height,
+                property_type: crate::ecs::component::FlameParam::Height.property_type(),
                 time: 1.5,
                 value: 2.25
             }
@@ -1804,7 +1822,7 @@ mod tests {
             &[
                 BatchAnimEdit::DebugKeys { seed: 7 },
                 BatchAnimEdit::Key {
-                    param: FlameParam::Height,
+                    property_type: crate::ecs::component::FlameParam::Height.property_type(),
                     time: 9.0,
                     value: 3.5,
                 },
@@ -1816,16 +1834,22 @@ mod tests {
         );
 
         let dump = batch_anim_dump_json(&world);
-        let flames = dump["flames"].as_array().unwrap();
-        assert_eq!(flames.len(), 1);
-        let clip_id = flames[0]["clip_id"].as_u64().expect("flame clip scheduled");
+        let entities = dump["entities"].as_array().unwrap();
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0]["domain"], "Flame");
+        let clip_id = entities[0]["clip_id"]
+            .as_u64()
+            .expect("flame clip scheduled");
         let clips = dump["clips"].as_array().unwrap();
         let clip = clips
             .iter()
             .find(|c| c["id"].as_u64() == Some(clip_id))
             .expect("clip in dump");
         let curves = clip["scalar_curves"].as_array().unwrap();
-        assert_eq!(curves.len(), FlameParam::ALL.len());
+        assert_eq!(
+            curves.len(),
+            crate::ecs::component::FLAME_DOMAIN.channels.len()
+        );
         let height = curves
             .iter()
             .find(|c| c["property"] == "height")
@@ -1833,7 +1857,7 @@ mod tests {
         let keyframes = height["keyframes"].as_array().unwrap();
         assert_eq!(
             keyframes.len(),
-            crate::ecs::systems::flame_clip_systems::DEBUG_KEYS_PER_CURVE + 1
+            crate::ecs::systems::scalar_clip_systems::DEBUG_KEYS_PER_CURVE + 1
         );
         assert!(keyframes
             .iter()
@@ -1870,7 +1894,7 @@ mod tests {
         world.insert_resource(TimelineState::new());
         world.insert_resource(crate::ecs::resource::TimelineInteractionState::default());
         let mut assets = AssetStorage::new();
-        let flame = crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+        let flame = crate::ecs::systems::spawn_flame_with_clip(
             &mut world,
             &mut assets,
             "Flame",

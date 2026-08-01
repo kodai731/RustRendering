@@ -16,6 +16,7 @@ mod marker;
 pub mod mesh;
 mod motion_path;
 mod render;
+mod scalar_channel;
 mod spring_bone;
 
 pub use animation_meta::*;
@@ -36,4 +37,5 @@ pub use marker::*;
 pub use mesh::*;
 pub use motion_path::*;
 pub use render::*;
+pub use scalar_channel::*;
 pub use spring_bone::*;

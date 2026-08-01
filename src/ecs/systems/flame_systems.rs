@@ -1,5 +1,9 @@
 use crate::app::FrameContext;
-use crate::ecs::component::{EntityIcon, FlameBoneAttachment, FlameEffect, FlameTrail};
+use crate::asset::AssetStorage;
+use crate::ecs::component::{
+    apply_flame_param_value, EntityIcon, FlameBoneAttachment, FlameEffect, FlameParam, FlameTrail,
+    FLAME_DOMAIN,
+};
 use crate::ecs::resource::{
     BatchRun, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState, HierarchyState,
     LightState, ProjectionData, TimelineState,
@@ -25,6 +29,20 @@ pub fn spawn_flame(world: &mut World, name: &str, effect: FlameEffect) -> Entity
         .with_editor_display(EntityIcon::Flame, false)
         .with_flame(effect)
         .build()
+}
+
+/// Spawn a flame entity together with its (empty) animation clip and schedule
+/// instance, so every created flame is animatable and shows a Timeline clip
+/// lane immediately instead of waiting for the first inserted key.
+pub fn spawn_flame_with_clip(
+    world: &mut World,
+    assets: &mut AssetStorage,
+    name: &str,
+    effect: FlameEffect,
+) -> Entity {
+    let entity = spawn_flame(world, name, effect);
+    super::scalar_clip_systems::ensure_entity_clip(world, assets, entity, &FLAME_DOMAIN);
+    entity
 }
 
 /// The flame the UI and the flame events act on: the selected entity when it is a flame,
@@ -88,7 +106,7 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
         flame_entities
             .iter()
             .filter_map(|&e| {
-                let clip_id = super::flame_clip_systems::find_flame_clip_id(ctx.world, e)?;
+                let clip_id = super::scalar_clip_systems::find_entity_clip_id(ctx.world, e)?;
                 let clip = clip_library.as_ref()?.get(clip_id)?;
                 Some((e, clip.clone()))
             })
@@ -123,11 +141,13 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
             }
             // Apply scheduled clip scalar curves (flame keyframes) if present
             if let Some((_e, clip)) = flame_clips.iter().find(|(e, _)| *e == entity) {
-                super::flame_clip_systems::apply_flame_scalar_curves(
-                    clip,
-                    effect.time,
-                    &mut effect,
-                );
+                for (property_type, value) in
+                    super::scalar_clip_systems::sampled_scalar_values(clip, effect.time)
+                {
+                    if let Some(param) = FlameParam::from_property_type(property_type) {
+                        apply_flame_param_value(&mut effect, param, value);
+                    }
+                }
             }
         }
     }

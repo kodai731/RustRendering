@@ -8,8 +8,8 @@ use crate::animation::BoneId;
 use crate::animation::{ConstraintId, ConstraintType};
 use crate::app::data::LightMoveTarget;
 use crate::ecs::component::{
-    ColliderShape, FlameEffect, FlameParam, SpringChain, SpringChainId, SpringColliderDef,
-    SpringColliderGroup, SpringColliderGroupId, SpringColliderId, SpringJointParam,
+    ColliderShape, FlameEffect, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
+    SpringColliderGroupId, SpringColliderId, SpringJointParam,
 };
 use crate::ecs::resource::gizmo::BoneDisplayStyle;
 use crate::ecs::resource::{
@@ -410,19 +410,19 @@ pub enum UIEvent {
     UpdateFlameTrailFade(f32),
     SetGridShowYAxis(bool),
     ClearMessageLog,
-    InsertFlameKey {
-        param: FlameParam,
+    InsertScalarKey {
+        property_type: PropertyType,
         value: f32,
     },
-    InsertFlameKeyAtPlayhead {
-        param: FlameParam,
+    InsertScalarKeyAtPlayhead {
+        property_type: PropertyType,
     },
-    ClearFlameKeys,
-    InsertFlameDebugKeys {
+    ClearScalarKeys,
+    InsertScalarDebugKeys {
         seed: u64,
     },
     SelectFlameInstance(usize),
-    OpenFlameCurveEditor,
+    OpenScalarCurveEditor,
 }
 
 #[derive(Default)]

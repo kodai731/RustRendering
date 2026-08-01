@@ -604,8 +604,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.height);
                     ui.same_line();
                     if ui.small_button("K##Height") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::Height,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::Height.property_type(),
                             value: effect_copy.height,
                         });
                     }
@@ -615,8 +615,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.radius);
                     ui.same_line();
                     if ui.small_button("K##Radius") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::Radius,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::Radius.property_type(),
                             value: effect_copy.radius,
                         });
                     }
@@ -625,8 +625,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.intensity);
                     ui.same_line();
                     if ui.small_button("K##Intensity") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::Intensity,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::Intensity.property_type(),
                             value: effect_copy.intensity,
                         });
                     }
@@ -636,8 +636,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.sigma_t);
                     ui.same_line();
                     if ui.small_button("K##SigmaT") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::SigmaT,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::SigmaT.property_type(),
                             value: effect_copy.sigma_t,
                         });
                     }
@@ -650,8 +650,8 @@ fn build_flame_section(
                     effect_copy.temperature_base_k = temp_base as f32;
                     ui.same_line();
                     if ui.small_button("K##BaseTemp") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::TemperatureBaseK,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::TemperatureBaseK.property_type(),
                             value: effect_copy.temperature_base_k,
                         });
                     }
@@ -662,8 +662,8 @@ fn build_flame_section(
                     effect_copy.temperature_tip_k = temp_tip as f32;
                     ui.same_line();
                     if ui.small_button("K##TipTemp") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::TemperatureTipK,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::TemperatureTipK.property_type(),
                             value: effect_copy.temperature_tip_k,
                         });
                     }
@@ -675,8 +675,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.noise_amplitude);
                     ui.same_line();
                     if ui.small_button("K##NoiseAmplitude") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::NoiseAmplitude,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::NoiseAmplitude.property_type(),
                             value: effect_copy.noise_amplitude,
                         });
                     }
@@ -700,8 +700,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.warp_amp);
                     ui.same_line();
                     if ui.small_button("K##WarpAmp") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::WarpAmp,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::WarpAmp.property_type(),
                             value: effect_copy.warp_amp,
                         });
                     }
@@ -710,8 +710,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.warp_freq);
                     ui.same_line();
                     if ui.small_button("K##WarpFreq") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::WarpFreq,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::WarpFreq.property_type(),
                             value: effect_copy.warp_freq,
                         });
                     }
@@ -720,8 +720,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.rise_speed);
                     ui.same_line();
                     if ui.small_button("K##RiseSpeed") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::RiseSpeed,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::RiseSpeed.property_type(),
                             value: effect_copy.rise_speed,
                         });
                     }
@@ -737,8 +737,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.edge_low);
                     ui.same_line();
                     if ui.small_button("K##EdgeLow") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::EdgeLow,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::EdgeLow.property_type(),
                             value: effect_copy.edge_low,
                         });
                     }
@@ -747,8 +747,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.edge_high);
                     ui.same_line();
                     if ui.small_button("K##EdgeHigh") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::EdgeHigh,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::EdgeHigh.property_type(),
                             value: effect_copy.edge_high,
                         });
                     }
@@ -757,8 +757,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.white_boost);
                     ui.same_line();
                     if ui.small_button("K##WhiteBoost") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::WhiteBoost,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::WhiteBoost.property_type(),
                             value: effect_copy.white_boost,
                         });
                     }
@@ -767,8 +767,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.wind_direction.x);
                     ui.same_line();
                     if ui.small_button("K##WindX") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::WindX,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::WindX.property_type(),
                             value: effect_copy.wind_direction.x,
                         });
                     }
@@ -777,8 +777,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.wind_direction.y);
                     ui.same_line();
                     if ui.small_button("K##WindZ") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::WindZ,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::WindZ.property_type(),
                             value: effect_copy.wind_direction.y,
                         });
                     }
@@ -787,8 +787,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.bend_amount);
                     ui.same_line();
                     if ui.small_button("K##BendAmount") {
-                        ui_events.send(UIEvent::InsertFlameKey {
-                            param: FlameParam::BendAmount,
+                        ui_events.send(UIEvent::InsertScalarKey {
+                            property_type: FlameParam::BendAmount.property_type(),
                             value: effect_copy.bend_amount,
                         });
                     }
@@ -819,7 +819,7 @@ fn build_flame_section(
                         .build(&mut effect_copy.radial_sharpness);
 
                     if ui.button("Clear Flame Keys") {
-                        ui_events.send(UIEvent::ClearFlameKeys);
+                        ui_events.send(UIEvent::ClearScalarKeys);
                     }
                     ui.same_line();
                     if ui.button("Random Keys (Debug)") {
@@ -827,10 +827,10 @@ fn build_flame_section(
                             .duration_since(std::time::UNIX_EPOCH)
                             .map(|d| d.as_millis() as u64)
                             .unwrap_or(0);
-                        ui_events.send(UIEvent::InsertFlameDebugKeys { seed });
+                        ui_events.send(UIEvent::InsertScalarDebugKeys { seed });
                     }
                     if ui.button("Curves") {
-                        ui_events.send(UIEvent::OpenFlameCurveEditor);
+                        ui_events.send(UIEvent::OpenScalarCurveEditor);
                     }
                     if ui.button("Add Flame") {
                         ui_events.send(UIEvent::AddFlame);

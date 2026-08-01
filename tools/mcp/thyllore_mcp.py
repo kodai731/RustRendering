@@ -174,26 +174,31 @@ def anim_edit(
     camera: str = "",
     flame_mode: str = "",
 ) -> str:
-    """Apply flame animation edits through the engine's production event path,
+    """Apply scalar animation edits through the engine's production event path,
     render `frames` frames (batch time advances 1/60s per frame, so keyframed
-    params animate), and return the resulting animation state as JSON.
+    params animate), and return the resulting animation state as JSON. Edits
+    target the selected scalar-channel entity (flame today; other domains
+    register the same way).
 
     `edits` is a semicolon-separated list of specs:
-    - `debug_keys=<seed>`: fill all 16 flame param curves with 4 deterministic
-      random keys inside safe ranges (same as the UI "Random Keys (Debug)" button)
-    - `key=<param>@<time>=<value>`: insert one key (param = snake_case name,
-      e.g. height, intensity, temperature_base_k, wind_x)
+    - `debug_keys=<seed>`: fill every channel curve of the entity's domain with
+      4 deterministic random keys inside safe ranges (same as the UI
+      "Random Keys (Debug)" button)
+    - `key=<param>@<time>=<value>`: insert one key (param = snake_case channel
+      name, e.g. height, intensity, temperature_base_k, wind_x)
     - `key_at_playhead=<param>`: insert a key at the current playhead with the
-      flame's current value (the Curve Editor's per-property `+` button path;
-      creates the curve when the clip is empty)
-    - `trim_end=<seconds>`: set the flame clip instance's clip_out through the
+      component's current value (the Curve Editor's per-property `+` button
+      path; creates the curve when the clip is empty)
+    - `trim_end=<seconds>`: set the entity's clip instance clip_out through the
       real ClipInstanceTrimEnd event (what releasing a right-edge drag sends)
-    - `clear`: remove all flame scalar curves
+    - `clear`: remove all scalar curves
 
-    Returns {"ok": true, "anim": {flames, clips, timeline}} — `anim.clips[].scalar_curves`
-    holds every curve's keyframes, `anim.flames[].params` the sampled values at the
-    final rendered frame (time ≈ frames/60). Set `screenshot` to also keep a PNG
-    (path in result). `camera` and `flame_mode` work like in the screenshot tool."""
+    Returns {"ok": true, "anim": {entities, clips, timeline}} —
+    `anim.clips[].scalar_curves` holds every curve's keyframes,
+    `anim.entities[].params` the sampled values at the final rendered frame
+    (time ≈ frames/60) with the owning `domain` name. Set `screenshot` to also
+    keep a PNG (path in result). `camera` and `flame_mode` work like in the
+    screenshot tool."""
     args, png_path = _batch_base_args(frames, camera, flame_mode, screenshot)
     specs = [s.strip() for s in edits.split(";") if s.strip()]
     if not specs:
@@ -206,11 +211,12 @@ def anim_edit(
 @mcp.tool()
 def anim_state(frames: int = 2, camera: str = "") -> str:
     """Read the engine's animation state without editing anything: launch,
-    render `frames` frames, and return {"ok": true, "anim": {flames, clips,
-    timeline}}. `anim.flames[]` lists each flame entity with its clip schedule
-    and current param values; `anim.clips[]` lists every clip with duration,
-    bone track count, and scalar curves (flame keyframes). Use a small `frames`
-    (default 2) for a fast state peek, or larger to see values mid-animation."""
+    render `frames` frames, and return {"ok": true, "anim": {entities, clips,
+    timeline}}. `anim.entities[]` lists each scalar-channel entity (flame, ...)
+    with its domain, clip schedule and current param values; `anim.clips[]`
+    lists every clip with duration, bone track count, and scalar curves. Use a
+    small `frames` (default 2) for a fast state peek, or larger to see values
+    mid-animation."""
     args, png_path = _batch_base_args(frames, camera, "", False)
     return _run_batch_with_dump(args, False, png_path)
 

@@ -153,7 +153,9 @@ fn run_timeline_phase(ctx: &mut FrameContext) {
         timeline_state.target_entity = selected_entity;
     }
 
+    let schedule_extent = super::timeline_systems::schedule_extent_seconds(ctx.world);
     let mut timeline_state = ctx.world.resource_mut::<TimelineState>();
+    timeline_state.schedule_extent_seconds = schedule_extent;
     let clip_library = ctx.world.resource::<ClipLibrary>();
     // Use fixed delta for deterministic batch playback (same reason as auto exposure)
     let timeline_delta = if ctx

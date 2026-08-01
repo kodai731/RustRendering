@@ -1187,7 +1187,7 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
         if data.ecs_world.query_flames().is_empty() {
-            crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+            crate::ecs::systems::spawn_flame_with_clip(
                 &mut data.ecs_world,
                 &mut data.ecs_assets,
                 crate::ecs::systems::DEFAULT_FLAME_NAME,

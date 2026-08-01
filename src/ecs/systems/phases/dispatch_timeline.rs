@@ -61,14 +61,12 @@ pub fn dispatch_timeline_events(events: &[UIEvent], world: &mut World, assets: &
                 );
                 drop(lib);
 
-                // Flame schedules play their own per-entity clip: timeline clip
-                // selection must never repoint them (or reset their trim).
+                // Scalar-domain entities (flame, ...) play their own per-entity
+                // clip: timeline clip selection must never repoint them (or
+                // reset their trim).
                 let schedule_entities = world.component_entities::<ClipSchedule>();
                 for entity in &schedule_entities {
-                    if world
-                        .get_component::<crate::ecs::component::FlameEffect>(*entity)
-                        .is_some()
-                    {
+                    if crate::ecs::component::scalar_domain_for_entity(world, *entity).is_some() {
                         continue;
                     }
                     if let Some(schedule) = world.get_component_mut::<ClipSchedule>(*entity) {
@@ -248,7 +246,7 @@ pub fn dispatch_buffer_events(events: &[UIEvent], world: &mut World) {
 mod tests {
     use super::*;
     use crate::ecs::component::FlameEffect;
-    use crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip;
+    use crate::ecs::systems::spawn_flame_with_clip;
 
     #[test]
     fn timeline_select_clip_leaves_flame_schedule_untouched() {
@@ -258,8 +256,9 @@ mod tests {
         let mut assets = AssetStorage::new();
 
         let flame = spawn_flame_with_clip(&mut world, &mut assets, "Flame", FlameEffect::default());
-        let flame_clip = crate::ecs::systems::flame_clip_systems::find_flame_clip_id(&world, flame)
-            .expect("flame clip");
+        let flame_clip =
+            crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(&world, flame)
+                .expect("flame clip");
 
         let model = world.spawn();
         let model_clip = {

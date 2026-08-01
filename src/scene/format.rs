@@ -385,51 +385,6 @@ fn default_flame_interpolation() -> String {
     "Linear".to_string()
 }
 
-/// Convert a `FlameParam` variant to its string representation.
-pub fn flame_param_to_string(param: crate::ecs::component::FlameParam) -> String {
-    match param {
-        crate::ecs::component::FlameParam::Height => "Height".to_string(),
-        crate::ecs::component::FlameParam::Radius => "Radius".to_string(),
-        crate::ecs::component::FlameParam::Intensity => "Intensity".to_string(),
-        crate::ecs::component::FlameParam::SigmaT => "SigmaT".to_string(),
-        crate::ecs::component::FlameParam::TemperatureBaseK => "TemperatureBaseK".to_string(),
-        crate::ecs::component::FlameParam::TemperatureTipK => "TemperatureTipK".to_string(),
-        crate::ecs::component::FlameParam::WarpAmp => "WarpAmp".to_string(),
-        crate::ecs::component::FlameParam::WarpFreq => "WarpFreq".to_string(),
-        crate::ecs::component::FlameParam::RiseSpeed => "RiseSpeed".to_string(),
-        crate::ecs::component::FlameParam::NoiseAmplitude => "NoiseAmplitude".to_string(),
-        crate::ecs::component::FlameParam::WhiteBoost => "WhiteBoost".to_string(),
-        crate::ecs::component::FlameParam::BendAmount => "BendAmount".to_string(),
-        crate::ecs::component::FlameParam::WindX => "WindX".to_string(),
-        crate::ecs::component::FlameParam::WindZ => "WindZ".to_string(),
-        crate::ecs::component::FlameParam::EdgeLow => "EdgeLow".to_string(),
-        crate::ecs::component::FlameParam::EdgeHigh => "EdgeHigh".to_string(),
-    }
-}
-
-/// Convert a string back to a `FlameParam` variant. Unknown strings are ignored (None).
-pub fn flame_param_from_string(s: &str) -> Option<crate::ecs::component::FlameParam> {
-    match s {
-        "Height" => Some(crate::ecs::component::FlameParam::Height),
-        "Radius" => Some(crate::ecs::component::FlameParam::Radius),
-        "Intensity" => Some(crate::ecs::component::FlameParam::Intensity),
-        "SigmaT" => Some(crate::ecs::component::FlameParam::SigmaT),
-        "TemperatureBaseK" => Some(crate::ecs::component::FlameParam::TemperatureBaseK),
-        "TemperatureTipK" => Some(crate::ecs::component::FlameParam::TemperatureTipK),
-        "WarpAmp" => Some(crate::ecs::component::FlameParam::WarpAmp),
-        "WarpFreq" => Some(crate::ecs::component::FlameParam::WarpFreq),
-        "RiseSpeed" => Some(crate::ecs::component::FlameParam::RiseSpeed),
-        "NoiseAmplitude" => Some(crate::ecs::component::FlameParam::NoiseAmplitude),
-        "WhiteBoost" => Some(crate::ecs::component::FlameParam::WhiteBoost),
-        "BendAmount" => Some(crate::ecs::component::FlameParam::BendAmount),
-        "WindX" => Some(crate::ecs::component::FlameParam::WindX),
-        "WindZ" => Some(crate::ecs::component::FlameParam::WindZ),
-        "EdgeLow" => Some(crate::ecs::component::FlameParam::EdgeLow),
-        "EdgeHigh" => Some(crate::ecs::component::FlameParam::EdgeHigh),
-        _ => None,
-    }
-}
-
 /// Convert an `Interpolation` variant to its string representation.
 pub fn interpolation_to_string(interp: thyllore_anim_core::Interpolation) -> String {
     match interp {
@@ -536,7 +491,7 @@ fn build_flame_channels_from_clip(
     world: &crate::ecs::world::World,
     entity: crate::ecs::world::Entity,
 ) -> Vec<FlameChannelData> {
-    let Some(clip_id) = crate::ecs::systems::find_flame_clip_id(world, entity) else {
+    let Some(clip_id) = crate::ecs::systems::find_entity_clip_id(world, entity) else {
         return Vec::new();
     };
     let Some(lib) = world.get_resource::<crate::ecs::resource::ClipLibrary>() else {
@@ -549,9 +504,10 @@ fn build_flame_channels_from_clip(
     clip.scalar_curves
         .iter()
         .filter_map(|curve| {
-            let param = crate::ecs::component::FlameParam::from_property_type(curve.property_type)?;
+            let (_, channel) =
+                crate::ecs::component::scalar_channel_for_property(curve.property_type)?;
             Some(FlameChannelData {
-                param: flame_param_to_string(param),
+                param: channel.scene_name.to_string(),
                 keys: curve
                     .keyframes
                     .iter()
@@ -662,13 +618,14 @@ pub fn apply_flame_state_to_world(
     // idempotent: any previously scheduled flame clip instance is replaced.
     let mut editable = thyllore_anim_core::editable::EditableAnimationClip::new(
         0,
-        crate::ecs::systems::FLAME_CLIP_NAME.to_string(),
+        crate::ecs::component::FLAME_DOMAIN.name.to_string(),
     );
     for ch in &flame.channels {
-        let Some(param) = flame_param_from_string(&ch.param) else {
+        let Some((_, channel)) = crate::ecs::component::scalar_channel_for_scene_name(&ch.param)
+        else {
             continue;
         };
-        let curve = editable.get_or_add_scalar_curve(param.property_type());
+        let curve = editable.get_or_add_scalar_curve(channel.property_type());
         for k in ch.keys.iter() {
             let interp = match k.interpolation.as_str() {
                 "Bezier" => thyllore_anim_core::editable::InterpolationType::Bezier,
@@ -739,29 +696,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_flame_param_string_roundtrip() {
-        let variants: Vec<crate::ecs::component::FlameParam> = vec![
-            crate::ecs::component::FlameParam::Height,
-            crate::ecs::component::FlameParam::Radius,
-            crate::ecs::component::FlameParam::Intensity,
-            crate::ecs::component::FlameParam::SigmaT,
-            crate::ecs::component::FlameParam::TemperatureBaseK,
-            crate::ecs::component::FlameParam::TemperatureTipK,
-            crate::ecs::component::FlameParam::WarpAmp,
-            crate::ecs::component::FlameParam::WarpFreq,
-            crate::ecs::component::FlameParam::RiseSpeed,
-            crate::ecs::component::FlameParam::NoiseAmplitude,
-            crate::ecs::component::FlameParam::WhiteBoost,
-            crate::ecs::component::FlameParam::BendAmount,
-            crate::ecs::component::FlameParam::WindX,
-            crate::ecs::component::FlameParam::WindZ,
-            crate::ecs::component::FlameParam::EdgeLow,
-            crate::ecs::component::FlameParam::EdgeHigh,
-        ];
-        for v in variants {
-            let s = flame_param_to_string(v);
-            let roundtrip = flame_param_from_string(&s);
-            assert_eq!(roundtrip, Some(v), "Roundtrip failed for {}", s);
+    fn test_scalar_channel_scene_name_roundtrip() {
+        for domain in crate::ecs::component::scalar_channel_domains() {
+            for channel in domain.channels {
+                let (_, found) =
+                    crate::ecs::component::scalar_channel_for_scene_name(channel.scene_name)
+                        .expect("scene name resolves");
+                assert_eq!(
+                    found.code, channel.code,
+                    "Roundtrip failed for {}",
+                    channel.scene_name
+                );
+            }
         }
     }
 
@@ -1119,7 +1065,7 @@ mod tests {
 
         let mut clip = thyllore_anim_core::editable::EditableAnimationClip::new(
             0,
-            crate::ecs::systems::FLAME_CLIP_NAME.to_string(),
+            crate::ecs::component::FLAME_DOMAIN.name.to_string(),
         );
         {
             let curve = clip
@@ -1158,7 +1104,7 @@ mod tests {
         apply_flame_state_to_world(&mut world2, &mut assets2, &data);
 
         let clip_id2 =
-            crate::ecs::systems::find_flame_clip_id(&world2, entity2).expect("clip scheduled");
+            crate::ecs::systems::find_entity_clip_id(&world2, entity2).expect("clip scheduled");
         let lib2 = world2
             .get_resource::<crate::ecs::resource::ClipLibrary>()
             .unwrap();

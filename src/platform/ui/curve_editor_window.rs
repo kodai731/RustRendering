@@ -8,7 +8,7 @@ use crate::animation::editable::{
     TangentWeightMode,
 };
 use crate::animation::BoneId;
-use crate::ecs::component::FlameParam;
+use crate::ecs::component::{scalar_channel_for_property, ScalarChannel, ScalarChannelDomain};
 use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::{
     ClipLibrary, CurveEditorBuffer, CurveEditorState, CurveEditorTarget, CurveInteractionMode,
@@ -109,7 +109,7 @@ pub fn build_curve_editor_window(
     curve_buffer: &CurveEditorBuffer,
     suggestion_overlays: &[SuggestionOverlay],
     pose_library: &mut PoseLibrary,
-    is_flame_clip: bool,
+    scalar_domain: Option<&'static ScalarChannelDomain>,
 ) {
     if !editor_state.is_open {
         return;
@@ -154,7 +154,7 @@ pub fn build_curve_editor_window(
                     timeline_state,
                     clip_library,
                     editor_state,
-                    is_flame_clip,
+                    scalar_domain,
                 );
             });
 
@@ -196,28 +196,31 @@ fn build_track_list(
     timeline_state: &TimelineState,
     clip_library: &ClipLibrary,
     editor_state: &mut CurveEditorState,
-    is_flame_clip: bool,
+    scalar_domain: Option<&'static ScalarChannelDomain>,
 ) {
     let Some(clip) = get_current_clip(timeline_state, clip_library) else {
         ui.text("No clip selected");
         return;
     };
 
-    if is_flame_clip || !clip.scalar_curves.is_empty() {
-        ui.text("Effects:");
-        ui.separator();
-        let is_selected = editor_state.selected_target == Some(CurveEditorTarget::Scalars);
-        if ui.selectable_config("Flame").selected(is_selected).build() {
+    // A scalar-domain clip animates one component's channels: showing the
+    // (unrelated) bone list next to it only invites confusion, so the track
+    // list is either the domain's channels or the bone tracks, never both.
+    if scalar_domain.is_some() || !clip.scalar_curves.is_empty() {
+        if editor_state.selected_target != Some(CurveEditorTarget::Scalars) {
             editor_state.select_scalars();
             for curve in &clip.scalar_curves {
                 editor_state.visible_curves.insert(curve.property_type);
             }
             editor_state.view_initialized = false;
         }
-        if is_selected {
-            build_scalar_curve_selector_inline(ui, ui_events, clip, editor_state);
+        let label = scalar_domain.map(|d| d.name).unwrap_or("Scalars");
+        ui.text(format!("{label}:"));
+        ui.separator();
+        if let Some(domain) = scalar_domain {
+            build_scalar_curve_selector_inline(ui, ui_events, clip, editor_state, domain);
         }
-        ui.spacing();
+        return;
     }
 
     ui.text("Bones:");
@@ -255,19 +258,20 @@ fn build_track_list(
     }
 }
 
-/// Every flame param gets a row, keyed or not: `+` inserts a key at the
-/// playhead with the flame's current value (creating the curve on first use),
-/// so an empty clip opened in the editor still offers a keying path.
+/// Every domain channel gets a row, keyed or not: `+` inserts a key at the
+/// playhead with the component's current value (creating the curve on first
+/// use), so an empty clip opened in the editor still offers a keying path.
 fn build_scalar_curve_selector_inline(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
     clip: &EditableAnimationClip,
     editor_state: &mut CurveEditorState,
+    domain: &'static ScalarChannelDomain,
 ) {
     ui.indent();
 
-    for param in FlameParam::ALL {
-        let property_type = param.property_type();
+    for channel in domain.channels {
+        let property_type = channel.property_type();
         let key_count = clip
             .get_scalar_curve(property_type)
             .map(|curve| curve.keyframes.len())
@@ -290,8 +294,8 @@ fn build_scalar_curve_selector_inline(
             }
         }
         ui.same_line();
-        if ui.small_button(&format!("+##key_{}", param.cli_name())) {
-            ui_events.send(UIEvent::InsertFlameKeyAtPlayhead { param });
+        if ui.small_button(&format!("+##key_{}", channel.cli_name)) {
+            ui_events.send(UIEvent::InsertScalarKeyAtPlayhead { property_type });
             editor_state.visible_curves.insert(property_type);
         }
         if ui.is_item_hovered() {
@@ -300,14 +304,14 @@ fn build_scalar_curve_selector_inline(
     }
 
     if ui.small_button("All##scalar") {
-        for param in FlameParam::ALL {
-            editor_state.visible_curves.insert(param.property_type());
+        for channel in domain.channels {
+            editor_state.visible_curves.insert(channel.property_type());
         }
     }
     ui.same_line();
     if ui.small_button("None##scalar") {
-        for param in FlameParam::ALL {
-            editor_state.visible_curves.remove(&param.property_type());
+        for channel in domain.channels {
+            editor_state.visible_curves.remove(&channel.property_type());
         }
     }
 
@@ -477,18 +481,22 @@ fn collect_visible_scalar_curves<'a>(
 }
 
 fn scalar_curve_style(property_type: PropertyType) -> ([f32; 4], &'static str) {
-    match FlameParam::from_property_type(property_type) {
-        Some(param) => (flame_param_color(param), param.display_name()),
+    match scalar_channel_for_property(property_type) {
+        Some((domain, channel)) => (scalar_channel_color(domain, channel), channel.display_name),
         None => ([0.6, 0.6, 0.6, 1.0], "Custom"),
     }
 }
 
-fn flame_param_color(param: FlameParam) -> [f32; 4] {
-    // Evenly spaced hues over the 16 params, alternating brightness for
-    // neighbor separability.
-    let index = param.code() as f32;
-    let hue = index / FlameParam::ALL.len() as f32;
-    let value = if param.code() % 2 == 0 { 1.0 } else { 0.75 };
+fn scalar_channel_color(domain: &ScalarChannelDomain, channel: &ScalarChannel) -> [f32; 4] {
+    // Evenly spaced hues over the domain's channels, alternating brightness
+    // for neighbor separability.
+    let index = domain
+        .channels
+        .iter()
+        .position(|c| c.code == channel.code)
+        .unwrap_or(0);
+    let hue = index as f32 / domain.channels.len().max(1) as f32;
+    let value = if index % 2 == 0 { 1.0 } else { 0.75 };
     hsv_to_rgba(hue, 0.75, value)
 }
 
@@ -873,9 +881,9 @@ fn build_curve_editor_context_menu(
     });
 }
 
-/// The scalar target only accepts flame params: the visible set can still hold
-/// bone property types from a previous bone target, and letting one through
-/// would create a curve no flame param answers to (grey "Custom", never
+/// The scalar target only accepts registered channels: the visible set can
+/// still hold bone property types from a previous bone target, and letting one
+/// through would create a curve no channel answers to (grey "Custom", never
 /// sampled). Lowest code wins so the choice is deterministic.
 fn add_key_target_property(
     editor_state: &CurveEditorState,
@@ -885,9 +893,9 @@ fn add_key_target_property(
         CurveTrackRef::Scalar => editor_state
             .visible_curves
             .iter()
-            .filter_map(|p| FlameParam::from_property_type(*p))
-            .min_by_key(|p| p.code())
-            .map(|p| p.property_type()),
+            .filter_map(|p| scalar_channel_for_property(*p).map(|(_, c)| c))
+            .min_by_key(|c| c.code)
+            .map(|c| c.property_type()),
         CurveTrackRef::Bone(_) => editor_state.visible_curves.iter().copied().next(),
     }
 }

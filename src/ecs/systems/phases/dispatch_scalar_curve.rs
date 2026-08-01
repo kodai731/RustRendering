@@ -1,17 +1,17 @@
 use crate::asset::AssetStorage;
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{ClipLibrary, CurveEditorState, EditHistory, TimelineState};
-use crate::ecs::systems::flame_clip_systems::{
-    ensure_flame_clip, flame_clip_clear_keys, flame_clip_insert_debug_keys, flame_clip_insert_key,
+use crate::ecs::systems::scalar_clip_systems::{
+    ensure_entity_clip, resolve_selected_scalar_entity, scalar_clip_clear_keys,
+    scalar_clip_insert_debug_keys, scalar_clip_insert_key,
 };
-use crate::ecs::systems::resolve_selected_flame;
 use crate::ecs::world::World;
 use thyllore_anim_core::editable::SourceClipId;
 
-/// Flame keyframe events, applied to the flame entity's clip (scalar curves).
-/// Undo goes through the shared `ClipModified` path, so flame edits merge and
+/// Scalar keyframe events, applied to the resolved domain entity's clip. Undo
+/// goes through the shared `ClipModified` path, so scalar edits merge and
 /// revert exactly like bone clip edits.
-pub fn dispatch_flame_clip_events(
+pub fn dispatch_scalar_clip_events(
     events: &[UIEvent],
     world: &mut World,
     assets: &mut AssetStorage,
@@ -26,66 +26,63 @@ pub fn dispatch_flame_clip_events(
                         ..crate::ecs::component::FlameEffect::default()
                     };
                     let name = format!("Flame {}", flame_count + 1);
-                    crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
-                        world, assets, &name, effect,
-                    );
+                    crate::ecs::systems::spawn_flame_with_clip(world, assets, &name, effect);
                 }
             }
-            UIEvent::InsertFlameKey { param, value } => {
-                let Some((clip_id, _)) = resolve_flame_clip(world, assets) else {
+            UIEvent::InsertScalarKey {
+                property_type,
+                value,
+            } => {
+                let Some((clip_id, _, _)) = resolve_scalar_clip(world, assets) else {
                     continue;
                 };
                 let current_time = world
                     .get_resource::<TimelineState>()
                     .map(|t| t.current_time)
                     .unwrap_or(0.0);
-                edit_clip(world, clip_id, "Flame key edit", |clip| {
-                    flame_clip_insert_key(clip, *param, current_time, *value);
+                edit_clip(world, clip_id, "Scalar key edit", |clip| {
+                    scalar_clip_insert_key(clip, *property_type, current_time, *value);
                 });
             }
-            UIEvent::InsertFlameKeyAtPlayhead { param } => {
-                let Some((clip_id, flame_entity)) = resolve_flame_clip(world, assets) else {
+            UIEvent::InsertScalarKeyAtPlayhead { property_type } => {
+                let Some((clip_id, entity, domain)) = resolve_scalar_clip(world, assets) else {
                     continue;
                 };
                 let current_time = world
                     .get_resource::<TimelineState>()
                     .map(|t| t.current_time)
                     .unwrap_or(0.0);
-                let Some(value) = world
-                    .get_component::<crate::ecs::component::FlameEffect>(flame_entity)
-                    .map(|effect| {
-                        crate::ecs::systems::flame_clip_systems::flame_param_value(&effect, *param)
-                    })
-                else {
+                let Some(value) = (domain.read)(world, entity, *property_type) else {
                     continue;
                 };
-                edit_clip(world, clip_id, "Flame key edit", |clip| {
-                    flame_clip_insert_key(clip, *param, current_time, value);
+                edit_clip(world, clip_id, "Scalar key edit", |clip| {
+                    scalar_clip_insert_key(clip, *property_type, current_time, value);
                 });
             }
-            UIEvent::InsertFlameDebugKeys { seed } => {
-                let Some((clip_id, flame_entity)) = resolve_flame_clip(world, assets) else {
+            UIEvent::InsertScalarDebugKeys { seed } => {
+                let Some((clip_id, entity, domain)) = resolve_scalar_clip(world, assets) else {
                     continue;
                 };
-                edit_clip(world, clip_id, "Flame debug keys", |clip| {
-                    flame_clip_insert_debug_keys(
+                edit_clip(world, clip_id, "Scalar debug keys", |clip| {
+                    scalar_clip_insert_debug_keys(
                         clip,
+                        domain,
                         *seed,
                         crate::ecs::systems::TIMELINE_FALLBACK_DURATION_SECONDS,
                     );
                 });
-                extend_flame_instance_to_clip_duration(world, flame_entity, clip_id);
+                extend_instance_to_clip_duration(world, entity, clip_id);
             }
-            UIEvent::ClearFlameKeys => {
-                let Some(clip_id) = existing_flame_clip(world) else {
+            UIEvent::ClearScalarKeys => {
+                let Some(clip_id) = existing_scalar_clip(world) else {
                     continue;
                 };
-                edit_clip(world, clip_id, "Flame keys clear", |clip| {
-                    flame_clip_clear_keys(clip);
+                edit_clip(world, clip_id, "Scalar keys clear", |clip| {
+                    scalar_clip_clear_keys(clip);
                 });
             }
-            UIEvent::OpenFlameCurveEditor => {
-                let Some((clip_id, _)) = resolve_flame_clip(world, assets) else {
+            UIEvent::OpenScalarCurveEditor => {
+                let Some((clip_id, _, _)) = resolve_scalar_clip(world, assets) else {
                     continue;
                 };
                 if let Some(mut timeline) = world.get_resource_mut::<TimelineState>() {
@@ -115,15 +112,22 @@ pub fn dispatch_flame_clip_events(
     }
 }
 
-fn resolve_flame_clip(world: &mut World, assets: &mut AssetStorage) -> Option<(SourceClipId, u64)> {
-    let flame_entity = resolve_selected_flame(world)?;
-    let clip_id = ensure_flame_clip(world, assets, flame_entity);
-    Some((clip_id, flame_entity))
+fn resolve_scalar_clip(
+    world: &mut World,
+    assets: &mut AssetStorage,
+) -> Option<(
+    SourceClipId,
+    crate::ecs::world::Entity,
+    &'static crate::ecs::component::ScalarChannelDomain,
+)> {
+    let (entity, domain) = resolve_selected_scalar_entity(world)?;
+    let clip_id = ensure_entity_clip(world, assets, entity, domain);
+    Some((clip_id, entity, domain))
 }
 
-fn extend_flame_instance_to_clip_duration(
+fn extend_instance_to_clip_duration(
     world: &mut World,
-    flame_entity: crate::ecs::world::Entity,
+    entity: crate::ecs::world::Entity,
     clip_id: SourceClipId,
 ) {
     let Some(duration) = world
@@ -132,9 +136,7 @@ fn extend_flame_instance_to_clip_duration(
     else {
         return;
     };
-    if let Some(schedule) =
-        world.get_component_mut::<crate::ecs::component::ClipSchedule>(flame_entity)
-    {
+    if let Some(schedule) = world.get_component_mut::<crate::ecs::component::ClipSchedule>(entity) {
         for inst in schedule
             .instances
             .iter_mut()
@@ -145,9 +147,9 @@ fn extend_flame_instance_to_clip_duration(
     }
 }
 
-fn existing_flame_clip(world: &World) -> Option<SourceClipId> {
-    let flame_entity = resolve_selected_flame(world)?;
-    super::super::flame_clip_systems::find_flame_clip_id(world, flame_entity)
+fn existing_scalar_clip(world: &World) -> Option<SourceClipId> {
+    let (entity, _) = resolve_selected_scalar_entity(world)?;
+    crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(world, entity)
 }
 
 fn edit_clip(
@@ -183,8 +185,8 @@ fn edit_clip(
 mod tests {
     use super::*;
     use crate::ecs::component::{FlameEffect, FlameParam};
-    use crate::ecs::systems::flame_clip_systems::find_flame_clip_id;
     use crate::ecs::systems::phases::dispatch_edit_history::dispatch_edit_history_events;
+    use crate::ecs::systems::scalar_clip_systems::find_entity_clip_id;
 
     fn make_world_with_flame() -> (World, AssetStorage) {
         let mut world = World::new();
@@ -204,16 +206,16 @@ mod tests {
         let (mut world, mut assets) = make_world_with_flame();
         let entity = world.query_flames()[0];
 
-        dispatch_flame_clip_events(
-            &[UIEvent::InsertFlameKey {
-                param: FlameParam::Height,
+        dispatch_scalar_clip_events(
+            &[UIEvent::InsertScalarKey {
+                property_type: FlameParam::Height.property_type(),
                 value: 2.5,
             }],
             &mut world,
             &mut assets,
         );
 
-        let clip_id = find_flame_clip_id(&world, entity).expect("flame clip scheduled");
+        let clip_id = find_entity_clip_id(&world, entity).expect("flame clip scheduled");
         let lib = world.get_resource::<ClipLibrary>().unwrap();
         let clip = lib.get(clip_id).expect("clip registered");
         let curve = clip
@@ -228,15 +230,15 @@ mod tests {
         let (mut world, mut assets) = make_world_with_flame();
         let entity = world.query_flames()[0];
 
-        dispatch_flame_clip_events(
-            &[UIEvent::InsertFlameKey {
-                param: FlameParam::Height,
+        dispatch_scalar_clip_events(
+            &[UIEvent::InsertScalarKey {
+                property_type: FlameParam::Height.property_type(),
                 value: 2.5,
             }],
             &mut world,
             &mut assets,
         );
-        let clip_id = find_flame_clip_id(&world, entity).unwrap();
+        let clip_id = find_entity_clip_id(&world, entity).unwrap();
 
         dispatch_edit_history_events(&[UIEvent::Undo], &mut world);
         {
@@ -251,7 +253,7 @@ mod tests {
     }
 
     #[test]
-    fn test_insert_key_at_playhead_uses_current_effect_value_and_time() {
+    fn test_insert_key_at_playhead_uses_current_component_value_and_time() {
         let (mut world, mut assets) = make_world_with_flame();
         let entity = world.query_flames()[0];
 
@@ -261,15 +263,15 @@ mod tests {
             .unwrap()
             .intensity = 4.25;
 
-        dispatch_flame_clip_events(
-            &[UIEvent::InsertFlameKeyAtPlayhead {
-                param: FlameParam::Intensity,
+        dispatch_scalar_clip_events(
+            &[UIEvent::InsertScalarKeyAtPlayhead {
+                property_type: FlameParam::Intensity.property_type(),
             }],
             &mut world,
             &mut assets,
         );
 
-        let clip_id = find_flame_clip_id(&world, entity).expect("flame clip scheduled");
+        let clip_id = find_entity_clip_id(&world, entity).expect("flame clip scheduled");
         let lib = world.get_resource::<ClipLibrary>().unwrap();
         let curve = lib
             .get(clip_id)
@@ -285,19 +287,16 @@ mod tests {
     fn test_add_flame_creates_clip_and_schedule_by_default() {
         let (mut world, mut assets) = make_world_with_flame();
 
-        dispatch_flame_clip_events(&[UIEvent::AddFlame], &mut world, &mut assets);
+        dispatch_scalar_clip_events(&[UIEvent::AddFlame], &mut world, &mut assets);
 
         let flames = world.query_flames();
         assert_eq!(flames.len(), 2);
         let new_flame = flames[1];
         let clip_id =
-            find_flame_clip_id(&world, new_flame).expect("new flame has a scheduled clip");
+            find_entity_clip_id(&world, new_flame).expect("new flame has a scheduled clip");
         let lib = world.get_resource::<ClipLibrary>().unwrap();
         let clip = lib.get(clip_id).expect("clip registered");
-        assert_eq!(
-            clip.name,
-            crate::ecs::systems::flame_clip_systems::FLAME_CLIP_NAME
-        );
+        assert_eq!(clip.name, crate::ecs::component::FLAME_DOMAIN.name);
         assert!(clip.scalar_curves.is_empty());
     }
 
@@ -307,21 +306,21 @@ mod tests {
         world.insert_resource(ClipLibrary::new());
         let mut assets = AssetStorage::new();
 
-        let a = crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+        let a = crate::ecs::systems::spawn_flame_with_clip(
             &mut world,
             &mut assets,
             "Flame",
             FlameEffect::default(),
         );
-        let b = crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+        let b = crate::ecs::systems::spawn_flame_with_clip(
             &mut world,
             &mut assets,
             "Flame 2",
             FlameEffect::default(),
         );
 
-        let clip_a = find_flame_clip_id(&world, a).unwrap();
-        let clip_b = find_flame_clip_id(&world, b).unwrap();
+        let clip_a = find_entity_clip_id(&world, a).unwrap();
+        let clip_b = find_entity_clip_id(&world, b).unwrap();
         assert_ne!(clip_a, clip_b, "each flame owns its own clip");
     }
 }

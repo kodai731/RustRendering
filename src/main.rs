@@ -112,7 +112,7 @@ fn main() -> Result<()> {
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
-                thyllore_animation::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+                thyllore_animation::ecs::systems::spawn_flame_with_clip(
                     &mut app.data.ecs_world,
                     &mut app.data.ecs_assets,
                     &format!("Flame {}", i + 1),

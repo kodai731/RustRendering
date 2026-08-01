@@ -477,7 +477,9 @@ pub fn clip_drag_preview_times(
 pub const TIMELINE_FALLBACK_DURATION_SECONDS: f32 = 5.0;
 
 /// Range the playhead travels over. Always positive: scrubbing and playback stay usable
-/// before a clip exists.
+/// before a clip exists. Covers both the selected clip's own duration and the furthest
+/// scheduled instance end, so a drag-extended instance of a short (or empty) clip can
+/// still be scrubbed to its end.
 pub fn timeline_effective_duration(
     timeline_state: &TimelineState,
     clip_library: &ClipLibrary,
@@ -488,11 +490,24 @@ pub fn timeline_effective_duration(
         .map(|c| c.duration)
         .unwrap_or(0.0);
 
-    if clip_duration > 0.0 {
-        clip_duration
+    let duration = clip_duration.max(timeline_state.schedule_extent_seconds);
+    if duration > 0.0 {
+        duration
     } else {
         TIMELINE_FALLBACK_DURATION_SECONDS
     }
+}
+
+/// Furthest end time any scheduled clip instance reaches, across every entity.
+/// Muted instances count too: their blocks stay visible on the timeline, so the
+/// ruler must still reach them.
+pub fn schedule_extent_seconds(world: &World) -> f32 {
+    world
+        .component_entities::<ClipSchedule>()
+        .iter()
+        .filter_map(|&entity| world.get_component::<ClipSchedule>(entity))
+        .flat_map(|schedule| schedule.instances.iter().map(|i| i.end_time()))
+        .fold(0.0, f32::max)
 }
 
 pub fn timeline_update(
@@ -902,6 +917,59 @@ mod tests {
         timeline_update(&mut state, &library, 0.2);
 
         assert!((state.current_time - 0.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn timeline_extends_to_the_schedule_extent_beyond_the_clip_duration() {
+        let (mut state, library) = setup_test_clip();
+        let clip_duration = library.get(1).unwrap().duration;
+
+        // A drag-extended instance reaches past the clip's own duration: the
+        // ruler, scrubbing and playback must all cover it.
+        state.schedule_extent_seconds = clip_duration + 2.0;
+        assert!(
+            (timeline_effective_duration(&state, &library) - (clip_duration + 2.0)).abs() < 1e-5
+        );
+
+        state.playing = true;
+        state.looping = true;
+        state.current_time = clip_duration + 1.9;
+        timeline_update(&mut state, &library, 0.2);
+        assert!((state.current_time - 0.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn empty_clip_with_extended_instance_uses_the_extent_not_the_fallback() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.schedule_extent_seconds = 8.0;
+
+        assert!((timeline_effective_duration(&state, &library) - 8.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn schedule_extent_covers_every_entity_and_counts_muted_instances() {
+        let mut world = World::new();
+
+        let a = world.spawn();
+        let mut schedule_a = ClipSchedule::new();
+        schedule_a
+            .instances
+            .push(crate::animation::editable::ClipInstance::new(1, 10, 0.0));
+        schedule_a.instances[0].clip_out = 3.0;
+        world.insert_component(a, schedule_a);
+
+        let b = world.spawn();
+        let mut schedule_b = ClipSchedule::new();
+        schedule_b
+            .instances
+            .push(crate::animation::editable::ClipInstance::new(1, 11, 0.0));
+        schedule_b.instances[0].start_time = 1.0;
+        schedule_b.instances[0].clip_out = 4.5;
+        schedule_b.instances[0].muted = true;
+        world.insert_component(b, schedule_b);
+
+        assert!((schedule_extent_seconds(&world) - 5.5).abs() < 1e-5);
     }
 
     #[test]

@@ -98,6 +98,10 @@ pub struct TimelineState {
     pub selected_clip_instance: Option<(Entity, ClipInstanceId)>,
     pub snap_settings: SnapSettings,
     pub baked_bone_ids: Vec<BoneId>,
+    /// Furthest end time any scheduled clip instance reaches, refreshed each
+    /// frame. Lets the timeline range cover drag-extended instances whose
+    /// source clip is shorter (or empty).
+    pub schedule_extent_seconds: f32,
 }
 
 impl TimelineState {
@@ -121,6 +125,7 @@ impl TimelineState {
             selected_clip_instance: None,
             snap_settings: SnapSettings::default(),
             baked_bone_ids: Vec::new(),
+            schedule_extent_seconds: 0.0,
         }
     }
 
