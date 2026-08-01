@@ -68,6 +68,16 @@ pub enum ClipDragType {
     TrimEnd,
 }
 
+/// Timeline-times a dragged clip block should be drawn at while the drag is
+/// still in progress (before the commit event fires on release).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClipDragPreview {
+    pub entity: Entity,
+    pub instance_id: ClipInstanceId,
+    pub start_time: f32,
+    pub end_time: f32,
+}
+
 #[derive(Clone, Debug)]
 pub struct TimelineState {
     pub current_clip_id: Option<SourceClipId>,

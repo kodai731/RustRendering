@@ -53,6 +53,20 @@ pub fn ensure_flame_clip(
     source_id
 }
 
+/// Spawn a flame entity together with its (empty) animation clip and schedule
+/// instance, so every created flame is animatable and shows a Timeline clip
+/// lane immediately instead of waiting for the first inserted key.
+pub fn spawn_flame_with_clip(
+    world: &mut World,
+    assets: &mut AssetStorage,
+    name: &str,
+    effect: FlameEffect,
+) -> Entity {
+    let entity = super::flame_systems::spawn_flame(world, name, effect);
+    ensure_flame_clip(world, assets, entity);
+    entity
+}
+
 /// Sample every flame scalar curve of `clip` at `time` and write the values
 /// into the matching `FlameEffect` fields. Curves clamp at their first/last
 /// keys (same semantics as the former FlameTrack sampling).

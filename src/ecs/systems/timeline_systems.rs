@@ -428,6 +428,50 @@ pub fn timeline_zoom_out(state: &mut TimelineState, min_zoom: f32) {
     state.zoom_level = (state.zoom_level / 1.2).max(min_zoom);
 }
 
+/// Timeline (start, end) a dragged clip block should be drawn at while the drag
+/// is in progress. Mirrors the clamps the commit events apply on release
+/// (`ClipInstanceMove`/`TrimStart`/`TrimEnd`), so the live preview always shows
+/// exactly what releasing the mouse would produce.
+pub fn clip_drag_preview_times(
+    drag_type: &crate::ecs::resource::ClipDragType,
+    original_value: f32,
+    delta_time: f32,
+    inst_start: f32,
+    inst_end: f32,
+    clip_in: f32,
+    clip_out: f32,
+) -> (f32, f32) {
+    use crate::ecs::resource::ClipDragType;
+
+    let span = clip_out - clip_in;
+    let seconds_per_clip_second = if span > 1e-6 {
+        (inst_end - inst_start) / span
+    } else {
+        1.0
+    };
+
+    match drag_type {
+        ClipDragType::Move => {
+            let start = (original_value + delta_time).max(0.0);
+            (start, start + (inst_end - inst_start))
+        }
+        ClipDragType::TrimStart => {
+            let new_clip_in = (original_value + delta_time).clamp(0.0, clip_out);
+            (
+                inst_start,
+                inst_start + (clip_out - new_clip_in) * seconds_per_clip_second,
+            )
+        }
+        ClipDragType::TrimEnd => {
+            let new_clip_out = (original_value + delta_time).max(clip_in);
+            (
+                inst_start,
+                inst_start + (new_clip_out - clip_in) * seconds_per_clip_second,
+            )
+        }
+    }
+}
+
 /// Range the timeline spans when no clip supplies one, so the ruler, the transport and
 /// playback all agree on how far the playhead may travel.
 pub const TIMELINE_FALLBACK_DURATION_SECONDS: f32 = 5.0;
@@ -1071,5 +1115,47 @@ mod tests {
         let (clip_in, clip_out) = instance_clip_range(&world, entity);
         assert!((clip_in - 2.0).abs() < 1e-6);
         assert!((clip_out - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drag_preview_trim_end_extends_zero_length_clip() {
+        use crate::ecs::resource::ClipDragType;
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::TrimEnd, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0);
+        assert!((start - 0.0).abs() < 1e-6);
+        assert!((end - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drag_preview_mirrors_commit_clamps() {
+        use crate::ecs::resource::ClipDragType;
+
+        // TrimEnd never drops below clip_in
+        let (_, end) =
+            clip_drag_preview_times(&ClipDragType::TrimEnd, 2.0, -5.0, 1.0, 3.0, 1.0, 2.0);
+        assert!((end - 1.0).abs() < 1e-6);
+
+        // TrimStart clamps into [0, clip_out]; block start stays fixed
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::TrimStart, 0.5, 9.0, 1.0, 3.0, 0.5, 2.0);
+        assert!((start - 1.0).abs() < 1e-6);
+        assert!((end - 1.0).abs() < 1e-6);
+
+        // Move clamps at timeline zero and preserves width
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::Move, 1.0, -5.0, 1.0, 3.0, 0.0, 2.0);
+        assert!((start - 0.0).abs() < 1e-6);
+        assert!((end - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drag_preview_respects_playback_speed_scale() {
+        use crate::ecs::resource::ClipDragType;
+        // 1 clip-second spans 2 timeline-seconds (speed 0.5): extending
+        // clip_out by 1 extends the block by 2.
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::TrimEnd, 1.0, 1.0, 1.0, 3.0, 0.0, 1.0);
+        assert!((start - 1.0).abs() < 1e-6);
+        assert!((end - 5.0).abs() < 1e-6);
     }
 }

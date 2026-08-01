@@ -18,6 +18,19 @@ pub fn dispatch_flame_clip_events(
 ) {
     for event in events {
         match event {
+            UIEvent::AddFlame => {
+                let flame_count = world.query_flames().len();
+                if flame_count < thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES {
+                    let effect = crate::ecs::component::FlameEffect {
+                        position: cgmath::Vector3::new(1.5 * flame_count as f32, 0.0, 0.0),
+                        ..crate::ecs::component::FlameEffect::default()
+                    };
+                    let name = format!("Flame {}", flame_count + 1);
+                    crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+                        world, assets, &name, effect,
+                    );
+                }
+            }
             UIEvent::InsertFlameKey { param, value } => {
                 let Some((clip_id, _)) = resolve_flame_clip(world, assets) else {
                     continue;
@@ -215,5 +228,49 @@ mod tests {
         let lib = world.get_resource::<ClipLibrary>().unwrap();
         let clip = lib.get(clip_id).unwrap();
         assert_eq!(clip.scalar_curves.len(), 1);
+    }
+
+    #[test]
+    fn test_add_flame_creates_clip_and_schedule_by_default() {
+        let (mut world, mut assets) = make_world_with_flame();
+
+        dispatch_flame_clip_events(&[UIEvent::AddFlame], &mut world, &mut assets);
+
+        let flames = world.query_flames();
+        assert_eq!(flames.len(), 2);
+        let new_flame = flames[1];
+        let clip_id =
+            find_flame_clip_id(&world, new_flame).expect("new flame has a scheduled clip");
+        let lib = world.get_resource::<ClipLibrary>().unwrap();
+        let clip = lib.get(clip_id).expect("clip registered");
+        assert_eq!(
+            clip.name,
+            crate::ecs::systems::flame_clip_systems::FLAME_CLIP_NAME
+        );
+        assert!(clip.scalar_curves.is_empty());
+    }
+
+    #[test]
+    fn test_spawn_flame_with_clip_schedules_each_flame_separately() {
+        let mut world = World::new();
+        world.insert_resource(ClipLibrary::new());
+        let mut assets = AssetStorage::new();
+
+        let a = crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+            &mut world,
+            &mut assets,
+            "Flame",
+            FlameEffect::default(),
+        );
+        let b = crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+            &mut world,
+            &mut assets,
+            "Flame 2",
+            FlameEffect::default(),
+        );
+
+        let clip_a = find_flame_clip_id(&world, a).unwrap();
+        let clip_b = find_flame_clip_id(&world, b).unwrap();
+        assert_ne!(clip_a, clip_b, "each flame owns its own clip");
     }
 }

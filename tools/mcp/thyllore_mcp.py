@@ -221,7 +221,11 @@ def debug_action(
     screenshot so the effect is visible. `actions` is a semicolon-separated
     list; run `list_debug_actions` for the full set. Examples:
     `view_mode=normal` (G-buffer normal view), `view_mode=object_id`,
-    `reset_camera`, `camera_to_model`, `add_flame`, `open_flame_curves`.
+    `reset_camera`, `camera_to_model`, `add_flame`, `open_flame_curves`,
+    `flame_clip_preview=<end_seconds>` (draw the first flame's timeline clip
+    block as a mid-drag TrimEnd preview — verifies drag-time visibility
+    without committing; the dump's timeline.drag_preview reports the drawn
+    range while the instance's clip_out stays unchanged).
     View-mode actions write the same DebugViewState the imgui debug panel
     edits; button actions enqueue the same UIEvents as their buttons.
     Returns {"ok": true, "anim": {...}, "path": "<png>"} (path only when

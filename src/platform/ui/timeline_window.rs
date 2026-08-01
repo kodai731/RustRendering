@@ -10,7 +10,7 @@ use crate::ecs::resource::{
     ClipDragState, ClipDragType, ClipLibrary, CurveEditorState, TimelineInteractionState,
     TimelineState,
 };
-use crate::ecs::systems::timeline_effective_duration;
+use crate::ecs::systems::{clip_drag_preview_times, timeline_effective_duration};
 
 use super::layout_snapshot::LayoutSnapshot;
 
@@ -450,9 +450,16 @@ fn build_clip_tracks_section(
             .build();
 
         for (inst_idx, inst) in entry.instances.iter().enumerate() {
-            let block_x = track_origin[0] + inst.start_time * pixels_per_second;
-            let block_w =
-                ((inst.end_time - inst.start_time) * pixels_per_second).max(CLIP_BLOCK_MIN_WIDTH);
+            let (draw_start, draw_end) = clip_block_display_times(
+                interaction,
+                entry.entity,
+                inst,
+                mouse_pos,
+                mouse_down,
+                pixels_per_second,
+            );
+            let block_x = track_origin[0] + draw_start * pixels_per_second;
+            let block_w = ((draw_end - draw_start) * pixels_per_second).max(CLIP_BLOCK_MIN_WIDTH);
             let block_min = [block_x, track_origin[1] + 2.0];
             let block_max = [block_x + block_w, track_origin[1] + CLIP_TRACK_HEIGHT - 2.0];
 
@@ -526,7 +533,6 @@ fn build_clip_tracks_section(
     }
 
     handle_delete_key(ui, ui_events, state);
-    update_clip_drag(interaction, mouse_pos, mouse_down, pixels_per_second);
 }
 
 fn build_group_headers(ui: &imgui::Ui, ui_events: &mut UIEventQueue, entry: &ClipTrackEntry) {
@@ -770,12 +776,41 @@ fn begin_clip_drag(
     });
 }
 
-fn update_clip_drag(
-    _interaction: &mut TimelineInteractionState,
-    _mouse_pos: [f32; 2],
-    _mouse_down: bool,
-    _pixels_per_second: f32,
-) {
+/// Where a clip block should be drawn this frame: an externally injected
+/// preview (batch debug action) wins, then a live drag previews from the
+/// current mouse position, otherwise the committed instance times.
+fn clip_block_display_times(
+    interaction: &TimelineInteractionState,
+    entity: crate::ecs::world::Entity,
+    inst: &ClipInstanceSnapshot,
+    mouse_pos: [f32; 2],
+    mouse_down: bool,
+    pixels_per_second: f32,
+) -> (f32, f32) {
+    if let Some(preview) = &interaction.drag_preview {
+        if preview.entity == entity && preview.instance_id == inst.instance_id {
+            return (preview.start_time, preview.end_time);
+        }
+    }
+
+    if mouse_down {
+        if let Some(drag) = &interaction.dragging_clip {
+            if drag.entity == entity && drag.instance_id == inst.instance_id {
+                let delta_time = (mouse_pos[0] - drag.drag_start_x) / pixels_per_second;
+                return clip_drag_preview_times(
+                    &drag.drag_type,
+                    drag.original_value,
+                    delta_time,
+                    inst.start_time,
+                    inst.end_time,
+                    inst.clip_in,
+                    inst.clip_out,
+                );
+            }
+        }
+    }
+
+    (inst.start_time, inst.end_time)
 }
 
 fn handle_clip_mute_button(

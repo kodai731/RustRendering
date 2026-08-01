@@ -112,8 +112,9 @@ fn main() -> Result<()> {
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
-                thyllore_animation::ecs::systems::spawn_flame(
+                thyllore_animation::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
                     &mut app.data.ecs_world,
+                    &mut app.data.ecs_assets,
                     &format!("Flame {}", i + 1),
                     effect,
                 );
@@ -231,15 +232,25 @@ fn main() -> Result<()> {
         batch_apply_debug_actions(&app.data.ecs_world, &overrides.debug_actions);
     }
 
-    // Apply batch_play override: start timeline playback for deterministic batch clip runs
+    // Apply batch_play override: start timeline playback for deterministic batch clip runs.
+    // Prefer a clip with bone tracks so the (empty) default flame clip never
+    // shadows the model animation the batch run wants to play.
     if overrides.batch_play {
         let first = {
             let clip_library = app
                 .data
                 .ecs_world
                 .resource::<thyllore_animation::ecs::resource::ClipLibrary>();
-            let x = clip_library.all_clip_ids().next().copied();
-            x
+            let mut ids: Vec<_> = clip_library.all_clip_ids().copied().collect();
+            ids.sort_unstable();
+            ids.iter()
+                .copied()
+                .find(|&id| {
+                    clip_library
+                        .get(id)
+                        .is_some_and(|clip| !clip.tracks.is_empty())
+                })
+                .or_else(|| ids.first().copied())
         };
         let mut ts = app
             .data

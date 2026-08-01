@@ -109,17 +109,6 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     );
                 }
             }
-            UIEvent::AddFlame => {
-                let flame_count = world.query_flames().len();
-                if flame_count < thyllore_vulkan_core::resource::MAX_FLAME_INSTANCES {
-                    let effect = FlameEffect {
-                        position: cgmath::Vector3::new(1.5 * flame_count as f32, 0.0, 0.0),
-                        ..FlameEffect::default()
-                    };
-                    let name = format!("Flame {}", flame_count + 1);
-                    crate::ecs::systems::spawn_flame(world, &name, effect);
-                }
-            }
             UIEvent::SelectFlameInstance(index) => {
                 let flames = world.query_flames();
                 if flames.is_empty() {

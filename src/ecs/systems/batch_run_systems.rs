@@ -92,6 +92,7 @@ pub enum BatchDebugAction {
     AddFlame,
     OpenFlameCurves,
     ViewMode(DebugViewMode),
+    FlameClipPreview { end_seconds: f32 },
 }
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
@@ -951,6 +952,7 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "add_flame",
     "open_flame_curves",
     "view_mode=<final|position|normal|shadow_mask|ndotl|light_direction|view_depth|object_id|selection_view|selection_ubo>",
+    "flame_clip_preview=<end_seconds> (draw the first flame's clip block as a mid-drag TrimEnd preview, without committing)",
 ];
 
 fn debug_view_mode_parse(name: &str) -> Option<DebugViewMode> {
@@ -992,6 +994,16 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
         return debug_view_mode_parse(mode_str.trim())
             .map(BatchDebugAction::ViewMode)
             .ok_or_else(|| anyhow::anyhow!("unknown view_mode '{mode_str}'"));
+    }
+    if let Some(seconds_str) = name.strip_prefix("flame_clip_preview=") {
+        let end_seconds: f32 = seconds_str
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("invalid flame_clip_preview seconds '{seconds_str}'"))?;
+        if !end_seconds.is_finite() || end_seconds < 0.0 {
+            bail!("flame_clip_preview seconds must be >= 0 and finite: '{seconds_str}'");
+        }
+        return Ok(BatchDebugAction::FlameClipPreview { end_seconds });
     }
     match name {
         "reset_camera" => Ok(BatchDebugAction::ResetCamera),
@@ -1038,8 +1050,44 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                     .resource_mut::<UIEventQueue>()
                     .send(UIEvent::OpenFlameCurveEditor);
             }
+            BatchDebugAction::FlameClipPreview { end_seconds } => {
+                apply_flame_clip_preview(world, *end_seconds);
+            }
         }
     }
+}
+
+/// Make the timeline draw the first flame's clip block as if a TrimEnd drag to
+/// `end_seconds` were in progress: same preview math as the live drag, but no
+/// commit event, so the underlying instance stays untouched.
+fn apply_flame_clip_preview(world: &World, end_seconds: f32) {
+    let Some(&flame) = world.query_flames().first() else {
+        return;
+    };
+    let Some(instance) = world
+        .get_component::<ClipSchedule>(flame)
+        .and_then(|schedule| schedule.first_instance().cloned())
+    else {
+        return;
+    };
+
+    let (start_time, end_time) = super::timeline_systems::clip_drag_preview_times(
+        &crate::ecs::resource::ClipDragType::TrimEnd,
+        instance.clip_out,
+        end_seconds - instance.clip_out,
+        instance.start_time,
+        instance.end_time(),
+        instance.clip_in,
+        instance.clip_out,
+    );
+    world
+        .resource_mut::<crate::ecs::resource::TimelineInteractionState>()
+        .drag_preview = Some(crate::ecs::resource::ClipDragPreview {
+        entity: flame,
+        instance_id: instance.instance_id,
+        start_time,
+        end_time,
+    });
 }
 
 pub fn debug_actions_json() -> String {
@@ -1129,6 +1177,19 @@ pub fn batch_anim_dump_json(world: &World) -> serde_json::Value {
         })
         .unwrap_or_default();
 
+    let drag_preview = world
+        .get_resource::<crate::ecs::resource::TimelineInteractionState>()
+        .and_then(|s| s.drag_preview)
+        .map(|p| {
+            serde_json::json!({
+                "entity": p.entity,
+                "instance_id": p.instance_id,
+                "start_time": p.start_time,
+                "end_time": p.end_time,
+            })
+        })
+        .unwrap_or(serde_json::Value::Null);
+
     let timeline = world
         .get_resource::<TimelineState>()
         .map(|t| {
@@ -1137,6 +1198,7 @@ pub fn batch_anim_dump_json(world: &World) -> serde_json::Value {
                 "playing": t.playing,
                 "looping": t.looping,
                 "current_clip_id": t.current_clip_id,
+                "drag_preview": drag_preview,
             })
         })
         .unwrap_or(serde_json::Value::Null);
@@ -1709,6 +1771,76 @@ mod tests {
             .any(|k| (k["time"].as_f64().unwrap() - 9.0).abs() < 1e-6
                 && (k["value"].as_f64().unwrap() - 3.5).abs() < 1e-6));
         assert!((clip["duration"].as_f64().unwrap() - 9.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn flame_clip_preview_parses_and_rejects_invalid() {
+        let actions = debug_actions_resolve_from_args(&args(&[
+            "bin",
+            "--batch-debug-action",
+            "flame_clip_preview=3.5",
+        ]))
+        .unwrap();
+        assert_eq!(
+            actions[0],
+            BatchDebugAction::FlameClipPreview { end_seconds: 3.5 }
+        );
+        for bad in ["flame_clip_preview=abc", "flame_clip_preview=-1"] {
+            assert!(
+                debug_actions_resolve_from_args(&args(&["bin", "--batch-debug-action", bad]))
+                    .is_err(),
+                "{bad} should be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn flame_clip_preview_sets_drag_preview_without_touching_instance() {
+        let mut world = World::new();
+        world.insert_resource(ClipLibrary::new());
+        world.insert_resource(TimelineState::new());
+        world.insert_resource(crate::ecs::resource::TimelineInteractionState::default());
+        let mut assets = AssetStorage::new();
+        let flame = crate::ecs::systems::flame_clip_systems::spawn_flame_with_clip(
+            &mut world,
+            &mut assets,
+            "Flame",
+            FlameEffect::default(),
+        );
+
+        batch_apply_debug_actions(
+            &world,
+            &[BatchDebugAction::FlameClipPreview { end_seconds: 3.0 }],
+        );
+
+        let preview = world
+            .resource::<crate::ecs::resource::TimelineInteractionState>()
+            .drag_preview
+            .expect("preview set");
+        assert_eq!(preview.entity, flame);
+        assert!((preview.start_time - 0.0).abs() < 1e-6);
+        assert!((preview.end_time - 3.0).abs() < 1e-6);
+
+        let instance = world
+            .get_component::<ClipSchedule>(flame)
+            .unwrap()
+            .first_instance()
+            .cloned()
+            .unwrap();
+        assert!(
+            (instance.clip_out - 0.0).abs() < 1e-6,
+            "preview must not commit the trim"
+        );
+
+        let dump = batch_anim_dump_json(&world);
+        assert!(
+            (dump["timeline"]["drag_preview"]["end_time"]
+                .as_f64()
+                .unwrap()
+                - 3.0)
+                .abs()
+                < 1e-6
+        );
     }
 
     #[test]
