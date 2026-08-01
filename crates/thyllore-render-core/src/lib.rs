@@ -35,8 +35,9 @@ pub use flame_pick::{
 };
 pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
 pub use flame_radial::{
-    evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_gaussian_scale,
-    integrate_radial_emission, FlameRadialTaper, FLAME_RADIAL_BAND_COUNT,
+    evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_radius_scale,
+    flame_radial_support_radius, integrate_radial_emission, FlameRadialTaper,
+    FLAME_RADIAL_BAND_COUNT,
 };
 pub use flame_shell::{
     flame_shell_outer_radius, flame_shell_radius_scale, flame_shell_support_scale,

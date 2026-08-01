@@ -1,20 +1,18 @@
-use std::f32::consts::PI;
-
 use crate::flame::FlameEffect;
 use thyllore_math_core::{evaluate_chebyshev, ChebyshevSeries};
 
-/// Abel projection of a Gaussian density row.
+/// Abel projection of a biweight density row.
 ///
-/// 3D density: ε(r) = amplitude · exp(−sharpness · r² / R²)
+/// 3D density: ε(r) = amplitude · (1 − r² / Sr²)² inside the support radius Sr = S(sharpness) · R
 /// Line integral along sightline z: ∫ ε(√(y²+z²)) dz
-/// Closed form: amplitude · R · sqrt(PI / sharpness) · exp(−sharpness · y² / R²)
+/// Closed form: amplitude · (16/15) · Sr · (1 − y² / Sr²)^{5/2}, zero for |y| >= Sr.
 ///
-/// `gaussian_radius` is R, `y` is the transverse coordinate on the projection plane.
-pub fn project_row(amplitude: f32, gaussian_radius: f32, sharpness: f32, y: f32) -> f32 {
-    amplitude
-        * gaussian_radius
-        * (PI / sharpness).sqrt()
-        * (-sharpness * y * y / gaussian_radius / gaussian_radius).exp()
+/// `profile_radius` is R, `y` is the transverse coordinate on the projection plane.
+pub fn project_row(amplitude: f32, profile_radius: f32, sharpness: f32, y: f32) -> f32 {
+    let support_radius =
+        crate::flame_radial::flame_radial_support_radius(sharpness) * profile_radius;
+    let inside = (1.0 - y * y / (support_radius * support_radius)).max(0.0);
+    amplitude * (16.0 / 15.0) * support_radius * inside * inside * inside.sqrt()
 }
 
 /// Project the flame effect to a 2D silhouette profile.
@@ -41,7 +39,7 @@ pub fn project_profile(effect: &FlameEffect, heights: &[f32], columns: &[f32]) -
         .iter()
         .map(|&h| {
             let f_h = evaluate_chebyshev(&height, h);
-            let r_h = crate::flame_radial::flame_radial_gaussian_scale(h, taper);
+            let r_h = crate::flame_radial::flame_radial_radius_scale(h, taper);
             columns
                 .iter()
                 .map(|&y| project_row(f_h, r_h, sharpness, y))
@@ -974,22 +972,24 @@ mod tests {
         for &(amplitude, radius, sharpness, y) in cases {
             let closed = project_row(amplitude, radius, sharpness, y);
 
-            // Numerical integration: ∫ amplitude * exp(-sharpness*(y^2+z^2)/R^2) dz
-            // over z from -10*R to +10*R with 20000 steps
-            let z_max = 10.0 * radius;
-            let steps = 20000;
+            // Numerical integration: ∫ amplitude * (1 - (y^2+z^2)/Sr^2)^2 dz over the support,
+            // Sr = support_radius(sharpness) * R
+            let support_radius =
+                crate::flame_radial::flame_radial_support_radius(sharpness) * radius;
+            let z_max = support_radius;
+            let steps = 200000;
             let dz = 2.0 * z_max / steps as f32;
             let mut numerical = 0.0;
             for i in 0..steps {
                 let z = -z_max + (i as f32 + 0.5) * dz;
                 let r_squared = y * y + z * z;
-                let integrand = amplitude * (-sharpness * r_squared / radius / radius).exp();
-                numerical += integrand * dz;
+                let inside = (1.0 - r_squared / (support_radius * support_radius)).max(0.0);
+                numerical += amplitude * inside * inside * dz;
             }
 
             let rel_error = (closed - numerical).abs() / numerical.abs().max(1e-10);
             assert!(
-                rel_error < 1e-5,
+                rel_error < 1e-4 || (closed - numerical).abs() < 1e-6,
                 "project_row vs numerical: amplitude={}, radius={}, sharpness={}, y={}, closed={}, numerical={}, rel_error={}",
                 amplitude, radius, sharpness, y, closed, numerical, rel_error
             );

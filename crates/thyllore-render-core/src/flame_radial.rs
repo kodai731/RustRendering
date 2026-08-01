@@ -1,15 +1,22 @@
 use crate::flame_shell::FLAME_SHELL_BASE_RADIUS;
-use thyllore_math_core::{evaluate_chebyshev, ChebyshevSeries};
+use thyllore_math_core::{
+    biweight_profile, evaluate_chebyshev, integrate_powers, solve_support_interval, ChebyshevSeries,
+};
 
 // Mirror of shaders/include/flame_radial_integral.glsl; the accuracy tests below cover both.
+//
+// The radial density is the compact-support biweight kernel
+//   rho(p) = F(h) * (1 - u^2)^2,  u = |p.xz| / (S * R(h)),  zero for u >= 1.
+// Along a ray u^2(s) is a quadratic g(s), so each height band is the exact
+// polynomial integral of (F0 + F1 s + F2 s^2) * (1 - g(s))^2 over the interval
+// where g(s) <= 1 — power-rule moments only, no tail and no pedestal.
 
 pub const FLAME_RADIAL_BAND_COUNT: usize = 6;
 const MIN_DIR_Y: f32 = 1e-4;
 const MIN_HEIGHT_SPAN: f32 = 1e-5;
 /// Exponent variation across a band below which the constant-exponent moments are used.
 const FLAT_EXPONENT: f32 = 2e-2;
-const SUPPORT_SIGMA: f32 = 4.0;
-/// Maximum radius of the flame support (pedestal subtraction).
+/// Maximum support radius in R(h) units, bounded by the shell proxy headroom.
 pub const FLAME_RADIAL_RMAX: f32 = crate::flame_shell::FLAME_SHELL_SUPPORT_HEADROOM;
 /// Height taper of the radial density.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -27,14 +34,25 @@ impl FlameRadialTaper {
     }
 }
 
-/// Gaussian radius `R(h)` of the radial density, in flame-local units.
-pub fn flame_radial_gaussian_scale(height01: f32, taper: FlameRadialTaper) -> f32 {
+/// Radius `R(h)` of the radial density profile, in flame-local units.
+pub fn flame_radial_radius_scale(height01: f32, taper: FlameRadialTaper) -> f32 {
     FLAME_SHELL_BASE_RADIUS * (1.0 + (taper.tip_ratio - 1.0) * height01.powf(taper.power))
 }
 
-fn exponent_scale(height01: f32, taper: FlameRadialTaper, radial_sharpness: f32) -> f32 {
-    let scale = flame_radial_gaussian_scale(height01, taper).max(1e-4);
-    radial_sharpness / (scale * scale)
+/// Support radius `S` of the biweight profile in R(h) units. The curvature at the
+/// axis matches the former Gaussian `exp(-sharpness * u^2)`, so the sharpness lever
+/// keeps its direction: larger sharpness narrows the support.
+pub fn flame_radial_support_radius(radial_sharpness: f32) -> f32 {
+    (2.0 / radial_sharpness.max(1e-3))
+        .sqrt()
+        .min(FLAME_RADIAL_RMAX)
+}
+
+fn support_inv_sq(height01: f32, taper: FlameRadialTaper, radial_sharpness: f32) -> f32 {
+    let scale = (flame_radial_support_radius(radial_sharpness)
+        * flame_radial_radius_scale(height01, taper))
+    .max(1e-4);
+    1.0 / (scale * scale)
 }
 
 /// Abramowitz-Stegun 7.1.26.
@@ -52,7 +70,7 @@ pub fn approximate_erf(x: f32) -> f32 {
     }
 }
 
-/// Radial density factor max(0, exp(-E) - exp(-Emax)) at a flame-local point.
+/// Radial density factor (1 - u^2)^2 at a flame-local point, zero outside the support.
 pub fn evaluate_radial_density_factor(
     point_local: [f32; 3],
     taper: FlameRadialTaper,
@@ -60,12 +78,11 @@ pub fn evaluate_radial_density_factor(
 ) -> f32 {
     let height = point_local[1].clamp(0.0, 1.0);
     let radius_squared = point_local[0] * point_local[0] + point_local[2] * point_local[2];
-    let exponent = exponent_scale(height, taper, radial_sharpness) * radius_squared;
-    let emax = radial_sharpness * FLAME_RADIAL_RMAX * FLAME_RADIAL_RMAX;
-    ((-exponent).exp() - (-emax).exp()).max(0.0)
+    biweight_profile(support_inv_sq(height, taper, radial_sharpness) * radius_squared)
 }
 
 /// Moments `int_{-half}^{half} s^m exp(-(a s^2 + b s + c)) ds` for m = 0, 1, 2.
+/// Kept for the plume integral, which stays Gaussian.
 pub fn evaluate_gaussian_moments(a: f32, b: f32, c: f32, half_width: f32) -> [f32; 3] {
     if a * half_width * half_width < FLAT_EXPONENT && b.abs() * half_width < FLAT_EXPONENT {
         let flat = (-c).exp();
@@ -92,6 +109,48 @@ pub fn evaluate_gaussian_moments(a: f32, b: f32, c: f32, half_width: f32) -> [f3
     [moment0, moment1, moment2]
 }
 
+/// Integral and first moment of (f0 + f1 s + f2 s^2) * (1 - g(s))^2 over the part of
+/// [-half_width, half_width] inside the support g(s) = a s^2 + b s + c <= 1.
+pub fn evaluate_biweight_band(
+    a: f32,
+    b: f32,
+    c: f32,
+    f0: f32,
+    f1: f32,
+    f2: f32,
+    half_width: f32,
+) -> (f32, f32) {
+    let Some((s_lo, s_hi)) = solve_support_interval(a, b, c, -half_width, half_width) else {
+        return (0.0, 0.0);
+    };
+
+    let m = 1.0 - c;
+    let w0 = m * m;
+    let w1 = -2.0 * b * m;
+    let w2 = b * b - 2.0 * a * m;
+    let w3 = 2.0 * a * b;
+    let w4 = a * a;
+
+    let e = [
+        f0 * w0,
+        f0 * w1 + f1 * w0,
+        f0 * w2 + f1 * w1 + f2 * w0,
+        f0 * w3 + f1 * w2 + f2 * w1,
+        f0 * w4 + f1 * w3 + f2 * w2,
+        f1 * w4 + f2 * w3,
+        f2 * w4,
+    ];
+
+    let powers = integrate_powers(s_lo, s_hi);
+    let mut integral = 0.0;
+    let mut first_moment = 0.0;
+    for (n, coefficient) in e.iter().enumerate() {
+        integral += coefficient * powers[n];
+        first_moment += coefficient * powers[n + 1];
+    }
+    (integral, first_moment)
+}
+
 fn build_height_series(height_coefficients: &[[f32; 4]; 2]) -> ChebyshevSeries {
     ChebyshevSeries::new(
         height_coefficients.iter().flatten().copied().collect(),
@@ -104,8 +163,7 @@ fn integrate_along_ray(
     direction: [f32; 3],
     t_near: f32,
     t_far: f32,
-    sharpness: f32,
-    raw_radial_sharpness: f32,
+    inv_sq: f32,
     height: &ChebyshevSeries,
 ) -> f32 {
     let t_center = 0.5 * (t_near + t_far);
@@ -114,68 +172,13 @@ fn integrate_along_ray(
         origin[2] + t_center * direction[2],
     ];
     let half_width = 0.5 * (t_far - t_near);
-    let moments = evaluate_gaussian_moments(
-        sharpness * (direction[0] * direction[0] + direction[2] * direction[2]),
-        2.0 * sharpness * (point_xz[0] * direction[0] + point_xz[1] * direction[2]),
-        sharpness * (point_xz[0] * point_xz[0] + point_xz[1] * point_xz[1]),
-        half_width,
-    );
-    // Pedestal subtraction: subtract exp(-Emax) * integral over interval I where E(s) <= Emax.
-    let emax = raw_radial_sharpness * FLAME_RADIAL_RMAX * FLAME_RADIAL_RMAX;
-    let a = sharpness * (direction[0] * direction[0] + direction[2] * direction[2]);
-    let b = 2.0 * sharpness * (point_xz[0] * direction[0] + point_xz[1] * direction[2]);
-    let c = sharpness * (point_xz[0] * point_xz[0] + point_xz[1] * point_xz[1]);
-    let pedestal = pedestal_interval_moments(a, b, c, emax, half_width);
+    let a = inv_sq * (direction[0] * direction[0] + direction[2] * direction[2]);
+    let b = 2.0 * inv_sq * (point_xz[0] * direction[0] + point_xz[1] * direction[2]);
+    let c = inv_sq * (point_xz[0] * point_xz[0] + point_xz[1] * point_xz[1]);
     let height_at_center = (origin[1] + t_center * direction[1]).clamp(0.0, 1.0);
-    let emission =
-        evaluate_chebyshev(height, height_at_center) * (moments[0] - (-emax).exp() * pedestal[0]);
-    emission.max(0.0)
-}
-
-/// Pedestal interval moments: [int_I(1), int_I(s), int_I(s^2)] over the interval I where
-/// a*s^2 + b*s + c <= emax, clipped to [-half_width, half_width].
-/// If discriminant < 0 (ray always inside support), I is the entire band.
-/// If ray is outside support (no roots within band), returns zero vector.
-fn pedestal_interval_moments(a: f32, b: f32, c: f32, emax: f32, half_width: f32) -> [f32; 3] {
-    // If a is near zero, treat as linear: b*s + c <= emax => s <= (emax - c)/b.
-    if a < 1e-12 {
-        // Near-flat exponent: if center is inside support, use full band; else empty.
-        if c > emax {
-            return [0.0, 0.0, 0.0];
-        }
-        // Full band [-half_width, half_width]: I0=2h, I1=0, I2=(2/3)*h^3
-        return [
-            2.0 * half_width,
-            0.0,
-            (2.0 / 3.0) * half_width * half_width * half_width,
-        ];
-    }
-
-    let discriminant = b * b - 4.0 * a * (c - emax);
-    if discriminant < 0.0 {
-        // Ray always inside support — I is the entire band [-half_width, half_width].
-        return [
-            2.0 * half_width,
-            0.0,
-            (2.0 / 3.0) * half_width * half_width * half_width,
-        ];
-    }
-
-    let root = discriminant.sqrt();
-    let mut s_lo = (-b - root) / (2.0 * a);
-    let mut s_hi = (-b + root) / (2.0 * a);
-    // Clip to [-half_width, half_width]
-    s_lo = s_lo.max(-half_width);
-    s_hi = s_hi.min(half_width);
-    if s_hi <= s_lo {
-        return [0.0, 0.0, 0.0];
-    }
-    // Polynomial moments over [s_lo, s_hi]: I0 = s_hi - s_lo, I1 = 0.5*(s_hi^2 - s_lo^2), I2 = (1/3)*(s_hi^3 - s_lo^3)
-    [
-        s_hi - s_lo,
-        0.5 * (s_hi * s_hi - s_lo * s_lo),
-        (1.0 / 3.0) * (s_hi * s_hi * s_hi - s_lo * s_lo * s_lo),
-    ]
+    let falloff = evaluate_chebyshev(height, height_at_center);
+    let (integral, _) = evaluate_biweight_band(a, b, c, falloff, 0.0, 0.0, half_width);
+    integral.max(0.0)
 }
 
 /// Horizontal offset of the ray at a given height, with `q = d.xz / d.y`.
@@ -184,7 +187,8 @@ fn ray_point_at_height(origin_local: [f32; 3], q: [f32; 2], height: f32) -> [f32
     [origin_local[0] + rise * q[0], origin_local[2] + rise * q[1]]
 }
 
-/// Emission integral of `F(h) * exp(-k * |p.xz|^2 / R(h)^2)` over a ray segment in flame-local space.
+/// Emission integral of `F(h) * (1 - |p.xz|^2 / (S R(h))^2)^2` over a ray segment
+/// in flame-local space.
 pub fn integrate_radial_emission(
     origin_local: [f32; 3],
     direction_local: [f32; 3],
@@ -193,29 +197,6 @@ pub fn integrate_radial_emission(
     height_coefficients: &[[f32; 4]; 2],
     taper: FlameRadialTaper,
     radial_sharpness: f32,
-) -> f32 {
-    integrate_radial_emission_with_rmax(
-        origin_local,
-        direction_local,
-        t_near,
-        t_far,
-        height_coefficients,
-        taper,
-        radial_sharpness,
-        FLAME_RADIAL_RMAX,
-    )
-}
-
-/// Emission integral with an explicit pedestal radius `r_max`.
-fn integrate_radial_emission_with_rmax(
-    origin_local: [f32; 3],
-    direction_local: [f32; 3],
-    t_near: f32,
-    t_far: f32,
-    height_coefficients: &[[f32; 4]; 2],
-    taper: FlameRadialTaper,
-    radial_sharpness: f32,
-    r_max: f32,
 ) -> f32 {
     if t_far <= t_near {
         return 0.0;
@@ -235,8 +216,7 @@ fn integrate_radial_emission_with_rmax(
             direction_local,
             t_near,
             t_far,
-            exponent_scale(mid_height, taper, radial_sharpness),
-            radial_sharpness,
+            support_inv_sq(mid_height, taper, radial_sharpness),
             &height,
         );
     }
@@ -248,10 +228,13 @@ fn integrate_radial_emission_with_rmax(
     ];
     let quadratic = q[0] * q[0] + q[1] * q[1];
 
-    // Trim to the Gaussian support so grazing rays do not spend bands on empty range.
-    let base_scale = exponent_scale(0.0, taper, radial_sharpness);
-    if quadratic * base_scale > 1e-12 {
-        let support = SUPPORT_SIGMA / (quadratic * base_scale).sqrt();
+    // Trim to the widest support across heights so grazing rays do not spend bands on empty range.
+    let widest_radius = flame_radial_support_radius(radial_sharpness)
+        * flame_radial_radius_scale(0.0, taper)
+            .max(flame_radial_radius_scale(1.0, taper))
+            .max(1e-4);
+    if quadratic > 1e-12 {
+        let support = widest_radius / quadratic.sqrt();
         let closest_approach_height =
             origin_local[1] - (origin_local[0] * q[0] + origin_local[2] * q[1]) / quadratic;
         height_lo = height_lo.max(closest_approach_height - support);
@@ -270,28 +253,21 @@ fn integrate_radial_emission_with_rmax(
         let falloff_mid = evaluate_chebyshev(&height, center);
         let falloff_hi = evaluate_chebyshev(&height, center + half_width);
 
-        let k = exponent_scale(center, taper, radial_sharpness);
+        let inv_sq = support_inv_sq(center, taper, radial_sharpness);
         let point_xz = ray_point_at_height(origin_local, q, center);
-        let moments = evaluate_gaussian_moments(
-            k * quadratic,
-            2.0 * k * (point_xz[0] * q[0] + point_xz[1] * q[1]),
-            k * (point_xz[0] * point_xz[0] + point_xz[1] * point_xz[1]),
-            half_width,
-        );
         let slope = (falloff_hi - falloff_lo) / band_width;
         let curvature =
             2.0 * (falloff_hi + falloff_lo - 2.0 * falloff_mid) / (band_width * band_width);
-
-        // Pedestal subtraction: subtract exp(-Emax) * [falloff_mid*I0 + slope*I1 + curvature*I2]
-        // where I_m = int_I s^m ds over the interval I where a*s^2+b*s+c <= Emax, clipped to [-half_width,half_width].
-        let emax = radial_sharpness * r_max * r_max;
-        let a = k * quadratic;
-        let b = 2.0 * k * (point_xz[0] * q[0] + point_xz[1] * q[1]);
-        let c = k * (point_xz[0] * point_xz[0] + point_xz[1] * point_xz[1]);
-        let pedestal = pedestal_interval_moments(a, b, c, emax, half_width);
-        total += falloff_mid * moments[0] + slope * moments[1] + curvature * moments[2]
-            - (-emax).exp()
-                * (falloff_mid * pedestal[0] + slope * pedestal[1] + curvature * pedestal[2]);
+        let (integral, _) = evaluate_biweight_band(
+            inv_sq * quadratic,
+            2.0 * inv_sq * (point_xz[0] * q[0] + point_xz[1] * q[1]),
+            inv_sq * (point_xz[0] * point_xz[0] + point_xz[1] * point_xz[1]),
+            falloff_mid,
+            slope,
+            curvature,
+            half_width,
+        );
+        total += integral;
 
         falloff_lo = falloff_hi;
     }
@@ -321,7 +297,6 @@ mod tests {
         let height = build_height_series(&coefficients.height);
         let steps = 40000;
         let dt = (t_far - t_near) as f64 / steps as f64;
-        let emax = sharpness as f64 * FLAME_RADIAL_RMAX as f64 * FLAME_RADIAL_RMAX as f64;
         (0..steps)
             .map(|i| {
                 let t = t_near as f64 + (i as f64 + 0.5) * dt;
@@ -332,40 +307,9 @@ mod tests {
                 ];
                 let h = p[1].clamp(0.0, 1.0) as f32;
                 let radius_squared = p[0] * p[0] + p[2] * p[2];
-                let scale = exponent_scale(h, taper, sharpness) as f64;
-                let exponent = scale * radius_squared;
-                let density = (-exponent).exp() - (-emax).exp();
-                evaluate_chebyshev(&height, h) as f64 * density.max(0.0)
-            })
-            .sum::<f64>()
-            * dt
-    }
-
-    /// Same quadrature without the pedestal, which is the limit the integral converges to as r_max grows.
-    fn pure_gaussian_reference(
-        origin: [f32; 3],
-        direction: [f32; 3],
-        t_near: f32,
-        t_far: f32,
-        coefficients: &FlameCoefficients,
-        taper: FlameRadialTaper,
-        sharpness: f32,
-    ) -> f64 {
-        let height = build_height_series(&coefficients.height);
-        let steps = 40000;
-        let dt = (t_far - t_near) as f64 / steps as f64;
-        (0..steps)
-            .map(|i| {
-                let t = t_near as f64 + (i as f64 + 0.5) * dt;
-                let p = [
-                    origin[0] as f64 + t * direction[0] as f64,
-                    origin[1] as f64 + t * direction[1] as f64,
-                    origin[2] as f64 + t * direction[2] as f64,
-                ];
-                let h = p[1].clamp(0.0, 1.0) as f32;
-                let radius_squared = p[0] * p[0] + p[2] * p[2];
-                let scale = exponent_scale(h, taper, sharpness) as f64;
-                evaluate_chebyshev(&height, h) as f64 * (-scale * radius_squared).exp()
+                let u_squared = support_inv_sq(h, taper, sharpness) as f64 * radius_squared;
+                let density = (1.0 - u_squared).max(0.0).powi(2);
+                evaluate_chebyshev(&height, h) as f64 * density
             })
             .sum::<f64>()
             * dt
@@ -486,6 +430,39 @@ mod tests {
     }
 
     #[test]
+    fn test_biweight_band_matches_quadrature() {
+        for (a, b, c, f0, f1, f2, half) in [
+            (0.0f32, 0.0f32, 0.3f32, 1.0f32, 0.0f32, 0.0f32, 0.125f32),
+            (0.5, 0.2, 0.4, 0.8, 0.3, -0.6, 0.25),
+            (40.0, -6.0, 0.9, 1.0, -0.5, 2.0, 0.125),
+            (900.0, -60.0, 1.5, 0.7, 0.1, 0.0, 0.05),
+        ] {
+            let (integral, first_moment) = evaluate_biweight_band(a, b, c, f0, f1, f2, half);
+            let steps = 200000;
+            let ds = 2.0 * half as f64 / steps as f64;
+            let mut reference = 0.0f64;
+            let mut reference_first = 0.0f64;
+            for i in 0..steps {
+                let s = -half as f64 + (i as f64 + 0.5) * ds;
+                let g = a as f64 * s * s + b as f64 * s + c as f64;
+                let density = (1.0 - g).max(0.0).powi(2) * if g <= 1.0 { 1.0 } else { 0.0 };
+                let weight = (f0 as f64 + f1 as f64 * s + f2 as f64 * s * s) * density;
+                reference += weight * ds;
+                reference_first += s * weight * ds;
+            }
+            assert!(
+                (integral as f64 - reference).abs() < 1e-4 * reference.abs().max(1e-4),
+                "integral for (a={a}, b={b}, c={c}): got {integral}, expected {reference}"
+            );
+            assert!(
+                (first_moment as f64 - reference_first).abs()
+                    < 1e-4 * reference.abs().max(1e-4) * half as f64,
+                "first moment for (a={a}, b={b}, c={c}): got {first_moment}, expected {reference_first}"
+            );
+        }
+    }
+
+    #[test]
     fn test_integrate_radial_emission_matches_reference_within_one_percent() {
         let coefficients = FlameCoefficients::default();
         let taper = default_taper();
@@ -564,6 +541,50 @@ mod tests {
         assert!(checked > 20, "ray set too small: {checked}");
     }
 
+    /// Grazing rays that clip the support edge: the interval solve must stay accurate
+    /// where the discriminant approaches zero instead of flickering to zero or spiking.
+    #[test]
+    fn test_grazing_rays_near_support_edge_match_reference() {
+        let coefficients = FlameCoefficients::default();
+        let taper = default_taper();
+        let support_edge =
+            flame_radial_support_radius(SHARPNESS) * flame_radial_radius_scale(0.0, taper);
+
+        let mut checked = 0;
+        for offset in [-2e-3f32, -1e-4, 0.0, 1e-4, 2e-3] {
+            let x = support_edge + offset;
+            let origin = [x, 0.2, 6.7];
+            let direction = normalize_direction([0.0, 0.05, -1.0]);
+            let Some((t_near, t_far)) = clip_to_shell_proxy(origin, direction) else {
+                continue;
+            };
+            let reference = reference_integral(
+                origin,
+                direction,
+                t_near,
+                t_far,
+                &coefficients,
+                taper,
+                SHARPNESS,
+            );
+            let value = integrate_radial_emission(
+                origin,
+                direction,
+                t_near,
+                t_far,
+                &coefficients.height,
+                taper,
+                SHARPNESS,
+            ) as f64;
+            assert!(
+                (value - reference).abs() < 0.01 * reference.abs().max(1e-4),
+                "grazing x={x}: got {value}, expected {reference}"
+            );
+            checked += 1;
+        }
+        assert!(checked >= 5, "ray set too small: {checked}");
+    }
+
     #[test]
     fn test_axis_ray_equals_plain_height_integral() {
         let coefficients = FlameCoefficients::default();
@@ -574,10 +595,7 @@ mod tests {
             .sum::<f64>()
             / steps as f64;
 
-        // On-axis: radius_squared = 0, so density = exp(0) - exp(-Emax) = 1 - exp(-Emax)
-        let emax = SHARPNESS as f64 * FLAME_RADIAL_RMAX as f64 * FLAME_RADIAL_RMAX as f64;
-        let expected = (1.0 - (-emax).exp()) * plain;
-
+        // On-axis: u^2 = 0, so the biweight profile is exactly 1.
         let value = integrate_radial_emission(
             [0.0, 0.0, 0.0],
             [0.0, 1.0, 0.0],
@@ -588,24 +606,29 @@ mod tests {
             SHARPNESS,
         ) as f64;
         assert!(
-            (value - expected).abs() < 0.005 * expected,
-            "on-axis ray got {value}, expected {expected}"
+            (value - plain).abs() < 0.005 * plain,
+            "on-axis ray got {value}, expected {plain}"
         );
     }
 
     #[test]
-    fn test_far_from_axis_ray_is_negligible() {
+    fn test_ray_outside_support_is_exactly_zero() {
         let coefficients = FlameCoefficients::default();
-        let value = integrate_radial_emission(
-            [3.0, 0.0, 0.0],
-            [0.0, 1.0, 0.0],
-            0.0,
-            1.0,
-            &coefficients.height,
-            default_taper(),
-            SHARPNESS,
-        );
-        assert!(value < 1e-6, "expected negligible emission, got {value}");
+        let taper = default_taper();
+        let support_edge =
+            flame_radial_support_radius(SHARPNESS) * flame_radial_radius_scale(0.0, taper);
+        for x in [support_edge + 1e-3, support_edge * 2.0, 3.0] {
+            let value = integrate_radial_emission(
+                [x, 0.0, 0.0],
+                [0.0, 1.0, 0.0],
+                0.0,
+                1.0,
+                &coefficients.height,
+                taper,
+                SHARPNESS,
+            );
+            assert_eq!(value, 0.0, "x={x} lies outside the support");
+        }
     }
 
     #[test]
@@ -628,39 +651,46 @@ mod tests {
     #[test]
     fn test_radial_density_factor_falls_off_with_radius() {
         let taper = default_taper();
-        // At radius 0: exp(0) - exp(-Emax) = 1 - exp(-Emax), not 1.0
-        let emax = SHARPNESS * FLAME_RADIAL_RMAX * FLAME_RADIAL_RMAX;
-        let expected_center = (1.0f32 - (-emax).exp());
+        // On the axis the biweight profile is exactly 1.
         assert!(
-            (evaluate_radial_density_factor([0.0, 0.5, 0.0], taper, SHARPNESS) - expected_center)
-                .abs()
-                < 1e-6
+            (evaluate_radial_density_factor([0.0, 0.5, 0.0], taper, SHARPNESS) - 1.0).abs() < 1e-6
         );
-        let inner = evaluate_radial_density_factor([0.15, 0.5, 0.0], taper, SHARPNESS);
-        let outer = evaluate_radial_density_factor([0.3, 0.5, 0.0], taper, SHARPNESS);
+        let support_edge =
+            flame_radial_support_radius(SHARPNESS) * flame_radial_radius_scale(0.5, taper);
+        let inner =
+            evaluate_radial_density_factor([0.3 * support_edge, 0.5, 0.0], taper, SHARPNESS);
+        let outer =
+            evaluate_radial_density_factor([0.7 * support_edge, 0.5, 0.0], taper, SHARPNESS);
         assert!(inner > outer && outer > 0.0);
+        // Outside the support the density is exactly zero.
+        assert_eq!(
+            evaluate_radial_density_factor([support_edge + 1e-3, 0.5, 0.0], taper, SHARPNESS),
+            0.0
+        );
     }
 
     #[test]
-    fn test_gaussian_radius_stays_inside_the_shell_proxy() {
+    fn test_support_radius_stays_inside_the_shell_proxy() {
         let taper = default_taper();
-        for step in 0..=20 {
-            let height = step as f32 / 20.0;
-            let density_edge = flame_radial_gaussian_scale(height, taper)
-                * (SHARPNESS.recip() * (1.0f32 / 0.01).ln()).sqrt();
-            let proxy = crate::flame_shell::flame_shell_outer_radius(height, 1.0);
-            assert!(
-                density_edge <= proxy,
-                "h={height}: density reaches {density_edge} but the proxy cuts at {proxy}"
-            );
+        for sharpness in [0.5f32, 1.0, 3.0, 4.0, 6.0, 8.0, 16.0] {
+            for step in 0..=20 {
+                let height = step as f32 / 20.0;
+                let density_edge = flame_radial_support_radius(sharpness)
+                    * flame_radial_radius_scale(height, taper);
+                let proxy = crate::flame_shell::flame_shell_outer_radius(height, 1.0);
+                assert!(
+                    density_edge <= proxy,
+                    "k={sharpness} h={height}: support reaches {density_edge} but the proxy cuts at {proxy}"
+                );
+            }
         }
     }
 
     #[test]
-    fn test_taper_narrows_the_gaussian_with_height() {
+    fn test_taper_narrows_the_profile_with_height() {
         let taper = default_taper();
-        let base = flame_radial_gaussian_scale(0.0, taper);
-        let tip = flame_radial_gaussian_scale(1.0, taper);
+        let base = flame_radial_radius_scale(0.0, taper);
+        let tip = flame_radial_radius_scale(1.0, taper);
         assert!((base - FLAME_SHELL_BASE_RADIUS).abs() < 1e-6);
         assert!(tip < base * 0.2, "tip {tip} should follow radius_tip_ratio");
     }
@@ -687,74 +717,5 @@ mod tests {
             effect.radial_sharpness,
         );
         assert_eq!(first.to_bits(), second.to_bits());
-    }
-
-    /// Test ①: Match between the new closed-form density (with pedestal subtraction) and numerical integration.
-    #[test]
-    fn test_pedestal_density_closed_form_matches_numerical() {
-        let coefficients = FlameCoefficients::default();
-        let taper = default_taper();
-        let rays = representative_rays();
-        assert!(rays.len() > 50, "ray set too small: {}", rays.len());
-
-        let references: Vec<f64> = rays
-            .iter()
-            .map(|(o, d, near, far)| {
-                reference_integral(*o, *d, *near, *far, &coefficients, taper, SHARPNESS)
-            })
-            .collect();
-        let peak = references.iter().fold(0.0f64, |m, r| m.max(r.abs()));
-
-        for ((origin, direction, t_near, t_far), reference) in rays.iter().zip(&references) {
-            let value = integrate_radial_emission(
-                *origin,
-                *direction,
-                *t_near,
-                *t_far,
-                &coefficients.height,
-                taper,
-                SHARPNESS,
-            ) as f64;
-            assert!(
-                (value - reference).abs() < 0.01 * peak,
-                "ray o={origin:?} d={direction:?}: got {value}, expected {reference}"
-            );
-        }
-    }
-
-    /// A pedestal radius far outside the support makes exp(-Emax) vanish, so the integral must
-    /// fall back onto the pure Gaussian.
-    #[test]
-    fn test_large_rmax_converges_to_pure_gaussian() {
-        let coefficients = FlameCoefficients::default();
-        let taper = default_taper();
-        let rays = representative_rays();
-        assert!(rays.len() > 50, "ray set too small: {}", rays.len());
-
-        let large_rmax: f32 = 1e3;
-        let references: Vec<f64> = rays
-            .iter()
-            .map(|(o, d, near, far)| {
-                pure_gaussian_reference(*o, *d, *near, *far, &coefficients, taper, SHARPNESS)
-            })
-            .collect();
-        let peak = references.iter().fold(0.0f64, |m, r| m.max(r.abs()));
-
-        for ((origin, direction, t_near, t_far), reference) in rays.iter().zip(&references) {
-            let value = integrate_radial_emission_with_rmax(
-                *origin,
-                *direction,
-                *t_near,
-                *t_far,
-                &coefficients.height,
-                taper,
-                SHARPNESS,
-                large_rmax,
-            ) as f64;
-            assert!(
-                (value - reference).abs() < 0.01 * peak,
-                "ray o={origin:?} d={direction:?}: got {value}, expected {reference}"
-            );
-        }
     }
 }

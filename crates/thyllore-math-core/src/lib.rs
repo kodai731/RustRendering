@@ -1,5 +1,6 @@
 mod billboard;
 mod chebyshev;
+mod compact_support;
 pub mod coordinate_system;
 mod matrix;
 mod quaternion;
@@ -8,6 +9,7 @@ mod winding;
 
 pub use billboard::*;
 pub use chebyshev::*;
+pub use compact_support::*;
 pub use coordinate_system::{
     blender_to_world, fbx_to_world, fix_coord, get_camera_axes_from_view, gltf_to_world,
     perspective, ray_plane_intersection, ray_to_line_segment_distance, ray_to_point_distance,

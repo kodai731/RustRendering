@@ -1,106 +1,94 @@
 #ifndef FLAME_RADIAL_INTEGRAL_GLSL
 #define FLAME_RADIAL_INTEGRAL_GLSL
 
-// Closed-form emission integral of rho(p) = F(h) * exp(-k * |p.xz|^2 / R(h)^2) over a ray segment.
-// The integrand is polynomial x Gaussian, so each height band reduces to the moments
-//   M_m = int s^m exp(-(a s^2 + b s + c)) ds,  M_0 from erf and M_1, M_2 from
-//   2a*M_{m+1} = m*M_{m-1} - b*M_m - [s^m exp(...)].
+// Closed-form emission integral of the compact-support radial density
+//   rho(p) = F(h) * (1 - u^2)^2,  u = |p.xz| / (S * R(h)),  zero for u >= 1
+// over a ray segment. Along the ray u^2(s) is a quadratic g(s), so each height band
+// is the exact polynomial integral of (F0 + F1 s + F2 s^2) * (1 - g(s))^2 over the
+// interval where g(s) <= 1 — power-rule moments only, no tail and no pedestal.
 //
-// Must be included after FlameUBO and evaluateHeightFalloff.
+// Must be included after FlameUBO, evaluateHeightFalloff, and flame_noise_field.glsl
+// (flameBiweight / flameRadialSupportRadius live there).
 // Mirrored in thyllore-render-core/src/flame_radial.rs; the accuracy tests live there.
 
 const int FLAME_RADIAL_BAND_COUNT = 6;
 const float FLAME_RADIAL_MIN_DIR_Y = 1e-4;
 const float FLAME_RADIAL_MIN_HEIGHT_SPAN = 1e-5;
-// Exponent variation across a band below which the constant-exponent moments are used.
-const float FLAME_RADIAL_FLAT_EXPONENT = 2e-2;
-const float FLAME_RADIAL_SUPPORT_SIGMA = 4.0;
-const float FLAME_RADIAL_PI = 3.14159265358979;
-// Maximum radius of the flame support (pedestal subtraction).
-const float FLAME_RADIAL_RMAX = FLAME_SHELL_SUPPORT_HEADROOM;
 
-// Abramowitz-Stegun 7.1.26.
-float flameErf(float x) {
-    float magnitude = abs(x);
-    float t = 1.0 / (1.0 + 0.3275911 * magnitude);
-    float series = ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t
-        + 0.254829592) * t;
-    return sign(x) * (1.0 - series * exp(-magnitude * magnitude));
-}
-
-// int_{-halfWidth}^{halfWidth} s^m exp(-(a s^2 + b s + c)) ds for m = 0, 1, 2.
-vec3 flameGaussianMoments(float a, float b, float c, float halfWidth) {
-    if (a * halfWidth * halfWidth < FLAME_RADIAL_FLAT_EXPONENT
-        && abs(b) * halfWidth < FLAME_RADIAL_FLAT_EXPONENT) {
-        float constantWeight = exp(-c);
-        return constantWeight
-            * vec3(2.0 * halfWidth, 0.0, (2.0 / 3.0) * halfWidth * halfWidth * halfWidth);
-    }
-
-    float rootA = sqrt(a);
-    float center = b / (2.0 * a);
-    float peak = exp(-(c - b * b / (4.0 * a)));
-    float moment0 = peak * 0.5 * sqrt(FLAME_RADIAL_PI / a)
-        * (flameErf(rootA * (halfWidth + center)) - flameErf(rootA * (center - halfWidth)));
-
-    float gaugeHi = exp(-(a * halfWidth * halfWidth + b * halfWidth + c));
-    float gaugeLo = exp(-(a * halfWidth * halfWidth - b * halfWidth + c));
-    float moment1 = (gaugeLo - gaugeHi - b * moment0) / (2.0 * a);
-    float moment2 = (moment0 - b * moment1 - halfWidth * (gaugeHi + gaugeLo)) / (2.0 * a);
-    return vec3(moment0, moment1, moment2);
-}
-
-// Pedestal interval moments: [int_I(1), int_I(s), int_I(s^2)] over the interval I where
-// a*s^2 + b*s + c <= emax, clipped to [-halfWidth, halfWidth].
-// If discriminant < 0 (ray always inside support), I is the entire band.
-// If ray is outside support (no roots within band), returns zero vector.
-vec3 flamePedestalIntervalMoments(float a, float b, float c, float emax, float halfWidth) {
-    // If a is near zero, treat as linear: b*s + c <= emax => s <= (emax - c)/b.
+// Interval where a*s^2 + b*s + c <= 1 clipped to [-halfWidth, halfWidth].
+// Citardauq-form roots keep grazing rays (discriminant near zero) precise.
+// Returns lo > hi when the support is empty.
+vec2 flameSupportInterval(float a, float b, float c, float halfWidth) {
     if (a < 1e-12) {
-        // Near-flat exponent: if center is inside support, use full band; else empty.
-        if (c > emax) {
-            return vec3(0.0);
-        }
-        // Full band [-halfWidth, halfWidth]: I0=2h, I1=0, I2=(2/3)*h^3
-        return vec3(2.0 * halfWidth, 0.0, (2.0 / 3.0) * halfWidth * halfWidth * halfWidth);
+        return c <= 1.0 ? vec2(-halfWidth, halfWidth) : vec2(1.0, -1.0);
     }
-
-    float discriminant = b * b - 4.0 * a * (c - emax);
-    if (discriminant < 0.0) {
-        // Ray always inside support — I is the entire band [-halfWidth, halfWidth].
-        return vec3(2.0 * halfWidth, 0.0, (2.0 / 3.0) * halfWidth * halfWidth * halfWidth);
+    float discriminant = b * b - 4.0 * a * (c - 1.0);
+    if (discriminant <= 0.0) {
+        return vec2(1.0, -1.0);
     }
-
     float root = sqrt(discriminant);
-    float s_lo = (-b - root) / (2.0 * a);
-    float s_hi = (-b + root) / (2.0 * a);
-    // Clip to [-halfWidth, halfWidth]
-    s_lo = max(s_lo, -halfWidth);
-    s_hi = min(s_hi, halfWidth);
-    if (s_hi <= s_lo) {
-        return vec3(0.0);
-    }
-    // Polynomial moments over [s_lo, s_hi]: I0 = s_hi - s_lo, I1 = 0.5*(s_hi^2 - s_lo^2), I2 = (1/3)*(s_hi^3 - s_lo^3)
-    return vec3(s_hi - s_lo, 0.5 * (s_hi * s_hi - s_lo * s_lo), (1.0 / 3.0) * (s_hi * s_hi * s_hi - s_lo * s_lo * s_lo));
+    float gauge = -0.5 * (b + (b >= 0.0 ? root : -root));
+    float sFirst = gauge / a;
+    float sSecond = (c - 1.0) / gauge;
+    return vec2(
+        max(min(sFirst, sSecond), -halfWidth),
+        min(max(sFirst, sSecond), halfWidth));
 }
 
-// Gaussian radius R(h) of the radial density, in flame-local units.
-float flameRadialGaussianScale(float height01) {
+// Integral (.x) and first moment (.y) of (f.x + f.y s + f.z s^2) * (1 - g(s))^2 over
+// the part of [-halfWidth, halfWidth] inside the support g(s) = a s^2 + b s + c <= 1.
+vec2 flameBiweightBandEmission(float a, float b, float c, vec3 f, float halfWidth) {
+    vec2 interval = flameSupportInterval(a, b, c, halfWidth);
+    if (interval.y <= interval.x) {
+        return vec2(0.0);
+    }
+
+    float m = 1.0 - c;
+    float w0 = m * m;
+    float w1 = -2.0 * b * m;
+    float w2 = b * b - 2.0 * a * m;
+    float w3 = 2.0 * a * b;
+    float w4 = a * a;
+    float e[7] = float[](
+        f.x * w0,
+        f.x * w1 + f.y * w0,
+        f.x * w2 + f.y * w1 + f.z * w0,
+        f.x * w3 + f.y * w2 + f.z * w1,
+        f.x * w4 + f.y * w3 + f.z * w2,
+        f.y * w4 + f.z * w3,
+        f.z * w4);
+
+    float powerLo = 1.0;
+    float powerHi = 1.0;
+    float moments[8];
+    for (int n = 0; n < 8; ++n) {
+        powerLo *= interval.x;
+        powerHi *= interval.y;
+        moments[n] = (powerHi - powerLo) / float(n + 1);
+    }
+
+    vec2 result = vec2(0.0);
+    for (int n = 0; n < 7; ++n) {
+        result += e[n] * vec2(moments[n], moments[n + 1]);
+    }
+    return result;
+}
+
+// Radius R(h) of the radial density profile, in flame-local units.
+float flameRadialRadiusScale(float height01) {
     return FLAME_SHELL_BASE_RADIUS
         * mix(1.0, flame.styleParams1.x, pow(height01, flame.styleParams0.w));
 }
 
-float flameRadialDensityFactor(vec3 p, float height01) {
-    float radius = length(p.xz) / max(flameRadialGaussianScale(height01), 1e-4);
-    float exponent = flame.radialSharpness * radius * radius;
-    float emax = flame.radialSharpness * FLAME_RADIAL_RMAX * FLAME_RADIAL_RMAX;
-    return max(0.0, exp(-exponent) - exp(-emax));
+// Squared reciprocal of the support radius S * R(h), which is what u^2 scales by.
+float flameRadialSupportInvSq(float height01) {
+    float scale = max(flameRadialSupportRadius() * flameRadialRadiusScale(height01), 1e-4);
+    return 1.0 / (scale * scale);
 }
 
-// Squared reciprocal of the Gaussian radius, which is what the exponent scales by.
-float flameRadialExponentScale(float height01) {
-    float scale = max(flameRadialGaussianScale(height01), 1e-4);
-    return flame.radialSharpness / (scale * scale);
+float flameRadialDensityFactor(vec3 p, float height01) {
+    float radiusSquared = dot(p.xz, p.xz);
+    return flameBiweight(flameRadialSupportInvSq(height01) * radiusSquared);
 }
 
 // Contour wiggle: per-band field quantity from fbm at the actual 3D point.
@@ -116,19 +104,14 @@ vec2 flameRayPointAtHeight(vec3 o, vec2 q, float height) {
 }
 
 // Rays with a near-constant height cannot be parameterized by h, so the moment is taken along t.
-float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, float k) {
+float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, float invSq) {
     float tCenter = 0.5 * (tNear + tFar);
     vec2 p = o.xz + tCenter * d.xz;
     float halfWidth = 0.5 * (tFar - tNear);
-    vec3 moments = flameGaussianMoments(
-        k * dot(d.xz, d.xz), 2.0 * k * dot(p, d.xz), k * dot(p, p), halfWidth);
-    // Pedestal subtraction: subtract exp(-Emax) * integral over interval I where E(s) <= Emax.
-    float emax = flame.radialSharpness * FLAME_RADIAL_RMAX * FLAME_RADIAL_RMAX;
-    float a = k * dot(d.xz, d.xz);
-    float b = 2.0 * k * dot(p, d.xz);
-    float c = k * dot(p, p);
-    vec3 pedestalMoments = flamePedestalIntervalMoments(a, b, c, emax, halfWidth);
-    return evaluateHeightFalloff(clamp(o.y + tCenter * d.y, 0.0, 1.0)) * (moments.x - exp(-emax) * pedestalMoments.x);
+    float falloff = evaluateHeightFalloff(clamp(o.y + tCenter * d.y, 0.0, 1.0));
+    return flameBiweightBandEmission(
+        invSq * dot(d.xz, d.xz), 2.0 * invSq * dot(p, d.xz), invSq * dot(p, p),
+        vec3(falloff, 0.0, 0.0), halfWidth).x;
 }
 
 float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
@@ -148,7 +131,7 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         vec2 bendMid = flameBendOffsetAt(midHeight);
         return integrateRadialEmissionAlongRay(
             vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, tNear, tFar,
-            flameRadialExponentScale(midHeight) / (wMid * wMid))
+            flameRadialSupportInvSq(midHeight) / (wMid * wMid))
             * flameNoiseErosionFactor(pMid, midHeight);
     }
 
@@ -156,11 +139,15 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
     vec2 q = d.xz / d.y;
     float quadratic = dot(q, q);
 
-    // Trim to the Gaussian support so grazing rays do not spend bands on empty range.
+    // Trim to the widest support (over heights, wiggle and wind bend) so grazing rays
+    // do not spend bands on empty range. Bands outside the true support integrate to
+    // exactly zero, so the extra margin costs only band resolution, never correctness.
     float wTrim = 1.0 + max(flame.contourParams.x, 0.0);
-    float baseScale = flameRadialExponentScale(0.0) / (wTrim * wTrim);
-    if (quadratic * baseScale > 1e-12) {
-        float support = FLAME_RADIAL_SUPPORT_SIGMA / sqrt(quadratic * baseScale);
+    float widestRadius = flameRadialSupportRadius() * wTrim
+        * max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0));
+    float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
+    if (quadratic > 1e-12) {
+        float support = (widestRadius + bendMax) / sqrt(quadratic);
         float closestApproachHeight = o.y - dot(o.xz, q) / quadratic;
         heightLo = max(heightLo, closestApproachHeight - support);
         heightHi = min(heightHi, closestApproachHeight + support);
@@ -182,21 +169,12 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         vec2 pxz = pTrue - flameBendOffsetAt(center);
         float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
         float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
-        float k = flameRadialExponentScale(center) / (wBand * wBand);
-        vec3 moments = flameGaussianMoments(
-            k * quadratic, 2.0 * k * dot(pxz, q), k * dot(pxz, pxz), halfWidth);
+        float invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
         float slope = (falloffHi - falloffLo) / bandWidth;
         float curvature = 2.0 * (falloffHi + falloffLo - 2.0 * falloffMid) / (bandWidth * bandWidth);
-
-        // Pedestal subtraction: subtract exp(-Emax) * [falloffMid*I0 + slope*I1 + curvature*I2]
-        // where I_m = int_I s^m ds over the interval I where a*s^2+b*s+c <= Emax, clipped to [-halfWidth,halfWidth].
-        float emax = flame.radialSharpness * FLAME_RADIAL_RMAX * FLAME_RADIAL_RMAX;
-        float a = k * quadratic;
-        float b = 2.0 * k * dot(pxz, q);
-        float c = k * dot(pxz, pxz);
-        vec3 pedestalMoments = flamePedestalIntervalMoments(a, b, c, emax, halfWidth);
-        total += eBand * (falloffMid * moments.x + slope * moments.y + curvature * moments.z
-            - exp(-emax) * (falloffMid * pedestalMoments.x + slope * pedestalMoments.y + curvature * pedestalMoments.z));
+        total += eBand * flameBiweightBandEmission(
+            invSq * quadratic, 2.0 * invSq * dot(pxz, q), invSq * dot(pxz, pxz),
+            vec3(falloffMid, slope, curvature), halfWidth).x;
 
         falloffLo = falloffHi;
     }
@@ -235,20 +213,22 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
             vec2 bendMid = flameBendOffsetAt(midHeight);
             float c = integrateRadialEmissionAlongRay(
                 vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, t0, t0 + dt,
-                flameRadialExponentScale(midHeight) / (wMid * wMid))
+                flameRadialSupportInvSq(midHeight) / (wMid * wMid))
                 * flameNoiseErosionFactor(pMid, midHeight);
             bandEmission[band] = max(c, 0.0);
             bandHeight[band] = midHeight;
-            bandEdge[band] = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, length(pMid.xz - bendMid) / max(flameRadialGaussianScale(midHeight), 1e-4)), 0.0, 1.0);
+            bandEdge[band] = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, length(pMid.xz - bendMid) / max(flameRadialRadiusScale(midHeight), 1e-4)), 0.0, 1.0);
         }
     } else {
         vec2 q = d.xz / d.y;
         float quadratic = dot(q, q);
 
         float wTrim = 1.0 + max(flame.contourParams.x, 0.0);
-        float baseScale = flameRadialExponentScale(0.0) / (wTrim * wTrim);
-        if (quadratic * baseScale > 1e-12) {
-            float support = FLAME_RADIAL_SUPPORT_SIGMA / sqrt(quadratic * baseScale);
+        float widestRadius = flameRadialSupportRadius() * wTrim
+            * max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0));
+        float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
+        if (quadratic > 1e-12) {
+            float support = (widestRadius + bendMax) / sqrt(quadratic);
             float closestApproachHeight = o.y - dot(o.xz, q) / quadratic;
             heightLo = max(heightLo, closestApproachHeight - support);
             heightHi = min(heightHi, closestApproachHeight + support);
@@ -260,7 +240,6 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
         float bandWidth = (heightHi - heightLo) / float(FLAME_RADIAL_BAND_COUNT);
         float halfWidth = 0.5 * bandWidth;
         float falloffLo = evaluateHeightFalloff(heightLo);
-        float emax = flame.radialSharpness * FLAME_RADIAL_RMAX * FLAME_RADIAL_RMAX;
         for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
             float center = heightLo + (float(band) + 0.5) * bandWidth;
             float falloffMid = evaluateHeightFalloff(center);
@@ -269,23 +248,18 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
             vec2 pTrue = flameRayPointAtHeight(o, q, center);
             vec2 p = pTrue - flameBendOffsetAt(center);
             float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
-            float k = flameRadialExponentScale(center) / (wBand * wBand);
+            float invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
             float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
-            vec3 moments = flameGaussianMoments(
-                k * quadratic, 2.0 * k * dot(p, q), k * dot(p, p), halfWidth);
             float slope = (falloffHi - falloffLo) / bandWidth;
             float curvature = 2.0 * (falloffHi + falloffLo - 2.0 * falloffMid) / (bandWidth * bandWidth);
-            vec3 pedestalMoments = flamePedestalIntervalMoments(
-                k * quadratic, 2.0 * k * dot(p, q), k * dot(p, p), emax, halfWidth);
-            float c = eBand
-                * (falloffMid * moments.x + slope * moments.y + curvature * moments.z
-                    - exp(-emax) * (falloffMid * pedestalMoments.x + slope * pedestalMoments.y
-                        + curvature * pedestalMoments.z))
-                / abs(d.y);
-            float meanOffset = moments.x > 1e-6 ? clamp(moments.y / moments.x, -halfWidth, halfWidth) : 0.0;
+            vec2 emission = flameBiweightBandEmission(
+                invSq * quadratic, 2.0 * invSq * dot(p, q), invSq * dot(p, p),
+                vec3(falloffMid, slope, curvature), halfWidth);
+            float c = eBand * emission.x / abs(d.y);
+            float meanOffset = emission.x > 1e-6 ? clamp(emission.y / emission.x, -halfWidth, halfWidth) : 0.0;
             bandEmission[band] = max(c, 0.0);
             bandHeight[band] = clamp(center + meanOffset, 0.0, 1.0);
-            bandEdge[band] = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, length(p) / max(flameRadialGaussianScale(center), 1e-4)), 0.0, 1.0);
+            bandEdge[band] = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, length(p) / max(flameRadialRadiusScale(center), 1e-4)), 0.0, 1.0);
 
             falloffLo = falloffHi;
         }

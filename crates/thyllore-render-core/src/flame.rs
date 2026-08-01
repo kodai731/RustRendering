@@ -29,7 +29,14 @@ pub fn default_height_falloff(height01: f64) -> f64 {
 }
 
 pub fn default_radial_falloff(radius01: f64) -> f64 {
-    (-4.0 * radius01 * radius01).exp()
+    biweight_radial_falloff(radius01, 4.0)
+}
+
+/// Compact-support biweight radial falloff with the support radius derived from sharpness.
+fn biweight_radial_falloff(radius01: f64, radial_sharpness: f32) -> f64 {
+    let support = crate::flame_radial::flame_radial_support_radius(radial_sharpness) as f64;
+    let inside = (1.0 - (radius01 / support) * (radius01 / support)).max(0.0);
+    inside * inside
 }
 
 /// Smooth step function S(x) = x*x*(3-2x).
@@ -326,9 +333,7 @@ pub fn profile_from_effect(effect: &FlameEffect) -> FlameProfile {
     FlameProfile {
         sigma_t: effect.sigma_t,
         height_falloff: Box::new(move |h: f64| parametric_height_falloff(h, peak, base, tail)),
-        radial_falloff: Box::new(move |r: f64| {
-            (-radial_sharpness * r as f32 * r as f32).exp() as f64
-        }),
+        radial_falloff: Box::new(move |r: f64| biweight_radial_falloff(r, radial_sharpness)),
     }
 }
 

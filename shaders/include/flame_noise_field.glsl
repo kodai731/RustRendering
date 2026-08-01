@@ -3,7 +3,22 @@
 
 // Octagonal shell inscribed radius: 0.5 * cos(pi/8), derived from RING_SEGMENTS=8
 
-// Must be included after FlameUBO, chebyshev.glsl, and flame_noise.glsl
+// Must be included after FlameUBO, chebyshev.glsl, flame_noise.glsl, and
+// flame_shell_profile.glsl (FLAME_SHELL_SUPPORT_HEADROOM).
+
+// Compact-support biweight radial profile: (1 - u^2)^2, exactly zero outside u >= 1.
+float flameBiweight(float uSquared) {
+    float inside = max(1.0 - uSquared, 0.0);
+    return inside * inside;
+}
+
+// Support radius S of the biweight profile in R(h) units. The curvature at the axis
+// matches the former Gaussian exp(-radialSharpness * u^2), so the sharpness lever
+// keeps its direction; the shell headroom bounds the support so the proxy never cuts.
+// Mirrored in thyllore-render-core/src/flame_radial.rs (flame_radial_support_radius).
+float flameRadialSupportRadius() {
+    return min(sqrt(2.0 / max(flame.radialSharpness, 1e-3)), FLAME_SHELL_SUPPORT_HEADROOM);
+}
 
 // Internal helper: compute the advect vector from style params and time.
 vec3 flameNoiseAdvect() {
@@ -27,13 +42,13 @@ vec2 flameBendOffsetAt(float h) {
     return flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
 }
 
-// Turbulence may add density where erosion goes negative. Without support
-// gating that addition floods regions where the smooth envelope is zero
-// (above the tip, outside the radius), and the flooded volume gets sliced
-// flat by the shell proxy — visible as a "culled" flame from above.
-const float FLAME_FIELD_SUPPORT_EPS = 0.02;
-float flameFieldSupport(float dSmooth) {
-    return smoothstep(0.0, FLAME_FIELD_SUPPORT_EPS, dSmooth);
+// Turbulence may add density where erosion goes negative. The field is defined as
+// zero outside the smooth envelope's support (dSmooth == 0: above the tip, outside
+// the compact radius), so that addition is masked by exact membership — otherwise
+// the flooded volume gets sliced flat by the shell proxy, visible as a "culled"
+// flame from above.
+float flameFieldSupportMask(float dSmooth) {
+    return dSmooth > 0.0 ? 1.0 : 0.0;
 }
 
 // Internal helper: compute the warped coordinate q from world position p and height h.
@@ -63,10 +78,11 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     // Tapered radial density
     float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
     float rn = length(q.xz) / max(taperR, 1e-4);
-    dSmooth = evaluateHeightFalloff(h) * exp(-flame.radialSharpness * rn * rn);
+    float u = rn / flameRadialSupportRadius();
+    dSmooth = evaluateHeightFalloff(h) * flameBiweight(u * u);
     float erosion = flameNoiseErosionAt(q, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
-        * flameFieldSupport(dSmooth);
+        * flameFieldSupportMask(dSmooth);
 }
 
 float flameNoiseErosionFactor(vec3 p, float h) {
@@ -92,10 +108,11 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
     float rho = (length(q.xz) - rm) / minorScale;
     float rn = abs(rho) / max(taperR, 1e-4);
-    dSmooth = evaluateHeightFalloff(h) * exp(-flame.radialSharpness * rn * rn);
+    float u = rn / flameRadialSupportRadius();
+    dSmooth = evaluateHeightFalloff(h) * flameBiweight(u * u);
     float erosion = flameNoiseErosionAt(q, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
-        * flameFieldSupport(dSmooth);
+        * flameFieldSupportMask(dSmooth);
 }
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
 // unit-local XY. Texel encodes d = r - 0.5 (negative inside), normalized by image height.
@@ -109,7 +126,7 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     dSmooth = clamp(1.0 - max(d, 0.0) / shell, 0.0, 1.0) * thickness;
     float erosion = flameNoiseErosionAt(q, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
-        * flameFieldSupport(dSmooth);
+        * flameFieldSupportMask(dSmooth);
 }
 
 float flameEmitterDensity(vec3 p, float h, out float dSmooth) {
