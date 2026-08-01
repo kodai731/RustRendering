@@ -267,6 +267,14 @@ pub struct FlameEffect {
     pub sigma_dispersion: f32,
     /// RTE 帯色を外縁 (r̂≈1) で tip 色へ寄せる薄い項。0=現行
     pub edge_temperature_blend: f32,
+    /// 乱流モデル。0=legacy (fbm erosion + 閾値)、1=kernel primitives (blob 加算、閾値なし)
+    pub turbulence_model: f32,
+    /// kernel model の blob 基本半径 (flame-local 単位)
+    pub kernel_blob_size: f32,
+    /// kernel model の blob ピーク振幅
+    pub kernel_blob_amp: f32,
+    /// kernel model の滑らか包絡コアの重み
+    pub kernel_core_weight: f32,
 }
 
 impl Default for FlameEffect {
@@ -320,6 +328,10 @@ impl Default for FlameEffect {
             rte_bands: 4.0,
             sigma_dispersion: 1.0,
             edge_temperature_blend: 0.0,
+            turbulence_model: 0.0,
+            kernel_blob_size: 0.15,
+            kernel_blob_amp: 1.0,
+            kernel_core_weight: 1.0,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -372,6 +384,51 @@ pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
         * Matrix4::from_translation(-effect.position)
 }
 
+type KernelUboFields = (
+    [f32; 4],
+    [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
+);
+
+/// Kernel-turbulence UBO fields: `kernelParams` and the packed blob array.
+/// Blobs are only generated when the kernel model is active so the legacy
+/// path pays nothing beyond a zero fill.
+fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
+    use crate::flame_kernel::{generate_kernel_blobs, KernelBlobParams, KERNEL_BLOB_COUNT};
+
+    let params = [
+        effect.turbulence_model,
+        effect.kernel_core_weight,
+        0.0,
+        0.0,
+    ];
+    let mut packed = [[0.0f32; 4]; 2 * KERNEL_BLOB_COUNT];
+    if effect.turbulence_model >= 0.5 {
+        let ring_major_norm = if effect.emitter_kind == 1 {
+            effect.ring_major_radius / flame_bounding_radius(effect)
+        } else {
+            0.0
+        };
+        let blobs = generate_kernel_blobs(&KernelBlobParams {
+            emitter_kind: effect.emitter_kind,
+            ring_major_norm,
+            blob_size: effect.kernel_blob_size,
+            blob_amp: effect.kernel_blob_amp,
+            rise_speed: effect.rise_speed,
+            time: effect.time,
+        });
+        for (i, blob) in blobs.iter().enumerate() {
+            packed[2 * i] = [
+                blob.center[0],
+                blob.center[1],
+                blob.center[2],
+                blob.radius,
+            ];
+            packed[2 * i + 1] = [blob.amplitude, 0.0, 0.0, 0.0];
+        }
+    }
+    (params, packed)
+}
+
 pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
     let (color_base, color_mid, color_tip) = if effect.use_blackbody {
         let base = blackbody_rgb(effect.temperature_base_k);
@@ -398,6 +455,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
     } else {
         dir.normalize()
     };
+    let kernel_fields = build_kernel_ubo_fields(effect);
     FlameUBO {
         model: build_flame_model_matrix(effect),
         inverse_model: build_flame_inverse_model_matrix(effect),
@@ -475,6 +533,8 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.sigma_dispersion,
         ],
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
+        kernel_params: kernel_fields.0,
+        kernel_blobs: kernel_fields.1,
     }
 }
 
@@ -658,6 +718,7 @@ pub fn build_flame_ubo_with_trail(
         dir.normalize()
     };
 
+    let kernel_fields = build_kernel_ubo_fields(effect);
     FlameUBO {
         model,
         inverse_model,
@@ -735,6 +796,8 @@ pub fn build_flame_ubo_with_trail(
             effect.sigma_dispersion,
         ],
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
+        kernel_params: kernel_fields.0,
+        kernel_blobs: kernel_fields.1,
     }
 }
 
@@ -777,6 +840,8 @@ pub struct FlameUBO {
     pub emitter_params: Vector4<f32>,
     pub contour_params: [f32; 4],
     pub erosion_response: [f32; 4],
+    pub kernel_params: [f32; 4],
+    pub kernel_blobs: [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
 }
 
 impl Default for FlameUBO {
@@ -1076,7 +1141,7 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 784);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 1024);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 

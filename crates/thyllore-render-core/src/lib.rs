@@ -3,6 +3,7 @@ mod billboard;
 mod buffer_handle;
 mod flame;
 pub mod flame_fit;
+pub mod flame_kernel;
 mod flame_pick;
 pub mod flame_plume;
 mod flame_presets;

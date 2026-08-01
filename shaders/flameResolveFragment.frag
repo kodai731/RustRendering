@@ -48,6 +48,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 emitterParams;
     vec4 contourParams;
     vec4 erosionResponse;
+    vec4 kernelParams;
+    vec4 kernelBlobs[64];
 } flame;
 
 #include "include/flame_shell_support.glsl"
@@ -399,7 +401,10 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
 }
 
 float integrateEmissionAnalytic(FlameRaySegment segment) {
-    if (segment.cylinderDomain) {
+    // The kernel model has one unified t-band path: the cylinder core is just
+    // the rm=0 case of the emitter density, so cylinder rays route through the
+    // emitter bands instead of the h-band erosion machinery.
+    if (segment.cylinderDomain && !flameKernelModelActive()) {
         return max(integrateRadialEmission(
             segment.localOrigin, segment.localDir, segment.tNear, segment.tFar), 0.0);
     }
@@ -422,7 +427,12 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
         float h = clamp(
             evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
-        if (segment.cylinderDomain && flame.noiseAmplitude != 0.0) {
+        if (flameKernelModelActive() && flame.trailMeta.x < 1.0) {
+            // Kernel model: one density convention for every emitter — the
+            // cylinder is the rm=0 case of the emitter density, matching the
+            // closed-form path routed through the emitter bands.
+            sum += flamePointEmitterOccupancy(p, h, w);
+        } else if (segment.cylinderDomain && flame.noiseAmplitude != 0.0) {
             sum += flamePointOccupancyDensity(p, h, w);
         } else if (!segment.cylinderDomain && flame.trailMeta.x < 1.0) {
             sum += flamePointEmitterOccupancy(p, h, w);
@@ -447,7 +457,7 @@ vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
         float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
         float rho;
-        if (!segment.cylinderDomain) {
+        if (!segment.cylinderDomain || flameKernelModelActive()) {
             rho = flamePointEmitterOccupancy(p, h, w);
         } else if (flame.noiseAmplitude != 0.0) {
             rho = flamePointOccupancyDensity(p, h, w);
@@ -472,7 +482,7 @@ vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
         float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
         float rho;
-        if (!segment.cylinderDomain) {
+        if (!segment.cylinderDomain || flameKernelModelActive()) {
             rho = flamePointEmitterOccupancy(p, h, w);
         } else if (flame.noiseAmplitude != 0.0) {
             rho = flamePointOccupancyDensity(p, h, w);
@@ -618,7 +628,7 @@ void main() {
             vec4 rte;
             if (push.mode == 1) {
                 rte = integrateRTERaymarch(segment, push.stepCount);
-            } else if (segment.cylinderDomain) {
+            } else if (segment.cylinderDomain && !flameKernelModelActive()) {
                 rte = integrateRadialRTE(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
             } else {
                 rte = integrateEmitterOccupancyRTE(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);

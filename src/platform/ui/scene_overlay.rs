@@ -745,6 +745,18 @@ fn build_flame_section(
                         .display_format("%.2f")
                         .build(&mut effect_copy.radius_tip_ratio);
 
+                    let mut kernel_model = effect_copy.turbulence_model >= 0.5;
+                    ui.checkbox("Kernel Turbulence", &mut kernel_model);
+                    effect_copy.turbulence_model = if kernel_model { 1.0 } else { 0.0 };
+                    if kernel_model {
+                        ui.slider_config("Blob Size", 0.02, 0.5)
+                            .build(&mut effect_copy.kernel_blob_size);
+                        ui.slider_config("Blob Amp", 0.0, 3.0)
+                            .build(&mut effect_copy.kernel_blob_amp);
+                        ui.slider_config("Core Weight", 0.0, 2.0)
+                            .build(&mut effect_copy.kernel_core_weight);
+                    }
+
                     ui.slider_config("Edge Low", 0.0, 1.0)
                         .build(&mut effect_copy.edge_low);
                     ui.same_line();
