@@ -514,18 +514,38 @@ fn build_flame_section(
             .iter()
             .map(|s| s.to_string())
             .collect();
+        // The slider block below re-sends the (pre-apply) effect every frame;
+        // that send must be skipped on the frame an Apply button fires or it
+        // overwrites the applied preset/fit in the same dispatch.
+        let mut effect_applied_this_frame = false;
         {
             let mut preset_index = overlay_state.flame_preset_index;
-            ui.combo_simple_string("Flame Preset", &mut preset_index, &presets);
+            let preset_changed =
+                ui.combo_simple_string("Flame Preset", &mut preset_index, &presets);
             overlay_state.flame_preset_index = preset_index;
-            ui.same_line();
-            if ui.small_button("Apply Preset") {
+            if preset_changed {
                 if let Some(selected_flame) = selected_flame_entity {
                     if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
                         let mut effect_copy = effect.clone();
                         let preset_name = presets[preset_index].as_str();
                         thyllore_render_core::apply_flame_preset(&mut effect_copy, preset_name);
+                        // Keyed scalar curves re-stamp their channels every
+                        // frame and would silently pin the old look, so a
+                        // preset stamp also clears them (undo restores).
+                        ui_events.send(UIEvent::ClearScalarKeys);
                         ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
+                        if let Some(mode) =
+                            thyllore_render_core::flame_preset_recommended_mode(preset_name)
+                        {
+                            if let Some(settings) = ecs_world
+                                .get_resource::<crate::ecs::resource::FlameRenderSettings>(
+                            ) {
+                                let mut settings_copy = *settings;
+                                settings_copy.shading_mode = mode;
+                                ui_events.send(UIEvent::UpdateFlameRenderSettings(settings_copy));
+                            }
+                        }
+                        effect_applied_this_frame = true;
                     }
                 }
             }
@@ -563,6 +583,7 @@ fn build_flame_section(
                             blend,
                         );
                         ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
+                        effect_applied_this_frame = true;
                     }
                 }
             }
@@ -866,7 +887,9 @@ fn build_flame_section(
                         }
                     }
 
-                    ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
+                    if !effect_applied_this_frame {
+                        ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
+                    }
                 }
             }
         }

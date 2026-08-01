@@ -1,7 +1,18 @@
-use crate::flame::{refresh_flame_coefficients, FlameEffect};
+use crate::flame::{refresh_flame_coefficients, FlameEffect, FlameShadingMode};
 use cgmath::{Quaternion, Vector2, Vector3};
 
 pub const FLAME_PRESET_NAMES: &[&str] = &["campfire", "candle", "torch", "inferno", "blue", "ring"];
+
+/// Shading mode the preset is calibrated for. Ring/inferno need the noise
+/// raymarch path: the analytic shell ignores the emitter kind entirely, so a
+/// ring preset rendered analytically looks like a plain column.
+pub fn flame_preset_recommended_mode(name: &str) -> Option<FlameShadingMode> {
+    match name {
+        "campfire" | "candle" | "torch" | "blue" => Some(FlameShadingMode::Analytic),
+        "inferno" | "ring" => Some(FlameShadingMode::NoiseRaymarch),
+        _ => None,
+    }
+}
 
 fn runtime_state(effect: &FlameEffect) -> (Vector3<f32>, Quaternion<f32>, f32, u64) {
     (
@@ -78,8 +89,10 @@ pub fn apply_flame_preset(effect: &mut FlameEffect, name: &str) -> bool {
             preset.intensity = 4.0;
             preset.sigma_t = 2.0;
             preset.use_blackbody = false;
-            preset.color_base = [0.25, 0.5, 1.0];
-            preset.color_tip = [0.7, 0.85, 1.0];
+            // Deep-blue tip: a whiter tip washes the whole flame out after
+            // tonemapping (calibrated against flame_blue_ref.png, 2026-08-01).
+            preset.color_base = [0.15, 0.35, 1.0];
+            preset.color_tip = [0.45, 0.65, 1.0];
             preset.noise_amplitude = 0.7;
             preset.noise_frequency = 7.0;
             preset.rise_speed = 1.0;
@@ -154,6 +167,21 @@ pub fn apply_flame_preset(effect: &mut FlameEffect, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_every_preset_has_a_recommended_mode() {
+        for name in FLAME_PRESET_NAMES {
+            assert!(
+                flame_preset_recommended_mode(name).is_some(),
+                "preset {name} lacks a recommended mode"
+            );
+        }
+        assert_eq!(
+            flame_preset_recommended_mode("ring"),
+            Some(FlameShadingMode::NoiseRaymarch)
+        );
+        assert_eq!(flame_preset_recommended_mode("no_such_preset"), None);
+    }
 
     #[test]
     fn test_all_presets_return_true_and_sanity_ranges() {

@@ -1,7 +1,7 @@
 use cgmath::{Matrix4, Vector3, Vector4};
 
-use crate::flame::FlameEffect;
-use crate::flame_shell::flame_shell_outer_radius;
+use crate::flame::{flame_bounding_radius, FlameEffect};
+use crate::flame_shell::{flame_shell_outer_radius, flame_shell_support_scale};
 
 /// Axis-aligned bounds of the shell proxy in flame-local units, widened by the wind bend so a
 /// leaning flame stays enclosed. Shared by the render-pass scissor and by click picking: both
@@ -12,6 +12,17 @@ pub struct FlameLocalBounds {
     pub max: Vector3<f32>,
 }
 
+/// Emitter-dependent proxy widening for an effect (ring tubes reach past the
+/// cylinder support). See `flame_shell_support_scale`.
+pub fn flame_support_scale(effect: &FlameEffect) -> f32 {
+    let ring_major_norm = if effect.emitter_kind == 1 {
+        effect.ring_major_radius / flame_bounding_radius(effect).max(1e-6)
+    } else {
+        0.0
+    };
+    flame_shell_support_scale(effect.emitter_kind, ring_major_norm)
+}
+
 pub fn flame_bend_offset(effect: &FlameEffect) -> [f32; 2] {
     [
         effect.wind_direction.x * effect.bend_amount,
@@ -19,8 +30,9 @@ pub fn flame_bend_offset(effect: &FlameEffect) -> [f32; 2] {
     ]
 }
 
-pub fn flame_local_bounds(bend_offset: [f32; 2]) -> FlameLocalBounds {
-    let radius = flame_shell_outer_radius(0.0).max(flame_shell_outer_radius(1.0));
+pub fn flame_local_bounds(bend_offset: [f32; 2], support_scale: f32) -> FlameLocalBounds {
+    let radius = flame_shell_outer_radius(0.0, support_scale)
+        .max(flame_shell_outer_radius(1.0, support_scale));
 
     FlameLocalBounds {
         min: Vector3::new(
@@ -106,7 +118,7 @@ pub fn intersect_flame_proxy(
         inverse_model * Vector4::new(ray_direction.x, ray_direction.y, ray_direction.z, 0.0);
 
     intersect_flame_bounds(
-        &flame_local_bounds(flame_bend_offset(effect)),
+        &flame_local_bounds(flame_bend_offset(effect), flame_support_scale(effect)),
         local_origin.truncate(),
         local_direction.truncate(),
     )
@@ -118,7 +130,7 @@ mod tests {
     use cgmath::SquareMatrix;
 
     fn unit_bounds() -> FlameLocalBounds {
-        flame_local_bounds([0.0, 0.0])
+        flame_local_bounds([0.0, 0.0], 1.0)
     }
 
     #[test]
@@ -175,7 +187,7 @@ mod tests {
     #[test]
     fn bend_widens_the_bounds_only_towards_the_lean() {
         let straight = unit_bounds();
-        let bent = flame_local_bounds([0.4, 0.0]);
+        let bent = flame_local_bounds([0.4, 0.0], 1.0);
 
         assert!(bent.max.x > straight.max.x);
         assert_eq!(bent.min.x, straight.min.x);

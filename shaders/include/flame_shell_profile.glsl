@@ -17,13 +17,15 @@ const float FLAME_SHELL_SUPPORT_HEADROOM = 1.5; // density support r̂max until 
 
 // Multiplier on the base half-extent. Includes the circumscribe factor, so a cone built
 // from it encloses the rasterized octagon rather than cutting its corners.
-float flameShellRadiusScale(float height01) {
-    return FLAME_SHELL_SUPPORT_HEADROOM * FLAME_SHELL_CIRCUMSCRIBE * mix(1.0, FLAME_SHELL_TAPER_TIP_SCALE, height01);
+// supportScale is the emitter-dependent widening (flame_shell_support.glsl).
+float flameShellRadiusScale(float height01, float supportScale) {
+    return supportScale * FLAME_SHELL_SUPPORT_HEADROOM * FLAME_SHELL_CIRCUMSCRIBE
+        * mix(1.0, FLAME_SHELL_TAPER_TIP_SCALE, height01);
 }
 
 // Outer radius of the shell in flame-local units.
-float flameShellOuterRadius(float height01) {
-    return FLAME_SHELL_BASE_RADIUS * flameShellRadiusScale(height01);
+float flameShellOuterRadius(float height01, float supportScale) {
+    return FLAME_SHELL_BASE_RADIUS * flameShellRadiusScale(height01, supportScale);
 }
 
 #endif

@@ -20,12 +20,28 @@ vec3 flameAnisoCompress(vec3 v, float axialScale) {
     return v - dot(v, axis) * axis * (1.0 - axialScale);
 }
 
+// Horizontal displacement of the density centerline from wind bend at height h.
+// Shared by the domain warp below and the radial band integrals, so the
+// analytic path bends exactly like the sampled field.
+vec2 flameBendOffsetAt(float h) {
+    return flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
+}
+
+// Turbulence may add density where erosion goes negative. Without support
+// gating that addition floods regions where the smooth envelope is zero
+// (above the tip, outside the radius), and the flooded volume gets sliced
+// flat by the shell proxy — visible as a "culled" flame from above.
+const float FLAME_FIELD_SUPPORT_EPS = 0.02;
+float flameFieldSupport(float dSmooth) {
+    return smoothstep(0.0, FLAME_FIELD_SUPPORT_EPS, dSmooth);
+}
+
 // Internal helper: compute the warped coordinate q from world position p and height h.
 // This is the single source of truth for the domain-warp chain:
 //   bendOffset -> pb -> advect -> aniso -> wp -> w -> q
 vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
     // Wind bend deformation (horizontal-only)
-    vec2 bendOffset = flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
+    vec2 bendOffset = flameBendOffsetAt(h);
     vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
 
     // Domain warp with upward advection
@@ -49,7 +65,8 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     float rn = length(q.xz) / max(taperR, 1e-4);
     dSmooth = evaluateHeightFalloff(h) * exp(-flame.radialSharpness * rn * rn);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion);
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+        * flameFieldSupport(dSmooth);
 }
 
 float flameNoiseErosionFactor(vec3 p, float h) {
@@ -77,7 +94,8 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     float rn = abs(rho) / max(taperR, 1e-4);
     dSmooth = evaluateHeightFalloff(h) * exp(-flame.radialSharpness * rn * rn);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion);
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+        * flameFieldSupport(dSmooth);
 }
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
 // unit-local XY. Texel encodes d = r - 0.5 (negative inside), normalized by image height.
@@ -90,7 +108,8 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(p, h);
     dSmooth = clamp(1.0 - max(d, 0.0) / shell, 0.0, 1.0) * thickness;
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion);
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+        * flameFieldSupport(dSmooth);
 }
 
 float flameEmitterDensity(vec3 p, float h, out float dSmooth) {

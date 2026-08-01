@@ -49,6 +49,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 contourParams;
 } flame;
 
+#include "include/flame_shell_support.glsl"
+
 layout(set = 1, binding = 2) uniform sampler2D flameAccumSampler;
 layout(set = 1, binding = 3) uniform sampler2D flameIntervalSampler;
 layout(set = 1, binding = 4) uniform sampler2D flameHistorySampler;
@@ -212,18 +214,21 @@ struct FlameRaySegment {
 };
 
 // The closed form and the shell clamp both assume the plain cylinder domain.
+// Cylinder emitter without a trail: the radial band integral applies wind
+// bend per band (flameBendOffsetAt), so bent flames stay on this path instead
+// of falling back to the boundary integral, which cuts flat from above.
 bool isCylinderDomain() {
-    return flame.emitterParams.x < 0.5
-        && flame.trailMeta.x < 1.0
-        && abs(flame.styleParams2.z) < 1e-4;
+    return flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0;
 }
 
 bool clampToShellCone(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     // Shell cone: |p.xz| <= flameShellOuterRadius(p.y), which is linear in y:
     // f(t) = m + n*t with m = flameShellOuterRadius(o.y) and n = its slope along the ray.
     // Condition |o.xz + t*d.xz|^2 - f(t)^2 <= 0 -> a = dot(d.xz,d.xz) - n*n, b = 2.0*(dot(o.xz,d.xz) - m*n), c = dot(o.xz,o.xz) - m*m
-    float coneSlope = flameShellOuterRadius(1.0) - flameShellOuterRadius(0.0);
-    float m = flameShellOuterRadius(o.y);
+    float supportScale = flameShellSupportScale();
+    float coneSlope =
+        flameShellOuterRadius(1.0, supportScale) - flameShellOuterRadius(0.0, supportScale);
+    float m = flameShellOuterRadius(o.y, supportScale);
     float n = coneSlope * d.y;
     float a = dot(d.xz, d.xz) - n * n;
     float b = 2.0 * (dot(o.xz, d.xz) - m * n);
@@ -323,7 +328,8 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
 
     // Geometric camera-inside test: local origin must be within the shell cone
     bool cameraInside = segment.localOrigin.y >= 0.0 && segment.localOrigin.y <= 1.0
-        && length(segment.localOrigin.xz) <= flameShellOuterRadius(segment.localOrigin.y);
+        && length(segment.localOrigin.xz)
+            <= flameShellOuterRadius(segment.localOrigin.y, flameShellSupportScale());
 
     // Camera inside the shell: front boundary terms at t = 0 were never
     // rasterized, so coverage = +N and the missing (-1) * H1(h_o) / h_d
@@ -348,7 +354,12 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
         : segment.depthClamp.tDepth;
     segment.tFar = min(segment.tFar, tFarLimit);
 
-    if (segment.cylinderDomain) {
+    // The cone/y-slab clamp describes the proxy of every non-trail emitter (the
+    // support scale widens it for rings), so the unpaired-coverage rescue below
+    // applies to all of them. Unpaired coverage is common when the exit boundary
+    // is the bottom cap: it is coplanar with the ground plane and loses the
+    // depth test, which used to erase rings seen from above.
+    if (flame.trailMeta.x < 1.0) {
         // For unpaired coverage pixels (abs(round(coverage)) > 0.5 && !cameraInside), the interval
         // buffer is degenerate (tNear == tFar). Reset to wide interval before cone clamping so
         // clampToShellCone correctly finds the intersection with the shell cone/y-slab.

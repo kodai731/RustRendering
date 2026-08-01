@@ -145,8 +145,10 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         float midHeight = clamp(o.y + 0.5 * (tNear + tFar) * d.y, 0.0, 1.0);
         vec3 pMid = o + 0.5 * (tNear + tFar) * d;
         float wMid = flameContourWiggle(pMid, midHeight);
+        vec2 bendMid = flameBendOffsetAt(midHeight);
         return integrateRadialEmissionAlongRay(
-            o, d, tNear, tFar, flameRadialExponentScale(midHeight) / (wMid * wMid))
+            vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, tNear, tFar,
+            flameRadialExponentScale(midHeight) / (wMid * wMid))
             * flameNoiseErosionFactor(pMid, midHeight);
     }
 
@@ -176,9 +178,10 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         float falloffMid = evaluateHeightFalloff(center);
         float falloffHi = evaluateHeightFalloff(center + halfWidth);
 
-        vec2 pxz = flameRayPointAtHeight(o, q, center);
-        float eBand = flameNoiseErosionFactor(vec3(pxz.x, center, pxz.y), center);
-        float wBand = flameContourWiggle(vec3(pxz.x, center, pxz.y), center);
+        vec2 pTrue = flameRayPointAtHeight(o, q, center);
+        vec2 pxz = pTrue - flameBendOffsetAt(center);
+        float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
+        float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
         float k = flameRadialExponentScale(center) / (wBand * wBand);
         vec3 moments = flameGaussianMoments(
             k * quadratic, 2.0 * k * dot(pxz, q), k * dot(pxz, pxz), halfWidth);
@@ -229,12 +232,14 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
             vec3 pMid = o + (t0 + 0.5 * dt) * d;
             float midHeight = clamp(pMid.y, 0.0, 1.0);
             float wMid = flameContourWiggle(pMid, midHeight);
+            vec2 bendMid = flameBendOffsetAt(midHeight);
             float c = integrateRadialEmissionAlongRay(
-                o, d, t0, t0 + dt, flameRadialExponentScale(midHeight) / (wMid * wMid))
+                vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, t0, t0 + dt,
+                flameRadialExponentScale(midHeight) / (wMid * wMid))
                 * flameNoiseErosionFactor(pMid, midHeight);
             bandEmission[band] = max(c, 0.0);
             bandHeight[band] = midHeight;
-            bandEdge[band] = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, length(pMid.xz) / max(flameRadialGaussianScale(midHeight), 1e-4)), 0.0, 1.0);
+            bandEdge[band] = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, length(pMid.xz - bendMid) / max(flameRadialGaussianScale(midHeight), 1e-4)), 0.0, 1.0);
         }
     } else {
         vec2 q = d.xz / d.y;
@@ -261,10 +266,11 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
             float falloffMid = evaluateHeightFalloff(center);
             float falloffHi = evaluateHeightFalloff(center + halfWidth);
 
-            vec2 p = flameRayPointAtHeight(o, q, center);
-            float wBand = flameContourWiggle(vec3(p.x, center, p.y), center);
+            vec2 pTrue = flameRayPointAtHeight(o, q, center);
+            vec2 p = pTrue - flameBendOffsetAt(center);
+            float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
             float k = flameRadialExponentScale(center) / (wBand * wBand);
-            float eBand = flameNoiseErosionFactor(vec3(p.x, center, p.y), center);
+            float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
             vec3 moments = flameGaussianMoments(
                 k * quadratic, 2.0 * k * dot(p, q), k * dot(p, p), halfWidth);
             float slope = (falloffHi - falloffLo) / bandWidth;

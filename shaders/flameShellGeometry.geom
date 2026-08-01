@@ -46,6 +46,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 contourParams;
 } flame;
 
+#include "include/flame_shell_support.glsl"
+
 layout(location = 0) in vec3 geomLocalCorner[];
 
 layout(location = 0) out vec3 fragWorldPos;
@@ -57,7 +59,7 @@ const float TWO_PI = 6.283185307179586;
 
 vec3 computeRingPosition(vec3 center, float radiusX, float radiusZ, int segment, int stack) {
     float height01 = float(stack) / float(STACKS);
-    float radiusScale = flameShellRadiusScale(height01);
+    float radiusScale = flameShellRadiusScale(height01, flameShellSupportScale());
     float angle = TWO_PI * float(segment) / float(RING_SEGMENTS);
     vec3 pos = center + vec3(cos(angle) * radiusX * radiusScale, height01, sin(angle) * radiusZ * radiusScale);
     pos.xz += flame.styleParams2.xy * flame.styleParams2.z * pow(height01, flame.styleParams2.w);

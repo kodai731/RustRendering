@@ -378,7 +378,7 @@ mod tests {
 
     /// Segment of the ray inside the cylinder proxy, matching what the shader hands the integral.
     fn clip_to_shell_proxy(origin: [f32; 3], direction: [f32; 3]) -> Option<(f32, f32)> {
-        let radius = crate::flame_shell::flame_shell_outer_radius(0.0);
+        let radius = crate::flame_shell::flame_shell_outer_radius(0.0, 1.0);
         let a = direction[0] * direction[0] + direction[2] * direction[2];
         let b = 2.0 * (origin[0] * direction[0] + origin[2] * direction[2]);
         let c = origin[0] * origin[0] + origin[2] * origin[2] - radius * radius;
@@ -648,7 +648,7 @@ mod tests {
             let height = step as f32 / 20.0;
             let density_edge = flame_radial_gaussian_scale(height, taper)
                 * (SHARPNESS.recip() * (1.0f32 / 0.01).ln()).sqrt();
-            let proxy = crate::flame_shell::flame_shell_outer_radius(height);
+            let proxy = crate::flame_shell::flame_shell_outer_radius(height, 1.0);
             assert!(
                 density_edge <= proxy,
                 "h={height}: density reaches {density_edge} but the proxy cuts at {proxy}"

@@ -30,18 +30,18 @@ pub use flame::{
     FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
 };
 pub use flame_pick::{
-    flame_bend_offset, flame_local_bounds, flame_local_bounds_corners, intersect_flame_bounds,
-    intersect_flame_proxy, FlameLocalBounds,
+    flame_bend_offset, flame_local_bounds, flame_local_bounds_corners, flame_support_scale,
+    intersect_flame_bounds, intersect_flame_proxy, FlameLocalBounds,
 };
-pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
+pub use flame_presets::{apply_flame_preset, flame_preset_recommended_mode, FLAME_PRESET_NAMES};
 pub use flame_radial::{
     evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_gaussian_scale,
     integrate_radial_emission, FlameRadialTaper, FLAME_RADIAL_BAND_COUNT,
 };
 pub use flame_shell::{
-    flame_shell_outer_radius, flame_shell_radius_scale, generate_flame_shell_triangles,
-    FLAME_SHELL_BASE_RADIUS, FLAME_SHELL_RING_SEGMENTS, FLAME_SHELL_STACKS,
-    FLAME_SHELL_TAPER_TIP_SCALE,
+    flame_shell_outer_radius, flame_shell_radius_scale, flame_shell_support_scale,
+    generate_flame_shell_triangles, FLAME_SHELL_BASE_RADIUS, FLAME_SHELL_RING_SEGMENTS,
+    FLAME_SHELL_STACKS, FLAME_SHELL_TAPER_TIP_SCALE,
 };
 pub use flame_texture_fit::*;
 pub use flame_trail::*;

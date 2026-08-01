@@ -12,24 +12,40 @@ pub const FLAME_SHELL_SUPPORT_HEADROOM: f32 = 1.5;
 const R: f32 = FLAME_SHELL_BASE_RADIUS;
 const QUAD_CORNERS: [[f32; 3]; 4] = [[-R, 0.0, -R], [R, 0.0, -R], [R, 0.0, R], [-R, 0.0, R]];
 
+/// Emitter-dependent widening of the proxy: a ring's tube (centerline at normalized
+/// major radius rm, minor support 1.5 * (1 - rm)) reaches past the cylinder support
+/// 0.75, and a proxy that stops there slices the torus flat. Mirrors
+/// shaders/include/flame_shell_support.glsl.
+pub fn flame_shell_support_scale(emitter_kind: u32, ring_major_norm: f32) -> f32 {
+    if emitter_kind == 1 {
+        let rm = ring_major_norm;
+        ((rm + 1.5 * (1.0 - rm)) / (FLAME_SHELL_BASE_RADIUS * FLAME_SHELL_SUPPORT_HEADROOM))
+            .max(1.0)
+    } else {
+        1.0
+    }
+}
+
 /// Multiplier on the shell's base half-extent at a normalized height. Includes the
 /// circumscribe factor, so a cone built from it encloses the rasterized octagon.
-pub fn flame_shell_radius_scale(height01: f32) -> f32 {
-    FLAME_SHELL_SUPPORT_HEADROOM
+pub fn flame_shell_radius_scale(height01: f32, support_scale: f32) -> f32 {
+    support_scale
+        * FLAME_SHELL_SUPPORT_HEADROOM
         * FLAME_SHELL_CIRCUMSCRIBE
         * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01)
 }
 
 /// Outer radius of the shell in flame-local units. Linear in height, so callers that
 /// need a bound over the whole shell take the maximum of the two endpoints.
-pub fn flame_shell_outer_radius(height01: f32) -> f32 {
-    FLAME_SHELL_BASE_RADIUS * flame_shell_radius_scale(height01)
+pub fn flame_shell_outer_radius(height01: f32, support_scale: f32) -> f32 {
+    FLAME_SHELL_BASE_RADIUS * flame_shell_radius_scale(height01, support_scale)
 }
 
 pub fn generate_flame_shell_triangles(
     wind: [f32; 2],
     bend_amount: f32,
     bend_power: f32,
+    support_scale: f32,
 ) -> Vec<[Vector3<f32>; 3]> {
     let corners: Vec<Vector3<f32>> = QUAD_CORNERS
         .iter()
@@ -50,6 +66,7 @@ pub fn generate_flame_shell_triangles(
             wind,
             bend_amount,
             bend_power,
+            support_scale,
         );
     }
     append_cap_triangles(
@@ -60,6 +77,7 @@ pub fn generate_flame_shell_triangles(
         wind,
         bend_amount,
         bend_power,
+        support_scale,
     );
     triangles
 }
@@ -73,9 +91,10 @@ fn compute_ring_position(
     wind: [f32; 2],
     bend_amount: f32,
     bend_power: f32,
+    support_scale: f32,
 ) -> Vector3<f32> {
     let height01 = stack as f32 / FLAME_SHELL_STACKS as f32;
-    let radius_scale = flame_shell_radius_scale(height01);
+    let radius_scale = flame_shell_radius_scale(height01, support_scale);
     let angle = std::f32::consts::TAU * segment as f32 / FLAME_SHELL_RING_SEGMENTS as f32;
     let mut pos = center
         + Vector3::new(
@@ -98,6 +117,7 @@ fn append_wall_band_triangles(
     wind: [f32; 2],
     bend_amount: f32,
     bend_power: f32,
+    support_scale: f32,
 ) {
     let mut strip = Vec::new();
     for i in 0..=FLAME_SHELL_RING_SEGMENTS {
@@ -111,6 +131,7 @@ fn append_wall_band_triangles(
             wind,
             bend_amount,
             bend_power,
+            support_scale,
         ));
         strip.push(compute_ring_position(
             center,
@@ -121,6 +142,7 @@ fn append_wall_band_triangles(
             wind,
             bend_amount,
             bend_power,
+            support_scale,
         ));
     }
 
@@ -141,6 +163,7 @@ fn append_cap_triangles(
     wind: [f32; 2],
     bend_amount: f32,
     bend_power: f32,
+    support_scale: f32,
 ) {
     let top_center = center + Vector3::new(0.0, 1.0, 0.0);
     for i in 0..FLAME_SHELL_RING_SEGMENTS {
@@ -156,6 +179,7 @@ fn append_cap_triangles(
                 wind,
                 bend_amount,
                 bend_power,
+                support_scale,
             ),
             compute_ring_position(
                 center,
@@ -166,6 +190,7 @@ fn append_cap_triangles(
                 wind,
                 bend_amount,
                 bend_power,
+                support_scale,
             ),
         ]);
     }
@@ -182,6 +207,7 @@ fn append_cap_triangles(
                 wind,
                 bend_amount,
                 bend_power,
+                support_scale,
             ),
             compute_ring_position(
                 center,
@@ -192,6 +218,7 @@ fn append_cap_triangles(
                 wind,
                 bend_amount,
                 bend_power,
+                support_scale,
             ),
         ]);
     }
@@ -211,7 +238,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_winding_is_one_inside() {
-        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0, 1.0);
         for probe in [
             Vector3::new(0.0, 0.5, 0.0),
             Vector3::new(0.1, 0.1, 0.1),
@@ -227,12 +254,12 @@ mod tests {
 
     #[test]
     fn test_flame_shell_winding_is_zero_outside() {
-        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0, 1.0);
         // Off-axis probe near the tip: derived from the taper so it stays outside
         // whatever radius the shell profile is set to.
-        let beyond_taper = flame_shell_outer_radius(0.95) * 1.5 / std::f32::consts::SQRT_2;
+        let beyond_taper = flame_shell_outer_radius(0.95, 1.0) * 1.5 / std::f32::consts::SQRT_2;
         for probe in [
-            Vector3::new(flame_shell_outer_radius(0.0) * 2.0, 0.5, 0.0),
+            Vector3::new(flame_shell_outer_radius(0.0, 1.0) * 2.0, 0.5, 0.0),
             Vector3::new(0.0, -0.5, 0.0),
             Vector3::new(0.0, 1.5, 0.0),
             Vector3::new(beyond_taper, 0.95, beyond_taper),
@@ -244,7 +271,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_is_closed() {
-        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0, 1.0);
         let probes = [
             Vector3::new(0.0, 0.5, 0.0),
             Vector3::new(0.2, 0.2, 0.1),
@@ -255,7 +282,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_rays_have_even_hit_count() {
-        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0);
+        let shell = generate_flame_shell_triangles([0.0, 0.0], 0.0, 1.0, 1.0);
         let rays = [
             (Vector3::new(-2.0, 0.5, 0.03), Vector3::new(1.0, 0.0, 0.0)),
             (Vector3::new(0.03, -2.0, 0.05), Vector3::new(0.0, 1.0, 0.0)),
@@ -278,7 +305,7 @@ mod tests {
 
     #[test]
     fn test_flame_shell_bent_winding_is_closed() {
-        let shell = generate_flame_shell_triangles([1.0, 0.0], 0.6, 1.7);
+        let shell = generate_flame_shell_triangles([1.0, 0.0], 0.6, 1.7, 1.0);
         // Inside probe near the bent axis (shifted right by wind)
         let winding_inside = compute_winding_number(&shell, Vector3::new(0.3, 0.5, 0.0));
         assert!(
@@ -313,6 +340,7 @@ mod tests {
         let radial = FLAME_SHELL_SUPPORT_HEADROOM
             * FLAME_SHELL_CIRCUMSCRIBE
             * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01);
+        let support_scale = 1.0;
         let bend = height01.powf(bend_power);
         let expected_x = radial + bend;
         let expected_z = bend;
@@ -326,6 +354,7 @@ mod tests {
             wind,
             bend_amount,
             bend_power,
+            support_scale,
         );
 
         assert!(
