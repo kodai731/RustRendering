@@ -1,7 +1,7 @@
 use crate::flame_shell::FLAME_SHELL_BASE_RADIUS;
 use thyllore_math_core::{
-    approximate_erf, biweight_profile, evaluate_chebyshev, integrate_powers,
-    solve_support_interval, ChebyshevSeries,
+    approximate_erf, biweight_profile, evaluate_chebyshev, integrate_erf_response_linear,
+    integrate_powers, solve_support_interval, ChebyshevSeries, ErfResponseModel,
 };
 
 // Mirror of shaders/include/flame_radial_integral.glsl; the accuracy tests below cover both.
@@ -135,6 +135,61 @@ pub fn evaluate_biweight_band(
         first_moment += coefficient * powers[n + 1];
     }
     (integral, first_moment)
+}
+
+/// Argument of the threshold response at band coordinate s: the eroded smooth field
+/// `x(s) = (f0 + f1 s + f2 s^2) (1 - g(s))^2 - erosion_band` with `g(s) = a s^2 + b s + c`.
+fn occupancy_argument(
+    a: f32,
+    b: f32,
+    c: f32,
+    f: (f32, f32, f32),
+    erosion_band: f32,
+    s: f32,
+) -> f32 {
+    let g = (a * s + b) * s + c;
+    let inside = (1.0 - g).max(0.0);
+    (f.0 + (f.1 + f.2 * s) * s) * inside * inside - erosion_band
+}
+
+/// Occupancy integral and first moment of the smoothed threshold response
+/// `phi_sigma(x(s))` over the support part of `[-half_width, half_width]`, with the
+/// argument linearized on the two monotone halves split at the vertex of g.
+/// Mirror of `flameOccupancyBandIntegral` in shaders/include/flame_radial_integral.glsl.
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate_occupancy_band(
+    model: &ErfResponseModel,
+    sigma: f32,
+    a: f32,
+    b: f32,
+    c: f32,
+    f: (f32, f32, f32),
+    half_width: f32,
+    erosion_band: f32,
+) -> (f32, f32) {
+    let Some((s_lo, s_hi)) = solve_support_interval(a, b, c, -half_width, half_width) else {
+        return (0.0, 0.0);
+    };
+    let s_split = if a > 1e-12 {
+        (-0.5 * b / a).clamp(s_lo, s_hi)
+    } else {
+        0.5 * (s_lo + s_hi)
+    };
+    let value_lo = occupancy_argument(a, b, c, f, erosion_band, s_lo);
+    let value_mid = occupancy_argument(a, b, c, f, erosion_band, s_split);
+    let value_hi = occupancy_argument(a, b, c, f, erosion_band, s_hi);
+
+    let piece = |s0: f32, s1: f32, start: f32, end: f32| {
+        let span = s1 - s0;
+        if span < 1e-7 {
+            return (0.0, 0.0);
+        }
+        let slope = (end - start) / span;
+        integrate_erf_response_linear(model, sigma, start - slope * s0, slope, s0, s1)
+    };
+    let first = piece(s_lo, s_split, value_lo, value_mid);
+    let second = piece(s_split, s_hi, value_mid, value_hi);
+    (first.0 + second.0, first.1 + second.1)
 }
 
 fn build_height_series(height_coefficients: &[[f32; 4]; 2]) -> ChebyshevSeries {
@@ -662,6 +717,171 @@ mod tests {
         let tip = flame_radial_radius_scale(1.0, taper);
         assert!((base - FLAME_SHELL_BASE_RADIUS).abs() < 1e-6);
         assert!(tip < base * 0.2, "tip {tip} should follow radius_tip_ratio");
+    }
+
+    mod occupancy {
+        use super::super::*;
+        use thyllore_math_core::{evaluate_erf_response, fit_erf_response};
+
+        const EDGE_LOW: f32 = 0.27;
+        const EDGE_HIGH: f32 = 0.33;
+
+        fn default_model() -> ErfResponseModel {
+            fit_erf_response(EDGE_LOW, EDGE_HIGH)
+        }
+
+        /// Band cases (a, b, c, f, half_width, erosion) spanning interior chords,
+        /// grazing chords, negative erosion flooding and threshold-straddling arguments.
+        fn band_cases() -> Vec<(f32, f32, f32, (f32, f32, f32), f32, f32)> {
+            vec![
+                (0.5, 0.2, 0.4, (0.8, 0.3, -0.6), 0.25, 0.1),
+                (40.0, -6.0, 0.9, (1.0, -0.5, 2.0), 0.125, 0.0),
+                (0.0, 0.0, 0.3, (0.6, 0.0, 0.0), 0.125, 0.25),
+                (900.0, -60.0, 1.5, (0.7, 0.1, 0.0), 0.05, -0.2),
+                (4.0, 0.0, 0.0, (0.9, 0.0, 0.0), 0.5, 0.15),
+                (0.5, 0.1, 0.2, (0.35, 0.05, 0.0), 0.3, 0.05),
+            ]
+        }
+
+        fn linearized_argument(
+            a: f32,
+            b: f32,
+            c: f32,
+            f: (f32, f32, f32),
+            erosion: f32,
+            s_lo: f32,
+            s_split: f32,
+            s_hi: f32,
+            s: f32,
+        ) -> f32 {
+            let node = |at: f32| occupancy_argument(a, b, c, f, erosion, at);
+            if s <= s_split {
+                let span = (s_split - s_lo).max(1e-12);
+                node(s_lo) + (node(s_split) - node(s_lo)) * (s - s_lo) / span
+            } else {
+                let span = (s_hi - s_split).max(1e-12);
+                node(s_split) + (node(s_hi) - node(s_split)) * (s - s_split) / span
+            }
+        }
+
+        /// The closed form must match quadrature of the response applied to the
+        /// piecewise-linearized argument — this isolates the moment algebra from
+        /// the linearization choice.
+        #[test]
+        fn test_band_matches_quadrature_of_linearized_argument() {
+            let model = default_model();
+            for sigma in [0.0f32, 0.05, 0.2] {
+                for (a, b, c, f, half, erosion) in band_cases() {
+                    let (integral, first_moment) =
+                        evaluate_occupancy_band(&model, sigma, a, b, c, f, half, erosion);
+                    let Some((s_lo, s_hi)) = solve_support_interval(a, b, c, -half, half) else {
+                        assert_eq!(integral, 0.0);
+                        continue;
+                    };
+                    let s_split = if a > 1e-12 {
+                        (-0.5 * b / a).clamp(s_lo, s_hi)
+                    } else {
+                        0.5 * (s_lo + s_hi)
+                    };
+                    let steps = 40000;
+                    let ds = (s_hi - s_lo) as f64 / steps as f64;
+                    let mut reference = 0.0f64;
+                    let mut reference_first = 0.0f64;
+                    for i in 0..steps {
+                        let s = s_lo as f64 + (i as f64 + 0.5) * ds;
+                        let x =
+                            linearized_argument(a, b, c, f, erosion, s_lo, s_split, s_hi, s as f32);
+                        let value = evaluate_erf_response(&model, x, sigma) as f64;
+                        reference += value * ds;
+                        reference_first += s * value * ds;
+                    }
+                    let scale = (s_hi - s_lo) as f64;
+                    assert!(
+                        (integral as f64 - reference).abs() < 3e-3 * scale.max(1e-3),
+                        "sigma={sigma} case=({a},{b},{c}): got {integral}, expected {reference}"
+                    );
+                    assert!(
+                        (first_moment as f64 - reference_first).abs() < 3e-3 * scale.max(1e-3),
+                        "sigma={sigma} case=({a},{b},{c}) first moment: got {first_moment}, expected {reference_first}"
+                    );
+                }
+            }
+        }
+
+        /// Against the true styled field (exact smoothstep of the exact argument):
+        /// the sigma = 0 closed form carries the erf fit floor plus the linearization
+        /// error, which must stay a small fraction of the support length.
+        #[test]
+        fn test_band_tracks_true_smoothstep_field() {
+            let model = default_model();
+            for (a, b, c, f, half, erosion) in band_cases() {
+                let (integral, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, erosion);
+                let Some((s_lo, s_hi)) = solve_support_interval(a, b, c, -half, half) else {
+                    continue;
+                };
+                let steps = 40000;
+                let ds = (s_hi - s_lo) as f64 / steps as f64;
+                let mut reference = 0.0f64;
+                for i in 0..steps {
+                    let s = s_lo as f64 + (i as f64 + 0.5) * ds;
+                    let x = occupancy_argument(a, b, c, f, erosion, s as f32) as f64;
+                    let t = ((x - EDGE_LOW as f64) / (EDGE_HIGH - EDGE_LOW) as f64).clamp(0.0, 1.0);
+                    reference += t * t * (3.0 - 2.0 * t) * ds;
+                }
+                // Worst measured: 8.9% of the support on a grazing chord (a=900) where
+                // the two-piece secant misses the argument curvature; interior chords
+                // stay a few percent. This is the linearization floor, not the moments.
+                let scale = (s_hi - s_lo) as f64;
+                assert!(
+                    (integral as f64 - reference).abs() < 0.12 * scale,
+                    "case=({a},{b},{c},e={erosion}): got {integral}, expected {reference} over {scale}"
+                );
+            }
+        }
+
+        /// Strong erosion empties the band; strongly negative erosion (turbulence)
+        /// fills the whole support — and only the support (exact membership).
+        #[test]
+        fn test_band_saturates_to_empty_and_full_support() {
+            let model = default_model();
+            let (a, b, c, f, half) = (0.5f32, 0.2f32, 0.4f32, (0.8f32, 0.0f32, 0.0f32), 0.25f32);
+            let (s_lo, s_hi) = solve_support_interval(a, b, c, -half, half).unwrap();
+            let (empty, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, 2.0);
+            assert!(empty.abs() < 1e-4, "eroded band should vanish: {empty}");
+            let (full, _) = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, -2.0);
+            let support = s_hi - s_lo;
+            assert!(
+                (full - support).abs() < 0.02 * support,
+                "flooded band should fill the support: {full} vs {support}"
+            );
+            let (outside, _) = evaluate_occupancy_band(&model, 0.0, 0.0, 0.0, 3.0, f, half, -2.0);
+            assert_eq!(outside, 0.0, "no support, no occupancy even when flooded");
+        }
+
+        /// Larger unresolved noise flattens the response monotonically toward the
+        /// half-occupied band instead of jittering.
+        #[test]
+        fn test_sigma_flattens_the_band_smoothly() {
+            let model = default_model();
+            let (a, b, c, f, half) = (4.0f32, 0.0f32, 0.0f32, (0.9f32, 0.0f32, 0.0f32), 0.5f32);
+            let sharp = evaluate_occupancy_band(&model, 0.0, a, b, c, f, half, 0.0).0;
+            let soft = evaluate_occupancy_band(&model, 0.3, a, b, c, f, half, 0.0).0;
+            let (s_lo, s_hi) = solve_support_interval(a, b, c, -half, half).unwrap();
+            let support = s_hi - s_lo;
+            assert!(sharp > soft, "smoothing must not add occupancy here");
+            assert!(soft > 0.3 * support && soft < support);
+        }
+
+        #[test]
+        fn test_band_is_deterministic() {
+            let model = default_model();
+            let first =
+                evaluate_occupancy_band(&model, 0.1, 0.5, 0.2, 0.4, (0.8, 0.3, -0.6), 0.25, 0.1);
+            let second =
+                evaluate_occupancy_band(&model, 0.1, 0.5, 0.2, 0.4, (0.8, 0.3, -0.6), 0.25, 0.1);
+            assert_eq!(first.0.to_bits(), second.0.to_bits());
+            assert_eq!(first.1.to_bits(), second.1.to_bits());
+        }
     }
 
     #[test]

@@ -47,6 +47,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 trailSamples[16];
     vec4 emitterParams;
     vec4 contourParams;
+    vec4 erosionResponse;
 } flame;
 
 #include "include/flame_shell_support.glsl"
@@ -77,6 +78,7 @@ float evaluateHeightFalloff(float height01) {
 
 #include "include/flame_noise_field.glsl"
 #include "include/flame_erf_moments.glsl"
+#include "include/flame_erosion_response.glsl"
 #include "include/flame_radial_integral.glsl"
 
 float evaluateHeightPrimitive(float height01) {
@@ -416,8 +418,12 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
         float h = clamp(
             evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
-        float radial = segment.cylinderDomain ? flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h) : 1.0;
-        sum += evaluateHeightFalloff(h) * radial * flameNoiseErosionFactor(p, h);
+        if (segment.cylinderDomain && flame.noiseAmplitude != 0.0) {
+            sum += flamePointOccupancyDensity(p, h, w);
+        } else {
+            float radial = segment.cylinderDomain ? flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h) : 1.0;
+            sum += evaluateHeightFalloff(h) * radial * flameNoiseErosionFactor(p, h);
+        }
     }
     return sum * dt;
 }
@@ -434,9 +440,11 @@ vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
         vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
-        float rho = evaluateHeightFalloff(h)
-            * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
-            * flameNoiseErosionFactor(p, h);
+        float rho = flame.noiseAmplitude != 0.0
+            ? flamePointOccupancyDensity(p, h, w)
+            : evaluateHeightFalloff(h)
+                * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
+                * flameNoiseErosionFactor(p, h);
         total += rho * dt;
         heightMean += rho * dt * h;
     }
@@ -452,9 +460,11 @@ vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
         vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
-        float rho = evaluateHeightFalloff(h)
-            * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
-            * flameNoiseErosionFactor(p, h);
+        float rho = flame.noiseAmplitude != 0.0
+            ? flamePointOccupancyDensity(p, h, w)
+            : evaluateHeightFalloff(h)
+                * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
+                * flameNoiseErosionFactor(p, h);
         vec3 tau = sigmaRgb * rho * dt;
         radiance += transmittance * flameRampColor(h) * flame.intensity * boost * (vec3(1.0) - exp(-tau));
         transmittance *= exp(-tau);

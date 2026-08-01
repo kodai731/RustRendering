@@ -85,13 +85,18 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
         * flameFieldSupportMask(dSmooth);
 }
 
+// Raw erosion value at a point, sampled at the warped coordinate like every
+// erosion consumer (band freeze, legacy factor, occupancy field).
+float flameNoiseErosionValue(vec3 p, float h) {
+    vec3 q = flameNoiseWarpedCoordinate(p, h);
+    return flameNoiseErosionAt(q, h);
+}
+
 float flameNoiseErosionFactor(vec3 p, float h) {
     if (flame.noiseAmplitude == 0.0) {
         return 1.0;
     }
-    vec3 q = flameNoiseWarpedCoordinate(p, h);
-    float erosion = flameNoiseErosionAt(q, h);
-    return max(1.0 - erosion, 0.0);
+    return max(1.0 - flameNoiseErosionValue(p, h), 0.0);
 }
 
 // Ring emitter: a flame cross-section swept around a circle of normalized major radius

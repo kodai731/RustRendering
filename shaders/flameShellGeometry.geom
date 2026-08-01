@@ -44,6 +44,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 trailSamples[16];
     vec4 emitterParams;
     vec4 contourParams;
+    vec4 erosionResponse;
 } flame;
 
 #include "include/flame_shell_support.glsl"

@@ -41,6 +41,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 trailSamples[16];
     vec4 emitterParams;
     vec4 contourParams;
+    vec4 erosionResponse;
 } flame;
 
 layout(set = 1, binding = 1) uniform sampler2D gbufferPositionSampler;

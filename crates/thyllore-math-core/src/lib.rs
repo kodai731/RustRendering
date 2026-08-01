@@ -4,6 +4,7 @@ mod chebyshev;
 mod compact_support;
 pub mod coordinate_system;
 mod erf_moments;
+mod erf_response;
 mod matrix;
 mod quaternion;
 mod vector;
@@ -20,6 +21,7 @@ pub use coordinate_system::{
     world_to_screen, world_y_axis, world_y_down,
 };
 pub use erf_moments::*;
+pub use erf_response::*;
 pub use matrix::*;
 pub use quaternion::*;
 pub use vector::*;
