@@ -67,6 +67,29 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
 
     return q;
 }
+// Single source of truth for the smooth (pre-threshold) emitter density.
+// `c` is the prepared density coordinate: the warped q for cylinder/ring in the
+// styled field, the plain local p for the mode 0/1 parity pair (which stays
+// unwarped) and for the SDF billboard (whose dSmooth never warps). The styled
+// field passes wiggle = 1.0; the closed-form pair folds the contour wiggle in.
+float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
+    if (flame.emitterParams.x >= 1.5) {
+        vec2 uv = vec2(c.x + 0.5, 1.0 - clamp(c.y, 0.0, 1.0));
+        float d = textureLod(flameSdfSampler, uv, 0.0).r - 0.5;
+        float shell = 0.06;
+        float zn = c.z / max(flame.emitterParams.w, 1e-3);
+        float thickness = exp(-zn * zn);
+        return clamp(1.0 - max(d, 0.0) / shell, 0.0, 1.0) * thickness;
+    }
+    float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
+    float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
+    float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+    float rho = (length(c.xz) - rm) / minorScale;
+    float rn = abs(rho) / max(taperR * wiggle, 1e-4);
+    float u = rn / flameRadialSupportRadius();
+    return evaluateHeightFalloff(h) * flameBiweight(u * u);
+}
+
 // Internal helper: compute erosion value from warped coordinate q and height h.
 float flameNoiseErosionAt(vec3 q, float h) {
     return flame.noiseAmplitude * mix(0.2, 1.0, h) * (fbm3(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect()) - 0.35);
@@ -74,12 +97,7 @@ float flameNoiseErosionAt(vec3 q, float h) {
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(p, h);
-
-    // Tapered radial density
-    float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
-    float rn = length(q.xz) / max(taperR, 1e-4);
-    float u = rn / flameRadialSupportRadius();
-    dSmooth = evaluateHeightFalloff(h) * flameBiweight(u * u);
+    dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
         * flameFieldSupportMask(dSmooth);
@@ -110,11 +128,7 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     float s = sin(ang);
     vec3 pr = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
     vec3 q = flameNoiseWarpedCoordinate(pr, h);
-    float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
-    float rho = (length(q.xz) - rm) / minorScale;
-    float rn = abs(rho) / max(taperR, 1e-4);
-    float u = rn / flameRadialSupportRadius();
-    dSmooth = evaluateHeightFalloff(h) * flameBiweight(u * u);
+    dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
         * flameFieldSupportMask(dSmooth);
@@ -122,13 +136,8 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
 // unit-local XY. Texel encodes d = r - 0.5 (negative inside), normalized by image height.
 float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
-    vec2 uv = vec2(p.x + 0.5, 1.0 - clamp(p.y, 0.0, 1.0));
-    float d = textureLod(flameSdfSampler, uv, 0.0).r - 0.5;
-    float shell = 0.06;
-    float zn = p.z / max(flame.emitterParams.w, 1e-3);
-    float thickness = exp(-zn * zn);
     vec3 q = flameNoiseWarpedCoordinate(p, h);
-    dSmooth = clamp(1.0 - max(d, 0.0) / shell, 0.0, 1.0) * thickness;
+    dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
         * flameFieldSupportMask(dSmooth);

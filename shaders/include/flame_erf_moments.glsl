@@ -11,8 +11,12 @@
 // would divide by alpha^2 and cancel), integration-by-parts recurrence in
 // sigma = s / h otherwise.
 
-const int FLAME_ERF_MOMENT_COUNT = 7;
-const int FLAME_GAUSSIAN_MOMENT_COUNT = 8;
+// GPU orders are truncated to what the erf-bridge response integral consumes
+// (E up to n=1, J up to m=2; E(n) needs J(n+1)). The truncation is exact: every
+// retained entry is computed by the same recurrences as the full-order Rust SSoT
+// (thyllore-math-core/src/erf_moments.rs), which keeps n<=6 / m<=7 and the tests.
+const int FLAME_ERF_MOMENT_COUNT = 2;
+const int FLAME_GAUSSIAN_MOMENT_COUNT = 3;
 const int FLAME_ERF_TAYLOR_TERMS = 13;
 const float FLAME_ERF_TAYLOR_ALPHA_H = 0.5;
 const float FLAME_ERF_SATURATION = 5.5;

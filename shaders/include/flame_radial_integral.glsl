@@ -179,6 +179,66 @@ vec2 flameOccupancyAlongRay(
         vec3(falloff, 0.0, 0.0), halfWidth, erosionBand, sigma);
 }
 
+// ---- Emitter-generic occupancy (ring / SDF analytic path) ----
+// Every non-trail emitter shares the eroded threshold field
+//   smoothstep(edgeLow, edgeHigh, dSmooth - erosion) * [dSmooth > 0];
+// only dSmooth differs per emitter. The closed form needs dSmooth only at a few
+// nodes per band: the argument is piecewise-linearized between exact node values
+// and the response integral stays closed form — the sharpness lives in the
+// response, not in the nodes. The cylinder keeps its specialized band integral
+// (exact support intervals); this generic path serves ring and SDF, unwarped
+// like the cylinder pair so mode 0 and mode 1 stay a parity pair.
+// Mirrored in thyllore-render-core/src/flame_radial.rs (evaluate_occupancy_node_band).
+
+// Pointwise field for the reference raymarch (mode 1) on ring/SDF emitters:
+// the same field the node-based closed form approximates.
+float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
+    float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle);
+    float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h) : 0.0;
+    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth - erosion)
+        * flameFieldSupportMask(dSmooth);
+}
+
+const int FLAME_OCCUPANCY_NODE_SEGMENTS = 4;
+
+// Occupancy integral (.x) and first moment in t (.y) of the smoothed threshold
+// response over one t band, with dSmooth sampled at the segment nodes and the
+// argument linear between them. Segments whose both node densities are zero lie
+// outside the support and contribute nothing (exact membership at node resolution);
+// densities are sampled before the erosion fbm so empty bands cost no noise at all.
+vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand, float chord) {
+    float dt = (t1 - t0) / float(FLAME_OCCUPANCY_NODE_SEGMENTS);
+    float density[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
+    bool occupied = false;
+    for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
+        vec3 p = o + (t0 + float(node) * dt) * d;
+        density[node] = flameEmitterSmoothDensityAt(p, clamp(p.y, 0.0, 1.0), wiggleBand);
+        occupied = occupied || density[node] > 0.0;
+    }
+    if (!occupied) {
+        return vec2(0.0);
+    }
+
+    vec3 pMid = o + (t0 + 0.5 * (t1 - t0)) * d;
+    float hMid = clamp(pMid.y, 0.0, 1.0);
+    float erosionBand = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(pMid, hMid) : 0.0;
+    float sigma = flame.noiseAmplitude != 0.0 ? flameErosionSigma(hMid, chord) : 0.0;
+    FlameSmoothedResponse response = flameSmoothErosionResponse(sigma);
+    vec2 total = vec2(0.0);
+    for (int segment = 1; segment <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++segment) {
+        if (density[segment - 1] > 0.0 || density[segment] > 0.0) {
+            float tPrev = t0 + float(segment - 1) * dt;
+            float slope = (density[segment] - density[segment - 1]) / dt;
+            total += flameErosionResponseLinearIntegral(
+                response, density[segment - 1] - erosionBand - slope * tPrev, slope, tPrev,
+                tPrev + dt);
+        }
+    }
+    return total;
+}
+
+float integrateEmitterOccupancy(vec3 o, vec3 d, float tNear, float tFar);
+
 // Rays with a near-constant height cannot be parameterized by h, so the moment is taken along t.
 float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, float invSq) {
     float tCenter = 0.5 * (tNear + tFar);
@@ -280,6 +340,37 @@ vec3 flameRampColor(float h) {
     return mix(flame.colorMid.rgb, flame.colorTip.rgb, (h - 0.5) * 2.0);
 }
 
+// Beer-Lambert composite over per-band emissions — the one RTE assembly shared by
+// the cylinder bands (camera order given by `reversed`) and the emitter-generic
+// t bands (already camera-ordered, reversed = false).
+vec4 flameCompositeRteBands(
+    float bandEmission[FLAME_RADIAL_BAND_COUNT],
+    float bandHeight[FLAME_RADIAL_BAND_COUNT],
+    float bandEdge[FLAME_RADIAL_BAND_COUNT],
+    bool reversed) {
+    float total = 0.0;
+    float heightMean = 0.0;
+    for (int i = 0; i < FLAME_RADIAL_BAND_COUNT; ++i) {
+        total += bandEmission[i];
+        heightMean += bandEmission[i] * bandHeight[i];
+    }
+    heightMean = total > 1e-6 ? heightMean / total : 0.0;
+    float tempNorm = clamp(total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
+    float boost = 1.0 + flame.styleParams1.w * tempNorm * tempNorm;
+
+    vec3 radiance = vec3(0.0);
+    vec3 sigmaRgb = flame.sigmaT * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
+    vec3 transmittance = vec3(1.0);
+    for (int i = 0; i < FLAME_RADIAL_BAND_COUNT; ++i) {
+        int idx = reversed ? FLAME_RADIAL_BAND_COUNT - 1 - i : i;
+        vec3 tau = sigmaRgb * bandEmission[idx];
+        vec3 absorbed = vec3(1.0) - exp(-tau);
+        radiance += transmittance * mix(flameRampColor(bandHeight[idx]), flame.colorTip.rgb, bandEdge[idx]) * flame.intensity * boost * absorbed;
+        transmittance *= exp(-tau);
+    }
+    return vec4(radiance, 1.0 - dot(transmittance, vec3(1.0 / 3.0)));
+}
+
 vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
     if (tFar <= tNear) {
         return vec4(0.0);
@@ -377,27 +468,65 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
         reversed = d.y < 0.0;
     }
 
-    float total = 0.0;
-    float heightMean = 0.0;
-    for (int i = 0; i < FLAME_RADIAL_BAND_COUNT; ++i) {
-        total += bandEmission[i];
-        heightMean += bandEmission[i] * bandHeight[i];
-    }
-    heightMean = total > 1e-6 ? heightMean / total : 0.0;
-    float tempNorm = clamp(total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
-    float boost = 1.0 + flame.styleParams1.w * tempNorm * tempNorm;
+    return flameCompositeRteBands(bandEmission, bandHeight, bandEdge, reversed);
+}
 
-    vec3 radiance = vec3(0.0);
-    vec3 sigmaRgb = flame.sigmaT * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
-    vec3 transmittance = vec3(1.0);
-    for (int i = 0; i < FLAME_RADIAL_BAND_COUNT; ++i) {
-        int idx = reversed ? FLAME_RADIAL_BAND_COUNT - 1 - i : i;
-        vec3 tau = sigmaRgb * bandEmission[idx];
-        vec3 absorbed = vec3(1.0) - exp(-tau);
-        radiance += transmittance * mix(flameRampColor(bandHeight[idx]), flame.colorTip.rgb, bandEdge[idx]) * flame.intensity * boost * absorbed;
-        transmittance *= exp(-tau);
+// Emitter-generic occupancy bands over t — the one band fill shared by the scalar
+// emission integral and the RTE composite. The t bands are camera-ordered.
+void flameEmitterOccupancyBands(
+    vec3 o, vec3 d, float tNear, float tFar,
+    out float bandEmission[FLAME_RADIAL_BAND_COUNT],
+    out float bandHeight[FLAME_RADIAL_BAND_COUNT],
+    out float bandEdge[FLAME_RADIAL_BAND_COUNT]) {
+    float dt = (tFar - tNear) / float(FLAME_RADIAL_BAND_COUNT);
+    float chord = dt * length(d);
+    for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
+        float t0 = tNear + float(band) * dt;
+        vec3 pMid = o + (t0 + 0.5 * dt) * d;
+        float hMid = clamp(pMid.y, 0.0, 1.0);
+        float wBand = flameContourWiggle(pMid, hMid);
+        vec2 occupancy = flameOccupancyNodeBand(o, d, t0, t0 + dt, wBand, chord);
+        float tMean = occupancy.x > 1e-6 ? clamp(occupancy.y / occupancy.x, t0, t0 + dt) : t0 + 0.5 * dt;
+        vec3 pMean = o + tMean * d;
+        float hMean = clamp(pMean.y, 0.0, 1.0);
+        bandEmission[band] = max(occupancy.x, 0.0);
+        bandHeight[band] = hMean;
+        float edge = 0.0;
+        if (flame.emitterParams.x < 1.5) {
+            float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
+            float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+            float taperR = mix(1.0, flame.styleParams1.x, pow(hMean, flame.styleParams0.w));
+            float rhoNorm = abs((length(pMean.xz) - rm) / minorScale) / max(taperR, 1e-4);
+            edge = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, rhoNorm), 0.0, 1.0);
+        }
+        bandEdge[band] = edge;
     }
-    return vec4(radiance, 1.0 - dot(transmittance, vec3(1.0 / 3.0)));
+}
+
+vec4 integrateEmitterOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {
+    if (tFar <= tNear) {
+        return vec4(0.0);
+    }
+    float bandEmission[FLAME_RADIAL_BAND_COUNT];
+    float bandHeight[FLAME_RADIAL_BAND_COUNT];
+    float bandEdge[FLAME_RADIAL_BAND_COUNT];
+    flameEmitterOccupancyBands(o, d, tNear, tFar, bandEmission, bandHeight, bandEdge);
+    return flameCompositeRteBands(bandEmission, bandHeight, bandEdge, false);
+}
+
+float integrateEmitterOccupancy(vec3 o, vec3 d, float tNear, float tFar) {
+    if (tFar <= tNear) {
+        return 0.0;
+    }
+    float bandEmission[FLAME_RADIAL_BAND_COUNT];
+    float bandHeight[FLAME_RADIAL_BAND_COUNT];
+    float bandEdge[FLAME_RADIAL_BAND_COUNT];
+    flameEmitterOccupancyBands(o, d, tNear, tFar, bandEmission, bandHeight, bandEdge);
+    float total = 0.0;
+    for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
+        total += bandEmission[band];
+    }
+    return total;
 }
 
 #endif

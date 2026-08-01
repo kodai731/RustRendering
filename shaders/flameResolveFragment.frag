@@ -403,6 +403,10 @@ float integrateEmissionAnalytic(FlameRaySegment segment) {
         return max(integrateRadialEmission(
             segment.localOrigin, segment.localDir, segment.tNear, segment.tFar), 0.0);
     }
+    if (flame.trailMeta.x < 1.0) {
+        return integrateEmitterOccupancy(
+            segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
+    }
     return max(segment.boundaryHeightIntegral, 0.0);
 }
 
@@ -420,6 +424,8 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
         float w = flameContourWiggle(p, h);
         if (segment.cylinderDomain && flame.noiseAmplitude != 0.0) {
             sum += flamePointOccupancyDensity(p, h, w);
+        } else if (!segment.cylinderDomain && flame.trailMeta.x < 1.0) {
+            sum += flamePointEmitterOccupancy(p, h, w);
         } else {
             float radial = segment.cylinderDomain ? flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h) : 1.0;
             sum += evaluateHeightFalloff(h) * radial * flameNoiseErosionFactor(p, h);
@@ -440,11 +446,16 @@ vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
         vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
-        float rho = flame.noiseAmplitude != 0.0
-            ? flamePointOccupancyDensity(p, h, w)
-            : evaluateHeightFalloff(h)
+        float rho;
+        if (!segment.cylinderDomain) {
+            rho = flamePointEmitterOccupancy(p, h, w);
+        } else if (flame.noiseAmplitude != 0.0) {
+            rho = flamePointOccupancyDensity(p, h, w);
+        } else {
+            rho = evaluateHeightFalloff(h)
                 * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
                 * flameNoiseErosionFactor(p, h);
+        }
         total += rho * dt;
         heightMean += rho * dt * h;
     }
@@ -460,11 +471,16 @@ vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
         vec3 p = segment.localOrigin + t * segment.localDir;
         float h = clamp(evaluateHeightAlongRay(t, segment.localOrigin.y, segment.localDir.y), 0.0, 1.0);
         float w = flameContourWiggle(p, h);
-        float rho = flame.noiseAmplitude != 0.0
-            ? flamePointOccupancyDensity(p, h, w)
-            : evaluateHeightFalloff(h)
+        float rho;
+        if (!segment.cylinderDomain) {
+            rho = flamePointEmitterOccupancy(p, h, w);
+        } else if (flame.noiseAmplitude != 0.0) {
+            rho = flamePointOccupancyDensity(p, h, w);
+        } else {
+            rho = evaluateHeightFalloff(h)
                 * flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h)
                 * flameNoiseErosionFactor(p, h);
+        }
         vec3 tau = sigmaRgb * rho * dt;
         radiance += transmittance * flameRampColor(h) * flame.intensity * boost * (vec3(1.0) - exp(-tau));
         transmittance *= exp(-tau);
@@ -598,10 +614,15 @@ void main() {
             trans *= 1.0 - a;
         }
     } else {
-        if (segment.cylinderDomain && flame.contourParams.z >= 2.0) {
-            vec4 rte = push.mode == 1
-                ? integrateRTERaymarch(segment, push.stepCount)
-                : integrateRadialRTE(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
+        if (flame.trailMeta.x < 1.0 && flame.contourParams.z >= 2.0) {
+            vec4 rte;
+            if (push.mode == 1) {
+                rte = integrateRTERaymarch(segment, push.stepCount);
+            } else if (segment.cylinderDomain) {
+                rte = integrateRadialRTE(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
+            } else {
+                rte = integrateEmitterOccupancyRTE(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
+            }
             if (flame.lightData.w > 0.0) {
                 vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
                 rte.rgb *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
@@ -617,8 +638,8 @@ void main() {
                 emission = integrateEmissionAnalytic(segment);
                 // Mode 0: multiply emission by weighted average of flameNoiseErosionFactor
                 // evaluated at tNear, midpoint, and tFar (weights 0.25, 0.5, 0.25)
-                // Only for non-cylinder domain — cylinder domain already applies erosion per-band in integrateRadialEmission
-                if (!segment.cylinderDomain) {
+                // Only for the trail domain — cylinder and emitter occupancy paths own their erosion
+                if (flame.trailMeta.x >= 1.0) {
                     float tMid = 0.5 * (segment.tNear + segment.tFar);
                     vec3 pNear = segment.localOrigin + segment.tNear * segment.localDir;
                     vec3 pMid = segment.localOrigin + tMid * segment.localDir;
