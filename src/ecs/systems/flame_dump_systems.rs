@@ -50,6 +50,24 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
         "occlusion_lum_ref": effect.occlusion_lum_ref,
         "contour_wiggle_amp": effect.contour_wiggle_amp
     });
+    value["rotation"] = json!([
+        effect.rotation.s,
+        effect.rotation.v.x,
+        effect.rotation.v.y,
+        effect.rotation.v.z
+    ]);
+    value["time_scale"] = json!(effect.time_scale);
+    value["time_offset"] = json!(effect.time_offset);
+    value["emitter_kind"] = json!(effect.emitter_kind);
+    value["ring_major_radius"] = json!(effect.ring_major_radius);
+    value["ring_angular_speed"] = json!(effect.ring_angular_speed);
+    value["aniso_axis_advect"] = json!(effect.aniso_axis_advect);
+    value["rte_bands"] = json!(effect.rte_bands);
+    value["sigma_dispersion"] = json!(effect.sigma_dispersion);
+    value["edge_temperature_blend"] = json!(effect.edge_temperature_blend);
+    value["turbulence_model"] = json!(effect.turbulence_model);
+    value["kernel_blob_size"] = json!(effect.kernel_blob_size);
+    value["kernel_blob_amp"] = json!(effect.kernel_blob_amp);
     value["boundary_amp"] = json!(effect.boundary_amp);
     value["boundary_freq"] = json!(effect.boundary_freq);
     value["boundary_speed"] = json!(effect.boundary_speed);

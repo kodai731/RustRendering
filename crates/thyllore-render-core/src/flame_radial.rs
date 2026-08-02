@@ -372,7 +372,7 @@ pub fn density_weighted_node_t(t0: f32, t1: f32, density_at: impl Fn(f32) -> f32
     (weight_sum > 0.0).then(|| t_weighted / weight_sum)
 }
 
-fn build_height_series(height_coefficients: &[[f32; 4]; 2]) -> ChebyshevSeries {
+pub(crate) fn build_height_series(height_coefficients: &[[f32; 4]; 2]) -> ChebyshevSeries {
     ChebyshevSeries::new(
         height_coefficients.iter().flatten().copied().collect(),
         (0.0, 1.0),
@@ -1149,6 +1149,125 @@ mod tests {
             }
         }
 
+        /// Dumped user rays of log/flame/wall_probe_1785662819.json (near-wall ring pose).
+        #[test]
+        fn test_node_band_matches_quadrature_on_dumped_wall_pose_rays() {
+            let model = default_model();
+            let height = build_height_series(&[
+                [0.353_472_62, -0.206_110_25, -0.374_551_45, 0.258_819_37],
+                [
+                    -0.004_593_815,
+                    -0.058_476_381,
+                    0.059_848_253,
+                    -0.038_838_845,
+                ],
+            ]);
+            let taper = default_taper();
+            let ring_major = 0.75f32;
+            let origin = [-0.018_554f32, 0.509_862, 0.9567];
+            let directions: [[f32; 3]; 5] = [
+                [0.088_952, -0.108_642, -0.990_093],
+                [0.085_707, 0.287_378, -0.953_975],
+                [-0.561_305, 0.223_091, -0.796_973],
+                [0.671_719, -0.371_655, -0.640_832],
+                [0.078_993, -0.469_792, -0.879_236],
+            ];
+            const BAND_COUNT: usize = 6;
+
+            for direction in &directions {
+                let slab_hi = if direction[1].abs() < 1e-6 {
+                    6.0
+                } else {
+                    let a = (0.0 - origin[1]) / direction[1];
+                    let b = (1.0 - origin[1]) / direction[1];
+                    a.max(b).min(6.0)
+                };
+                let Some((span_lo, span_hi)) = ring_support_span(
+                    origin, *direction, 0.0, slab_hi, ring_major, taper, SHARPNESS, 1.3,
+                ) else {
+                    panic!("dumped ray {direction:?} must hit the ring support");
+                };
+
+                for (boundary_scale, sigma, erosion) in [
+                    ([1.0f32, 1.0], 0.144f32, -0.35f32),
+                    ([1.0, 1.0], 0.144, 0.4),
+                    ([1.06, 0.94], 0.144, 0.0),
+                    ([1.06, 0.94], 0.0, 0.4),
+                ] {
+                    let sample = |t: f32| {
+                        let p = [
+                            origin[0] + t * direction[0],
+                            origin[1] + t * direction[1],
+                            origin[2] + t * direction[2],
+                        ];
+                        evaluate_ring_smooth_density_displaced(
+                            p,
+                            &height,
+                            taper,
+                            SHARPNESS,
+                            ring_major,
+                            1.0,
+                            boundary_scale,
+                        )
+                    };
+
+                    let band_width = (span_hi - span_lo) / BAND_COUNT as f32;
+                    for band in 0..BAND_COUNT {
+                        let t0 = span_lo + band as f32 * band_width;
+                        let t1 = t0 + band_width;
+                        let (integral, first_moment) = evaluate_occupancy_node_band(
+                            &model,
+                            sigma,
+                            t0,
+                            t1,
+                            |_| erosion,
+                            EDGE_HIGH,
+                            &sample,
+                        );
+
+                        let dt = (t1 - t0) / FLAME_OCCUPANCY_NODE_SEGMENTS as f32;
+                        let steps = 40000;
+                        let ds = (t1 - t0) as f64 / steps as f64;
+                        let mut reference = 0.0f64;
+                        let mut reference_first = 0.0f64;
+                        for i in 0..steps {
+                            let t = t0 as f64 + (i as f64 + 0.5) * ds;
+                            let segment = (((t - t0 as f64) / dt as f64).floor() as usize)
+                                .min(FLAME_OCCUPANCY_NODE_SEGMENTS - 1);
+                            let ta = t0 + segment as f32 * dt;
+                            let da = sample(ta);
+                            let db = sample(ta + dt);
+                            if da <= 0.0 && db <= 0.0 {
+                                continue;
+                            }
+                            let arg_a = eroded_argument(da, erosion, EDGE_HIGH);
+                            let arg_b = eroded_argument(db, erosion, EDGE_HIGH);
+                            let x = arg_a + (arg_b - arg_a) * ((t as f32 - ta) / dt);
+                            let sigma_eff = sigma
+                                * 0.5
+                                * (envelope_fade(da, EDGE_HIGH) + envelope_fade(db, EDGE_HIGH));
+                            let value = evaluate_erf_response(&model, x, sigma_eff) as f64;
+                            reference += value * ds;
+                            reference_first += t * value * ds;
+                        }
+
+                        let scale = (t1 - t0) as f64;
+                        assert!(
+                            (integral as f64 - reference).abs() < 3e-3 * scale.max(1e-3),
+                            "dir={direction:?} band={band} sigma={sigma} e={erosion} \
+                             scale={boundary_scale:?}: got {integral}, expected {reference}"
+                        );
+                        assert!(
+                            (first_moment as f64 - reference_first).abs()
+                                < 3e-3 * scale.max(1e-3) * (t1.abs().max(1.0)) as f64,
+                            "dir={direction:?} band={band} first moment: got {first_moment}, \
+                             expected {reference_first}"
+                        );
+                    }
+                }
+            }
+        }
+
         #[test]
         fn test_node_band_with_per_node_erosion_matches_quadrature() {
             let model = default_model();
@@ -1494,4 +1613,3 @@ mod tests {
         assert_eq!(first.to_bits(), second.to_bits());
     }
 }
-           

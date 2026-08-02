@@ -1,14 +1,5 @@
-//! CPU probe of the wall-plate failure regime for the current camera pose.
-//!
-//! Casts a grid of view rays against the flame support in local (unit) space and
-//! reports the quantities that drive the plate/wall appearance: chord length and
-//! traversed noise-cell count (path averaging, 1/sqrt(N)), grazing angle at the
-//! support boundary (tangential incidence), density saturation along the chord
-//! (threshold saturation) and its optical depth (RTE saturation), and the screen
-//! size of one noise cell (magnification of the missing texture). All densities
-//! use the emitter-convention envelope mirror (`flameEmitterSmoothDensityAt`
-//! without warp/erosion/boundary displacement); for the cylinder and SDF emitters
-//! the axis-centered form is an approximation of the shading field.
+//! CPU probe of the wall-plate regime: view-ray grid vs the envelope mirror
+//! (no warp/erosion/displacement; cylinder/SDF use the axis-centered approximation).
 
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
 
