@@ -9,6 +9,7 @@ pub const FLAME_SHELL_BASE_RADIUS: f32 = 0.5;
 pub const FLAME_SHELL_TAPER_TIP_SCALE: f32 = 1.0;
 pub const FLAME_SHELL_CIRCUMSCRIBE: f32 = 1.0195911; // 1/cos(pi/16): circumscribe 16-gon over unit cylinder
 pub const FLAME_SHELL_SUPPORT_HEADROOM: f32 = 1.5;
+pub const MAX_GEOMETRY_VERTICES: usize = 48;
 const R: f32 = FLAME_SHELL_BASE_RADIUS;
 const QUAD_CORNERS: [[f32; 3]; 4] = [[-R, 0.0, -R], [R, 0.0, -R], [R, 0.0, R], [-R, 0.0, R]];
 
@@ -371,6 +372,14 @@ mod tests {
             (pos.z - expected_z).abs() < 1e-5,
             "bend position z: expected {expected_z}, got {}",
             pos.z
+        );
+    }
+
+    #[test]
+    fn test_flame_shell_cap_fits_geometry_vertex_limit() {
+        assert!(
+            (FLAME_SHELL_RING_SEGMENTS * 3) <= MAX_GEOMETRY_VERTICES,
+            "One cap emits too many vertices for the geometry shader limit"
         );
     }
 }

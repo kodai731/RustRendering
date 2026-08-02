@@ -725,6 +725,9 @@ fn build_flame_section(
                     ui.slider_config("Boundary Break", 0.0, 0.8)
                         .build(&mut effect_copy.boundary_amp);
 
+                    ui.slider_config("Near Fade", 0.0, 1.5)
+                        .build(&mut effect_copy.near_fade_radius);
+
                     ui.slider_config("Boundary Scale", 0.25, 4.0)
                         .build(&mut effect_copy.boundary_freq);
 

@@ -6,7 +6,7 @@
 
 #include "include/flame_shell_profile.glsl"
 
-layout(lines_adjacency, invocations = 9) in;
+layout(lines_adjacency, invocations = 10) in;
 layout(triangle_strip, max_vertices = 48) out;
 
 layout(set = 0, binding = 0) uniform FrameUBO {
@@ -48,6 +48,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 kernelParams;
     vec4 kernelBlobs[192];
     vec4 boundaryParams;
+    vec4 nearFadeParams;
 } flame;
 
 #include "include/flame_shell_support.glsl"
@@ -98,8 +99,7 @@ void main() {
                 vec2(angle01, top01));
         }
         EndPrimitive();
-    } else {
-        vec3 topCenter = center + vec3(0.0, 1.0, 0.0);
+    } else if (gl_InvocationID == 8) {
         for (int i = 0; i < RING_SEGMENTS; ++i) {
             int next = (i + 1) % RING_SEGMENTS;
             emitShellVertex(center, vec2(0.0, 0.0));
@@ -107,6 +107,8 @@ void main() {
             emitShellVertex(computeRingPosition(center, radiusX, radiusZ, next, 0), vec2(float(i + 1) / float(RING_SEGMENTS), 0.0));
             EndPrimitive();
         }
+    } else {
+        vec3 topCenter = center + vec3(0.0, 1.0, 0.0);
         for (int i = 0; i < RING_SEGMENTS; ++i) {
             int next = (i + 1) % RING_SEGMENTS;
             emitShellVertex(topCenter, vec2(0.0, 1.0));

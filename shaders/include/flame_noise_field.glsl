@@ -231,4 +231,16 @@ float flameEmitterDensity(vec3 p, float h, out float dSmooth) {
     return flameNoiseFieldDensity(p, h, dSmooth);
 }
 
+// カメラが emitter の support に入るとリムレイが 45/45 -> 0/45 に全滅し、これが
+// 壁ルックへの二値切替になる。カメラ近傍の密度を 0 へ落として光学的にカメラを場の
+// 外に置き、リムのシルエットが常に画面に残るようにする。
+float flameNearCameraFade(vec3 pLocal) {
+    float radius = flame.nearFadeParams.x;
+    if (radius <= 0.0) {
+        return 1.0;
+    }
+    vec3 pWorld = (flame.model * vec4(pLocal, 1.0)).xyz;
+    return smoothstep(0.0, radius, length(pWorld - frame.camera_pos.xyz));
+}
+
 #endif

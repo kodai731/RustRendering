@@ -39,7 +39,6 @@ from PIL import Image
 from scipy.signal import savgol_filter
 from scipy.spatial import cKDTree
 
-DEFAULT_CROP = (560, 20, 2240, 860)
 BLUR_SIGMA = 4.0
 LEVEL_FRACTIONS = (0.1, 0.15, 0.25, 0.4, 0.55, 0.7, 0.85)
 MIN_CONTOUR_AREA_FRACTION = 0.01
@@ -52,14 +51,18 @@ SURFACE_SCORE_FLOOR = 0.35
 ENVELOPE_RELATIVE_FACTOR = 0.5
 
 CAMERA_CONFIGS = {
-    "n1": "180,-8,2.0,0,0.5,-1.5",
-    "n2": "30,-8,0.35",
-    "n3": "180,-10,0.15,0,0.7,-1.4",
-    "turb": "30,-14,0.6,0,0.85,0",
-    "far": "30,-35,4.5",
+    "n1": ("ring", "180,-8,2.0,0,0.5,-1.5", []),
+    "n2": ("ring", "30,-8,0.35", []),
+    "n3": ("ring", "180,-10,0.15,0,0.7,-1.4", []),
+    "turb": ("ring", "30,-14,0.6,0,0.85,0", []),
+    "far": ("ring", "30,-35,4.5", []),
+    "cf_near": ("campfire", "82.242,-39.220,1.4315,-0.0906,0.8981,0.0500", ["height=3.06", "radius=1.53"]),
+    "cf_far": ("campfire", "82.242,-39.220,1.7485,-0.0616,0.9372,0.0737", ["height=3.06", "radius=1.53"]),
+    "ring_wall": ("ring", "-5.134,3.752,1.9324,0.1354,0.4854,-0.0071", []),
+    "ring_far": ("ring", "-49.825,11.773,3.8913,0.1186,0.3134,-0.5581", []),
 }
-GATED_NO_SURFACE = ("n1", "n2", "n3", "turb")
-REFERENCE_ONLY = ("far",)
+GATED_NO_SURFACE = ("n1", "n2", "n3", "turb", "cf_near", "cf_far", "ring_wall")
+REFERENCE_ONLY = ("far", "ring_far")
 ENVELOPE_OVERRIDES = ["noise_amplitude=0", "boundary_amp=0"]
 BACKGROUND_OVERRIDES = ["intensity=0"]
 BACKGROUND_MATCH_PX = 8.0
@@ -258,15 +261,18 @@ def dood_wrap(command: list[str]) -> list[str]:
     ]
 
 
-def capture(output: Path, camera: str, overrides: list[str], frames: int, dood: bool) -> None:
+def capture(output: Path, camera: str, overrides: list[str], frames: int, dood: bool, preset: str = "ring", extra_overrides: list[str] | None = None) -> None:
     command = [
         str(engine_path()),
         "--batch-screenshot", str(output),
         "--batch-frames", str(frames),
-        "--batch-flame-preset", "ring",
+        "--batch-flame-preset", preset,
         "--batch-flame-mode", "analytic",
         "--batch-camera", camera,
     ]
+    if extra_overrides is not None:
+        for override in extra_overrides:
+            command += ["--batch-flame-set", override]
     for override in overrides:
         command += ["--batch-flame-set", override]
     if dood:
@@ -281,35 +287,106 @@ def capture(output: Path, camera: str, overrides: list[str], frames: int, dood: 
         raise SystemExit(f"capture failed ({output.name}): {result.get('error')}")
 
 
+def detect_viewport_from_background(background_png: Path) -> tuple[int, int, int, int] | None:
+    """Detect the 3D viewport rectangle from a background image (intensity=0).
+
+    Convert to grayscale, create a mask where pixel value difference from 65 is <= 1,
+    find the largest continuous row/column range where the mask has >800 pixels in rows
+    and >400 pixels in columns.
+    """
+    rgb = np.asarray(Image.open(background_png).convert("RGB"), dtype=np.float32)
+    gray = rgb.mean(axis=2)
+    mask = np.abs(gray - 65.0) <= 1.0
+
+    row_counts = mask.sum(axis=1).astype(int)
+    col_counts = mask.sum(axis=0).astype(int)
+
+    best_row_start, best_row_end = 0, len(row_counts)
+    best_row_span = 0
+    run_start = None
+    for i, count in enumerate(row_counts):
+        if count > 800 and run_start is None:
+            run_start = i
+        if count <= 800 and run_start is not None:
+            span = i - run_start
+            if span > best_row_span:
+                best_row_span = span
+                best_row_start = run_start
+                best_row_end = i
+            run_start = None
+    if run_start is not None:
+        span = len(row_counts) - run_start
+        if span > best_row_span:
+            best_row_span = span
+            best_row_start = run_start
+            best_row_end = len(row_counts)
+
+    best_col_start, best_col_end = 0, len(col_counts)
+    best_col_span = 0
+    run_start = None
+    for i, count in enumerate(col_counts):
+        if count > 400 and run_start is None:
+            run_start = i
+        if count <= 400 and run_start is not None:
+            span = i - run_start
+            if span > best_col_span:
+                best_col_span = span
+                best_col_start = run_start
+                best_col_end = i
+            run_start = None
+    if run_start is not None:
+        span = len(col_counts) - run_start
+        if span > best_col_span:
+            best_col_span = span
+            best_col_start = run_start
+            best_col_end = len(col_counts)
+
+    if best_row_span > 0 and best_col_span > 0:
+        return (best_col_start, best_row_start, best_col_end, best_row_end)
+    return None
+
+
 def run_capture_mode(config_ids: list[str], out_dir: Path, crop, frames: int, dood: bool) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
+
+    # Capture a background image (intensity=0) from the first config to detect viewport
+    first_preset, first_camera, first_extra = CAMERA_CONFIGS[config_ids[0]]
+    background_png = out_dir / "viewport_background.png"
+    capture(background_png, first_camera, BACKGROUND_OVERRIDES, frames, dood, first_preset, first_extra)
+
+    # Detect viewport from background image; fallback to crop arg if detection fails
+    detected_crop = detect_viewport_from_background(background_png)
+    if detected_crop is None and crop is not None:
+        detected_crop = crop
+    if detected_crop is None:
+        raise SystemExit("viewport detection failed and no crop fallback provided")
+
     configs: dict[str, dict] = {}
     overall_pass = True
     for config_id in config_ids:
-        camera = CAMERA_CONFIGS[config_id]
+        preset, camera, extra_overrides = CAMERA_CONFIGS[config_id]
         current_png = out_dir / f"{config_id}_current.png"
         envelope_png = out_dir / f"{config_id}_envelope.png"
-        background_png = out_dir / f"{config_id}_background.png"
-        capture(current_png, camera, [], frames, dood)
-        capture(envelope_png, camera, ENVELOPE_OVERRIDES, frames, dood)
-        capture(background_png, camera, BACKGROUND_OVERRIDES, frames, dood)
+        capture(current_png, camera, [], frames, dood, preset, extra_overrides)
+        capture(envelope_png, camera, ENVELOPE_OVERRIDES, frames, dood, preset, extra_overrides)
 
-        background_chains = find_surface_chains(load_gray(background_png, crop))
+        background_chains = find_surface_chains(load_gray(background_png, detected_crop))
         background_tree = (
             cKDTree(np.concatenate([chain.points for chain in background_chains]))
             if background_chains else None
         )
         envelope = analyze_image(
-            envelope_png, crop, out_dir, SURFACE_SCORE_FLOOR, background_tree
+            envelope_png, detected_crop, out_dir, SURFACE_SCORE_FLOOR, background_tree
         )
         threshold = max(
             ENVELOPE_RELATIVE_FACTOR * envelope["surface_score"], SURFACE_SCORE_FLOOR
         )
-        current = analyze_image(current_png, crop, out_dir, threshold, background_tree)
+        current = analyze_image(current_png, detected_crop, out_dir, threshold, background_tree)
         current["envelope_score"] = envelope["surface_score"]
         current["threshold"] = round(threshold, 3)
         current["envelope_overlay"] = envelope["overlay"]
         current["gated"] = config_id in GATED_NO_SURFACE
+        current["viewport_crop"] = list(detected_crop)
         configs[config_id] = current
         if config_id in GATED_NO_SURFACE and current["surface_visible"]:
             overall_pass = False
@@ -319,9 +396,9 @@ def run_capture_mode(config_ids: list[str], out_dir: Path, crop, frames: int, do
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--image", nargs="*", type=Path)
-    parser.add_argument("--crop", type=parse_crop, default=DEFAULT_CROP)
+    parser.add_argument("--crop", type=parse_crop, default=None)
     parser.add_argument("--threshold", type=float, default=SURFACE_SCORE_FLOOR)
-    parser.add_argument("--configs", default="n1,n2,n3,turb,far")
+    parser.add_argument("--configs", default="n1,n2,n3,turb,far,cf_near,cf_far,ring_wall,ring_far")
     parser.add_argument("--frames", type=int, default=60)
     parser.add_argument("--dood", action="store_true")
     parser.add_argument(

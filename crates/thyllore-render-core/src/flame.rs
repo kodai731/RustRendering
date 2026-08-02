@@ -276,6 +276,7 @@ pub struct FlameEffect {
     pub boundary_freq: f32,
     pub boundary_speed: f32,
     pub boundary_radius_ratio: f32,
+    pub near_fade_radius: f32,
 }
 
 impl Default for FlameEffect {
@@ -336,6 +337,7 @@ impl Default for FlameEffect {
             boundary_freq: 1.6,
             boundary_speed: 0.8,
             boundary_radius_ratio: 0.2,
+            near_fade_radius: 0.0,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -532,6 +534,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.boundary_speed,
             effect.boundary_radius_ratio,
         ],
+        near_fade_params: [effect.near_fade_radius, 0.0, 0.0, 0.0],
     }
 }
 
@@ -801,6 +804,7 @@ pub fn build_flame_ubo_with_trail(
             effect.boundary_speed,
             effect.boundary_radius_ratio,
         ],
+        near_fade_params: [effect.near_fade_radius, 0.0, 0.0, 0.0],
     }
 }
 
@@ -846,6 +850,7 @@ pub struct FlameUBO {
     pub kernel_params: [f32; 4],
     pub kernel_blobs: [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
     pub boundary_params: [f32; 4],
+    pub near_fade_params: [f32; 4],
 }
 
 impl Default for FlameUBO {
@@ -1145,7 +1150,7 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 3072 + 16);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 3072 + 16 + 16);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 

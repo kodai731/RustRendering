@@ -51,6 +51,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 kernelParams;
     vec4 kernelBlobs[192];
     vec4 boundaryParams;
+    vec4 nearFadeParams;
 } flame;
 
 #include "include/flame_shell_support.glsl"

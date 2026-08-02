@@ -177,7 +177,8 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
     float wb = wiggle * boundary.y;
     float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, h) : 1.0;
     float dSmooth = evaluateHeightFalloff(hb) * capFade
-        * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb);
+        * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb)
+        * flameNearCameraFade(p);
     float erosion = flameNoiseErosionValue(p, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
@@ -194,7 +195,7 @@ vec2 flameOccupancyAlongRay(
     float hRaw = clamp(o.y + tCenter * d.y, 0.0, 1.0);
     float hMid = clamp(hRaw / boundary.x, 0.0, 1.0);
     float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, hRaw) : 1.0;
-    float falloff = evaluateHeightFalloff(hMid) * capFade;
+    float falloff = evaluateHeightFalloff(hMid) * capFade * flameNearCameraFade(o + tCenter * d);
     float invSqB = invSq / (boundary.y * boundary.y);
     return flameOccupancyBandIntegral(
         invSqB * dot(d.xz, d.xz), 2.0 * invSqB * dot(p, d.xz), invSqB * dot(p, p),
@@ -215,7 +216,7 @@ vec2 flameOccupancyAlongRay(
 // Pointwise field for the reference raymarch (mode 1) on ring/SDF emitters:
 // the same field the node-based closed form approximates.
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
-    float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle);
+    float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle) * flameNearCameraFade(p);
     float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h) : 0.0;
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
@@ -246,6 +247,7 @@ vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand
         vec3 p = o + t * d;
         density[node] =
             flameEmitterSmoothDensityDisplacedAt(p, clamp(p.y, 0.0, 1.0), wiggleBand, boundaryBand);
+        density[node] *= flameNearCameraFade(p);
         weightSum += density[node];
         tWeighted += density[node] * t;
     }
@@ -328,7 +330,7 @@ float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, f
     float hRaw = clamp(o.y + tCenter * d.y, 0.0, 1.0);
     float hMid = clamp(hRaw / boundary.x, 0.0, 1.0);
     float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, hRaw) : 1.0;
-    float falloff = evaluateHeightFalloff(hMid) * capFade;
+   float falloff = evaluateHeightFalloff(hMid) * capFade * flameNearCameraFade(o + tCenter * d);
     float invSqB = invSq / (boundary.y * boundary.y);
     return flameBiweightBandEmission(
         invSqB * dot(d.xz, d.xz), 2.0 * invSqB * dot(p, d.xz), invSqB * dot(p, p),
@@ -396,6 +398,7 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         float falloffHi;
 
         vec2 pTrue = flameRayPointAtHeight(o, q, center);
+        float nearFade = flameNearCameraFade(vec3(pTrue.x, center, pTrue.y));
         vec2 pxz = pTrue - flameBendOffsetAt(center);
         float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
         float invSq;
@@ -420,13 +423,13 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
             float erosionBand = flameNoiseErosionValue(vec3(pTrue.x, center, pTrue.y), center);
             total += flameOccupancyBandIntegral(
                 invSq * quadratic, 2.0 * invSq * dot(pxz, q), invSq * dot(pxz, pxz),
-                vec3(falloffMid, slope, curvature), halfWidth, erosionBand,
+                vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth, erosionBand,
                 flameErosionSigma(center, bandChord)).x;
         } else {
             float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
             total += eBand * flameBiweightBandEmission(
                 invSq * quadratic, 2.0 * invSq * dot(pxz, q), invSq * dot(pxz, pxz),
-                vec3(falloffMid, slope, curvature), halfWidth).x;
+                vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth).x;
         }
 
         falloffLo = falloffHi;
@@ -539,8 +542,8 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
             float center = heightLo + (float(band) + 0.5) * bandWidth;
             float falloffMid;
             float falloffHi;
-
             vec2 pTrue = flameRayPointAtHeight(o, q, center);
+            float nearFade = flameNearCameraFade(vec3(pTrue.x, center, pTrue.y));
             vec2 p = pTrue - flameBendOffsetAt(center);
             float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
             float invSq;
@@ -566,13 +569,13 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
                 float erosionBand = flameNoiseErosionValue(vec3(pTrue.x, center, pTrue.y), center);
                 emission = flameOccupancyBandIntegral(
                     invSq * quadratic, 2.0 * invSq * dot(p, q), invSq * dot(p, p),
-                    vec3(falloffMid, slope, curvature), halfWidth, erosionBand,
+                    vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth, erosionBand,
                     flameErosionSigma(center, bandChord));
             } else {
                 float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
                 emission = eBand * flameBiweightBandEmission(
                     invSq * quadratic, 2.0 * invSq * dot(p, q), invSq * dot(p, p),
-                    vec3(falloffMid, slope, curvature), halfWidth);
+                    vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth);
             }
             float c = emission.x / abs(d.y);
             float meanOffset = emission.x > 1e-6 ? clamp(emission.y / emission.x, -halfWidth, halfWidth) : 0.0;
