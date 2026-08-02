@@ -51,7 +51,7 @@ fn main() -> Result<()> {
         thyllore_animation::ecs::systems::curve_copilot_mode_resolve_from_env_args()?;
 
     let window_title = format!("Thyllore Animation v{}", env!("CARGO_PKG_VERSION"));
-    let mut system = platform::init(&window_title);
+    let mut system = platform::init(&window_title, !is_batch_mode);
 
     #[cfg(feature = "ml")]
     let mut app = unsafe { App::create(&system.window, curve_copilot_mode)? };

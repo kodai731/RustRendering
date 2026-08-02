@@ -14,16 +14,25 @@ pub struct System {
     pub platform: WinitPlatform,
 }
 
-pub fn init(title: &str) -> System {
+pub fn init(title: &str, take_focus: bool) -> System {
     let title = match Path::new(&title).file_name() {
         Some(file_name) => file_name.to_str().unwrap_or(title),
         None => title,
     };
     let event_loop = EventLoop::new().expect("Failed to create EventLoop");
 
-    let builder = WindowBuilder::new()
+    #[allow(unused_mut)]
+    let mut builder = WindowBuilder::new()
         .with_title(title)
+        .with_active(take_focus)
         .with_inner_size(LogicalSize::new(2560, 1440));
+    // winit 0.29 ignores `with_active` on X11; an override-redirect window is
+    // unmanaged by the WM and therefore can never steal input focus.
+    #[cfg(target_os = "linux")]
+    if !take_focus {
+        use winit::platform::x11::WindowBuilderExtX11;
+        builder = builder.with_override_redirect(true);
+    }
     let window = builder.build(&event_loop).expect("Failed to create window");
 
     let mut imgui = Context::create();
