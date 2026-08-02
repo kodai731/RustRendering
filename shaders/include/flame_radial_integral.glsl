@@ -172,8 +172,12 @@ vec2 flameRayPointAtHeight(vec3 o, vec2 q, float height) {
 // Pointwise field for the reference raymarch (mode 1): the same eroded threshold
 // field the closed form approximates — true smoothstep, exact support membership.
 float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
-    float dSmooth = evaluateHeightFalloff(h)
-        * flameRadialDensityFactor(vec3(p.x / wiggle, p.y, p.z / wiggle), h);
+    vec2 boundary = flameBoundaryDisplacement(p.xz);
+    float hb = clamp(h / boundary.x, 0.0, 1.0);
+    float wb = wiggle * boundary.y;
+    float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, h) : 1.0;
+    float dSmooth = evaluateHeightFalloff(hb) * capFade
+        * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb);
     float erosion = flameNoiseErosionValue(p, h);
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
@@ -186,9 +190,14 @@ vec2 flameOccupancyAlongRay(
     float tCenter = 0.5 * (tNear + tFar);
     vec2 p = o.xz + tCenter * d.xz;
     float halfWidth = 0.5 * (tFar - tNear);
-    float falloff = evaluateHeightFalloff(clamp(o.y + tCenter * d.y, 0.0, 1.0));
+    vec2 boundary = flameBoundaryDisplacement(p);
+    float hRaw = clamp(o.y + tCenter * d.y, 0.0, 1.0);
+    float hMid = clamp(hRaw / boundary.x, 0.0, 1.0);
+    float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, hRaw) : 1.0;
+    float falloff = evaluateHeightFalloff(hMid) * capFade;
+    float invSqB = invSq / (boundary.y * boundary.y);
     return flameOccupancyBandIntegral(
-        invSq * dot(d.xz, d.xz), 2.0 * invSq * dot(p, d.xz), invSq * dot(p, p),
+        invSqB * dot(d.xz, d.xz), 2.0 * invSqB * dot(p, d.xz), invSqB * dot(p, p),
         vec3(falloff, 0.0, 0.0), halfWidth, erosionBand, sigma);
 }
 
@@ -228,13 +237,15 @@ const int FLAME_OCCUPANCY_NODE_SEGMENTS = 4;
 // Kernel basis: erosion exact per node, so frozen-band sample and residual sigma are skipped.
 vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand, float chord) {
     float dt = (t1 - t0) / float(FLAME_OCCUPANCY_NODE_SEGMENTS);
+    vec2 boundaryBand = flameBoundaryDisplacement((o + 0.5 * (t0 + t1) * d).xz);
     float density[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
     float weightSum = 0.0;
     float tWeighted = 0.0;
     for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
         float t = t0 + float(node) * dt;
         vec3 p = o + t * d;
-        density[node] = flameEmitterSmoothDensityAt(p, clamp(p.y, 0.0, 1.0), wiggleBand);
+        density[node] =
+            flameEmitterSmoothDensityDisplacedAt(p, clamp(p.y, 0.0, 1.0), wiggleBand, boundaryBand);
         weightSum += density[node];
         tWeighted += density[node] * t;
     }
@@ -313,9 +324,14 @@ float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, f
     float tCenter = 0.5 * (tNear + tFar);
     vec2 p = o.xz + tCenter * d.xz;
     float halfWidth = 0.5 * (tFar - tNear);
-    float falloff = evaluateHeightFalloff(clamp(o.y + tCenter * d.y, 0.0, 1.0));
+    vec2 boundary = flameBoundaryDisplacement(p);
+    float hRaw = clamp(o.y + tCenter * d.y, 0.0, 1.0);
+    float hMid = clamp(hRaw / boundary.x, 0.0, 1.0);
+    float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, hRaw) : 1.0;
+    float falloff = evaluateHeightFalloff(hMid) * capFade;
+    float invSqB = invSq / (boundary.y * boundary.y);
     return flameBiweightBandEmission(
-        invSq * dot(d.xz, d.xz), 2.0 * invSq * dot(p, d.xz), invSq * dot(p, p),
+        invSqB * dot(d.xz, d.xz), 2.0 * invSqB * dot(p, d.xz), invSqB * dot(p, p),
         vec3(falloff, 0.0, 0.0), halfWidth).x;
 }
 
@@ -354,7 +370,8 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
     // Trim to the widest support (over heights, wiggle and wind bend) so grazing rays
     // do not spend bands on empty range. Bands outside the true support integrate to
     // exactly zero, so the extra margin costs only band resolution, never correctness.
-    float wTrim = 1.0 + max(flame.contourParams.x, 0.0);
+    float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
+        * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
     float widestRadius = flameRadialSupportRadius() * wTrim
         * max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0));
     float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
@@ -375,13 +392,28 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
     float falloffLo = evaluateHeightFalloff(heightLo);
     for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
         float center = heightLo + (float(band) + 0.5) * bandWidth;
-        float falloffMid = evaluateHeightFalloff(center);
-        float falloffHi = evaluateHeightFalloff(center + halfWidth);
+        float falloffMid;
+        float falloffHi;
 
         vec2 pTrue = flameRayPointAtHeight(o, q, center);
         vec2 pxz = pTrue - flameBendOffsetAt(center);
         float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
-        float invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
+        float invSq;
+        if (flame.boundaryParams.x != 0.0) {
+            vec2 boundary = flameBoundaryDisplacement(pTrue);
+            float hbC = clamp(center / boundary.x, 0.0, 1.0);
+            falloffLo = evaluateHeightFalloff(clamp((center - halfWidth) / boundary.x, 0.0, 1.0))
+                * smoothstep(1.0, 0.94, center - halfWidth);
+            falloffMid = evaluateHeightFalloff(hbC) * smoothstep(1.0, 0.94, center);
+            falloffHi = evaluateHeightFalloff(clamp((center + halfWidth) / boundary.x, 0.0, 1.0))
+                * smoothstep(1.0, 0.94, center + halfWidth);
+            wBand *= boundary.y;
+            invSq = flameRadialSupportInvSq(hbC) / (wBand * wBand);
+        } else {
+            falloffMid = evaluateHeightFalloff(center);
+            falloffHi = evaluateHeightFalloff(center + halfWidth);
+            invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
+        }
         float slope = (falloffHi - falloffLo) / bandWidth;
         float curvature = 2.0 * (falloffHi + falloffLo - 2.0 * falloffMid) / (bandWidth * bandWidth);
         if (flame.noiseAmplitude != 0.0) {
@@ -484,7 +516,8 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
         vec2 q = d.xz / d.y;
         float quadratic = dot(q, q);
 
-        float wTrim = 1.0 + max(flame.contourParams.x, 0.0);
+        float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
+        * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
         float widestRadius = flameRadialSupportRadius() * wTrim
             * max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0));
         float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
@@ -504,13 +537,28 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
         float falloffLo = evaluateHeightFalloff(heightLo);
         for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
             float center = heightLo + (float(band) + 0.5) * bandWidth;
-            float falloffMid = evaluateHeightFalloff(center);
-            float falloffHi = evaluateHeightFalloff(center + halfWidth);
+            float falloffMid;
+            float falloffHi;
 
             vec2 pTrue = flameRayPointAtHeight(o, q, center);
             vec2 p = pTrue - flameBendOffsetAt(center);
             float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
-            float invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
+            float invSq;
+            if (flame.boundaryParams.x != 0.0) {
+                vec2 boundary = flameBoundaryDisplacement(pTrue);
+                float hbC = clamp(center / boundary.x, 0.0, 1.0);
+                falloffLo = evaluateHeightFalloff(clamp((center - halfWidth) / boundary.x, 0.0, 1.0))
+                    * smoothstep(1.0, 0.94, center - halfWidth);
+                falloffMid = evaluateHeightFalloff(hbC) * smoothstep(1.0, 0.94, center);
+                falloffHi = evaluateHeightFalloff(clamp((center + halfWidth) / boundary.x, 0.0, 1.0))
+                    * smoothstep(1.0, 0.94, center + halfWidth);
+                wBand *= boundary.y;
+                invSq = flameRadialSupportInvSq(hbC) / (wBand * wBand);
+            } else {
+                falloffMid = evaluateHeightFalloff(center);
+                falloffHi = evaluateHeightFalloff(center + halfWidth);
+                invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
+            }
             float slope = (falloffHi - falloffLo) / bandWidth;
             float curvature = 2.0 * (falloffHi + falloffLo - 2.0 * falloffMid) / (bandWidth * bandWidth);
             vec2 emission;
@@ -557,7 +605,8 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
 bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     float rm = flame.emitterParams.y;
     float minorScale = max(1.0 - rm, 1e-3);
-    float wTrim = 1.0 + max(flame.contourParams.x, 0.0);
+    float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
+        * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
     float taperMax = max(1.0, flame.styleParams1.x);
     float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim;
 

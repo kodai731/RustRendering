@@ -12,6 +12,7 @@ pub mod flame_sdf;
 mod flame_shell;
 mod flame_texture_fit;
 pub mod flame_trail;
+mod flame_wall_probe;
 mod gizmo;
 mod gizmo_data;
 mod mesh;
@@ -47,6 +48,10 @@ pub use flame_shell::{
 };
 pub use flame_texture_fit::*;
 pub use flame_trail::*;
+pub use flame_wall_probe::{
+    probe_flame_wall, WallProbeRay, WallProbeReport, WallProbeView, WALL_PROBE_GRID_COLS,
+    WALL_PROBE_GRID_ROWS,
+};
 pub use gizmo::{
     BoneDisplayStyle, ColorVertex, GizmoAxis, GizmoDraggable, GizmoPosition, GizmoSelectable,
     TransformGizmoHandle,

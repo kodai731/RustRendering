@@ -233,12 +233,34 @@ pub fn evaluate_ring_smooth_density(
     ring_major_radius: f32,
     wiggle: f32,
 ) -> f32 {
-    let height = point_local[1].clamp(0.0, 1.0);
+    evaluate_ring_smooth_density_displaced(
+        point_local,
+        height_series,
+        taper,
+        radial_sharpness,
+        ring_major_radius,
+        wiggle,
+        [1.0, 1.0],
+    )
+}
+
+/// Mirror of `flameEmitterSmoothDensityAt` with `[heightScale, radiusScale]` boundary displacement.
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate_ring_smooth_density_displaced(
+    point_local: [f32; 3],
+    height_series: &ChebyshevSeries,
+    taper: FlameRadialTaper,
+    radial_sharpness: f32,
+    ring_major_radius: f32,
+    wiggle: f32,
+    boundary_scale: [f32; 2],
+) -> f32 {
+    let height = (point_local[1].clamp(0.0, 1.0) / boundary_scale[0]).clamp(0.0, 1.0);
     let taper_radius = 1.0 + (taper.tip_ratio - 1.0) * height.powf(taper.power);
     let minor_scale = (1.0 - ring_major_radius).max(1e-3);
     let radius = (point_local[0] * point_local[0] + point_local[2] * point_local[2]).sqrt();
     let rho = (radius - ring_major_radius) / minor_scale;
-    let rn = rho.abs() / (taper_radius * wiggle).max(1e-4);
+    let rn = rho.abs() / (taper_radius * wiggle * boundary_scale[1]).max(1e-4);
     let u = rn / flame_radial_support_radius(radial_sharpness);
     evaluate_chebyshev(height_series, height) * biweight_profile(u * u)
 }
@@ -1167,6 +1189,84 @@ mod tests {
             );
         }
 
+        #[test]
+        fn test_displaced_density_with_unit_scales_matches_baseline_bitwise() {
+            let coefficients = FlameCoefficients::default();
+            let height = build_height_series(&coefficients.height);
+            let taper = default_taper();
+            for p in [
+                [-1.2f32, 0.1, 0.3],
+                [0.75, 0.5, 0.0],
+                [0.2, 0.95, -0.6],
+                [1.0, 0.0, 1.0],
+            ] {
+                let baseline = evaluate_ring_smooth_density(p, &height, taper, 4.0, 0.75, 1.1);
+                let displaced = evaluate_ring_smooth_density_displaced(
+                    p,
+                    &height,
+                    taper,
+                    4.0,
+                    0.75,
+                    1.1,
+                    [1.0, 1.0],
+                );
+                assert_eq!(baseline.to_bits(), displaced.to_bits(), "p={p:?}");
+            }
+        }
+
+        #[test]
+        fn test_node_band_matches_quadrature_with_boundary_displacement() {
+            let model = default_model();
+            let coefficients = FlameCoefficients::default();
+            let height = build_height_series(&coefficients.height);
+            let taper = default_taper();
+            let boundary_at = |p: [f32; 3]| {
+                [
+                    1.0 + 0.35 * (1.7 * p[0] + 0.9 * p[2]).sin(),
+                    1.0 + 0.18 * (1.3 * p[2] - 0.7 * p[0]).cos(),
+                ]
+            };
+            let (o, d, t0, t1) = ([-1.4f32, 0.1, 0.0], [1.0f32, 0.05, 0.0], 0.0f32, 2.8f32);
+            let sample = |t: f32| {
+                let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
+                evaluate_ring_smooth_density_displaced(
+                    p,
+                    &height,
+                    taper,
+                    4.0,
+                    0.75,
+                    1.0,
+                    boundary_at(p),
+                )
+            };
+            let (integral, _) =
+                evaluate_occupancy_node_band(&model, 0.0, t0, t1, |_| 0.1, EDGE_HIGH, sample);
+            let dt = (t1 - t0) / FLAME_OCCUPANCY_NODE_SEGMENTS as f32;
+            let steps = 40000;
+            let ds = (t1 - t0) as f64 / steps as f64;
+            let mut reference = 0.0f64;
+            for i in 0..steps {
+                let t = t0 as f64 + (i as f64 + 0.5) * ds;
+                let segment = (((t - t0 as f64) / dt as f64).floor() as usize)
+                    .min(FLAME_OCCUPANCY_NODE_SEGMENTS - 1);
+                let ta = t0 + segment as f32 * dt;
+                let da = sample(ta);
+                let db = sample(ta + dt);
+                if da <= 0.0 && db <= 0.0 {
+                    continue;
+                }
+                let arg_a = eroded_argument(da, 0.1, EDGE_HIGH);
+                let arg_b = eroded_argument(db, 0.1, EDGE_HIGH);
+                let x = arg_a + (arg_b - arg_a) * ((t as f32 - ta) / dt);
+                reference += evaluate_erf_response(&model, x, 0.0) as f64;
+            }
+            reference *= ds;
+            assert!(
+                (integral as f64 - reference).abs() < 3e-3 * (t1 - t0) as f64,
+                "got {integral}, expected {reference}"
+            );
+        }
+
         /// Against the true ring smoothstep field: node linearization plus fit floor
         /// stays a small fraction of the chord.
         #[test]
@@ -1394,3 +1494,4 @@ mod tests {
         assert_eq!(first.to_bits(), second.to_bits());
     }
 }
+           

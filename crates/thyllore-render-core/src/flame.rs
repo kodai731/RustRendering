@@ -271,6 +271,11 @@ pub struct FlameEffect {
     pub turbulence_model: f32,
     pub kernel_blob_size: f32,
     pub kernel_blob_amp: f32,
+    /// 境界変位 amp。0 = off (変位前と bit 一致)
+    pub boundary_amp: f32,
+    pub boundary_freq: f32,
+    pub boundary_speed: f32,
+    pub boundary_radius_ratio: f32,
 }
 
 impl Default for FlameEffect {
@@ -327,6 +332,10 @@ impl Default for FlameEffect {
             turbulence_model: 0.0,
             kernel_blob_size: 0.15,
             kernel_blob_amp: 1.0,
+            boundary_amp: 0.2,
+            boundary_freq: 1.6,
+            boundary_speed: 0.8,
+            boundary_radius_ratio: 0.2,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -517,6 +526,12 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
         kernel_params: kernel_fields.0,
         kernel_blobs: kernel_fields.1,
+        boundary_params: [
+            effect.boundary_amp,
+            effect.boundary_freq,
+            effect.boundary_speed,
+            effect.boundary_radius_ratio,
+        ],
     }
 }
 
@@ -780,6 +795,12 @@ pub fn build_flame_ubo_with_trail(
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
         kernel_params: kernel_fields.0,
         kernel_blobs: kernel_fields.1,
+        boundary_params: [
+            effect.boundary_amp,
+            effect.boundary_freq,
+            effect.boundary_speed,
+            effect.boundary_radius_ratio,
+        ],
     }
 }
 
@@ -824,6 +845,7 @@ pub struct FlameUBO {
     pub erosion_response: [f32; 4],
     pub kernel_params: [f32; 4],
     pub kernel_blobs: [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
+    pub boundary_params: [f32; 4],
 }
 
 impl Default for FlameUBO {
@@ -1123,7 +1145,7 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 3072);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 3072 + 16);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 

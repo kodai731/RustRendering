@@ -51,6 +51,26 @@ float flameFieldSupportMask(float dSmooth) {
     return dSmooth > 0.0 ? 1.0 : 0.0;
 }
 
+// Column-wise (heightScale, radiusScale) displacing the envelope support — the only
+// perturbation that survives tangent-view path averaging (plate-silhouette-diagnosis).
+vec2 flameBoundaryDisplacement(vec2 xz) {
+    float amp = flame.boundaryParams.x;
+    if (amp == 0.0) {
+        return vec2(1.0);
+    }
+    vec3 q = vec3(
+        xz.x * flame.boundaryParams.y,
+        -flame.boundaryParams.z * flame.time,
+        xz.y * flame.boundaryParams.y);
+    // 3.0 ≈ 1/(2·fbm std): amp becomes the typical fractional displacement.
+    // Raise capped at +amp so lifted tips stay clear of the y=1 cap; dips stay deep.
+    float heightNoise = min((fbm3(q) * (2.0 / 0.875) - 1.0) * 3.0, 1.0);
+    float radiusNoise = (fbm3(q + vec3(13.7, 41.3, 7.9)) * (2.0 / 0.875) - 1.0) * 3.0;
+    return max(
+        vec2(1.0 + amp * heightNoise, 1.0 + amp * flame.boundaryParams.w * radiusNoise),
+        vec2(0.2));
+}
+
 // Envelope fade toward the support boundary, shared by the flooded-erosion
 // argument below and the unresolved-noise sigma of the analytic band integrals:
 // both the mean shift and the fluctuation of the erosion must shrink with the
@@ -93,22 +113,30 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
 // styled field, the plain local p for the mode 0/1 parity pair (which stays
 // unwarped) and for the SDF billboard (whose dSmooth never warps). The styled
 // field passes wiggle = 1.0; the closed-form pair folds the contour wiggle in.
-float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
+float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 boundary) {
     if (flame.emitterParams.x >= 1.5) {
-        vec2 uv = vec2(c.x + 0.5, 1.0 - clamp(c.y, 0.0, 1.0));
+        float hSdf = clamp(clamp(c.y, 0.0, 1.0) / boundary.x, 0.0, 1.0);
+        vec2 uv = vec2(c.x + 0.5, 1.0 - hSdf);
         float d = textureLod(flameSdfSampler, uv, 0.0).r - 0.5;
         float shell = 0.06;
         float zn = c.z / max(flame.emitterParams.w, 1e-3);
         float thickness = exp(-zn * zn);
         return clamp(1.0 - max(d, 0.0) / shell, 0.0, 1.0) * thickness;
     }
-    float taperR = mix(1.0, flame.styleParams1.x, pow(h, flame.styleParams0.w));
+    float hb = clamp(h / boundary.x, 0.0, 1.0);
+    float taperR = mix(1.0, flame.styleParams1.x, pow(hb, flame.styleParams0.w));
     float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
     float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
     float rho = (length(c.xz) - rm) / minorScale;
-    float rn = abs(rho) / max(taperR * wiggle, 1e-4);
+    float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
     float u = rn / flameRadialSupportRadius();
-    return evaluateHeightFalloff(h) * flameBiweight(u * u);
+    // raised columns must vanish before the y=1 cap or the slab cuts them flat
+    float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, h) : 1.0;
+    return evaluateHeightFalloff(hb) * flameBiweight(u * u) * capFade;
+}
+
+float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
+    return flameEmitterSmoothDensityDisplacedAt(c, h, wiggle, flameBoundaryDisplacement(c.xz));
 }
 
 bool flameKernelModelActive() {

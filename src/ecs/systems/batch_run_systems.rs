@@ -48,6 +48,7 @@ pub struct BatchCameraPose {
     pub yaw_degrees: f32,
     pub pitch_degrees: f32,
     pub distance: f32,
+    pub pivot: Option<[f32; 3]>,
 }
 
 pub struct EngineCliOverrides {
@@ -105,7 +106,12 @@ pub enum BatchDebugAction {
     ViewMode(DebugViewMode),
     FlameClipPreview { end_seconds: f32 },
     TimelineSelectFlameClip,
+    WallProbeDump,
 }
+
+/// Viewport size assumed by the headless wall-probe action, matching the
+/// standard batch viewport crop (560,20)-(2240,860) used by the CV tooling.
+const BATCH_VIEWPORT_SIZE: [f32; 2] = [1680.0, 840.0];
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
     Ok(EngineCliOverrides {
@@ -154,8 +160,10 @@ pub fn camera_pose_resolve_from_args(args: &[String]) -> Result<Option<BatchCame
     };
 
     let parts: Vec<&str> = value.split(',').collect();
-    if parts.len() != 3 {
-        bail!("{BATCH_CAMERA_FLAG} expects 3 comma-separated values, got '{value}'");
+    if parts.len() != 3 && parts.len() != 6 {
+        bail!(
+            "{BATCH_CAMERA_FLAG} expects <yaw>,<pitch>,<distance>[,<pivot_x>,<pivot_y>,<pivot_z>], got '{value}'"
+        );
     }
     let numbers: Vec<f32> = parts
         .iter()
@@ -170,6 +178,7 @@ pub fn camera_pose_resolve_from_args(args: &[String]) -> Result<Option<BatchCame
         yaw_degrees: numbers[0],
         pitch_degrees: numbers[1],
         distance: numbers[2],
+        pivot: (numbers.len() == 6).then(|| [numbers[3], numbers[4], numbers[5]]),
     }))
 }
 
@@ -330,6 +339,10 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "turbulence_model",
     "kernel_blob_size",
     "kernel_blob_amp",
+    "boundary_amp",
+    "boundary_freq",
+    "boundary_speed",
+    "boundary_radius_ratio",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -694,6 +707,10 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "turbulence_model" => effect.turbulence_model = *value,
             "kernel_blob_size" => effect.kernel_blob_size = *value,
             "kernel_blob_amp" => effect.kernel_blob_amp = *value,
+            "boundary_amp" => effect.boundary_amp = *value,
+            "boundary_freq" => effect.boundary_freq = *value,
+            "boundary_speed" => effect.boundary_speed = *value,
+            "boundary_radius_ratio" => effect.boundary_radius_ratio = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }
@@ -1034,6 +1051,7 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "view_mode=<final|position|normal|shadow_mask|ndotl|light_direction|view_depth|object_id|selection_view|selection_ubo>",
     "flame_clip_preview=<end_seconds> (draw the first flame's clip block as a mid-drag TrimEnd preview, without committing)",
     "timeline_select_flame_clip (enqueue TimelineSelectClip for the flame clip — the double-click path — to check it leaves the flame schedule's trim intact)",
+    "dump_wall_probe (write camera pose + wall-regime ray diagnostics to log/flame/)",
 ];
 
 fn debug_view_mode_parse(name: &str) -> Option<DebugViewMode> {
@@ -1093,6 +1111,7 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
         "camera_to_model" => Ok(BatchDebugAction::CameraToModel),
         "add_flame" => Ok(BatchDebugAction::AddFlame),
         "open_flame_curves" => Ok(BatchDebugAction::OpenFlameCurves),
+        "dump_wall_probe" => Ok(BatchDebugAction::WallProbeDump),
         _ => bail!(
             "unknown debug action '{name}'. Valid actions: {}",
             DEBUG_ACTION_NAMES.join(", ")
@@ -1134,6 +1153,13 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
             }
             BatchDebugAction::FlameClipPreview { end_seconds } => {
                 apply_flame_clip_preview(world, *end_seconds);
+            }
+            BatchDebugAction::WallProbeDump => {
+                world
+                    .resource_mut::<UIEventQueue>()
+                    .send(UIEvent::DumpFlameWallProbe {
+                        viewport_size: BATCH_VIEWPORT_SIZE,
+                    });
             }
             BatchDebugAction::TimelineSelectFlameClip => {
                 let clip_id = world.query_flames().first().and_then(|&flame| {
@@ -1451,9 +1477,15 @@ mod tests {
             BatchCameraPose {
                 yaw_degrees: 30.0,
                 pitch_degrees: 5.0,
-                distance: 4.0
+                distance: 4.0,
+                pivot: None
             }
         );
+        let pose =
+            camera_pose_resolve_from_args(&args(&["bin", "--batch-camera", "30,5,4,0,1.2,0"]))
+                .unwrap()
+                .unwrap();
+        assert_eq!(pose.pivot, Some([0.0, 1.2, 0.0]));
         assert!(camera_pose_resolve_from_args(&args(&["bin"]))
             .unwrap()
             .is_none());
@@ -1461,7 +1493,7 @@ mod tests {
 
     #[test]
     fn resolve_rejects_invalid_camera_pose() {
-        for value in ["30,5", "a,b,c", "30,5,0", "30,5,-1"] {
+        for value in ["30,5", "a,b,c", "30,5,0", "30,5,-1", "30,5,4,0,1"] {
             assert!(
                 camera_pose_resolve_from_args(&args(&["bin", "--batch-camera", value])).is_err(),
                 "expected error for '{value}'"

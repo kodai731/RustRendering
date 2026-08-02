@@ -53,6 +53,9 @@ pub enum UIEvent {
     DebugBillboardDepth,
     DumpDebugInfo,
     DumpAnimationDebug,
+    DumpFlameWallProbe {
+        viewport_size: [f32; 2],
+    },
 
     SelectEntity(Entity),
     DeselectAll,

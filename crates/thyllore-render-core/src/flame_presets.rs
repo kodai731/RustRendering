@@ -148,6 +148,10 @@ pub fn apply_flame_preset(effect: &mut FlameEffect, name: &str) -> bool {
     effect.ring_angular_speed = preset.ring_angular_speed;
     effect.occlusion_lum_ref = preset.occlusion_lum_ref;
     effect.contour_wiggle_amp = preset.contour_wiggle_amp;
+    effect.boundary_amp = preset.boundary_amp;
+    effect.boundary_freq = preset.boundary_freq;
+    effect.boundary_speed = preset.boundary_speed;
+    effect.boundary_radius_ratio = preset.boundary_radius_ratio;
 
     apply_runtime_state(effect, state);
     true

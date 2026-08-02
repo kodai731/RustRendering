@@ -77,6 +77,9 @@ fn main() -> Result<()> {
         camera.yaw = pose.yaw_degrees.to_radians();
         camera.pitch = pose.pitch_degrees.to_radians();
         camera.distance = pose.distance;
+        if let Some(pivot) = pose.pivot {
+            camera.pivot = cgmath::Vector3::new(pivot[0], pivot[1], pivot[2]);
+        }
     }
     if let Some(path) = overrides.flame_dump_path {
         app.data

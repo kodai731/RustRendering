@@ -65,7 +65,7 @@ pub fn build_scene_overlay(
 
             build_onion_skinning_section(ui, ui_events, ecs_world);
 
-            build_flame_section(ui, ui_events, overlay_state, ecs_world);
+            build_flame_section(ui, ui_events, overlay_state, ecs_world, viewport_info);
         });
 }
 
@@ -444,6 +444,7 @@ fn build_flame_section(
     ui_events: &mut UIEventQueue,
     overlay_state: &mut SceneOverlayState,
     ecs_world: &World,
+    viewport_info: &ViewportInfo,
 ) {
     use crate::ecs::component::FlameEffect;
     use crate::ecs::resource::{FlameRenderSettings, FlameShadingMode};
@@ -721,6 +722,12 @@ fn build_flame_section(
                     ui.slider_config("Contour Wiggle", 0.0, 1.0)
                         .build(&mut effect_copy.contour_wiggle_amp);
 
+                    ui.slider_config("Boundary Break", 0.0, 0.8)
+                        .build(&mut effect_copy.boundary_amp);
+
+                    ui.slider_config("Boundary Scale", 0.25, 4.0)
+                        .build(&mut effect_copy.boundary_freq);
+
                     ui.slider_config("Warp Amp", 0.0, 3.0)
                         .build(&mut effect_copy.warp_amp);
                     ui.same_line();
@@ -859,6 +866,17 @@ fn build_flame_section(
                     }
                     if ui.button("Add Flame") {
                         ui_events.send(UIEvent::AddFlame);
+                    }
+                    ui.same_line();
+                    if ui.button("Dump Probe") {
+                        ui_events.send(UIEvent::DumpFlameWallProbe {
+                            viewport_size: viewport_info.size,
+                        });
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Dump camera pose + wall-regime ray diagnostics to log/flame/",
+                        );
                     }
 
                     // Trail checkbox and slider
