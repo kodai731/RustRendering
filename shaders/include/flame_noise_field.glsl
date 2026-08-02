@@ -111,9 +111,38 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
     return evaluateHeightFalloff(h) * flameBiweight(u * u);
 }
 
+bool flameKernelModelActive() {
+    return flame.kernelParams.x >= 0.5;
+}
+
+// Biweight kernel sum Σ aᵢ(1-|p-xᵢ|²/rᵢ²)₊². Mirrored in
+// thyllore-render-core/src/flame_kernel.rs (evaluate_kernel_blob_density).
+float flameKernelBlobDensityAt(vec3 p) {
+    float total = 0.0;
+    for (int i = 0; i < 96; ++i) {
+        vec4 blob = flame.kernelBlobs[2 * i];
+        float amp = flame.kernelBlobs[2 * i + 1].x;
+        if (amp <= 0.0 || blob.w <= 0.0) {
+            continue;
+        }
+        vec3 rel = p - blob.xyz;
+        float u2 = dot(rel, rel) / (blob.w * blob.w);
+        float inside = max(1.0 - u2, 0.0);
+        total += amp * inside * inside;
+    }
+    return total;
+}
+
+float flameNoiseErosionFromValue(float noise, float h) {
+    return flame.noiseAmplitude * mix(0.2, 1.0, h) * (noise - 0.35);
+}
+
 // Internal helper: compute erosion value from warped coordinate q and height h.
 float flameNoiseErosionAt(vec3 q, float h) {
-    return flame.noiseAmplitude * mix(0.2, 1.0, h) * (fbm3(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect()) - 0.35);
+    float noise = flameKernelModelActive()
+        ? flameKernelBlobDensityAt(q)
+        : fbm3(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect());
+    return flameNoiseErosionFromValue(noise, h);
 }
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {

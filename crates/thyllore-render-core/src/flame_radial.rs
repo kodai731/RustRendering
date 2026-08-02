@@ -244,16 +244,16 @@ pub fn evaluate_ring_smooth_density(
 }
 
 /// Occupancy integral and first moment in t of the smoothed threshold response over
-/// one t band, with the emitter density sampled at the segment nodes and the argument
-/// linear between them. Segments whose both node densities are zero lie outside the
-/// support and contribute nothing; sigma fades toward the support boundary per
-/// segment like `evaluate_occupancy_band`. Mirror of `flameOccupancyNodeBand`.
+/// one t band, argument piecewise-linear between the segment nodes. Mirror of
+/// `flameOccupancyNodeBand`: fbm passes the frozen band erosion as a constant
+/// closure with its residual sigma, the kernel basis passes the exact per-node
+/// erosion with sigma = 0.
 pub fn evaluate_occupancy_node_band(
     model: &ErfResponseModel,
     sigma: f32,
     t0: f32,
     t1: f32,
-    erosion_band: f32,
+    erosion_at: impl Fn(f32) -> f32,
     flood_fade_scale: f32,
     density_at: impl Fn(f32) -> f32,
 ) -> (f32, f32) {
@@ -264,11 +264,11 @@ pub fn evaluate_occupancy_node_band(
     let mut total = (0.0, 0.0);
     let mut t_prev = t0;
     let mut density_prev = density_at(t0);
-    let mut argument_prev = eroded_argument(density_prev, erosion_band, flood_fade_scale);
+    let mut argument_prev = eroded_argument(density_prev, erosion_at(t0), flood_fade_scale);
     for segment in 1..=FLAME_OCCUPANCY_NODE_SEGMENTS {
         let t = t0 + segment as f32 * dt;
         let density = density_at(t);
-        let argument = eroded_argument(density, erosion_band, flood_fade_scale);
+        let argument = eroded_argument(density, erosion_at(t), flood_fade_scale);
         if density_prev > 0.0 || density > 0.0 {
             let sigma_eff = sigma
                 * 0.5
@@ -1078,7 +1078,13 @@ mod tests {
                             evaluate_ring_smooth_density(p, &height, taper, 4.0, ring_major, wiggle)
                         };
                         let (integral, first_moment) = evaluate_occupancy_node_band(
-                            &model, sigma, *t0, *t1, erosion, EDGE_HIGH, &sample,
+                            &model,
+                            sigma,
+                            *t0,
+                            *t1,
+                            |_| erosion,
+                            EDGE_HIGH,
+                            &sample,
                         );
                         // Reference: the response applied to the node-linearized argument.
                         let dt = (t1 - t0) / FLAME_OCCUPANCY_NODE_SEGMENTS as f32;
@@ -1121,6 +1127,46 @@ mod tests {
             }
         }
 
+        #[test]
+        fn test_node_band_with_per_node_erosion_matches_quadrature() {
+            let model = default_model();
+            let coefficients = FlameCoefficients::default();
+            let height = build_height_series(&coefficients.height);
+            let taper = default_taper();
+            let (o, d, t0, t1) = ([-1.4f32, 0.1, 0.0], [1.0f32, 0.05, 0.0], 0.0f32, 2.8f32);
+            let sample = |t: f32| {
+                let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
+                evaluate_ring_smooth_density(p, &height, taper, 4.0, 0.75, 1.0)
+            };
+            let erosion_at = |t: f32| 0.25 * (1.0 - (t - 1.2) * (t - 1.2) / 0.09).max(0.0) - 0.05;
+            let (integral, _) =
+                evaluate_occupancy_node_band(&model, 0.0, t0, t1, erosion_at, EDGE_HIGH, sample);
+            let dt = (t1 - t0) / FLAME_OCCUPANCY_NODE_SEGMENTS as f32;
+            let steps = 40000;
+            let ds = (t1 - t0) as f64 / steps as f64;
+            let mut reference = 0.0f64;
+            for i in 0..steps {
+                let t = t0 as f64 + (i as f64 + 0.5) * ds;
+                let segment = (((t - t0 as f64) / dt as f64).floor() as usize)
+                    .min(FLAME_OCCUPANCY_NODE_SEGMENTS - 1);
+                let ta = t0 + segment as f32 * dt;
+                let da = sample(ta);
+                let db = sample(ta + dt);
+                if da <= 0.0 && db <= 0.0 {
+                    continue;
+                }
+                let arg_a = eroded_argument(da, erosion_at(ta), EDGE_HIGH);
+                let arg_b = eroded_argument(db, erosion_at(ta + dt), EDGE_HIGH);
+                let x = arg_a + (arg_b - arg_a) * ((t as f32 - ta) / dt);
+                reference += evaluate_erf_response(&model, x, 0.0) as f64;
+            }
+            reference *= ds;
+            assert!(
+                (integral as f64 - reference).abs() < 3e-3 * (t1 - t0) as f64,
+                "got {integral}, expected {reference}"
+            );
+        }
+
         /// Against the true ring smoothstep field: node linearization plus fit floor
         /// stays a small fraction of the chord.
         #[test]
@@ -1145,7 +1191,7 @@ mod tests {
                     0.0,
                     band_start,
                     band_start + band_width,
-                    0.0,
+                    |_| 0.0,
                     EDGE_HIGH,
                     sample,
                 )
@@ -1174,7 +1220,7 @@ mod tests {
         fn test_node_band_outside_support_is_zero() {
             let model = default_model();
             let (integral, first_moment) =
-                evaluate_occupancy_node_band(&model, 0.0, 0.0, 1.0, -2.0, EDGE_HIGH, |_| 0.0);
+                evaluate_occupancy_node_band(&model, 0.0, 0.0, 1.0, |_| -2.0, EDGE_HIGH, |_| 0.0);
             assert_eq!(integral, 0.0);
             assert_eq!(first_moment, 0.0);
         }
@@ -1283,7 +1329,7 @@ mod tests {
                     sigma,
                     0.0,
                     1.0,
-                    0.0,
+                    |_| 0.0,
                     EDGE_HIGH,
                     |t: f32| peak * (1.0 - (2.0 * t - 1.0) * (2.0 * t - 1.0)).max(0.0),
                 );

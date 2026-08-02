@@ -56,18 +56,9 @@ fn update_camera_fly_input(world: &crate::ecs::World, ui: &imgui::Ui) {
     }
 
     let axis = |negative: bool, positive: bool| (positive as i32 - negative as i32) as f32;
-    fly.forward = axis(
-        ui.is_key_down(imgui::Key::S),
-        ui.is_key_down(imgui::Key::W),
-    );
-    fly.right = axis(
-        ui.is_key_down(imgui::Key::A),
-        ui.is_key_down(imgui::Key::D),
-    );
-    fly.up = axis(
-        ui.is_key_down(imgui::Key::Q),
-        ui.is_key_down(imgui::Key::E),
-    );
+    fly.forward = axis(ui.is_key_down(imgui::Key::S), ui.is_key_down(imgui::Key::W));
+    fly.right = axis(ui.is_key_down(imgui::Key::A), ui.is_key_down(imgui::Key::D));
+    fly.up = axis(ui.is_key_down(imgui::Key::Q), ui.is_key_down(imgui::Key::E));
     fly.boost = io.key_shift;
 }
 

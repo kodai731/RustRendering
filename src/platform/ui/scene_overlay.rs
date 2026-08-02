@@ -683,6 +683,19 @@ fn build_flame_section(
                     ui.color_edit3("Base Color", &mut effect_copy.color_base);
                     ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
 
+                    let noise_basis_labels = ["fbm", "kernel"];
+                    let mut noise_basis = usize::from(effect_copy.turbulence_model >= 0.5);
+                    if ui.combo_simple_string("Noise Basis", &mut noise_basis, &noise_basis_labels)
+                    {
+                        effect_copy.turbulence_model = noise_basis as f32;
+                    }
+                    if noise_basis == 1 {
+                        ui.slider_config("Blob Size", 0.02, 0.5)
+                            .build(&mut effect_copy.kernel_blob_size);
+                        ui.slider_config("Blob Amp", 0.0, 3.0)
+                            .build(&mut effect_copy.kernel_blob_amp);
+                    }
+
                     ui.slider_config("Noise Amplitude", 0.0, 3.0)
                         .build(&mut effect_copy.noise_amplitude);
                     ui.same_line();
@@ -744,18 +757,6 @@ fn build_flame_section(
                     ui.slider_config("Tip Radius", 0.05, 1.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.radius_tip_ratio);
-
-                    let mut kernel_model = effect_copy.turbulence_model >= 0.5;
-                    ui.checkbox("Kernel Turbulence", &mut kernel_model);
-                    effect_copy.turbulence_model = if kernel_model { 1.0 } else { 0.0 };
-                    if kernel_model {
-                        ui.slider_config("Blob Size", 0.02, 0.5)
-                            .build(&mut effect_copy.kernel_blob_size);
-                        ui.slider_config("Blob Amp", 0.0, 3.0)
-                            .build(&mut effect_copy.kernel_blob_amp);
-                        ui.slider_config("Core Weight", 0.0, 2.0)
-                            .build(&mut effect_copy.kernel_core_weight);
-                    }
 
                     ui.slider_config("Edge Low", 0.0, 1.0)
                         .build(&mut effect_copy.edge_low);

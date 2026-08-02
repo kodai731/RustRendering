@@ -169,101 +169,6 @@ vec2 flameRayPointAtHeight(vec3 o, vec2 q, float height) {
     return o.xz + (height - o.y) * q;
 }
 
-// ---- Kernel-primitive turbulence (turbulenceModel == 1) ----
-// The field is additive — smooth core + deterministic biweight blobs, no
-// threshold — so a realization integrates in closed form: per blob the squared
-// normalized distance along a ray is quadratic in t, the support interval is a
-// Citardauq solve and the biweight a degree-4 polynomial in t.
-// Blob list comes from the CPU (build_kernel_ubo_fields, stateless in time);
-// both the closed form and the pointwise reference read the same UBO array.
-
-bool flameKernelModelActive() {
-    return flame.kernelParams.x >= 0.5;
-}
-
-// Pointwise blob field density (the mode 1 reference of the closed form).
-// Mirrored in thyllore-render-core/src/flame_kernel.rs (evaluate_kernel_blob_density).
-float flameKernelBlobDensityAt(vec3 p) {
-    float total = 0.0;
-    for (int i = 0; i < 32; ++i) {
-        vec4 blob = flame.kernelBlobs[2 * i];
-        float amp = flame.kernelBlobs[2 * i + 1].x;
-        if (amp <= 0.0 || blob.w <= 0.0) {
-            continue;
-        }
-        vec3 rel = p - blob.xyz;
-        float u2 = dot(rel, rel) / (blob.w * blob.w);
-        float inside = max(1.0 - u2, 0.0);
-        total += amp * inside * inside;
-    }
-    return total;
-}
-
-// Closed-form integral (.x) and first moment in t (.y) of the blob sum over
-// [t0, t1]. The quadratic is recentered on the clipped support midpoint before
-// the polynomial expansion: the raw coefficients grow with the blob distance
-// and cancel catastrophically in f32.
-// Mirrored in thyllore-render-core/src/flame_kernel.rs (evaluate_kernel_blob_band).
-vec2 flameKernelBlobBandIntegral(vec3 o, vec3 d, float t0, float t1) {
-    vec2 total = vec2(0.0);
-    if (t1 <= t0) {
-        return total;
-    }
-    for (int i = 0; i < 32; ++i) {
-        vec4 blob = flame.kernelBlobs[2 * i];
-        float amp = flame.kernelBlobs[2 * i + 1].x;
-        if (amp <= 0.0 || blob.w <= 0.0) {
-            continue;
-        }
-        float invR2 = 1.0 / (blob.w * blob.w);
-        vec3 ox = o - blob.xyz;
-        float a = dot(d, d) * invR2;
-        float b = 2.0 * dot(d, ox) * invR2;
-        float c = dot(ox, ox) * invR2;
-
-        float discriminant = b * b - 4.0 * a * (c - 1.0);
-        if (a < 1e-12 || discriminant <= 0.0) {
-            continue;
-        }
-        float root = sqrt(discriminant);
-        float q = -0.5 * (b + (b >= 0.0 ? root : -root));
-        float sFirst = q / a;
-        float sSecond = (c - 1.0) / q;
-        float sLo = max(min(sFirst, sSecond), t0);
-        float sHi = min(max(sFirst, sSecond), t1);
-        if (sHi <= sLo) {
-            continue;
-        }
-
-        float tCenter = 0.5 * (sLo + sHi);
-        float bC = 2.0 * a * tCenter + b;
-        float cC = (a * tCenter + b) * tCenter + c;
-        float m = 1.0 - cC;
-        float e0 = m * m;
-        float e1 = -2.0 * bC * m;
-        float e2 = bC * bC - 2.0 * a * m;
-        float e3 = 2.0 * a * bC;
-        float e4 = a * a;
-
-        float lo = sLo - tCenter;
-        float hi = sHi - tCenter;
-        float powerLo = 1.0;
-        float powerHi = 1.0;
-        float powers[6];
-        for (int n = 0; n < 6; ++n) {
-            powerLo *= lo;
-            powerHi *= hi;
-            powers[n] = (powerHi - powerLo) / float(n + 1);
-        }
-        float integral = e0 * powers[0] + e1 * powers[1] + e2 * powers[2]
-            + e3 * powers[3] + e4 * powers[4];
-        float firstMoment = e0 * powers[1] + e1 * powers[2] + e2 * powers[3]
-            + e3 * powers[4] + e4 * powers[5] + tCenter * integral;
-        total += amp * vec2(integral, firstMoment);
-    }
-    return total;
-}
-
 // Pointwise field for the reference raymarch (mode 1): the same eroded threshold
 // field the closed form approximates — true smoothstep, exact support membership.
 float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
@@ -302,9 +207,6 @@ vec2 flameOccupancyAlongRay(
 // the same field the node-based closed form approximates.
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
     float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle);
-    if (flameKernelModelActive()) {
-        return dSmooth * flame.kernelParams.y + flameKernelBlobDensityAt(p);
-    }
     float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h) : 0.0;
     return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
         * flameFieldSupportMask(dSmooth);
@@ -323,34 +225,8 @@ const int FLAME_OCCUPANCY_NODE_SEGMENTS = 4;
 // turbulence would be sampled where no density exists and sweep through world
 // space as the camera moves — the view-dependent shimmer of the band freeze.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (density_weighted_node_t).
-// Kernel-model band: the smooth core on the shared nodes (trapezoid in t with
-// exact first moment) plus the closed-form blob sum. The field is additive so
-// the band integral is exact up to the core's piecewise linearization; erosion,
-// sigma and the threshold response never run.
-// Mirrored in thyllore-render-core/src/flame_kernel.rs (evaluate_kernel_node_band).
-vec2 flameKernelNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand) {
-    vec2 total = flameKernelBlobBandIntegral(o, d, t0, t1);
-    float dt = (t1 - t0) / float(FLAME_OCCUPANCY_NODE_SEGMENTS);
-    float coreWeight = flame.kernelParams.y;
-    vec3 pPrev = o + t0 * d;
-    float prev = flameEmitterSmoothDensityAt(pPrev, clamp(pPrev.y, 0.0, 1.0), wiggleBand);
-    for (int segment = 1; segment <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++segment) {
-        float t = t0 + float(segment) * dt;
-        vec3 p = o + t * d;
-        float cur = flameEmitterSmoothDensityAt(p, clamp(p.y, 0.0, 1.0), wiggleBand);
-        float tPrev = t - dt;
-        total.x += coreWeight * 0.5 * dt * (prev + cur);
-        total.y += coreWeight * dt
-            * (prev * (2.0 * tPrev + t) + cur * (tPrev + 2.0 * t)) / 6.0;
-        prev = cur;
-    }
-    return total;
-}
-
+// Kernel basis: erosion exact per node, so frozen-band sample and residual sigma are skipped.
 vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand, float chord) {
-    if (flameKernelModelActive()) {
-        return flameKernelNodeBand(o, d, t0, t1, wiggleBand);
-    }
     float dt = (t1 - t0) / float(FLAME_OCCUPANCY_NODE_SEGMENTS);
     float density[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
     float weightSum = 0.0;
@@ -366,13 +242,53 @@ vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand
         return vec2(0.0);
     }
 
+    bool kernelErosion = flameKernelModelActive() && flame.noiseAmplitude != 0.0;
     vec3 pSample = o + (tWeighted / weightSum) * d;
     float hSample = clamp(pSample.y, 0.0, 1.0);
-    float erosionBand = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(pSample, hSample) : 0.0;
-    float sigma = flame.noiseAmplitude != 0.0 ? flameErosionSigma(hSample, chord) : 0.0;
+    float erosionBand = !kernelErosion && flame.noiseAmplitude != 0.0
+        ? flameNoiseErosionValue(pSample, hSample) : 0.0;
+    float sigma = !kernelErosion && flame.noiseAmplitude != 0.0
+        ? flameErosionSigma(hSample, chord) : 0.0;
+    float blobSum[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
+    if (kernelErosion) {
+        // Warp frozen per band (like the legacy erosion freeze); only the blob
+        // realization varies per node. Per blob u²(t) = at² + bt + c, evaluated
+        // at the shared nodes.
+        vec3 warpOffset = flameNoiseWarpedCoordinate(pSample, hSample) - pSample;
+        for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
+            blobSum[node] = 0.0;
+        }
+        vec3 ow = o + warpOffset;
+        for (int i = 0; i < 96; ++i) {
+            vec4 blob = flame.kernelBlobs[2 * i];
+            float amp = flame.kernelBlobs[2 * i + 1].x;
+            if (amp <= 0.0 || blob.w <= 0.0) {
+                continue;
+            }
+            float invR2 = 1.0 / (blob.w * blob.w);
+            vec3 rel = ow - blob.xyz;
+            float a = dot(d, d) * invR2;
+            float b = 2.0 * dot(d, rel) * invR2;
+            float c = dot(rel, rel) * invR2;
+            float tVertex = a > 1e-12 ? clamp(-0.5 * b / a, t0, t1) : t0;
+            if ((a * tVertex + b) * tVertex + c >= 1.0) {
+                continue;
+            }
+            for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
+                float t = t0 + float(node) * dt;
+                float inside = max(1.0 - ((a * t + b) * t + c), 0.0);
+                blobSum[node] += amp * inside * inside;
+            }
+        }
+    }
     float argument[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
     for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
-        argument[node] = flameErodedArgument(density[node], erosionBand);
+        float erosionNode = erosionBand;
+        if (kernelErosion) {
+            float h = clamp(o.y + (t0 + float(node) * dt) * d.y, 0.0, 1.0);
+            erosionNode = flameNoiseErosionFromValue(blobSum[node], h);
+        }
+        argument[node] = flameErodedArgument(density[node], erosionNode);
     }
     vec2 total = vec2(0.0);
     for (int segment = 1; segment <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++segment) {

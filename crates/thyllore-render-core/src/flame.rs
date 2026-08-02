@@ -267,14 +267,10 @@ pub struct FlameEffect {
     pub sigma_dispersion: f32,
     /// RTE 帯色を外縁 (r̂≈1) で tip 色へ寄せる薄い項。0=現行
     pub edge_temperature_blend: f32,
-    /// 乱流モデル。0=legacy (fbm erosion + 閾値)、1=kernel primitives (blob 加算、閾値なし)
+    /// erosion のノイズ基底。0=fbm (既定)、1=kernel (blob 和)
     pub turbulence_model: f32,
-    /// kernel model の blob 基本半径 (flame-local 単位)
     pub kernel_blob_size: f32,
-    /// kernel model の blob ピーク振幅
     pub kernel_blob_amp: f32,
-    /// kernel model の滑らか包絡コアの重み
-    pub kernel_core_weight: f32,
 }
 
 impl Default for FlameEffect {
@@ -331,7 +327,6 @@ impl Default for FlameEffect {
             turbulence_model: 0.0,
             kernel_blob_size: 0.15,
             kernel_blob_amp: 1.0,
-            kernel_core_weight: 1.0,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -389,18 +384,10 @@ type KernelUboFields = (
     [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
 );
 
-/// Kernel-turbulence UBO fields: `kernelParams` and the packed blob array.
-/// Blobs are only generated when the kernel model is active so the legacy
-/// path pays nothing beyond a zero fill.
 fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
     use crate::flame_kernel::{generate_kernel_blobs, KernelBlobParams, KERNEL_BLOB_COUNT};
 
-    let params = [
-        effect.turbulence_model,
-        effect.kernel_core_weight,
-        0.0,
-        0.0,
-    ];
+    let params = [effect.turbulence_model, 0.0, 0.0, 0.0];
     let mut packed = [[0.0f32; 4]; 2 * KERNEL_BLOB_COUNT];
     if effect.turbulence_model >= 0.5 {
         let ring_major_norm = if effect.emitter_kind == 1 {
@@ -417,12 +404,7 @@ fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
             time: effect.time,
         });
         for (i, blob) in blobs.iter().enumerate() {
-            packed[2 * i] = [
-                blob.center[0],
-                blob.center[1],
-                blob.center[2],
-                blob.radius,
-            ];
+            packed[2 * i] = [blob.center[0], blob.center[1], blob.center[2], blob.radius];
             packed[2 * i + 1] = [blob.amplitude, 0.0, 0.0, 0.0];
         }
     }
@@ -1141,7 +1123,7 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 1024);
+        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 3072);
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 

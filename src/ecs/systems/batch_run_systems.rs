@@ -330,7 +330,6 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "turbulence_model",
     "kernel_blob_size",
     "kernel_blob_amp",
-    "kernel_core_weight",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -695,7 +694,6 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "turbulence_model" => effect.turbulence_model = *value,
             "kernel_blob_size" => effect.kernel_blob_size = *value,
             "kernel_blob_amp" => effect.kernel_blob_amp = *value,
-            "kernel_core_weight" => effect.kernel_core_weight = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }
