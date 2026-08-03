@@ -258,6 +258,19 @@ def list_debug_actions() -> str:
 
 
 @mcp.tool()
+def flame_from_texture(path: str, blend: float = 1.0, profile: bool = True, camera: str = "", frames: int = 60) -> str:
+    """Apply a flame texture fit (profile=True: Layer-2 reproduction bake,
+    False: statistics projection) to the default flame, dump FlameEffect state
+    (dump_wall_probe) and return the dump plus a screenshot path."""
+    if not path:
+        return _error("path is required")
+    fidelity = "profile" if profile else "statistics"
+    args, png_path = _batch_base_args(frames, camera, "", True)
+    args += ["--batch-flame-texture", f"{path},{blend},{fidelity}"]
+    args += ["--batch-debug-action", "dump_wall_probe"]
+    return _run_batch_with_dump(args, True, png_path)
+
+@mcp.tool()
 def status() -> str:
     """Report whether the engine binary is built and which one a call would use."""
     engine = _engine_path()

@@ -20,6 +20,9 @@ pub struct SceneOverlayState {
     pub texture_fit_path: String,
     pub texture_fit_blend: f32,
     pub texture_fit_groups: [bool; 4],
+    pub texture_fit_profile: bool,
+    pub texture_fit_scan: Vec<String>,
+    pub texture_fit_scan_done: bool,
     #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
     #[cfg(feature = "auto-rig")]
@@ -544,28 +547,85 @@ fn build_flame_section(
 
             ui.separator();
             ui.text("Texture Fit");
-            ui.input_text("Fit Image (png)", &mut overlay_state.texture_fit_path);
+
+            // Scan textures on first frame
+            if !overlay_state.texture_fit_scan_done {
+                let scan_dir = std::path::Path::new(crate::paths::FLAMES_TEXTURE_DIR);
+                if let Ok(entries) = std::fs::read_dir(scan_dir) {
+                    for entry in entries.flatten() {
+                        if let Some(ext) = entry.path().extension() {
+                            if ext == "png" {
+                                if let Some(name) = entry.file_name().to_str() {
+                                    overlay_state.texture_fit_scan.push(name.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+                overlay_state.texture_fit_scan_done = true;
+            }
+
+            // Combo box for texture selection
+            let mut scan_items: Vec<String> = vec!["(custom path)".to_string()];
+            scan_items.extend(overlay_state.texture_fit_scan.iter().cloned());
+            let mut scan_selected = 0usize;
+            if ui.combo_simple_string("Fit Texture", &mut scan_selected, &scan_items) {
+                if scan_selected > 0 {
+                    let name = &overlay_state.texture_fit_scan[scan_selected - 1];
+                    overlay_state.texture_fit_path =
+                        format!("{}/{}", crate::paths::FLAMES_TEXTURE_DIR, name);
+                } else {
+                    overlay_state.texture_fit_path.clear();
+                }
+            }
+            ui.same_line();
+            if ui.small_button("Rescan") {
+                overlay_state.texture_fit_scan_done = false;
+                overlay_state.texture_fit_scan.clear();
+            }
+
+            ui.input_text("Fit Image (png)", &mut overlay_state.texture_fit_path)
+                .build();
+
+            // Existence indicator
+            let path = overlay_state.texture_fit_path.as_str();
+            if path.is_empty() {
+                ui.text_disabled("enter a texture path");
+            } else if std::path::Path::new(path).exists() {
+                ui.text_colored([0.3, 0.9, 0.3, 1.0], "texture found");
+            } else {
+                ui.text_colored([0.9, 0.3, 0.3, 1.0], "file not found");
+            }
+
             ui.slider("Fit Blend", 0.0, 1.0, &mut overlay_state.texture_fit_blend);
-            let mut groups = thyllore_render_core::TextureFitGroups::default();
             ui.checkbox("Silhouette", &mut overlay_state.texture_fit_groups[0]);
-            if overlay_state.texture_fit_groups[0] {
-                groups.silhouette = true;
-            }
             ui.checkbox("Color", &mut overlay_state.texture_fit_groups[1]);
-            if overlay_state.texture_fit_groups[1] {
-                groups.color = true;
-            }
             ui.checkbox("Turbulence", &mut overlay_state.texture_fit_groups[2]);
-            if overlay_state.texture_fit_groups[2] {
-                groups.turbulence = true;
-            }
             ui.checkbox("Tilt", &mut overlay_state.texture_fit_groups[3]);
-            if overlay_state.texture_fit_groups[3] {
-                groups.tilt = true;
+
+            // Fidelity radio button
+            let mut fidelity_mode: i32 = if overlay_state.texture_fit_profile {
+                1
+            } else {
+                0
+            };
+            if ui.radio_button("statistics (projection)", &mut fidelity_mode, 0) {
+                overlay_state.texture_fit_profile = false;
             }
+            ui.same_line();
+            if ui.radio_button("profile (reproduction)", &mut fidelity_mode, 1) {
+                overlay_state.texture_fit_profile = true;
+            }
+
             if ui.button("Apply Texture Fit") {
                 let path = overlay_state.texture_fit_path.clone();
                 let blend = overlay_state.texture_fit_blend;
+                let groups = thyllore_render_core::TextureFitGroups {
+                    silhouette: overlay_state.texture_fit_groups[0],
+                    color: overlay_state.texture_fit_groups[1],
+                    turbulence: overlay_state.texture_fit_groups[2],
+                    tilt: overlay_state.texture_fit_groups[3],
+                };
                 if let Some(selected_flame) = selected_flame_entity {
                     if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
                         let mut effect_copy = effect.clone();
@@ -573,6 +633,8 @@ fn build_flame_section(
                             &mut effect_copy,
                             &path,
                             blend,
+                            groups,
+                            overlay_state.texture_fit_profile,
                         );
                         ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
                         effect_applied_this_frame = true;

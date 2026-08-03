@@ -265,6 +265,9 @@ fn handle_redraw_requested(
         texture_fit_path: model_state.texture_fit_path.clone(),
         texture_fit_blend: model_state.texture_fit_blend,
         texture_fit_groups: model_state.texture_fit_groups,
+        texture_fit_profile: model_state.texture_fit_profile,
+        texture_fit_scan: model_state.texture_fit_scan.clone(),
+        texture_fit_scan_done: model_state.texture_fit_scan_done,
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
         #[cfg(feature = "auto-rig")]
@@ -293,6 +296,12 @@ fn handle_redraw_requested(
         .texture_fit_blend = overlay_state.texture_fit_blend;
     app.resource_mut::<crate::ecs::ModelState>()
         .texture_fit_groups = overlay_state.texture_fit_groups;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_profile = overlay_state.texture_fit_profile;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_scan = overlay_state.texture_fit_scan;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_scan_done = overlay_state.texture_fit_scan_done;
 
     #[cfg(debug_assertions)]
     {

@@ -44,6 +44,9 @@ pub struct ModelState {
     pub texture_fit_path: String,
     pub texture_fit_blend: f32,
     pub texture_fit_groups: [bool; 4],
+    pub texture_fit_profile: bool,
+    pub texture_fit_scan: Vec<String>,
+    pub texture_fit_scan_done: bool,
 }
 
 impl Default for ModelState {
@@ -56,6 +59,9 @@ impl Default for ModelState {
             texture_fit_path: String::new(),
             texture_fit_blend: 1.0,
             texture_fit_groups: [true; 4],
+            texture_fit_profile: true,
+            texture_fit_scan: Vec::new(),
+            texture_fit_scan_done: false,
         }
     }
 }

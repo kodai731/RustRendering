@@ -68,7 +68,7 @@ pub struct EngineCliOverrides {
     pub flame_sdf: Option<String>,
     pub pick_pixel: Option<(u32, u32)>,
     pub flame_bone: Option<String>,
-    pub flame_texture_fit: Option<(String, f32)>,
+    pub flame_texture_fit: Option<(String, f32, bool)>,
     pub heat_plume: Option<(f32, f32)>,
     pub batch_play: bool,
     pub scene_path: Option<String>,
@@ -406,12 +406,12 @@ fn flame_preset_resolve_from_args(args: &[String]) -> Result<Option<String>> {
     Ok(Some(value.clone()))
 }
 
-fn flame_texture_fit_resolve_from_args(args: &[String]) -> Result<Option<(String, f32)>> {
+fn flame_texture_fit_resolve_from_args(args: &[String]) -> Result<Option<(String, f32, bool)>> {
     let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_TEXTURE_FLAG) else {
         return Ok(None);
     };
     let Some(value) = args.get(position + 1) else {
-        bail!("{BATCH_FLAME_TEXTURE_FLAG} requires <path>[,<blend>]");
+        bail!("{BATCH_FLAME_TEXTURE_FLAG} requires <path>[,<blend>[,<profile>]]");
     };
     let parts: Vec<&str> = value.split(',').collect();
     let path = parts[0].trim().to_string();
@@ -428,7 +428,17 @@ fn flame_texture_fit_resolve_from_args(args: &[String]) -> Result<Option<(String
     if !blend.is_finite() || blend < 0.0 || blend > 1.0 {
         bail!("{BATCH_FLAME_TEXTURE_FLAG} blend must be in [0, 1] and finite: '{value}'");
     }
-    Ok(Some((path, blend)))
+    let profile = match parts.get(2).map(|s| s.trim()) {
+        None | Some("statistics") => false,
+        Some("profile") => true,
+        Some(other) => {
+            bail!(
+                "invalid {BATCH_FLAME_TEXTURE_FLAG} profile value '{}'; must be 'profile' or 'statistics'",
+                other
+            );
+        }
+    };
+    Ok(Some((path, blend, profile)))
 }
 
 fn heat_plume_resolve_from_args(args: &[String]) -> Result<Option<(f32, f32)>> {
@@ -800,7 +810,13 @@ pub fn batch_run_report(batch: &BatchRun) -> (bool, String) {
     }
 }
 
-pub fn apply_texture_fit_from_path(effect: &mut FlameEffect, path: &str, blend: f32) {
+pub fn apply_texture_fit_from_path(
+    effect: &mut FlameEffect,
+    path: &str,
+    blend: f32,
+    groups: thyllore_render_core::TextureFitGroups,
+    profile: bool,
+) {
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
@@ -872,12 +888,7 @@ pub fn apply_texture_fit_from_path(effect: &mut FlameEffect, path: &str, blend: 
         }
     };
 
-    thyllore_render_core::apply_texture_fit(
-        effect,
-        &fit,
-        thyllore_render_core::TextureFitGroups::default(),
-        blend,
-    );
+    thyllore_render_core::apply_texture_fit(effect, &fit, groups, blend, profile);
 }
 
 /// Parse repeated `--batch-anim-edit <spec>` flags. Specs:
@@ -1757,6 +1768,7 @@ mod tests {
         .unwrap();
         assert_eq!(resolved.0, "image.png");
         assert!((resolved.1 - 1.0).abs() < 1e-6);
+        assert!(!resolved.2);
     }
 
     #[test]
@@ -1770,6 +1782,7 @@ mod tests {
         .unwrap();
         assert_eq!(resolved.0, "image.png");
         assert!((resolved.1 - 0.4).abs() < 1e-6);
+        assert!(!resolved.2);
     }
 
     #[test]
@@ -1780,6 +1793,20 @@ mod tests {
             "image.png,abc"
         ]))
         .is_err());
+    }
+
+    #[test]
+    fn flame_texture_fit_profile() {
+        let resolved = flame_texture_fit_resolve_from_args(&args(&[
+            "bin",
+            "--batch-flame-texture",
+            "image.png,0.5,profile",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(resolved.0, "image.png");
+        assert!((resolved.1 - 0.5).abs() < 1e-6);
+        assert!(resolved.2);
     }
 
     #[test]

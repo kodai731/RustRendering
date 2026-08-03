@@ -27,11 +27,16 @@ pub fn init(title: &str, take_focus: bool) -> System {
         .with_active(take_focus)
         .with_inner_size(LogicalSize::new(2560, 1440));
     // winit 0.29 ignores `with_active` on X11; an override-redirect window is
-    // unmanaged by the WM and therefore can never steal input focus.
+    // unmanaged by the WM and therefore can never steal input focus. It is also
+    // always-on-top, so park it outside the visible screen — batch/MCP runs must
+    // never cover the desktop or intercept the user's clicks.
     #[cfg(target_os = "linux")]
     if !take_focus {
+        use winit::dpi::PhysicalPosition;
         use winit::platform::x11::WindowBuilderExtX11;
-        builder = builder.with_override_redirect(true);
+        builder = builder
+            .with_override_redirect(true)
+            .with_position(PhysicalPosition::new(10000, 10000));
     }
     let window = builder.build(&event_loop).expect("Failed to create window");
 

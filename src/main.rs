@@ -110,8 +110,14 @@ fn main() -> Result<()> {
                 if let Some(name) = overrides.flame_preset.as_deref() {
                     thyllore_render_core::apply_flame_preset(&mut effect, name);
                 }
-                if let Some((ref path, blend)) = overrides.flame_texture_fit {
-                    apply_texture_fit_from_path(&mut effect, path, blend);
+                if let Some((ref path, blend, profile)) = overrides.flame_texture_fit {
+                    apply_texture_fit_from_path(
+                        &mut effect,
+                        path,
+                        blend,
+                        thyllore_render_core::TextureFitGroups::default(),
+                        profile,
+                    );
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);
@@ -131,8 +137,14 @@ fn main() -> Result<()> {
                 if let Some(name) = overrides.flame_preset.as_deref() {
                     thyllore_render_core::apply_flame_preset(&mut effect, name);
                 }
-                if let Some((ref path, blend)) = overrides.flame_texture_fit {
-                    apply_texture_fit_from_path(&mut effect, path, blend);
+                if let Some((ref path, blend, profile)) = overrides.flame_texture_fit {
+                    apply_texture_fit_from_path(
+                        &mut effect,
+                        path,
+                        blend,
+                        thyllore_render_core::TextureFitGroups::default(),
+                        profile,
+                    );
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_render_core::refresh_flame_coefficients(&mut effect);

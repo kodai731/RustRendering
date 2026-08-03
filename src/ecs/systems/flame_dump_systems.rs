@@ -24,10 +24,11 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
         "noise_scroll_speed": effect.noise_scroll_speed,
        "noise_aniso_y": effect.noise_aniso_y,
         "warp_y_scale": effect.warp_y_scale,
-        "coefficients": {
+      "coefficients": {
             "height_primitive": effect.coefficients.height_primitive,
             "radial": effect.coefficients.radial,
-            "height": effect.coefficients.height
+            "height": effect.coefficients.height,
+            "radius_scale": effect.coefficients.radius_scale
         },
         "temporal_weight": effect.temporal_weight,
         "light_position_world": [effect.light_position_world.x, effect.light_position_world.y, effect.light_position_world.z],
@@ -72,6 +73,12 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
     value["boundary_freq"] = json!(effect.boundary_freq);
     value["boundary_speed"] = json!(effect.boundary_speed);
     value["boundary_radius_ratio"] = json!(effect.boundary_radius_ratio);
+    value["baked_blend"] = json!(effect.baked_blend);
+    value["baked_envelope"] = json!(effect.baked_envelope.map(|a| a.to_vec()));
+    value["baked_radius"] = json!(effect.baked_radius.map(|a| a.to_vec()));
+    value["baked_color"] = json!(effect
+        .baked_color
+        .map(|a| a.iter().map(|c| c.to_vec()).collect::<Vec<_>>()));
     value
 }
 
