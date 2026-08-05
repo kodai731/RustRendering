@@ -295,6 +295,34 @@ float flameRadialDensityFactor(vec3 p, float height01) {
     return flameBiweight(flameRadialSupportInvSq(height01) * radiusSquared);
 }
 
+// Closed-form bounds on the noise factors that widen the support (no fbm sampled).
+float flameWiggleScaleMax() {
+    return 1.0 + max(flame.contourParams.x, 0.0);
+}
+
+float flameBoundaryRadiusScaleMax() {
+    return 1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0);
+}
+
+float flameBoundaryHeightScaleMax() { return 1.0 + abs(flame.boundaryParams.x); }
+float flameBoundaryHeightScaleMin() {
+    return max(1.0 - 3.0 * abs(flame.boundaryParams.x), 0.2);
+}
+
+// Widest R over hb in [hbLo, hbHi] (taper monotone; baked curve carries its max).
+float flameWidestRadiusScale(float hbLo, float hbHi) {
+    if (flame.profileParams.x > 0.5) {
+        return FLAME_SHELL_BASE_RADIUS * flame.profileParams.y;
+    }
+    return max(flameRadialRadiusScale(hbLo), flameRadialRadiusScale(hbHi));
+}
+
+// Widest support radius over all heights: trims the height range a ray bands.
+float flameWidestSupportRadius() {
+    return flameRadialSupportRadius() * flameWiggleScaleMax() * flameBoundaryRadiusScaleMax()
+        * flameWidestRadiusScale(0.0, 1.0);
+}
+
 // Contour wiggle: per-band field quantity from fbm at the actual 3D point.
 // Returns 1.0 when contourParams.x == 0 (identity, matches old path).
 float flameContourWiggle(vec3 p, float h) {
@@ -332,9 +360,8 @@ const int FLAME_OCCUPANCY_MAX_NODES =
 // radius invSq(hb) — with only the fbm quantities interpolated: any band-frozen
 // factor with a steep h dependence (the taper radius at the tip most of all)
 // steps at the band boundaries and the threshold binarizes the step into
-// stacked horizontal surfaces. The frozen quadratic survives only as a
-// conservative support CLIP (widest node radius, extra margin): outside the
-// true support the exact density vanishes, so an over-wide clip is harmless.
+// stacked horizontal surfaces. The support clip comes from closed-form bounds
+// on the noise factors, so it costs no sample and can gate the band up front.
 //
 // Sigma models the sub-node-piece fluctuation of the erosion (chord = fbm node
 // spacing, vanishing as nodes resolve the field) and fades toward the support
@@ -347,6 +374,32 @@ const int FLAME_OCCUPANCY_MAX_NODES =
 // the GLSL caller's).
 vec2 flameOccupancyBandExact(float nearFade, float halfWidth, vec3 eP0, vec3 ePd) {
     bool hasCap = flame.boundaryParams.x != 0.0;
+
+    // Clip from the closed-form bounds: a band that misses the flame costs no sample.
+    float hLo = clamp(min(eP0.y - halfWidth * ePd.y, eP0.y + halfWidth * ePd.y), 0.0, 1.0);
+    float hHi = clamp(max(eP0.y - halfWidth * ePd.y, eP0.y + halfWidth * ePd.y), 0.0, 1.0);
+    float radiusMax = flameRadialSupportRadius()
+        * flameWidestRadiusScale(
+            clamp(hLo / flameBoundaryHeightScaleMax(), 0.0, 1.0),
+            clamp(hHi / flameBoundaryHeightScaleMin(), 0.0, 1.0))
+        * flameWiggleScaleMax() * flameBoundaryRadiusScaleMax();
+    vec2 bendCenter = flameBendOffsetAt(clamp(eP0.y, 0.0, 1.0));
+    float bendSpan = max(
+        length(flameBendOffsetAt(hLo) - bendCenter),
+        length(flameBendOffsetAt(hHi) - bendCenter));
+    float clipScale = 1.0 / max(radiusMax + bendSpan, 1e-4);
+    clipScale *= clipScale;
+
+    vec2 exz = eP0.xz - bendCenter;
+    vec2 interval = flameSupportInterval(
+        clipScale * dot(ePd.xz, ePd.xz),
+        2.0 * clipScale * dot(exz, ePd.xz),
+        clipScale * dot(exz, exz),
+        halfWidth);
+    if (interval.y <= interval.x) {
+        return vec2(0.0);
+    }
+
     float bxCenter = hasCap ? flameBoundaryDisplacement(eP0.xz).x : 1.0;
 
     float nodes[FLAME_OCCUPANCY_MAX_NODES];
@@ -375,38 +428,50 @@ vec2 flameOccupancyBandExact(float nearFade, float halfWidth, vec3 eP0, vec3 ePd
     }
     nodes[nodeCount++] = halfWidth;
 
+    // Wiggle interpolant, sampled only at nodes bounding a surviving piece.
     float radiusScaleNode[FLAME_OCCUPANCY_MAX_NODES];
-    float clipScale = 1e30;
+    bool hasTight = false;
+    float tightScale = clipScale;
     for (int i = 0; i < nodeCount; ++i) {
+        radiusScaleNode[i] = 1.0;
+        if (nodes[min(i + 1, nodeCount - 1)] <= interval.x + 1e-7
+            || nodes[max(i - 1, 0)] >= interval.y - 1e-7) {
+            continue;
+        }
         vec3 p = eP0 + nodes[i] * ePd;
         float h = clamp(p.y, 0.0, 1.0);
-        vec2 boundaryNode = hasCap ? flameBoundaryDisplacement(p.xz) : vec2(1.0);
         radiusScaleNode[i] = max(flameContourWiggle(p, h), 1e-4);
-        float nodeRadius = max(radiusScaleNode[i] * boundaryNode.y, 1e-4);
-        float nodeScale = flameRadialSupportInvSq(clamp(h / boundaryNode.x, 0.0, 1.0))
-            / (nodeRadius * nodeRadius);
-        clipScale = min(clipScale, nodeScale);
+        float nodeRadius = max(radiusScaleNode[i] * flameBoundaryRadiusScaleMax(), 1e-4);
+        float nodeScale =
+            flameRadialSupportInvSq(clamp(h / bxCenter, 0.0, 1.0)) / (nodeRadius * nodeRadius);
+        tightScale = hasTight ? min(tightScale, nodeScale) : nodeScale;
+        hasTight = true;
     }
 
-    // Conservative support clip: widest node radius with margin, wind bend
-    // frozen at the band center. Outside the true support the exact density
-    // vanishes, so the slack only costs a little integration range.
-    clipScale *= 0.64;
-    vec2 bendCenter = flameBendOffsetAt(clamp(eP0.y, 0.0, 1.0));
-    vec2 exz = eP0.xz - bendCenter;
-    vec2 interval = flameSupportInterval(
-        clipScale * dot(ePd.xz, ePd.xz),
-        2.0 * clipScale * dot(exz, ePd.xz),
-        clipScale * dot(exz, exz),
-        halfWidth);
-    if (interval.y <= interval.x) {
-        return vec2(0.0);
+    // Narrow the range with the sampled wiggle and the band's tip displacement —
+    // the bound above must cover every column, this one covers the actual ray.
+    tightScale *= 0.64;
+    if (hasTight && tightScale > clipScale) {
+        interval = flameSupportInterval(
+            tightScale * dot(ePd.xz, ePd.xz),
+            2.0 * tightScale * dot(exz, ePd.xz),
+            tightScale * dot(exz, exz),
+            halfWidth);
+        if (interval.y <= interval.x) {
+            return vec2(0.0);
+        }
     }
 
     const int SUB = 3;
     float beta = flameCarveResidualStrength();
     float stepLength = length(ePd);
     vec2 total = vec2(0.0);
+    // Sub-node shared with the previous piece (same s, same fbm) — carried, not resampled.
+    bool hasCarry = false;
+    float carryS = 0.0;
+    float carryArgument = 0.0;
+    float carryFade = 0.0;
+    float carryPlain = 0.0;
     for (int i = 1; i < nodeCount; ++i) {
         float pieceLo = max(nodes[i - 1], interval.x);
         float pieceHi = min(nodes[i], interval.y);
@@ -422,6 +487,12 @@ vec2 flameOccupancyBandExact(float nearFade, float halfWidth, vec3 eP0, vec3 ePd
         float subPlain[SUB + 1];
         for (int j = 0; j <= SUB; ++j) {
             float s = pieceLo + clipped * float(j) / float(SUB);
+            if (j == 0 && hasCarry && abs(s - carryS) < 1e-7) {
+                subArgument[0] = carryArgument;
+                subFade[0] = carryFade;
+                subPlain[0] = carryPlain;
+                continue;
+            }
             float h = clamp(eP0.y + s * ePd.y, 0.0, 1.0);
             // The erosion and the boundary displacement are sampled exactly at
             // every sub-node: the tip occupancy IS the sublevel-set geometry of
@@ -454,6 +525,11 @@ vec2 flameOccupancyBandExact(float nearFade, float halfWidth, vec3 eP0, vec3 ePd
             subFade[j] = flameEnvelopeFade(dens);
             subPlain[j] = dens;
         }
+        hasCarry = true;
+        carryS = pieceHi;
+        carryArgument = subArgument[SUB];
+        carryFade = subFade[SUB];
+        carryPlain = subPlain[SUB];
         float subSpan = clipped / float(SUB);
         for (int j = 1; j <= SUB; ++j) {
             FlameSmoothedResponse response = flameSmoothErosionResponse(
@@ -682,12 +758,7 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
     // Trim to the widest support (over heights, wiggle and wind bend) so grazing rays
     // do not spend bands on empty range. Bands outside the true support integrate to
     // exactly zero, so the extra margin costs only band resolution, never correctness.
-    float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
-        * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
-    float widestRadius = flameRadialSupportRadius() * wTrim
-        * (flame.profileParams.x > 0.5
-            ? FLAME_SHELL_BASE_RADIUS * flame.profileParams.y
-            : max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0)));
+    float widestRadius = flameWidestSupportRadius();
     float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
     if (quadratic > 1e-12) {
         float support = (widestRadius + bendMax) / sqrt(quadratic);
@@ -811,12 +882,7 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
         vec2 q = d.xz / d.y;
         float quadratic = dot(q, q);
 
-        float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
-        * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
-        float widestRadius = flameRadialSupportRadius() * wTrim
-            * (flame.profileParams.x > 0.5
-                ? FLAME_SHELL_BASE_RADIUS * flame.profileParams.y
-                : max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0)));
+        float widestRadius = flameWidestSupportRadius();
         float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
         if (quadratic > 1e-12) {
             float support = (widestRadius + bendMax) / sqrt(quadratic);
