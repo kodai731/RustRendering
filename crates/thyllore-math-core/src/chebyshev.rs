@@ -172,6 +172,38 @@ pub fn integrate_chebyshev(series: &ChebyshevSeries) -> ChebyshevSeries {
     }
 }
 
+/// Monomial coefficients in the normalized variable `u = (2x - min - max) / (max - min)`
+/// of a Chebyshev series: `sum c_k T_k(u) = sum m_j u^j`. The `T_k` monomial
+/// coefficients are exact integers, accumulated in f64 so the conversion adds no
+/// error beyond the final f32 rounding.
+pub fn chebyshev_monomial_coefficients(series: &ChebyshevSeries) -> Vec<f32> {
+    let count = series.coefficients.len();
+    let mut monomial = vec![0.0f64; count];
+    let mut t_prev = vec![0.0f64; count];
+    let mut t_cur = vec![0.0f64; count];
+    t_prev[0] = 1.0;
+    monomial[0] = series.coefficients[0] as f64;
+    if count > 1 {
+        t_cur[1] = 1.0;
+        monomial[1] = series.coefficients[1] as f64;
+    }
+    for k in 2..count {
+        let mut t_next = vec![0.0f64; count];
+        for j in 1..count {
+            t_next[j] = 2.0 * t_cur[j - 1];
+        }
+        for j in 0..count {
+            t_next[j] -= t_prev[j];
+        }
+        for j in 0..count {
+            monomial[j] += series.coefficients[k] as f64 * t_next[j];
+        }
+        t_prev = t_cur;
+        t_cur = t_next;
+    }
+    monomial.into_iter().map(|m| m as f32).collect()
+}
+
 pub fn pack_coefficients_vec4(series: &ChebyshevSeries, slot_count: usize) -> Vec<[f32; 4]> {
     let coefficient_count = series.coefficients.len();
     assert!(
@@ -215,6 +247,26 @@ mod tests {
         let target = |x: f64| x * x * (3.0 - 2.0 * x);
         let series = fit_chebyshev(target, (0.0, 1.0), 8);
         assert!(compute_max_fit_error(&series, target) < 1e-3);
+    }
+
+    #[test]
+    fn test_monomial_coefficients_match_clenshaw() {
+        let target = |x: f64| (-4.0 * x * x).exp() + 0.3 * (5.0 * x).sin();
+        let series = fit_chebyshev(target, (0.0, 1.0), 8);
+        let monomial = chebyshev_monomial_coefficients(&series);
+        for i in 0..=256 {
+            let x = i as f32 / 256.0;
+            let u = 2.0 * x - 1.0;
+            let mut horner = 0.0f64;
+            for &m in monomial.iter().rev() {
+                horner = horner * u as f64 + m as f64;
+            }
+            let clenshaw = evaluate_chebyshev(&series, x) as f64;
+            assert!(
+                (horner - clenshaw).abs() < 1e-5,
+                "x={x}: monomial {horner} vs clenshaw {clenshaw}"
+            );
+        }
     }
 
     #[test]

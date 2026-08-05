@@ -3,9 +3,16 @@
 
 // Closed-form emission integral of the compact-support radial density
 //   rho(p) = F(h) * (1 - u^2)^2,  u = |p.xz| / (S * R(h)),  zero for u >= 1
-// over a ray segment. Along the ray u^2(s) is a quadratic g(s), so each height band
-// is the exact polynomial integral of (F0 + F1 s + F2 s^2) * (1 - g(s))^2 over the
-// interval where g(s) <= 1 — power-rule moments only, no tail and no pedestal.
+// over a ray segment. Along the ray u^2(s) is a quadratic g(s); the height
+// envelope F is a degree-7 polynomial (Chebyshev series) and capFade a piecewise
+// cubic in raw h, so within one piece the whole integrand is a single polynomial
+// in the piece-local variable and every band integral is exact power-rule
+// moments — no within-band approximation, hence no band-resolution limit on the
+// envelope (the upper-band stripe artifact of the former 3-point quadratic).
+// Pieces and occupancy nodes are cut at field-fixed knots (the capFade bounds,
+// the displaced tip and the CPU-computed envelope edge crossings), which enter
+// and leave the support interval with zero contribution — continuous per ray,
+// no per-ray integer switches.
 //
 // Must be included after FlameUBO, evaluateHeightFalloff, and flame_noise_field.glsl
 // (flameBiweight / flameRadialSupportRadius live there).
@@ -14,6 +21,7 @@
 const int FLAME_RADIAL_BAND_COUNT = 6;
 const float FLAME_RADIAL_MIN_DIR_Y = 1e-4;
 const float FLAME_RADIAL_MIN_HEIGHT_SPAN = 1e-5;
+const int FLAME_ENVELOPE_KNOT_COUNT = 8;
 
 // Interval where a*s^2 + b*s + c <= 1 clipped to [-halfWidth, halfWidth].
 // Citardauq-form roots keep grazing rays (discriminant near zero) precise.
@@ -36,7 +44,8 @@ vec2 flameSupportInterval(float a, float b, float c, float halfWidth) {
 }
 
 // Integral (.x) and first moment (.y) of (f.x + f.y s + f.z s^2) * (1 - g(s))^2 over
-// the part of [-halfWidth, halfWidth] inside the support g(s) = a s^2 + b s + c <= 1.
+// the part of [-halfWidth, halfWidth] inside the support g(s) = a s^2 + b s + c.
+// Kept for the along-ray fallback, whose envelope is constant over the segment.
 vec2 flameBiweightBandEmission(float a, float b, float c, vec3 f, float halfWidth) {
     vec2 interval = flameSupportInterval(a, b, c, halfWidth);
     if (interval.y <= interval.x) {
@@ -74,11 +83,12 @@ vec2 flameBiweightBandEmission(float a, float b, float c, vec3 f, float halfWidt
     return result;
 }
 
-// Std of the unresolved erosion fluctuation inside one band, in argument units.
-// FLAME_EROSION_NOISE_SIGMA is the std of e(s) - e(band center) for decorrelated
+// Std of the unresolved erosion fluctuation inside one piece, in argument units.
+// FLAME_EROSION_NOISE_SIGMA is the std of e(s) - e(node) for decorrelated
 // fbm3 samples: value-noise std ~0.185, octave amplitudes (0.5, 0.25, 0.125) give
 // fbm std ~0.106, and the difference of two decorrelated samples scales by sqrt(2).
-// Chords shorter than one noise cell stay correlated, so sigma ramps in linearly.
+// Chords shorter than one noise cell stay correlated, so sigma ramps in linearly —
+// it vanishes as the nodes resolve the field.
 const float FLAME_EROSION_NOISE_SIGMA = 0.15;
 
 float flameErosionSigma(float height01, float chordLength) {
@@ -87,61 +97,189 @@ float flameErosionSigma(float height01, float chordLength) {
         * FLAME_EROSION_NOISE_SIGMA * decorrelation;
 }
 
-// Smooth field density at band coordinate s:
-// d(s) = (f.x + f.y s + f.z s^2) (1 - g(s))^2 with g(s) = a s^2 + b s + c.
-float flameOccupancyDensity(float a, float b, float c, vec3 f, float s) {
-    float g = (a * s + b) * s + c;
-    float inside = max(1.0 - g, 0.0);
-    return (f.x + (f.y + f.z * s) * s) * inside * inside;
+// ---- Exact envelope machinery (band-free integration) ----
+
+// F monomial (in u = 2 hb - 1, from the UBO) affine-composed into the piece
+// frame: u = uScale * zeta + uBias.
+void flameEnvelopeMonomialLocal(float uScale, float uBias, out float target[8]) {
+    for (int i = 0; i < 8; ++i) {
+        target[i] = 0.0;
+    }
+    for (int k = 7; k >= 0; --k) {
+        for (int i = 7; i >= 1; --i) {
+            target[i] = target[i] * uBias + target[i - 1] * uScale;
+        }
+        target[0] = target[0] * uBias + flame.heightMonomial[k >> 2][k & 3];
+    }
 }
 
-vec2 flameOccupancyPiece(
-    FlameSmoothedResponse response, float s0, float s1, float value0, float value1) {
-    float span = s1 - s0;
-    if (span < 1e-7) {
+// Next field-fixed cut strictly above sCur along h(s) = h0 + hSlope * s: the
+// envelope knots (in hb units, scaled by the displaced tip bx) and, with
+// boundary displacement active, the capFade cubic bounds and the tip itself.
+// Near-constant heights have no cuts inside any finite segment.
+float flameNextEnvelopeCut(
+    float sCur, float sEnd, float h0, float hSlope, float bx, bool useKnots) {
+    if (abs(hSlope) < FLAME_RADIAL_MIN_DIR_Y) {
+        return sEnd;
+    }
+    float sNext = sEnd;
+    float invSlope = 1.0 / hSlope;
+    if (useKnots) {
+        for (int k = 0; k < FLAME_ENVELOPE_KNOT_COUNT; ++k) {
+            float knot = flame.envelopeKnots[k >> 2][k & 3];
+            if (knot > 1.5) {
+                break;
+            }
+            float s = (knot * bx - h0) * invSlope;
+            if (s > sCur + 1e-6 && s < sNext) {
+                sNext = s;
+            }
+        }
+    }
+    if (flame.boundaryParams.x != 0.0) {
+        float s94 = (0.94 - h0) * invSlope;
+        if (s94 > sCur + 1e-6 && s94 < sNext) {
+            sNext = s94;
+        }
+        float s100 = (1.0 - h0) * invSlope;
+        if (s100 > sCur + 1e-6 && s100 < sNext) {
+            sNext = s100;
+        }
+        float sTip = (bx - h0) * invSlope;
+        if (sTip > sCur + 1e-6 && sTip < sNext) {
+            sNext = sTip;
+        }
+    }
+    return sNext;
+}
+
+// Exact integral (.x) and first moment about s = 0 (.y) of
+//   F(h(s) / bx) * cap(h(s)) * (1 - g(s))^2
+// over [s0, s1], which must lie inside the support and inside a single regime of
+// cap and of the hb clamp. h(s) = h0 + hSlope * s. The polynomial is evaluated in
+// the piece-centered variable so high powers stay conditioned.
+vec2 flameExactPieceEmission(
+    float a, float b, float c, float h0, float hSlope, float bx,
+    bool tipRegime, bool capRegime, float s0, float s1) {
+    float w = 0.5 * (s1 - s0);
+    if (w <= 1e-7) {
         return vec2(0.0);
     }
-    float slope = (value1 - value0) / span;
-    return flameErosionResponseLinearIntegral(response, value0 - slope * s0, slope, s0, s1);
+    float sMid = 0.5 * (s0 + s1);
+    float hMid = h0 + hSlope * sMid;
+
+    float envelope[8];
+    if (tipRegime) {
+        // hb clamps to 1 above the displaced tip: F is constant there.
+        envelope[0] = evaluateHeightFalloff(1.0);
+        for (int i = 1; i < 8; ++i) {
+            envelope[i] = 0.0;
+        }
+    } else {
+        flameEnvelopeMonomialLocal(2.0 * hSlope / bx, 2.0 * hMid / bx - 1.0, envelope);
+    }
+
+    float integrand[11];
+    if (capRegime) {
+        // cap = 3 t^2 - 2 t^3 with t = (1 - h) / 0.06, composed into the piece frame.
+        float tScale = -hSlope / 0.06;
+        float tBias = (1.0 - hMid) / 0.06;
+        float cap0 = tBias * tBias * (3.0 - 2.0 * tBias);
+        float cap1 = tScale * tBias * (6.0 - 6.0 * tBias);
+        float cap2 = tScale * tScale * (3.0 - 6.0 * tBias);
+        float cap3 = -2.0 * tScale * tScale * tScale;
+        for (int i = 0; i < 11; ++i) {
+            integrand[i] = 0.0;
+        }
+        for (int i = 0; i < 8; ++i) {
+            integrand[i] += envelope[i] * cap0;
+            integrand[i + 1] += envelope[i] * cap1;
+            integrand[i + 2] += envelope[i] * cap2;
+            integrand[i + 3] += envelope[i] * cap3;
+        }
+    } else {
+        for (int i = 0; i < 8; ++i) {
+            integrand[i] = envelope[i];
+        }
+        for (int i = 8; i < 11; ++i) {
+            integrand[i] = 0.0;
+        }
+    }
+
+    float gb = 2.0 * a * sMid + b;
+    float gc = (a * sMid + b) * sMid + c;
+    float m = 1.0 - gc;
+    float w0 = m * m;
+    float w1 = -2.0 * gb * m;
+    float w2 = gb * gb - 2.0 * a * m;
+    float w3 = 2.0 * a * gb;
+    float w4 = a * a;
+    float e[15];
+    for (int i = 0; i < 15; ++i) {
+        e[i] = 0.0;
+    }
+    for (int i = 0; i < 11; ++i) {
+        e[i] += integrand[i] * w0;
+        e[i + 1] += integrand[i] * w1;
+        e[i + 2] += integrand[i] * w2;
+        e[i + 3] += integrand[i] * w3;
+        e[i + 4] += integrand[i] * w4;
+    }
+
+    // Symmetric moments over [-w, w]: odd powers vanish, so even coefficients
+    // feed the integral and odd coefficients feed the first moment.
+    float integral = 0.0;
+    float first = 0.0;
+    float wPow = w;
+    for (int n = 0; n < 15; ++n) {
+        if ((n & 1) == 0) {
+            integral += e[n] * 2.0 * wPow / float(n + 1);
+        } else {
+            first += e[n] * 2.0 * wPow * w / float(n + 2);
+        }
+        wPow *= w;
+    }
+    return vec2(integral, sMid * integral + first);
 }
 
-// Occupancy integral (.x) and first moment (.y) of the smoothed threshold response
-// phi_sigma(x(s)) over the support part of [-halfWidth, halfWidth]. The argument is
-// linearized on the two monotone halves split at the vertex of g, sharing the exact
-// node values, so the pieces join C0 and band edges agree with their neighbors.
-// Sigma fades toward the support boundary per piece (mean of the node envelope
-// fades): the unresolved fluctuation is of the *faded* erosion, so it must vanish
-// with the envelope like the argument does — a flat band sigma leaves phi_sigma
-// with a positive floor at the clipped support surface (the ceiling artifact).
-vec2 flameOccupancyBandIntegral(
-    float a, float b, float c, vec3 f, float halfWidth, float erosionBand, float sigma) {
+// Exact band emission: integral (.x) and first moment about the band center (.y)
+// of F(h/bx) * cap(h) * (1 - g(s))^2 over the support part of
+// [-halfWidth, halfWidth], split only at the cap / tip regime bounds (the
+// envelope itself is one global polynomial — no other cuts are needed).
+vec2 flameExactBandEmission(
+    float a, float b, float c, float h0, float hSlope, float bx, float halfWidth) {
     vec2 interval = flameSupportInterval(a, b, c, halfWidth);
     if (interval.y <= interval.x) {
         return vec2(0.0);
     }
-    float sSplit = a > 1e-12
-        ? clamp(-0.5 * b / a, interval.x, interval.y)
-        : 0.5 * (interval.x + interval.y);
-    float densityLo = flameOccupancyDensity(a, b, c, f, interval.x);
-    float densityMid = flameOccupancyDensity(a, b, c, f, sSplit);
-    float densityHi = flameOccupancyDensity(a, b, c, f, interval.y);
-    float valueLo = flameErodedArgument(densityLo, erosionBand);
-    float valueMid = flameErodedArgument(densityMid, erosionBand);
-    float valueHi = flameErodedArgument(densityHi, erosionBand);
-    float fadeLo = flameEnvelopeFade(densityLo);
-    float fadeMid = flameEnvelopeFade(densityMid);
-    float fadeHi = flameEnvelopeFade(densityHi);
-
-    FlameSmoothedResponse responseLo =
-        flameSmoothErosionResponse(sigma * 0.5 * (fadeLo + fadeMid));
-    FlameSmoothedResponse responseHi =
-        flameSmoothErosionResponse(sigma * 0.5 * (fadeMid + fadeHi));
-    return flameOccupancyPiece(responseLo, interval.x, sSplit, valueLo, valueMid)
-        + flameOccupancyPiece(responseHi, sSplit, interval.y, valueMid, valueHi);
+    bool hasCap = flame.boundaryParams.x != 0.0;
+    vec2 total = vec2(0.0);
+    float sCur = interval.x;
+    for (int piece = 0; piece < 4; ++piece) {
+        float sNext = flameNextEnvelopeCut(sCur, interval.y, h0, hSlope, bx, false);
+        float hPieceMid = h0 + hSlope * 0.5 * (sCur + sNext);
+        bool beyondCap = hasCap && hPieceMid >= 1.0;
+        if (!beyondCap) {
+            total += flameExactPieceEmission(
+                a, b, c, h0, hSlope, bx,
+                hasCap && hPieceMid >= bx, hasCap && hPieceMid >= 0.94, sCur, sNext);
+        }
+        sCur = sNext;
+        if (sCur >= interval.y - 1e-7) {
+            break;
+        }
+    }
+    return total;
 }
 
-// Radius R(h) of the radial density profile, in flame-local units.
+// Radius R(h) of the radial density profile, in flame-local units. Texture fit
+// bakes an arbitrary R(h) curve (profileParams.x flags it); the parametric taper
+// stays the default.
 float flameRadialRadiusScale(float height01) {
+    if (flame.profileParams.x > 0.5) {
+        return FLAME_SHELL_BASE_RADIUS
+            * max(evaluateChebyshev8(flame.radiusCoefficients[0], flame.radiusCoefficients[1], height01), 0.05);
+    }
     return FLAME_SHELL_BASE_RADIUS
         * mix(1.0, flame.styleParams1.x, pow(height01, flame.styleParams0.w));
 }
@@ -169,6 +307,179 @@ vec2 flameRayPointAtHeight(vec3 o, vec2 q, float height) {
     return o.xz + (height - o.y) * q;
 }
 
+// Fixed node spacing per band (node positions at fixed band fractions).
+const int FLAME_OCCUPANCY_EDGE_SEGMENTS = 2;
+const int FLAME_OCCUPANCY_MAX_NODES =
+    FLAME_ENVELOPE_KNOT_COUNT + FLAME_OCCUPANCY_EDGE_SEGMENTS + 5;
+
+// Occupancy integral (.x) and first moment about s = 0 (.y) of the smoothed
+// threshold response over the support part of [-halfWidth, halfWidth] of the
+// true ray p(s) = eP0 + s * ePd.
+//
+// The fbm quantities (erosion, boundary displacement, contour wiggle) are
+// sampled at nodes whose positions are affine in the band — fixed band
+// fractions plus the field-fixed cuts (envelope knots, capFade bounds,
+// displaced tip) — never at support-adaptive positions: a support-interval end
+// or the vertex of g moves with a kinked derivative as the ray sweeps
+// (root/clip switches), and fbm sampled at kinked positions images fold lines
+// onto the screen. A frozen single band sample is just as wrong the other way
+// (whole-band binarization, screen-imaged swirls at the tip). Between nodes
+// the fbm quantities are linear.
+//
+// The argument x(s) = dens(s) - eroded(s) is re-linearized on 3 fixed
+// sub-pieces of each node piece clipped to the support. At the sub-nodes the
+// density is EXACT in h — envelope (Clenshaw), capFade, wind bend, taper
+// radius invSq(hb) — with only the fbm quantities interpolated: any band-frozen
+// factor with a steep h dependence (the taper radius at the tip most of all)
+// steps at the band boundaries and the threshold binarizes the step into
+// stacked horizontal surfaces. The frozen quadratic survives only as a
+// conservative support CLIP (widest node radius, extra margin): outside the
+// true support the exact density vanishes, so an over-wide clip is harmless.
+//
+// Sigma models the sub-node-piece fluctuation of the erosion (chord = fbm node
+// spacing, vanishing as nodes resolve the field) and fades toward the support
+// boundary per sub-piece (mean of the sub-node envelope fades): the unresolved
+// fluctuation is of the *faded* erosion, so it must vanish with the envelope
+// like the argument does — a flat band sigma leaves phi_sigma with a positive
+// floor at the clipped support surface.
+// Mirrored in thyllore-render-core/src/flame_radial.rs (evaluate_occupancy_band /
+// occupancy_band_pieces — the shared piece model; the exact-density closure is
+// the GLSL caller's).
+vec2 flameOccupancyBandExact(float nearFade, float halfWidth, vec3 eP0, vec3 ePd) {
+    bool hasCap = flame.boundaryParams.x != 0.0;
+    float bxCenter = hasCap ? flameBoundaryDisplacement(eP0.xz).x : 1.0;
+
+    float nodes[FLAME_OCCUPANCY_MAX_NODES];
+    int nodeCount = 0;
+    nodes[nodeCount++] = -halfWidth;
+    float bandWidth = 2.0 * halfWidth;
+    int fraction = 1;
+    float sCur = -halfWidth;
+    for (int i = 0; i < FLAME_OCCUPANCY_MAX_NODES; ++i) {
+        if (nodeCount >= FLAME_OCCUPANCY_MAX_NODES - 1) {
+            break;
+        }
+        float sFraction = fraction < FLAME_OCCUPANCY_EDGE_SEGMENTS
+            ? -halfWidth + bandWidth * float(fraction) / float(FLAME_OCCUPANCY_EDGE_SEGMENTS)
+            : halfWidth;
+        float sCut = flameNextEnvelopeCut(sCur, halfWidth, eP0.y, ePd.y, bxCenter, true);
+        float sNext = min(sFraction, sCut);
+        if (sNext >= halfWidth - 1e-7) {
+            break;
+        }
+        nodes[nodeCount++] = sNext;
+        if (sFraction <= sCut) {
+            ++fraction;
+        }
+        sCur = sNext;
+    }
+    nodes[nodeCount++] = halfWidth;
+
+    float radiusScaleNode[FLAME_OCCUPANCY_MAX_NODES];
+    float clipScale = 1e30;
+    for (int i = 0; i < nodeCount; ++i) {
+        vec3 p = eP0 + nodes[i] * ePd;
+        float h = clamp(p.y, 0.0, 1.0);
+        vec2 boundaryNode = hasCap ? flameBoundaryDisplacement(p.xz) : vec2(1.0);
+        radiusScaleNode[i] = max(flameContourWiggle(p, h), 1e-4);
+        float nodeRadius = max(radiusScaleNode[i] * boundaryNode.y, 1e-4);
+        float nodeScale = flameRadialSupportInvSq(clamp(h / boundaryNode.x, 0.0, 1.0))
+            / (nodeRadius * nodeRadius);
+        clipScale = min(clipScale, nodeScale);
+    }
+
+    // Conservative support clip: widest node radius with margin, wind bend
+    // frozen at the band center. Outside the true support the exact density
+    // vanishes, so the slack only costs a little integration range.
+    clipScale *= 0.64;
+    vec2 bendCenter = flameBendOffsetAt(clamp(eP0.y, 0.0, 1.0));
+    vec2 exz = eP0.xz - bendCenter;
+    vec2 interval = flameSupportInterval(
+        clipScale * dot(ePd.xz, ePd.xz),
+        2.0 * clipScale * dot(exz, ePd.xz),
+        clipScale * dot(exz, exz),
+        halfWidth);
+    if (interval.y <= interval.x) {
+        return vec2(0.0);
+    }
+
+    const int SUB = 3;
+    float beta = flameCarveResidualStrength();
+    float stepLength = length(ePd);
+    vec2 total = vec2(0.0);
+    for (int i = 1; i < nodeCount; ++i) {
+        float pieceLo = max(nodes[i - 1], interval.x);
+        float pieceHi = min(nodes[i], interval.y);
+        float clipped = pieceHi - pieceLo;
+        if (clipped < 1e-7) {
+            continue;
+        }
+        float nodeSpan = max(nodes[i] - nodes[i - 1], 1e-7);
+        float pieceMidH = clamp(eP0.y + (pieceLo + 0.5 * clipped) * ePd.y, 0.0, 1.0);
+        float pieceSigma = flameErosionSigma(pieceMidH, clipped / float(SUB) * stepLength);
+        float subArgument[SUB + 1];
+        float subFade[SUB + 1];
+        float subPlain[SUB + 1];
+        for (int j = 0; j <= SUB; ++j) {
+            float s = pieceLo + clipped * float(j) / float(SUB);
+            float h = clamp(eP0.y + s * ePd.y, 0.0, 1.0);
+            // The erosion and the boundary displacement are sampled exactly at
+            // every sub-node: the tip occupancy IS the sublevel-set geometry of
+            // the erosion over the raised displacement columns, and any
+            // interpolant renders its expectation instead — a wide diffuse cap
+            // separated from the body by a coherent transparent gap (the
+            // historical top seam), where the true field bridges the gap with
+            // individual columns and tongues. Only the contour wiggle (a
+            // multiplicative low-frequency radius modulation) stays on the
+            // node interpolant.
+            vec3 pSub = eP0 + s * ePd;
+            float fNode = clamp((s - nodes[i - 1]) / nodeSpan, 0.0, 1.0);
+            float bx = 1.0;
+            float radiusScale = mix(radiusScaleNode[i - 1], radiusScaleNode[i], fNode);
+            if (hasCap) {
+                vec2 boundarySub = flameBoundaryDisplacement(pSub.xz);
+                bx = boundarySub.x;
+                radiusScale *= boundarySub.y;
+            }
+            float erosion = flameNoiseErosionValue(pSub, h);
+            float hb = clamp(h / bx, 0.0, 1.0);
+            float capFade = hasCap ? smoothstep(1.0, 0.94, h) : 1.0;
+            vec2 radial = eP0.xz + s * ePd.xz - flameBendOffsetAt(h);
+            radiusScale = max(radiusScale, 1e-4);
+            float uSquared = dot(radial, radial) * flameRadialSupportInvSq(hb)
+                / (radiusScale * radiusScale);
+            float dens = evaluateHeightFalloff(hb) * capFade
+                * flameBiweight(uSquared) * nearFade;
+            subArgument[j] = flameErodedArgument(dens, erosion);
+            subFade[j] = flameEnvelopeFade(dens);
+            subPlain[j] = dens;
+        }
+        float subSpan = clipped / float(SUB);
+        for (int j = 1; j <= SUB; ++j) {
+            FlameSmoothedResponse response = flameSmoothErosionResponse(
+                pieceSigma * 0.5 * (subFade[j - 1] + subFade[j]));
+            float sA = pieceLo + float(j - 1) * subSpan;
+            float slope = (subArgument[j] - subArgument[j - 1]) / subSpan;
+            vec2 carved = flameErosionResponseLinearIntegral(
+                response, subArgument[j - 1] - slope * sA, slope, sA, sA + subSpan);
+            // Residual (un-carveable) fraction: the same threshold response
+            // applied to the un-eroded density, which is linear on the sub-piece
+            // like the carved argument — one more closed-form evaluation, no
+            // sampling and no fbm.
+            if (beta > 0.0) {
+                float plainSlope = (subPlain[j] - subPlain[j - 1]) / subSpan;
+                vec2 plain = flameErosionResponseLinearIntegral(
+                    flameSmoothErosionResponse(0.0),
+                    subPlain[j - 1] - plainSlope * sA, plainSlope, sA, sA + subSpan);
+                carved = mix(carved, plain, beta);
+            }
+            total += carved;
+        }
+    }
+    return total;
+}
+
+
 // Pointwise field for the reference raymarch (mode 1): the same eroded threshold
 // field the closed form approximates — true smoothstep, exact support membership.
 float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
@@ -180,26 +491,17 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
         * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb)
         * flameNearCameraFade(p);
     float erosion = flameNoiseErosionValue(p, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
-        * flameFieldSupportMask(dSmooth);
+    return flameApplyCarveResidual(
+        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+        dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
-// Occupancy variant of the along-ray fallback: same quadratic setup, threshold
-// response instead of the plain biweight emission. The first moment is about tCenter.
-vec2 flameOccupancyAlongRay(
-    vec3 o, vec3 d, float tNear, float tFar, float invSq, float erosionBand, float sigma) {
-    float tCenter = 0.5 * (tNear + tFar);
-    vec2 p = o.xz + tCenter * d.xz;
+// Occupancy variant of the along-ray fallback: the band frame is the true ray
+// around tCenter (pMidTrue), first moment about tCenter.
+vec2 flameOccupancyAlongRay(vec3 d, float tNear, float tFar, vec3 pMidTrue) {
     float halfWidth = 0.5 * (tFar - tNear);
-    vec2 boundary = flameBoundaryDisplacement(p);
-    float hRaw = clamp(o.y + tCenter * d.y, 0.0, 1.0);
-    float hMid = clamp(hRaw / boundary.x, 0.0, 1.0);
-    float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, hRaw) : 1.0;
-    float falloff = evaluateHeightFalloff(hMid) * capFade * flameNearCameraFade(o + tCenter * d);
-    float invSqB = invSq / (boundary.y * boundary.y);
-    return flameOccupancyBandIntegral(
-        invSqB * dot(d.xz, d.xz), 2.0 * invSqB * dot(p, d.xz), invSqB * dot(p, p),
-        vec3(falloff, 0.0, 0.0), halfWidth, erosionBand, sigma);
+    float nearFade = flameNearCameraFade(pMidTrue);
+    return flameOccupancyBandExact(nearFade, halfWidth, pMidTrue, d);
 }
 
 // ---- Emitter-generic occupancy (ring / SDF analytic path) ----
@@ -218,8 +520,9 @@ vec2 flameOccupancyAlongRay(
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
     float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle) * flameNearCameraFade(p);
     float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h) : 0.0;
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
-        * flameFieldSupportMask(dSmooth);
+    return flameApplyCarveResidual(
+        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+        dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
 const int FLAME_OCCUPANCY_NODE_SEGMENTS = 4;
@@ -229,24 +532,29 @@ const int FLAME_OCCUPANCY_NODE_SEGMENTS = 4;
 // argument linear between them. Segments whose both node densities are zero lie
 // outside the support and contribute nothing (exact membership at node resolution);
 // densities are sampled before the erosion fbm so empty bands cost no noise at all.
-// The frozen erosion and its sigma are sampled at the density-weighted node
-// position, not the band midpoint: the midpoint of a band that straddles empty
-// space (ring seen from inside) lands away from the wall, so the frozen
-// turbulence would be sampled where no density exists and sweep through world
-// space as the camera moves — the view-dependent shimmer of the band freeze.
+// The fbm erosion is sampled per node like the density (a frozen band sample
+// loses the sublevel-set geometry of the erosion — whole-band binarization and
+// screen-imaged swirls at the tip); nodes not adjacent to any positive density
+// skip the fbm. Sigma models only the sub-segment fluctuation (chord = segment
+// length) and is faded per segment by the node envelope fades.
+// The kernel-basis warp stays frozen at the density-weighted node position, not
+// the band midpoint: the midpoint of a band that straddles empty space (ring
+// seen from inside) lands away from the wall, so the frozen warp would be
+// sampled where no density exists and sweep through world space as the camera
+// moves — the view-dependent shimmer of the band freeze.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (density_weighted_node_t).
-// Kernel basis: erosion exact per node, so frozen-band sample and residual sigma are skipped.
-vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand, float chord) {
+// Kernel basis: erosion exact per node, so residual sigma is skipped.
+vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand) {
     float dt = (t1 - t0) / float(FLAME_OCCUPANCY_NODE_SEGMENTS);
-    vec2 boundaryBand = flameBoundaryDisplacement((o + 0.5 * (t0 + t1) * d).xz);
     float density[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
     float weightSum = 0.0;
     float tWeighted = 0.0;
     for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
         float t = t0 + float(node) * dt;
         vec3 p = o + t * d;
+        vec2 boundaryNode = flameBoundaryDisplacement(p.xz);
         density[node] =
-            flameEmitterSmoothDensityDisplacedAt(p, clamp(p.y, 0.0, 1.0), wiggleBand, boundaryBand);
+            flameEmitterSmoothDensityDisplacedAt(p, clamp(p.y, 0.0, 1.0), wiggleBand, boundaryNode);
         density[node] *= flameNearCameraFade(p);
         weightSum += density[node];
         tWeighted += density[node] * t;
@@ -256,12 +564,9 @@ vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand
     }
 
     bool kernelErosion = flameKernelModelActive() && flame.noiseAmplitude != 0.0;
+    bool fbmErosion = !kernelErosion && flame.noiseAmplitude != 0.0;
     vec3 pSample = o + (tWeighted / weightSum) * d;
     float hSample = clamp(pSample.y, 0.0, 1.0);
-    float erosionBand = !kernelErosion && flame.noiseAmplitude != 0.0
-        ? flameNoiseErosionValue(pSample, hSample) : 0.0;
-    float sigma = !kernelErosion && flame.noiseAmplitude != 0.0
-        ? flameErosionSigma(hSample, chord) : 0.0;
     float blobSum[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
     if (kernelErosion) {
         // Warp frozen per band (like the legacy erosion freeze); only the blob
@@ -296,21 +601,31 @@ vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand
     }
     float argument[FLAME_OCCUPANCY_NODE_SEGMENTS + 1];
     for (int node = 0; node <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++node) {
-        float erosionNode = erosionBand;
+        float erosionNode = 0.0;
+        float h = clamp(o.y + (t0 + float(node) * dt) * d.y, 0.0, 1.0);
         if (kernelErosion) {
-            float h = clamp(o.y + (t0 + float(node) * dt) * d.y, 0.0, 1.0);
             erosionNode = flameNoiseErosionFromValue(blobSum[node], h);
+        } else if (fbmErosion) {
+            bool adjacentSupport = density[node] > 0.0
+                || (node > 0 && density[node - 1] > 0.0)
+                || (node < FLAME_OCCUPANCY_NODE_SEGMENTS && density[node + 1] > 0.0);
+            if (adjacentSupport) {
+                erosionNode = flameNoiseErosionValue(o + (t0 + float(node) * dt) * d, h);
+            }
         }
         argument[node] = flameErodedArgument(density[node], erosionNode);
     }
+    float segmentChord = dt * length(d);
     vec2 total = vec2(0.0);
     for (int segment = 1; segment <= FLAME_OCCUPANCY_NODE_SEGMENTS; ++segment) {
         if (density[segment - 1] > 0.0 || density[segment] > 0.0) {
             // Per-segment sigma fade toward the support boundary (see
-            // flameOccupancyBandIntegral): the fluctuation vanishes with the envelope.
+            // flameOccupancyBandExact): the fluctuation vanishes with the envelope.
+            float tPrev = t0 + float(segment - 1) * dt;
+            float hSegment = clamp(o.y + (tPrev + 0.5 * dt) * d.y, 0.0, 1.0);
+            float sigma = fbmErosion ? flameErosionSigma(hSegment, segmentChord) : 0.0;
             FlameSmoothedResponse response = flameSmoothErosionResponse(sigma * 0.5
                 * (flameEnvelopeFade(density[segment - 1]) + flameEnvelopeFade(density[segment])));
-            float tPrev = t0 + float(segment - 1) * dt;
             float slope = (argument[segment] - argument[segment - 1]) / dt;
             total += flameErosionResponseLinearIntegral(
                 response, argument[segment - 1] - slope * tPrev, slope, tPrev, tPrev + dt);
@@ -330,7 +645,7 @@ float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, f
     float hRaw = clamp(o.y + tCenter * d.y, 0.0, 1.0);
     float hMid = clamp(hRaw / boundary.x, 0.0, 1.0);
     float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, hRaw) : 1.0;
-   float falloff = evaluateHeightFalloff(hMid) * capFade * flameNearCameraFade(o + tCenter * d);
+    float falloff = evaluateHeightFalloff(hMid) * capFade * flameNearCameraFade(o + tCenter * d);
     float invSqB = invSq / (boundary.y * boundary.y);
     return flameBiweightBandEmission(
         invSqB * dot(d.xz, d.xz), 2.0 * invSqB * dot(p, d.xz), invSqB * dot(p, p),
@@ -353,16 +668,11 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
         float wMid = flameContourWiggle(pMid, midHeight);
         vec2 bendMid = flameBendOffsetAt(midHeight);
         if (flame.noiseAmplitude != 0.0) {
-            return flameOccupancyAlongRay(
-                vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, tNear, tFar,
-                flameRadialSupportInvSq(midHeight) / (wMid * wMid),
-                flameNoiseErosionValue(pMid, midHeight),
-                flameErosionSigma(midHeight, tFar - tNear)).x;
+            return flameOccupancyAlongRay(d, tNear, tFar, pMid).x;
         }
         return integrateRadialEmissionAlongRay(
             vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, tNear, tFar,
-            flameRadialSupportInvSq(midHeight) / (wMid * wMid))
-            * flameNoiseErosionFactor(pMid, midHeight);
+            flameRadialSupportInvSq(midHeight) / (wMid * wMid));
     }
 
     // Only the slope is carried: monomial coefficients in h would grow as 1/d.y^2 and cancel away.
@@ -375,7 +685,9 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
     float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
         * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
     float widestRadius = flameRadialSupportRadius() * wTrim
-        * max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0));
+        * (flame.profileParams.x > 0.5
+            ? FLAME_SHELL_BASE_RADIUS * flame.profileParams.y
+            : max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0)));
     float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
     if (quadratic > 1e-12) {
         float support = (widestRadius + bendMax) / sqrt(quadratic);
@@ -389,55 +701,40 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
 
     float bandWidth = (heightHi - heightLo) / float(FLAME_RADIAL_BAND_COUNT);
     float halfWidth = 0.5 * bandWidth;
-    float bandChord = bandWidth * length(vec3(q.x, 1.0, q.y));
     float total = 0.0;
-    float falloffLo = evaluateHeightFalloff(heightLo);
     for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
         float center = heightLo + (float(band) + 0.5) * bandWidth;
-        float falloffMid;
-        float falloffHi;
-
         vec2 pTrue = flameRayPointAtHeight(o, q, center);
         float nearFade = flameNearCameraFade(vec3(pTrue.x, center, pTrue.y));
-        vec2 pxz = pTrue - flameBendOffsetAt(center);
-        float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
-        float invSq;
-        if (flame.boundaryParams.x != 0.0) {
-            vec2 boundary = flameBoundaryDisplacement(pTrue);
-            float hbC = clamp(center / boundary.x, 0.0, 1.0);
-            falloffLo = evaluateHeightFalloff(clamp((center - halfWidth) / boundary.x, 0.0, 1.0))
-                * smoothstep(1.0, 0.94, center - halfWidth);
-            falloffMid = evaluateHeightFalloff(hbC) * smoothstep(1.0, 0.94, center);
-            falloffHi = evaluateHeightFalloff(clamp((center + halfWidth) / boundary.x, 0.0, 1.0))
-                * smoothstep(1.0, 0.94, center + halfWidth);
-            wBand *= boundary.y;
-            invSq = flameRadialSupportInvSq(hbC) / (wBand * wBand);
-        } else {
-            falloffMid = evaluateHeightFalloff(center);
-            falloffHi = evaluateHeightFalloff(center + halfWidth);
-            invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
-        }
-        float slope = (falloffHi - falloffLo) / bandWidth;
-        float curvature = 2.0 * (falloffHi + falloffLo - 2.0 * falloffMid) / (bandWidth * bandWidth);
         if (flame.noiseAmplitude != 0.0) {
-            float erosionBand = flameNoiseErosionValue(vec3(pTrue.x, center, pTrue.y), center);
-            total += flameOccupancyBandIntegral(
-                invSq * quadratic, 2.0 * invSq * dot(pxz, q), invSq * dot(pxz, pxz),
-                vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth, erosionBand,
-                flameErosionSigma(center, bandChord)).x;
+            total += flameOccupancyBandExact(
+                nearFade, halfWidth, vec3(pTrue.x, center, pTrue.y), vec3(q.x, 1.0, q.y)).x;
         } else {
-            float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
-            total += eBand * flameBiweightBandEmission(
-                invSq * quadratic, 2.0 * invSq * dot(pxz, q), invSq * dot(pxz, pxz),
-                vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth).x;
+            vec2 pxz = pTrue - flameBendOffsetAt(center);
+            float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
+            vec2 boundary = flame.boundaryParams.x != 0.0
+                ? flameBoundaryDisplacement(pTrue) : vec2(1.0);
+            float hbC = clamp(center / boundary.x, 0.0, 1.0);
+            wBand *= boundary.y;
+            float invSq = flameRadialSupportInvSq(hbC) / (wBand * wBand);
+            float aq = invSq * quadratic;
+            float bq = 2.0 * invSq * dot(pxz, q);
+            float cq = invSq * dot(pxz, pxz);
+            total += nearFade
+                * flameExactBandEmission(aq, bq, cq, center, 1.0, boundary.x, halfWidth).x;
         }
-
-        falloffLo = falloffHi;
     }
     return total / abs(d.y);
 }
 
 vec3 flameRampColor(float h) {
+    if (flame.profileParams.z > 0.5) {
+        float u = clamp(h, 0.0, 1.0) * 8.0 - 0.5;
+        int i0 = int(clamp(floor(u), 0.0, 7.0));
+        int i1 = min(i0 + 1, 7);
+        float f = clamp(u - float(i0), 0.0, 1.0);
+        return mix(flame.colorRamp[i0].rgb, flame.colorRamp[i1].rgb, f);
+    }
     if (h < 0.5) {
         return mix(flame.colorBase.rgb, flame.colorMid.rgb, h * 2.0);
     }
@@ -500,16 +797,11 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
             vec2 bendMid = flameBendOffsetAt(midHeight);
             float c;
             if (flame.noiseAmplitude != 0.0) {
-                c = flameOccupancyAlongRay(
-                    vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, t0, t0 + dt,
-                    flameRadialSupportInvSq(midHeight) / (wMid * wMid),
-                    flameNoiseErosionValue(pMid, midHeight),
-                    flameErosionSigma(midHeight, dt)).x;
+                c = flameOccupancyAlongRay(d, t0, t0 + dt, pMid).x;
             } else {
                 c = integrateRadialEmissionAlongRay(
                     vec3(o.x - bendMid.x, o.y, o.z - bendMid.y), d, t0, t0 + dt,
-                    flameRadialSupportInvSq(midHeight) / (wMid * wMid))
-                    * flameNoiseErosionFactor(pMid, midHeight);
+                    flameRadialSupportInvSq(midHeight) / (wMid * wMid));
             }
             bandEmission[band] = max(c, 0.0);
             bandHeight[band] = midHeight;
@@ -522,7 +814,9 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
         float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
         * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
         float widestRadius = flameRadialSupportRadius() * wTrim
-            * max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0));
+            * (flame.profileParams.x > 0.5
+                ? FLAME_SHELL_BASE_RADIUS * flame.profileParams.y
+                : max(flameRadialRadiusScale(0.0), flameRadialRadiusScale(1.0)));
         float bendMax = length(flame.styleParams2.xy) * flame.styleParams2.z;
         if (quadratic > 1e-12) {
             float support = (widestRadius + bendMax) / sqrt(quadratic);
@@ -536,54 +830,33 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
 
         float bandWidth = (heightHi - heightLo) / float(FLAME_RADIAL_BAND_COUNT);
         float halfWidth = 0.5 * bandWidth;
-        float bandChord = bandWidth * length(vec3(q.x, 1.0, q.y));
-        float falloffLo = evaluateHeightFalloff(heightLo);
         for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
             float center = heightLo + (float(band) + 0.5) * bandWidth;
-            float falloffMid;
-            float falloffHi;
             vec2 pTrue = flameRayPointAtHeight(o, q, center);
             float nearFade = flameNearCameraFade(vec3(pTrue.x, center, pTrue.y));
             vec2 p = pTrue - flameBendOffsetAt(center);
-            float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
-            float invSq;
-            if (flame.boundaryParams.x != 0.0) {
-                vec2 boundary = flameBoundaryDisplacement(pTrue);
-                float hbC = clamp(center / boundary.x, 0.0, 1.0);
-                falloffLo = evaluateHeightFalloff(clamp((center - halfWidth) / boundary.x, 0.0, 1.0))
-                    * smoothstep(1.0, 0.94, center - halfWidth);
-                falloffMid = evaluateHeightFalloff(hbC) * smoothstep(1.0, 0.94, center);
-                falloffHi = evaluateHeightFalloff(clamp((center + halfWidth) / boundary.x, 0.0, 1.0))
-                    * smoothstep(1.0, 0.94, center + halfWidth);
-                wBand *= boundary.y;
-                invSq = flameRadialSupportInvSq(hbC) / (wBand * wBand);
-            } else {
-                falloffMid = evaluateHeightFalloff(center);
-                falloffHi = evaluateHeightFalloff(center + halfWidth);
-                invSq = flameRadialSupportInvSq(center) / (wBand * wBand);
-            }
-            float slope = (falloffHi - falloffLo) / bandWidth;
-            float curvature = 2.0 * (falloffHi + falloffLo - 2.0 * falloffMid) / (bandWidth * bandWidth);
             vec2 emission;
             if (flame.noiseAmplitude != 0.0) {
-                float erosionBand = flameNoiseErosionValue(vec3(pTrue.x, center, pTrue.y), center);
-                emission = flameOccupancyBandIntegral(
-                    invSq * quadratic, 2.0 * invSq * dot(p, q), invSq * dot(p, p),
-                    vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth, erosionBand,
-                    flameErosionSigma(center, bandChord));
+                emission = flameOccupancyBandExact(
+                    nearFade, halfWidth, vec3(pTrue.x, center, pTrue.y), vec3(q.x, 1.0, q.y));
             } else {
-                float eBand = flameNoiseErosionFactor(vec3(pTrue.x, center, pTrue.y), center);
-                emission = eBand * flameBiweightBandEmission(
-                    invSq * quadratic, 2.0 * invSq * dot(p, q), invSq * dot(p, p),
-                    vec3(falloffMid * nearFade, slope * nearFade, curvature * nearFade), halfWidth);
+                float wBand = flameContourWiggle(vec3(pTrue.x, center, pTrue.y), center);
+                vec2 boundary = flame.boundaryParams.x != 0.0
+                    ? flameBoundaryDisplacement(pTrue) : vec2(1.0);
+                float hbC = clamp(center / boundary.x, 0.0, 1.0);
+                wBand *= boundary.y;
+                float invSq = flameRadialSupportInvSq(hbC) / (wBand * wBand);
+                float aq = invSq * quadratic;
+                float bq = 2.0 * invSq * dot(p, q);
+                float cq = invSq * dot(p, p);
+                emission = nearFade
+                    * flameExactBandEmission(aq, bq, cq, center, 1.0, boundary.x, halfWidth);
             }
             float c = emission.x / abs(d.y);
             float meanOffset = emission.x > 1e-6 ? clamp(emission.y / emission.x, -halfWidth, halfWidth) : 0.0;
             bandEmission[band] = max(c, 0.0);
             bandHeight[band] = clamp(center + meanOffset, 0.0, 1.0);
             bandEdge[band] = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, length(p) / max(flameRadialRadiusScale(center), 1e-4)), 0.0, 1.0);
-
-            falloffLo = falloffHi;
         }
         reversed = d.y < 0.0;
     }
@@ -649,13 +922,12 @@ void flameEmitterOccupancyBands(
         return;
     }
     float dt = (tFar - tNear) / float(FLAME_RADIAL_BAND_COUNT);
-    float chord = dt * length(d);
     for (int band = 0; band < FLAME_RADIAL_BAND_COUNT; ++band) {
         float t0 = tNear + float(band) * dt;
         vec3 pMid = o + (t0 + 0.5 * dt) * d;
         float hMid = clamp(pMid.y, 0.0, 1.0);
         float wBand = flameContourWiggle(pMid, hMid);
-        vec2 occupancy = flameOccupancyNodeBand(o, d, t0, t0 + dt, wBand, chord);
+        vec2 occupancy = flameOccupancyNodeBand(o, d, t0, t0 + dt, wBand);
         float tMean = occupancy.x > 1e-6 ? clamp(occupancy.y / occupancy.x, t0, t0 + dt) : t0 + 0.5 * dt;
         vec3 pMean = o + tMean * d;
         float hMean = clamp(pMean.y, 0.0, 1.0);

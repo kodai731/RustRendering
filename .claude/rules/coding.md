@@ -1,6 +1,8 @@
 ---
 paths:
   - "src/**"
+  - "crates/**"
+  - "shaders/**"
 ---
 
 # Robust Coding Guidelines
@@ -176,3 +178,34 @@ Tests should verify the public API behavior, not internal state. This makes
 tests stable when implementation changes and ensures the contract is correct.
 
 *Source: Google Testing Blog (Abseil TotW #135), C++ Core Guidelines T.2*
+
+## 13. No Sentinel Extremes — Express "No Value Yet" in the Control Flow
+
+Never seed an accumulator with a magic extreme (`1e30`, `f32::MAX`, `-1`,
+`i32::MIN`) to make a later `min`/`max`/comparison work. The value can escape
+the loop unchanged and reach code that treats it as real, and every reader has
+to prove that it cannot. State "nothing seen yet" in the control flow instead:
+a `bool` guard, the first iteration seeding the value, `Option<T>` in Rust, or
+a meaningful fallback that is correct on its own.
+
+```glsl
+// Bad: 1e30 is not a radius; if no node is sampled it silently escapes
+float tightScale = 1e30;
+for (...) { tightScale = min(tightScale, nodeScale); }
+tightScale *= 0.64;
+
+// Good: the "no sample" case is a branch, and the initial value is meaningful
+bool hasTight = false;
+float tightScale = clipScale;          // fallback: the conservative bound
+for (...) {
+    tightScale = hasTight ? min(tightScale, nodeScale) : nodeScale;
+    hasTight = true;
+}
+if (hasTight && tightScale > clipScale) { ... }
+```
+
+The same applies to "impossible" indices and IDs: use `Option<Id>` (Rust) or an
+explicit `hasX` flag (GLSL), not `u32::MAX` / `-1`.
+
+*Source: C++ Core Guidelines ES.20 / F.60 (no magic sentinels), Rust API
+Guidelines (`Option<T>` over in-band signalling)*

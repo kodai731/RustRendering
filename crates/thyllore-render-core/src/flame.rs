@@ -2,12 +2,16 @@ use crate::flame_trail::{flame_trail_fade_weight, FlameTrailSample, FlameTrailSt
 use cgmath::{Deg, InnerSpace, Matrix3, Matrix4, Quaternion, Vector2, Vector3, Vector4};
 use thyllore_math_core::{
     evaluate_chebyshev, fit_chebyshev, fit_erf_response, integrate_chebyshev,
-    pack_coefficients_vec4,
+    pack_coefficients_vec4, ChebyshevSeries,
 };
 
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
 pub const HEIGHT_COEFFICIENT_COUNT: usize = 8;
 pub const RADIAL_COEFFICIENT_COUNT: usize = 8;
+/// Field-fixed envelope knot slots in the UBO; unused slots hold the sentinel.
+pub const ENVELOPE_KNOT_COUNT: usize = 8;
+/// Sentinel above the h domain, terminating the sorted knot list.
+pub const ENVELOPE_KNOT_SENTINEL: f32 = 9.0;
 
 pub struct FlameProfile {
     pub sigma_t: f32,
@@ -94,6 +98,7 @@ pub struct FlameCoefficients {
     pub height_primitive: [[f32; 4]; 3],
     pub radial: [[f32; 4]; 2],
     pub height: [[f32; 4]; 2],
+    pub radius_scale: [[f32; 4]; 2],
 }
 
 impl Default for FlameCoefficients {
@@ -131,6 +136,7 @@ pub fn fit_flame_coefficients(profile: &FlameProfile) -> FlameCoefficients {
         ],
         radial: [radial_slots[0], radial_slots[1]],
         height: [height_slots[0], height_slots[1]],
+        radius_scale: [[0.0; 4]; 2],
     }
 }
 
@@ -277,6 +283,14 @@ pub struct FlameEffect {
     pub boundary_speed: f32,
     pub boundary_radius_ratio: f32,
     pub near_fade_radius: f32,
+    /// Residual (un-carved) medium fraction left where turbulence carves the
+    /// emitting soot away — the floor that makes a fully carved ray span
+    /// translucent instead of a hard hole. 0 restores the pre-floor field.
+    pub carve_residual: f32,
+    pub baked_envelope: Option<[f32; 33]>,
+    pub baked_radius: Option<[f32; 33]>,
+    pub baked_color: Option<[[f32; 3]; 8]>,
+    pub baked_blend: f32,
 }
 
 impl Default for FlameEffect {
@@ -338,6 +352,11 @@ impl Default for FlameEffect {
             boundary_speed: 0.8,
             boundary_radius_ratio: 0.2,
             near_fade_radius: 0.0,
+            carve_residual: 0.12,
+            baked_envelope: None,
+            baked_radius: None,
+            baked_color: None,
+            baked_blend: 0.0,
         };
         refresh_flame_coefficients(&mut effect);
         effect
@@ -349,15 +368,63 @@ pub fn profile_from_effect(effect: &FlameEffect) -> FlameProfile {
     let base = effect.envelope_base as f64;
     let tail = effect.envelope_tail as f64;
     let radial_sharpness = effect.radial_sharpness;
+    let baked_envelope = effect.baked_envelope;
+    let baked_blend = effect.baked_blend;
     FlameProfile {
         sigma_t: effect.sigma_t,
-        height_falloff: Box::new(move |h: f64| parametric_height_falloff(h, peak, base, tail)),
+        height_falloff: Box::new(move |h: f64| {
+            if let Some(ref envelope) = baked_envelope {
+                if baked_blend > 0.0 {
+                    let parametric = parametric_height_falloff(h, peak, base, tail);
+                    let lut_value = lut_lerp33(envelope, h);
+                    let baked_blend_f64 = baked_blend as f64;
+                    return (1.0 - baked_blend_f64) * parametric + baked_blend_f64 * lut_value;
+                }
+            }
+            parametric_height_falloff(h, peak, base, tail)
+        }),
         radial_falloff: Box::new(move |r: f64| biweight_radial_falloff(r, radial_sharpness)),
     }
 }
 
+fn lut_lerp33(lut: &[f32; 33], h: f64) -> f64 {
+    let h = h.max(0.0).min(1.0);
+    let idx = h * 32.0;
+    let i = idx.floor() as usize;
+    let frac = idx - i as f64;
+    let i = i.min(31);
+    let v0 = lut[i] as f64;
+    let v1 = lut[i + 1] as f64;
+    v0 + frac * (v1 - v0)
+}
+
 pub fn refresh_flame_coefficients(effect: &mut FlameEffect) {
     effect.coefficients = fit_flame_coefficients(&profile_from_effect(effect));
+
+    let baked_radius = effect.baked_radius;
+    let baked_blend = effect.baked_blend;
+    let radius_tip_ratio = effect.radius_tip_ratio as f64;
+    let taper_power = effect.taper_power as f64;
+
+    if baked_radius.is_some() && baked_blend > 0.0 {
+        let blend = baked_blend as f64;
+        let lut = baked_radius.unwrap();
+        let rel: Box<dyn Fn(f64) -> f64> = Box::new(move |h: f64| {
+            (1.0 - blend) * (1.0 + (radius_tip_ratio - 1.0) * h.powf(taper_power))
+                + blend * lut_lerp33(&lut, h)
+        });
+        let series = fit_chebyshev(&*rel, (0.0, 1.0), 8);
+        let slots = pack_coefficients_vec4(&series, 2);
+        effect.coefficients.radius_scale[0] = slots[0];
+        effect.coefficients.radius_scale[1] = slots[1];
+    } else {
+        let rel: Box<dyn Fn(f64) -> f64> =
+            Box::new(move |h: f64| 1.0 + (radius_tip_ratio - 1.0) * h.powf(taper_power));
+        let series = fit_chebyshev(&*rel, (0.0, 1.0), 8);
+        let slots = pack_coefficients_vec4(&series, 2);
+        effect.coefficients.radius_scale[0] = slots[0];
+        effect.coefficients.radius_scale[1] = slots[1];
+    }
 }
 
 const MIN_FLAME_EXTENT: f32 = 1e-3;
@@ -420,6 +487,163 @@ fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
         }
     }
     (params, packed)
+}
+
+/// Monomial coefficients (in u = 2h - 1) of the height envelope, packed for the UBO.
+pub fn height_envelope_monomial_slots(height_coefficients: &[[f32; 4]; 2]) -> [[f32; 4]; 2] {
+    let monomial = crate::flame_radial::height_envelope_monomial(height_coefficients);
+    let mut slots = [[0.0f32; 4]; 2];
+    for (i, &value) in monomial.iter().enumerate() {
+        slots[i / 4][i % 4] = value;
+    }
+    slots
+}
+
+/// Field-fixed occupancy knots: the h where the height envelope crosses edge_low
+/// and edge_high — the cliffs the threshold binarizes. The closed-form occupancy
+/// aligns its linearization nodes to these so no piece straddles a crossing;
+/// being properties of the field (not of the ray), they vary only with the bake
+/// and the ray-continuous displacement scale. Sorted ascending, sentinel-padded;
+/// when more crossings exist than slots, the steepest ones win.
+pub fn height_envelope_knots(
+    height_coefficients: &[[f32; 4]; 2],
+    edge_low: f32,
+    edge_high: f32,
+) -> [[f32; 4]; 2] {
+    let series = ChebyshevSeries::new(
+        height_coefficients.iter().flatten().copied().collect(),
+        (0.0, 1.0),
+    );
+    const SAMPLES: usize = 256;
+    let mut crossings: Vec<(f32, f32)> = Vec::new();
+    let mut previous = evaluate_chebyshev(&series, 0.0);
+    for i in 1..=SAMPLES {
+        let h = i as f32 / SAMPLES as f32;
+        let value = evaluate_chebyshev(&series, h);
+        for edge in [edge_low, edge_high] {
+            if (previous - edge) * (value - edge) < 0.0 {
+                let mut lo = (i - 1) as f32 / SAMPLES as f32;
+                let mut hi = h;
+                let low_sign = previous - edge;
+                for _ in 0..24 {
+                    let mid = 0.5 * (lo + hi);
+                    if (evaluate_chebyshev(&series, mid) - edge) * low_sign > 0.0 {
+                        lo = mid;
+                    } else {
+                        hi = mid;
+                    }
+                }
+                let root = 0.5 * (lo + hi);
+                let slope = (evaluate_chebyshev(&series, (root + 2e-3).min(1.0))
+                    - evaluate_chebyshev(&series, (root - 2e-3).max(0.0)))
+                    / 4e-3;
+                crossings.push((root, slope.abs()));
+            }
+        }
+        previous = value;
+    }
+    crossings.sort_by(|a, b| b.1.total_cmp(&a.1));
+    crossings.truncate(ENVELOPE_KNOT_COUNT);
+    let mut knots: Vec<f32> = crossings.into_iter().map(|(root, _)| root).collect();
+    knots.sort_by(f32::total_cmp);
+
+    let mut slots = [[ENVELOPE_KNOT_SENTINEL; 4]; 2];
+    for (i, &knot) in knots.iter().enumerate() {
+        slots[i / 4][i % 4] = knot;
+    }
+    slots
+}
+
+fn build_profile_params(effect: &FlameEffect) -> [f32; 4] {
+    let flag = if effect.baked_radius.is_some() && effect.baked_blend > 0.0 {
+        1.0
+    } else {
+        0.0
+    };
+    if flag == 0.0 {
+        return [0.0; 4];
+    }
+    let series = thyllore_math_core::ChebyshevSeries::new(
+        effect
+            .coefficients
+            .radius_scale
+            .iter()
+            .flatten()
+            .copied()
+            .collect(),
+        (0.0, 1.0),
+    );
+    let mut max_val = 0.0f32;
+    for i in 0..=32 {
+        let h = i as f32 / 32.0;
+        let val = evaluate_chebyshev(&series, h);
+        if val > max_val {
+            max_val = val;
+        }
+    }
+    let color_flag = if effect.baked_color.is_some() && effect.baked_blend > 0.0 {
+        1.0
+    } else {
+        0.0
+    };
+    [flag, max_val.max(0.05), color_flag, 0.0]
+}
+
+/// Build the color ramp array for the UBO.
+/// When baked_color is Some and baked_blend > 0, each entry is a blend between
+/// the legacy 3-point ramp value (same as flameRampColor shader) and the baked color.
+/// Otherwise returns all zeros (flag 0 means shader doesn't read it).
+fn build_color_ramp(effect: &FlameEffect) -> [[f32; 4]; 8] {
+    let baked = match effect.baked_color {
+        Some(ref b) if effect.baked_blend > 0.0 => b,
+        _ => return [[0.0; 4]; 8],
+    };
+    let blend = effect.baked_blend;
+
+    // Compute color_base, color_mid, color_tip same as build_flame_ubo
+    let (color_base, color_mid, color_tip) = if effect.use_blackbody {
+        let base = blackbody_rgb(effect.temperature_base_k);
+        let tip = blackbody_rgb(effect.temperature_tip_k);
+        let mid_temp = (effect.temperature_base_k + effect.temperature_tip_k) / 2.0;
+        let mid = blackbody_rgb(mid_temp);
+        (base, mid, tip)
+    } else {
+        let base = effect.color_base;
+        let tip = effect.color_tip;
+        let mid = [
+            (base[0] + tip[0]) / 2.0,
+            (base[1] + tip[1]) / 2.0,
+            (base[2] + tip[2]) / 2.0,
+        ];
+        (base, mid, tip)
+    };
+
+    let mut ramp = [[0.0f32; 4]; 8];
+    for i in 0..8 {
+        let h = (i as f32 + 0.5) / 8.0;
+        // Legacy 3-point ramp (same as flameRampColor shader)
+        let legacy = if h < 0.5 {
+            let t = h * 2.0;
+            [
+                color_base[0] + (color_mid[0] - color_base[0]) * t,
+                color_base[1] + (color_mid[1] - color_base[1]) * t,
+                color_base[2] + (color_mid[2] - color_base[2]) * t,
+            ]
+        } else {
+            let t = (h - 0.5) * 2.0;
+            [
+                color_mid[0] + (color_tip[0] - color_mid[0]) * t,
+                color_mid[1] + (color_tip[1] - color_mid[1]) * t,
+                color_mid[2] + (color_tip[2] - color_mid[2]) * t,
+            ]
+        };
+        // Blend: lerp(legacy, baked, blend)
+        let r = legacy[0] + (baked[i][0] - legacy[0]) * blend;
+        let g = legacy[1] + (baked[i][1] - legacy[1]) * blend;
+        let b = legacy[2] + (baked[i][2] - legacy[2]) * blend;
+        ramp[i] = [r, g, b, 0.0];
+    }
+    ramp
 }
 
 pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
@@ -534,7 +758,16 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.boundary_speed,
             effect.boundary_radius_ratio,
         ],
-        near_fade_params: [effect.near_fade_radius, 0.0, 0.0, 0.0],
+        near_fade_params: [effect.near_fade_radius, effect.carve_residual, 0.0, 0.0],
+        radius_coefficients: effect.coefficients.radius_scale,
+        color_ramp: build_color_ramp(effect),
+        profile_params: build_profile_params(effect),
+        height_monomial: height_envelope_monomial_slots(&effect.coefficients.height),
+        envelope_knots: height_envelope_knots(
+            &effect.coefficients.height,
+            effect.edge_low,
+            effect.edge_high,
+        ),
     }
 }
 
@@ -804,7 +1037,16 @@ pub fn build_flame_ubo_with_trail(
             effect.boundary_speed,
             effect.boundary_radius_ratio,
         ],
-        near_fade_params: [effect.near_fade_radius, 0.0, 0.0, 0.0],
+        near_fade_params: [effect.near_fade_radius, effect.carve_residual, 0.0, 0.0],
+        radius_coefficients: effect.coefficients.radius_scale,
+        color_ramp: build_color_ramp(effect),
+        profile_params: build_profile_params(effect),
+        height_monomial: height_envelope_monomial_slots(&effect.coefficients.height),
+        envelope_knots: height_envelope_knots(
+            &effect.coefficients.height,
+            effect.edge_low,
+            effect.edge_high,
+        ),
     }
 }
 
@@ -851,6 +1093,11 @@ pub struct FlameUBO {
     pub kernel_blobs: [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
     pub boundary_params: [f32; 4],
     pub near_fade_params: [f32; 4],
+    pub radius_coefficients: [[f32; 4]; 2],
+    pub color_ramp: [[f32; 4]; 8],
+    pub profile_params: [f32; 4],
+    pub height_monomial: [[f32; 4]; 2],
+    pub envelope_knots: [[f32; 4]; 2],
 }
 
 impl Default for FlameUBO {
@@ -1150,7 +1397,10 @@ mod tests {
 
     #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
-        assert_eq!(std::mem::size_of::<FlameUBO>(), 784 + 16 + 3072 + 16 + 16);
+        assert_eq!(
+            std::mem::size_of::<FlameUBO>(),
+            784 + 16 + 3072 + 16 + 16 + 32 + 128 + 16 + 64
+        );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
 

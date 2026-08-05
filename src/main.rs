@@ -117,6 +117,7 @@ fn main() -> Result<()> {
                         blend,
                         thyllore_render_core::TextureFitGroups::default(),
                         profile,
+                        "cli",
                     );
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
@@ -144,6 +145,7 @@ fn main() -> Result<()> {
                         blend,
                         thyllore_render_core::TextureFitGroups::default(),
                         profile,
+                        "cli",
                     );
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);

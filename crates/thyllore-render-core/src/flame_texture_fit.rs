@@ -97,6 +97,7 @@ pub struct FlameTexturePrep {
     pub residual_corr: f32,
     pub branch_count: usize,
     pub aspect_ratio: f32,
+    pub row_chroma: Vec<[f32; 3]>,
 }
 
 pub struct FlameTextureFit {
@@ -117,6 +118,9 @@ pub struct FlameTextureFit {
     pub use_blackbody: bool,
     pub color_bands: [[f32; 3]; 3],
     pub suggested_instances: usize,
+    pub envelope_profile: [f32; 33],
+    pub radius_profile: [f32; 33],
+    pub color_ramp: [[f32; 3]; 8],
 }
 
 /// Preprocess an image into a normalized silhouette and derived metrics.
@@ -190,10 +194,10 @@ pub fn preprocess(pixels: &[[f32; 3]], width: usize, height: usize) -> Option<Fl
     // Max width for sample range
     let max_width = widths.iter().fold(0.0f32, |acc, &v| acc.max(v));
     let hw = max_width * 0.75;
-
-    // Build sym: 64 rows x 33 columns
     let n_rows = row_max.saturating_sub(row_min) + 1;
+    // Build sym: 64 rows x 33 columns
     let mut sym = Vec::with_capacity(64);
+    let mut row_chroma: Vec<[f32; 3]> = Vec::with_capacity(64);
     for i in 0..64 {
         let t = i as f32 / 63.0;
         let src_r = (row_min + (t * n_rows as f32).round() as usize).min(row_max);
@@ -210,6 +214,53 @@ pub fn preprocess(pixels: &[[f32; 3]], width: usize, height: usize) -> Option<Fl
             row.push((v_plus + v_minus) * 0.5);
         }
         sym.push(row);
+
+        // Compute row_chroma for this row: average color of pixels where luminance >= 50% of row max
+        let mut max_lum_row = 0.0f32;
+        for x in 0..width {
+            let idx = src_r * width + x;
+            if !mask[idx] {
+                continue;
+            }
+            let p = &pixels[idx];
+            let l = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+            if l > max_lum_row {
+                max_lum_row = l;
+            }
+        }
+        let threshold_chroma = 0.5 * max_lum_row;
+        let mut sum_r = 0.0f32;
+        let mut sum_g = 0.0f32;
+        let mut sum_b = 0.0f32;
+        let mut count_chroma = 0usize;
+        for x in 0..width {
+            let idx = src_r * width + x;
+            if !mask[idx] {
+                continue;
+            }
+            let p = &pixels[idx];
+            let l = 0.2126 * p[0] + 0.7152 * p[1] + 0.0722 * p[2];
+            if l >= threshold_chroma {
+                sum_r += p[0];
+                sum_g += p[1];
+                sum_b += p[2];
+                count_chroma += 1;
+            }
+        }
+        let chroma = if count_chroma > 0 {
+            let avg_r = sum_r / count_chroma as f32;
+            let avg_g = sum_g / count_chroma as f32;
+            let avg_b = sum_b / count_chroma as f32;
+            let max_c = avg_r.max(avg_g).max(avg_b);
+            if max_c < 1e-6 {
+                [1.0, 1.0, 1.0]
+            } else {
+                [avg_r / max_c, avg_g / max_c, avg_b / max_c]
+            }
+        } else {
+            [1.0, 1.0, 1.0]
+        };
+        row_chroma.push(chroma);
     }
 
     // residual_rms: RMS of (I - sym_value) for mask pixels / max_lum
@@ -283,6 +334,7 @@ pub fn preprocess(pixels: &[[f32; 3]], width: usize, height: usize) -> Option<Fl
             residual_corr: 1.0,
             branch_count,
             aspect_ratio,
+            row_chroma,
         });
     }
     let mean_r = (n as f32 - 1.0) / 2.0;
@@ -379,6 +431,7 @@ pub fn preprocess(pixels: &[[f32; 3]], width: usize, height: usize) -> Option<Fl
         residual_corr,
         branch_count,
         aspect_ratio,
+        row_chroma,
     })
 }
 
@@ -511,8 +564,8 @@ pub fn fit_color(
 
 /// Fit silhouette parameters by minimizing projection residual via coordinate descent.
 pub fn fit_silhouette(prep: &FlameTexturePrep, initial: &FlameEffect) -> [f32; 6] {
-    let heights: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
-    let columns: Vec<f32> = (0..33).map(|i| -1.5 + i as f32 * 3.0 / 32.0).collect();
+    let heights: Vec<f32> = (0..64).map(|i| 1.0 - i as f32 / 63.0).collect();
+    let columns: Vec<f32> = (0..33).map(|j| (j as f32 / 32.0) * 3.0 * crate::flame_radial::flame_radial_support_radius(initial.radial_sharpness)).collect();
 
     let mut params: [f32; 6] = [
         initial.envelope_peak,
@@ -684,7 +737,6 @@ fn projected_aspect(effect: &FlameEffect) -> f32 {
     // height = 1.0 (heights span 0..1)
     max_row_width / 1.0
 }
-
 /// Fit flame texture parameters from an image.
 pub fn fit_flame_texture(
     pixels: &[[f32; 3]],
@@ -702,6 +754,10 @@ pub fn fit_flame_texture(
     // Compute radius from aspect ratio: initial.radius * (prep.aspect_ratio / model_aspect).clamp(0.2, 3.0)
     let model_aspect = projected_aspect(initial);
     let radius = initial.radius * (prep.aspect_ratio / model_aspect).clamp(0.2, 3.0);
+
+    // Compute envelope and radius profiles
+    let radius_profile = fit_radius_profile(&prep);
+    let envelope_profile = fit_envelope_profile(&prep, &radius_profile);
 
     Some(FlameTextureFit {
         envelope_peak: silhouette[0],
@@ -721,7 +777,165 @@ pub fn fit_flame_texture(
         use_blackbody,
         color_bands,
         suggested_instances: prep.branch_count.clamp(1, 4),
+        envelope_profile,
+        radius_profile,
+        color_ramp: fit_color_ramp(&prep),
     })
+}
+
+/// Compute the color ramp from silhouette data.
+/// For each sample i (0..8), h = (i + 0.5) / 8.0, row r = round((1.0 - h) * 63.0).min(63),
+/// value is prep.row_chroma[r].
+pub fn fit_color_ramp(prep: &FlameTexturePrep) -> [[f32; 3]; 8] {
+    let mut ramp = [[0.0f32; 3]; 8];
+    for i in 0..8 {
+        let h = (i as f32 + 0.5) / 8.0;
+        let r = ((1.0 - h) * 63.0).round() as usize;
+        let r = r.min(63);
+        ramp[i] = prep.row_chroma[r];
+    }
+    ramp
+}
+
+/// Compute the radius profile from silhouette data.
+/// For each sample i (0..=32), h = i/32, row r = round((1.0-h)*63.0) in symmetry matrix.
+/// Half-width w = max column j where sym[r][j] >= 0.15 * (max of all sym).
+/// Normalize by radius[0] (if radius[0] < 5% of total max, use total max). Clamp to [0.05, 4.0].
+pub fn fit_radius_profile(prep: &FlameTexturePrep) -> [f32; 33] {
+    let sym = &prep.sym;
+    let height = sym.len();
+
+    // Find max of all symmetry values
+    let mut total_max = 0.0f32;
+    for row in sym {
+        for &v in row {
+            if v > total_max {
+                total_max = v;
+            }
+        }
+    }
+
+    // Compute radius[i] for i = 0..=32
+    let mut radius = [0.0f32; 33];
+    for i in 0..=32 {
+        let h = i as f32 / 32.0;
+        let r = ((1.0 - h) * 63.0).round() as usize;
+        let r = r.min(height - 1);
+        let row = &sym[r];
+
+        // Find row peak (max of current row)
+        let mut row_peak = 0.0f32;
+        for &v in row {
+            if v > row_peak {
+                row_peak = v;
+            }
+        }
+
+        // If row peak < 5% of total max, w = 0
+        if row_peak < 0.05 * total_max {
+            radius[i] = 0.0;
+            continue;
+        }
+
+        let threshold = 0.15 * row_peak;
+
+        // Find last column j where row[j] >= threshold, then fractional intersection
+        let mut last_j: Option<usize> = None;
+        for (j, &v) in row.iter().enumerate() {
+            if v >= threshold {
+                last_j = Some(j);
+            }
+        }
+
+        let w = match last_j {
+            Some(j) => {
+                if j < row.len() - 1 {
+                    // Fractional intersection: j + (row[j] - threshold) / max(row[j] - row[j+1], 1e-9)
+                    let frac = (row[j] - threshold) / (row[j] - row[j + 1]).abs().max(1e-9);
+                    j as f32 + frac
+                } else {
+                    // j is the last column
+                    j as f32
+                }
+            }
+            None => 0.0,
+        };
+        radius[i] = w;
+    }
+
+    // Normalize by radius[0], but if radius[0] < 5% of radius_max, use radius_max
+    let radius_max: f32 = radius.iter().copied().fold(0.0f32, f32::max);
+    let norm = if radius[0] < 0.05 * radius_max {
+        radius_max
+    } else {
+        radius[0]
+    };
+
+    if norm > 0.0 {
+        for i in 0..=32 {
+            radius[i] = (radius[i] / norm).clamp(0.05, 4.0);
+        }
+    } else {
+        // If total_max is 0, just set all to 1.0
+        for i in 0..=32 {
+            radius[i] = 1.0;
+        }
+    }
+
+    radius
+}
+
+/// Compute the envelope profile from silhouette data using Abel inverse correction.
+/// For each sample i (0..=32), h = i/32, row r = round((1.0-h)*63.0).
+/// peak[i] = max of sym[r] row. a[i] = peak[i] / max(radius_profile[i], 0.05).
+/// Normalize by max to 1.0.
+pub fn fit_envelope_profile(prep: &FlameTexturePrep, radius_profile: &[f32; 33]) -> [f32; 33] {
+    let sym = &prep.sym;
+    let height = sym.len();
+
+    let mut envelope = [0.0f32; 33];
+    for i in 0..=32 {
+        let h = i as f32 / 32.0;
+        let r = ((1.0 - h) * 63.0).round() as usize;
+        let r = r.min(height - 1);
+        let row = &sym[r];
+
+        // row_peak = max of sym[r] row
+        let mut row_peak = 0.0f32;
+        for &v in row {
+            if v > row_peak {
+                row_peak = v;
+            }
+        }
+
+        // lum = luminance of row_chroma[r]
+        let lum = 0.2126 * prep.row_chroma[r][0]
+            + 0.7152 * prep.row_chroma[r][1]
+            + 0.0722 * prep.row_chroma[r][2];
+
+        // a[i] = row_peak / max(lum, 1e-3) / max(radius_profile[i], 0.05)
+        envelope[i] = row_peak / lum.max(1e-3) / radius_profile[i].max(0.05);
+    }
+
+    // Normalize by max to 1.0 (only consider entries where radius_profile[i] >= 0.15)
+    let mut max_val = 0.0f32;
+    for (i, &v) in envelope.iter().enumerate() {
+        if radius_profile[i] >= 0.15 && v > max_val {
+            max_val = v;
+        }
+    }
+    if max_val > 0.0 {
+        for v in &mut envelope {
+            *v /= max_val;
+        }
+    }
+
+    // Clamp all entries to 1.0
+    for v in &mut envelope {
+        *v = (*v).min(1.0);
+    }
+
+    envelope
 }
 
 #[derive(Clone, Copy)]
@@ -743,11 +957,74 @@ impl Default for TextureFitGroups {
     }
 }
 
+/// Maximum allowed drop between adjacent envelope entries (slope limiter).
+const ENVELOPE_MAX_DROP_SLOPE: f32 = 1.2 / 32.0;
+
+/// Finalize the fit envelope after silhouette group application.
+///
+/// This is called at the end of `apply_texture_fit`'s silhouette group, before
+/// `refresh_flame_coefficients`. It performs three steps on the height envelope F[i] (i=0..=32):
+/// 1. Visibility Rescue: if the visible portion of the envelope (weighted by capfade) is too low,
+///    scale it up to match the target visibility.
+/// 2. Transition Shell Softening: apply a slope limiter so no adjacent pair drops more than
+///    ENVELOPE_MAX_DROP_SLOPE.
+/// 3. Clamp and write back: clamp all entries to [0,1] and write to baked_envelope only if
+///    the change exceeds 1e-3.
+pub fn finalize_fit_envelope(effect: &mut crate::flame::FlameEffect) {
+    let profile = crate::flame::profile_from_effect(effect);
+    let height_falloff = &profile.height_falloff;
+
+    // Evaluate F[i] for i=0..=32 with h = i/32
+    let mut f: [f32; 33] = [0.0; 33];
+    let mut f_old: [f32; 33] = [0.0; 33];
+    for i in 0..=32 {
+        let h = i as f64 / 32.0;
+        let v = height_falloff(h) as f32;
+        f[i] = v;
+        f_old[i] = v;
+    }
+
+    // Visibility Rescue
+    let mut vis_max = 0.0f32;
+    for i in 0..=32 {
+        let h = i as f32 / 32.0;
+        let t = ((h - 1.0) / (0.94 - 1.0)).clamp(0.0, 1.0);
+        let capfade = t * t * (3.0 - 2.0 * t);
+        vis_max = vis_max.max(f[i] * capfade);
+    }
+    let target = effect.edge_high + 0.12;
+    if vis_max < target {
+        let scale = (target / vis_max.max(1e-4)).min(20.0);
+        for i in 0..=32 {
+            f[i] *= scale;
+        }
+    }
+
+    // Transition Shell Softening: slope limiter
+    for i in 1..=32 {
+        f[i] = f[i].max(f[i - 1] - ENVELOPE_MAX_DROP_SLOPE);
+    }
+
+    // Clamp to [0, 1]
+    let mut max_change = 0.0f32;
+    for i in 0..=32 {
+        f[i] = f[i].clamp(0.0, 1.0);
+        max_change = max_change.max((f[i] - f_old[i]).abs());
+    }
+
+    // Write back only if change exceeds 1e-3
+    if max_change > 1e-3 {
+        effect.baked_envelope = Some(f);
+        effect.baked_blend = 1.0;
+    }
+}
+
 pub fn apply_texture_fit(
     effect: &mut crate::flame::FlameEffect,
     fit: &FlameTextureFit,
     groups: TextureFitGroups,
     blend: f32,
+    profile: bool,
 ) {
     let blend = blend.clamp(0.0, 1.0);
     if blend == 0.0 {
@@ -765,10 +1042,33 @@ pub fn apply_texture_fit(
         effect.radius_tip_ratio =
             effect.radius_tip_ratio + (fit.radius_tip_ratio - effect.radius_tip_ratio) * blend;
         effect.taper_power = effect.taper_power + (fit.taper_power - effect.taper_power) * blend;
+
+        // Baked envelope and radius: set based on profile flag
+        if profile {
+            effect.baked_envelope = Some(fit.envelope_profile);
+            let max_radius = (1.5
+                / crate::flame_radial::flame_radial_support_radius(effect.radial_sharpness))
+            .min(2.0);
+            effect.baked_radius = Some(fit.radius_profile.map(|v| v.clamp(0.05, max_radius)));
+            effect.baked_blend = blend;
+        } else {
+            effect.baked_envelope = None;
+            effect.baked_radius = None;
+            effect.baked_blend = 0.0;
+            }
+
+        finalize_fit_envelope(effect);
     }
 
     // Color
     if groups.color {
+        // Baked color ramp: set based on profile flag
+        if profile {
+            effect.baked_color = Some(fit.color_ramp);
+        } else {
+            effect.baked_color = None;
+        }
+
         if fit.use_blackbody {
             if blend >= 0.5 {
                 effect.use_blackbody = true;
@@ -820,8 +1120,59 @@ pub fn apply_texture_fit(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+  use super::*;
 
+    /// Build a FlameTexturePrep from a boolean mask (64x64).
+    /// sym[r][j] = 1.0 if column j is within the mask width at row r, else 0.0.
+    fn build_prep_from_mask(mask: [bool; 64 * 64]) -> FlameTexturePrep {
+        let mut sym = Vec::with_capacity(64);
+        for r in 0..64 {
+            let mut row = vec![0.0f32; 33];
+            // Find leftmost and rightmost true columns in this mask row
+            let mut left = None;
+            let mut right = None;
+            for c in 0..64 {
+                if mask[r * 64 + c] {
+                    if left.is_none() {
+                        left = Some(c);
+                    }
+                    right = Some(c);
+                }
+            }
+            if let (Some(l), Some(right)) = (left, right) {
+                let centroid = (l as f32 + right as f32) * 0.5;
+                let half_width = (right - l) as f32 * 0.5;
+                // Map columns j=0..32 to dx = (j/32)*2*half_width
+                for j in 0..33 {
+                    let dx = (j as f32 / 32.0) * 2.0 * half_width;
+                    let x_plus = (centroid + dx).round() as usize;
+                    let x_minus = (centroid - dx).round() as usize;
+                    let v_plus = if x_plus < 64 && mask[r * 64 + x_plus] {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    let v_minus = if x_minus < 64 && mask[r * 64 + x_minus] {
+                        1.0
+                    } else {
+                        0.0
+                    };
+                    row[j] = (v_plus + v_minus) * 0.5;
+                }
+            }
+            sym.push(row);
+        }
+        FlameTexturePrep {
+            sym,
+            residual_rms: 0.0,
+            axis_slope: 0.0,
+            boundary_wiggle_amp: 0.0,
+            residual_corr: 1.0,
+            branch_count: 1,
+            aspect_ratio: 1.0,
+            row_chroma: vec![[1.0, 1.0, 1.0]; 64],
+        }
+    }
     #[test]
     fn test_apply_blend_zero_unchanged() {
         let mut effect = crate::flame::FlameEffect::default();
@@ -844,8 +1195,11 @@ mod tests {
             wind_z: 0.5,
             bend_amount: 0.9,
             suggested_instances: 1,
+            envelope_profile: [0.0; 33],
+            radius_profile: [0.0; 33],
+            color_ramp: [[0.0; 3]; 8],
         };
-        apply_texture_fit(&mut effect, &fit, TextureFitGroups::default(), 0.0);
+        apply_texture_fit(&mut effect, &fit, TextureFitGroups::default(), 0.0, false);
         assert_eq!(effect, original);
     }
 
@@ -876,8 +1230,11 @@ mod tests {
             noise_frequency: 5.0,
             wind_x: 1.0,
             wind_z: 0.5,
-            bend_amount: 0.9,
             suggested_instances: 1,
+            bend_amount: 0.0,
+            envelope_profile: [0.0; 33],
+            radius_profile: [0.0; 33],
+            color_ramp: [[0.0; 3]; 8],
         };
         apply_texture_fit(
             &mut effect,
@@ -889,6 +1246,7 @@ mod tests {
                 tilt: false,
             },
             1.0,
+            false,
         );
 
         // Silhouette fields should match fit values
@@ -935,6 +1293,9 @@ mod tests {
             wind_z: 0.5,
             bend_amount: 0.9,
             suggested_instances: 1,
+            envelope_profile: [0.0; 33],
+            radius_profile: [0.0; 33],
+            color_ramp: [[0.0; 3]; 8],
         };
         apply_texture_fit(
             &mut effect,
@@ -946,6 +1307,7 @@ mod tests {
                 tilt: false,
             },
             0.5,
+            false,
         );
 
         let expected = (current_peak + fit.envelope_peak) / 2.0;
@@ -1091,8 +1453,8 @@ mod tests {
         target_effect.radius_tip_ratio = 0.60;
         crate::flame::refresh_flame_coefficients(&mut target_effect);
 
-        let heights: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
-        let columns: Vec<f32> = (0..33).map(|i| -1.5 + i as f32 * 3.0 / 32.0).collect();
+        let heights: Vec<f32> = (0..64).map(|i| 1.0 - i as f32 / 63.0).collect();
+        let columns: Vec<f32> = (0..33).map(|j| (j as f32 / 32.0) * 3.0 * crate::flame_radial::flame_radial_support_radius(target_effect.radial_sharpness)).collect();
 
         let profile = project_profile(&target_effect, &heights, &columns);
 
@@ -1105,6 +1467,7 @@ mod tests {
             residual_corr: 1.0,
             branch_count: 1,
             aspect_ratio: 1.0,
+            row_chroma: vec![[1.0, 1.0, 1.0]; 64],
         };
 
         let initial = FlameEffect::default();
@@ -1300,8 +1663,8 @@ mod tests {
         crate::flame::refresh_flame_coefficients(&mut effect);
 
         // Project this effect using project_profile to create a synthetic brightness matrix
-        let heights: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
-        let columns: Vec<f32> = (0..33).map(|i| -1.5 + i as f32 * 3.0 / 32.0).collect();
+        let heights: Vec<f32> = (0..64).map(|i| 1.0 - i as f32 / 63.0).collect();
+        let columns: Vec<f32> = (0..33).map(|j| (j as f32 / 32.0) * 3.0 * crate::flame_radial::flame_radial_support_radius(effect.radial_sharpness)).collect();
         let profile = project_profile(&effect, &heights, &columns);
 
         // (a) Axis Profile Method: Take the brightness column at y=0, and pass it to fit_envelope_from_profile
@@ -1329,6 +1692,7 @@ mod tests {
             residual_corr: 1.0,
             branch_count: 1,
             aspect_ratio: 1.0,
+            row_chroma: vec![[1.0, 1.0, 1.0]; 64],
         };
         let initial = FlameEffect::default();
         let fitted = fit_silhouette(&prep, &initial);
@@ -1343,6 +1707,226 @@ mod tests {
             "Forward method error {:.6} should be <= axis profile method error {:.6}",
             forward_error,
             axis_error
+        );
+   }
+
+    #[test]
+    fn test_envelope_profile_body_values_ge_05_for_tip_thin_mask() {
+        // Build a mask that is thin only at the tip: full width (32) for rows 1-63,
+        // but very narrow (2) at row 0 (the tip).
+        let mut mask = [false; 64 * 64];
+        for r in 1..64 {
+            for c in 0..32 {
+                mask[r * 64 + c] = true;
+            }
+        }
+        // Tip row: only 2 columns wide (very thin)
+        mask[0 * 64 + 15] = true;
+        mask[0 * 64 + 16] = true;
+      let prep = build_prep_from_mask(mask);
+        let radius_profile = fit_radius_profile(&prep);
+
+       // The tip's radius_profile should be small (< 0.15), so the old code would
+        // compute a huge envelope value there, making max_val huge and crushing
+        // all body values below 0.5. After the fix, max_val is computed only from
+        // entries where radius_profile[i] >= 0.15, so body values should be >= 0.5.
+        let envelope = fit_envelope_profile(&prep, &radius_profile);
+
+        // Check that body entries (i >= 1, which correspond to rows near the base)
+        // have envelope values >= 0.5
+        for i in 1..=32 {
+            assert!(
+                envelope[i] >= 0.5,
+                "envelope[{}] = {:.4} < 0.5 (radius_profile[{}] = {:.4})",
+                i,
+                envelope[i],
+                i,
+                radius_profile[i]
+            );
+        }
+
+        // Also verify that all entries are clamped to <= 1.0
+        for i in 0..=32 {
+            assert!(
+                envelope[i] <= 1.0,
+                "envelope[{}] = {:.4} > 1.0 (not clamped)",
+                i,
+                envelope[i]
+            );
+        }
+    }
+
+    #[test]
+    fn test_radius_profile_empty_base_uses_width_unit() {
+        // Build a mask where the base row (row 63) is empty, so radius[0] = 0.
+        // The old code compared radius[0] < 0.05 * total_max where total_max is
+        // luminance (~1.0), so 0 < 0.05 was true and it used total_max (luminance)
+        // as the normalizer — a dimension mismatch.
+        // After the fix, it uses radius_max (width unit), so norm = radius_max.
+        let mut mask = [false; 64 * 64];
+        // Fill rows 0-62 with width 16 (columns 8-23)
+        for r in 0..63 {
+            for c in 8..24 {
+                mask[r * 64 + c] = true;
+            }
+        }
+        // Row 63 (base) is empty
+
+      let prep = build_prep_from_mask(mask);
+        let radius_profile = fit_radius_profile(&prep);
+
+      // radius[0] corresponds to the base row (row 63), which is empty -> width 0.
+        // radius_max should be ~16 (the width of filled rows).
+        // norm = radius_max (since radius[0] = 0 < 0.05 * radius_max).
+        // So radius[0] / norm = 0/radius_max = 0, clamped to 0.05 (minimum).
+        // The filled rows should be ~16/16 = 1.0.
+        assert!(
+            (radius_profile[0] - 0.05).abs() < 0.001,
+            "radius_profile[0] (empty base) should be ~0.05 (clamped minimum), got {:.4}",
+            radius_profile[0]
+        );
+        // The filled rows should normalize to ~1.0 as well
+        for i in 1..=32 {
+            assert!(
+                (radius_profile[i] - 1.0).abs() < 0.1,
+                "radius_profile[{}] = {:.4}, expected ~1.0",
+                i,
+                radius_profile[i]
+            );
+       }
+    }
+
+    #[test]
+    fn test_finalize_visibility_recovery() {
+        // Test 1: A baked envelope crushed to 0.2 by the fit should recover to vis_max >= 0.45
+        let mut effect = crate::flame::FlameEffect::default();
+        // Set up a baked envelope where all entries are crushed to 0.2
+        let mut crushed: [f32; 33] = [0.0; 33];
+        for i in 0..=32 {
+            crushed[i] = 0.2;
+        }
+        effect.baked_envelope = Some(crushed);
+        effect.baked_blend = 1.0;
+        // Default edge_high is 0.33, so target = 0.33 + 0.12 = 0.45
+
+        finalize_fit_envelope(&mut effect);
+
+        // After finalize, compute vis_max from the resulting baked envelope
+        let profile = crate::flame::profile_from_effect(&effect);
+        let height_falloff = &profile.height_falloff;
+        let mut vis_max = 0.0f32;
+        for i in 0..=32 {
+            let h = i as f64 / 32.0;
+            let v = height_falloff(h) as f32;
+            let t = ((h as f32 - 1.0) / (0.94 - 1.0)).clamp(0.0, 1.0);
+            let capfade = t * t * (3.0 - 2.0 * t);
+            vis_max = vis_max.max(v * capfade);
+        }
+        assert!(
+            vis_max >= 0.45,
+            "vis_max = {:.4}, expected >= 0.45 after visibility recovery",
+            vis_max
+        );
+    }
+
+    #[test]
+    fn test_finalize_transition_shell_softening() {
+        // Test 2: For a default parametric envelope (peak 0.25, base 0.05, tail 1.25),
+        // the max drop between adjacent entries after softening should be <= 1.25/32
+        let mut effect = crate::flame::FlameEffect::default();
+        // Default values: envelope_peak=0.25, envelope_base=0.05, envelope_tail=1.25
+        // No baked envelope, so it uses the parametric form
+        assert!(effect.baked_envelope.is_none(), "expected no baked envelope");
+
+        finalize_fit_envelope(&mut effect);
+
+        // After finalize, check that the max drop between adjacent entries is <= 1.25/32
+        let profile = crate::flame::profile_from_effect(&effect);
+        let height_falloff = &profile.height_falloff;
+        let mut max_drop = 0.0f32;
+        for i in 1..=32 {
+            let h_prev = (i - 1) as f64 / 32.0;
+            let h_curr = i as f64 / 32.0;
+            let v_prev = height_falloff(h_prev) as f32;
+            let v_curr = height_falloff(h_curr) as f32;
+            let drop = v_prev - v_curr;
+            if drop > 0.0 {
+                max_drop = max_drop.max(drop);
+            }
+        }
+        let allowed = 1.25 / 32.0;
+        assert!(
+            max_drop <= allowed,
+            "max drop = {:.6}, expected <= {:.6} (1.25/32)",
+            max_drop,
+            allowed
+        );
+    }
+
+    #[test]
+    fn test_finalize_idempotency() {
+        // Test 3: Calling finalize twice should result in a change < 1e-3 (idempotency)
+        let mut effect = crate::flame::FlameEffect::default();
+        // Set up a baked envelope that will be modified by finalize
+        let mut envelope: [f32; 33] = [0.0; 33];
+        for i in 0..=32 {
+            let h = i as f32 / 32.0;
+            // A steep envelope that will be softened
+            envelope[i] = (1.0 - h * h).max(0.0);
+        }
+        effect.baked_envelope = Some(envelope);
+        effect.baked_blend = 1.0;
+
+        // First call
+        finalize_fit_envelope(&mut effect);
+        let first = effect.baked_envelope.unwrap();
+
+        // Second call
+        finalize_fit_envelope(&mut effect);
+        let second = effect.baked_envelope.unwrap();
+
+        // Compute max change between first and second
+        let mut max_change = 0.0f32;
+        for i in 0..=32 {
+            max_change = max_change.max((first[i] - second[i]).abs());
+        }
+        assert!(
+            max_change < 1e-3,
+            "idempotency: max change between first and second finalize = {:.6}, expected < 1e-3",
+            max_change
+        );
+    }
+
+    #[test]
+    fn test_fit_silhouette_trapezoid_not_degenerate() {
+        // Synthetic "bright trapezoid mask": wide at bottom, narrow at top
+        let mut mask = [false; 64 * 64];
+        for r in 0..64 {
+            // h = 1.0 - r/63.0 (row 0 = top/h=1, row 63 = bottom/h=0)
+            let h = 1.0 - r as f32 / 63.0;
+            // width decreases toward the top: at bottom (h=0) half_width ~16, at top (h=1) half_width ~3.2
+            let half_width = 16.0 * (1.0 - h * 0.8);
+            let center = 31.5;
+            for c in 0..64 {
+                if (c as f32 - center).abs() < half_width {
+                    mask[r * 64 + c] = true;
+                }
+            }
+        }
+        let prep = build_prep_from_mask(mask);
+        let initial = FlameEffect::default();
+        let fit = fit_silhouette(&prep, &initial);
+        let radius_tip_ratio = fit[3];
+        let taper_power = fit[5];
+        assert!(
+            radius_tip_ratio > 0.05,
+            "radius_tip_ratio {:.4} should be > 0.05 (not degenerate)",
+            radius_tip_ratio
+        );
+        assert!(
+            taper_power > 0.15,
+            "taper_power {:.4} should be > 0.15 (not degenerate)",
+            taper_power
         );
     }
 }

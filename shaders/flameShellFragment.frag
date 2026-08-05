@@ -46,6 +46,11 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 kernelBlobs[192];
     vec4 boundaryParams;
     vec4 nearFadeParams;
+    vec4 radiusCoefficients[2];
+    vec4 colorRamp[8];
+    vec4 profileParams;
+    vec4 heightMonomial[2];
+    vec4 envelopeKnots[2];
 } flame;
 
 layout(set = 1, binding = 1) uniform sampler2D gbufferPositionSampler;

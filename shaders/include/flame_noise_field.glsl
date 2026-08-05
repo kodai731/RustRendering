@@ -81,6 +81,35 @@ float flameEnvelopeFade(float dSmooth) {
     return min(dSmooth / max(flame.styleParams1.z, 1e-3), 1.0);
 }
 
+// Fraction of the medium that turbulence does not carve. The field becomes the
+// two-component mixture
+//   occ = (1 - beta) * phi(D - e) + beta * phi(D),
+// i.e. a parcel is a blend of soot the turbulence can carve away and a residual
+// that it cannot. Without it the carved field can be EXACTLY zero over a whole
+// ray span (e >= D - edgeLow everywhere) and the Beer-Lambert composite returns
+// alpha = 1 - exp(0) = 0: a hard hole showing the background through the middle
+// of the flame. The residual term uses the SAME threshold on the un-eroded
+// density, which is what makes it safe:
+//   * D < edgeLow (the outer skirt and the tip taper): both terms vanish, so the
+//     silhouette and the support boundary keep their exact geometry — a floor on
+//     the raw density instead would haze the whole support and fatten the flame.
+//   * e = 0: the two terms coincide and the mixture is the identity, so the
+//     noise-free look is preserved exactly for any beta.
+//   * D > edgeHigh with any erosion: occ >= beta > 0, so a hole is impossible.
+// Mirrored in thyllore-render-core/src/flame_radial.rs (carve_residual_mix).
+float flameCarveResidualStrength() {
+    return clamp(flame.nearFadeParams.y, 0.0, 1.0);
+}
+
+float flameApplyCarveResidual(float carvedOccupancy, float dSmooth) {
+    float beta = flameCarveResidualStrength();
+    if (beta <= 0.0) {
+        return carvedOccupancy;
+    }
+    float plain = smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth);
+    return mix(carvedOccupancy, plain, beta);
+}
+
 // Threshold argument with the flooded (negative) erosion faded by the envelope.
 // Turbulence may only add density where the envelope still has support, so the
 // argument goes to zero together with dSmooth and the field stays continuous
@@ -177,8 +206,9 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(p, h);
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
-        * flameFieldSupportMask(dSmooth);
+    return flameApplyCarveResidual(
+        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+        dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
 // Raw erosion value at a point, sampled at the warped coordinate like every
@@ -208,8 +238,9 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(pr, h);
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
-        * flameFieldSupportMask(dSmooth);
+    return flameApplyCarveResidual(
+        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+        dSmooth) * flameFieldSupportMask(dSmooth);
 }
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
 // unit-local XY. Texel encodes d = r - 0.5 (negative inside), normalized by image height.
@@ -217,8 +248,9 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 q = flameNoiseWarpedCoordinate(p, h);
     dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
     float erosion = flameNoiseErosionAt(q, h);
-    return smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion))
-        * flameFieldSupportMask(dSmooth);
+    return flameApplyCarveResidual(
+        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+        dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
 float flameEmitterDensity(vec3 p, float h, out float dSmooth) {

@@ -47,6 +47,13 @@ pub struct ModelState {
     pub texture_fit_profile: bool,
     pub texture_fit_scan: Vec<String>,
     pub texture_fit_scan_done: bool,
+    pub texture_fit_browser_open: bool,
+    pub texture_fit_browser_dir: String,
+    pub texture_fit_browser_selected: String,
+    pub texture_fit_browser_show_all: bool,
+    pub texture_fit_browser_show_hidden: bool,
+    pub texture_fit_path_validated: String,
+    pub texture_fit_path_info: String,
 }
 
 impl Default for ModelState {
@@ -62,6 +69,13 @@ impl Default for ModelState {
             texture_fit_profile: true,
             texture_fit_scan: Vec::new(),
             texture_fit_scan_done: false,
+            texture_fit_browser_open: false,
+            texture_fit_browser_dir: String::new(),
+            texture_fit_browser_selected: String::new(),
+            texture_fit_browser_show_all: false,
+            texture_fit_browser_show_hidden: false,
+            texture_fit_path_validated: String::new(),
+            texture_fit_path_info: String::new(),
         }
     }
 }

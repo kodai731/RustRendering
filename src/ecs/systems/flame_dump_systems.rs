@@ -96,6 +96,8 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "height_primitive_coefficients": ubo.height_primitive_coefficients,
         "radial_coefficients": ubo.radial_coefficients,
         "height_coefficients": ubo.height_coefficients,
+        "height_monomial": ubo.height_monomial,
+        "envelope_knots": ubo.envelope_knots,
         "sigma_t": ubo.sigma_t,
         "intensity": ubo.intensity,
         "height_axis_scale": ubo.height_axis_scale,
@@ -307,6 +309,83 @@ pub fn write_flame_wall_probe_dump(
     let path = directory.join(format!("wall_probe_{}.json", unix_time));
     std::fs::write(&path, serde_json::to_string_pretty(&record)?)?;
     Ok(path)
+}
+
+/// Provenance dump of one texture-fit load (G10): a metadata json plus a
+/// verbatim copy of the source bytes under `log/flame/texture_fit_<ts>.{json,png}`,
+/// so a user-applied fit state can be bit-reproduced later
+/// (`--batch-flame-texture <copy>,<blend>,<mode>` + the wall probe camera).
+/// Failures are recorded too — a fit that silently no-ops must leave a trace.
+/// Best-effort: dump IO errors never disturb the fit itself.
+pub fn write_texture_fit_provenance(
+    route: &str,
+    path: &str,
+    source_bytes: Option<&[u8]>,
+    request: Value,
+    result: Value,
+    effect_before: &FlameEffect,
+    effect_after: &FlameEffect,
+) {
+    const MAX_COPY_BYTES: usize = 32 * 1024 * 1024;
+    let unix_time = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let directory = std::path::Path::new("log/flame");
+    if std::fs::create_dir_all(directory).is_err() {
+        return;
+    }
+
+    let mut sha256 = Value::Null;
+    let mut copy_name = Value::Null;
+    if let Some(bytes) = source_bytes {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        sha256 = json!(format!("{:x}", hasher.finalize()));
+        if bytes.len() <= MAX_COPY_BYTES {
+            let name = format!("texture_fit_{unix_time}.png");
+            if std::fs::write(directory.join(&name), bytes).is_ok() {
+                copy_name = json!(name);
+            }
+        }
+    }
+
+    let before = build_effect_json(effect_before);
+    let after = build_effect_json(effect_after);
+    let changed: Vec<&String> = match (&before, &after) {
+        (Value::Object(before), Value::Object(after)) => before
+            .iter()
+            .filter(|(key, value)| after.get(*key) != Some(value))
+            .map(|(key, _)| key)
+            .collect(),
+        _ => Vec::new(),
+    };
+
+    let record = json!({
+        "schema": "texture_fit_provenance_v1",
+        "unix_time": unix_time,
+        "route": route,
+        "source": {
+            "path": std::fs::canonicalize(path)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| path.to_string()),
+            "bytes": source_bytes.map(|b| b.len()),
+            "sha256": sha256,
+            "copy": copy_name,
+        },
+        "request": request,
+        "result": result,
+        "changed_fields": changed,
+        "effect_before": before,
+        "effect_after": after,
+    });
+    if let Ok(text) = serde_json::to_string_pretty(&record) {
+        let _ = std::fs::write(
+            directory.join(format!("texture_fit_{unix_time}.json")),
+            text,
+        );
+    }
 }
 
 #[cfg(test)]

@@ -161,10 +161,19 @@ fn dispatch_window_event(
 
         WindowEvent::DroppedFile(path_buf) => {
             if let Some(path) = path_buf.to_str() {
-                let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
-                ui_events.send(UIEvent::LoadModel {
-                    path: path.to_string(),
-                });
+                if path.to_ascii_lowercase().ends_with(".png") {
+                    // A dropped PNG fills the texture-fit path field (selection
+                    // only — applying stays on the explicit Apply button).
+                    app.data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::ModelState>()
+                        .texture_fit_path = path.to_string();
+                } else {
+                    let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
+                    ui_events.send(UIEvent::LoadModel {
+                        path: path.to_string(),
+                    });
+                }
             }
         }
 
@@ -268,6 +277,13 @@ fn handle_redraw_requested(
         texture_fit_profile: model_state.texture_fit_profile,
         texture_fit_scan: model_state.texture_fit_scan.clone(),
         texture_fit_scan_done: model_state.texture_fit_scan_done,
+        texture_fit_browser_open: model_state.texture_fit_browser_open,
+        texture_fit_browser_dir: model_state.texture_fit_browser_dir.clone(),
+        texture_fit_browser_selected: model_state.texture_fit_browser_selected.clone(),
+        texture_fit_browser_show_all: model_state.texture_fit_browser_show_all,
+        texture_fit_browser_show_hidden: model_state.texture_fit_browser_show_hidden,
+        texture_fit_path_validated: model_state.texture_fit_path_validated.clone(),
+        texture_fit_path_info: model_state.texture_fit_path_info.clone(),
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
         #[cfg(feature = "auto-rig")]
@@ -298,6 +314,20 @@ fn handle_redraw_requested(
         .texture_fit_groups = overlay_state.texture_fit_groups;
     app.resource_mut::<crate::ecs::ModelState>()
         .texture_fit_profile = overlay_state.texture_fit_profile;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_open = overlay_state.texture_fit_browser_open;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_dir = overlay_state.texture_fit_browser_dir;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_selected = overlay_state.texture_fit_browser_selected;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_show_all = overlay_state.texture_fit_browser_show_all;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_show_hidden = overlay_state.texture_fit_browser_show_hidden;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_path_validated = overlay_state.texture_fit_path_validated;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_path_info = overlay_state.texture_fit_path_info;
     app.resource_mut::<crate::ecs::ModelState>()
         .texture_fit_scan = overlay_state.texture_fit_scan;
     app.resource_mut::<crate::ecs::ModelState>()
