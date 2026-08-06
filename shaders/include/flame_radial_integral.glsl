@@ -715,6 +715,8 @@ vec2 flameOccupancyNodeBand(vec3 o, vec3 d, float t0, float t1, float wiggleBand
 }
 
 float integrateEmitterOccupancy(vec3 o, vec3 d, float tNear, float tFar);
+float integrateWaveOccupancy(vec3 o, vec3 d, float tNear, float tFar);
+vec4 integrateWaveOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar);
 
 // Rays with a near-constant height cannot be parameterized by h, so the moment is taken along t.
 float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, float invSq) {
@@ -735,6 +737,12 @@ float integrateRadialEmissionAlongRay(vec3 o, vec3 d, float tNear, float tFar, f
 float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
     if (tFar <= tNear) {
         return 0.0;
+    }
+
+    // Wave basis: band-free segments over the crossing, cylinder density
+    // convention preserved inside the wave integrator.
+    if (flameWaveModelActive() && flame.noiseAmplitude != 0.0) {
+        return integrateWaveOccupancy(o, d, tNear, tFar);
     }
 
     float heightNear = clamp(o.y + tNear * d.y, 0.0, 1.0);
@@ -850,6 +858,10 @@ vec4 flameCompositeRteBands(
 vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
     if (tFar <= tNear) {
         return vec4(0.0);
+    }
+
+    if (flameWaveModelActive() && flame.noiseAmplitude != 0.0) {
+        return integrateWaveOccupancyRTE(o, d, tNear, tFar);
     }
 
     float bandEmission[FLAME_RADIAL_BAND_COUNT];
@@ -972,6 +984,233 @@ bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     return tFar > tNear;
 }
 
+// ---- Wave-basis band-free occupancy (mode-sum turbulence) ----
+// The erosion field is an analytic sum of wave modes (flameWaveNoiseSum), so
+// the closed form needs no radial bands: one support crossing, uniform
+// segments whose positions are affine in the interval (endpoints continuous in
+// the ray — no per-ray integer switches), density AND erosion exact at every
+// node (both analytic, nothing sampled from a lattice realization), the
+// argument linear between nodes, each segment closed-form erf response.
+// Modes the node spacing cannot resolve are attenuated by a smooth low-pass in
+// beta = k . d and their power routed into the response sigma — the smooth
+// analogue of the fbm path's FLAME_EROSION_NOISE_SIGMA, with no h-quantized
+// band structure anywhere (band-boundary-coherence.md, E1).
+// Mirrored in thyllore-render-core/src/flame_wave.rs
+// (evaluate_wave_occupancy_segments / wave_ray_attenuation).
+
+#ifdef FLAME_WAVE_SEGMENTS_OVERRIDE
+const int FLAME_WAVE_SEGMENTS = FLAME_WAVE_SEGMENTS_OVERRIDE;
+#else
+const int FLAME_WAVE_SEGMENTS = 64;
+#endif
+const int FLAME_WAVE_MODE_SLOTS = 112;
+
+// Warped noise coordinate of the wave basis: wind bend removed, the analytic
+// mode-sum warp applied, then the same aniso/frequency/advect chain the fbm
+// erosion samples — exactly flameNoiseWarpedCoordinate's wave branch followed
+// by the erosion coordinate transform, so mode 0 and mode 1 stay a parity pair.
+vec3 flameWaveCoordinate(vec3 p, float h) {
+    vec2 bendOffset = flameBendOffsetAt(h);
+    vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
+    vec3 q = pb + flameWaveWarpOffset(pb, h);
+    return flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency
+        - flameNoiseAdvect();
+}
+
+// Exact node density of the wave path. The cylinder keeps its density
+// convention (support radius with FLAME_SHELL_BASE_RADIUS and the baked R(h)
+// curve, exactly the flamePointOccupancyDensity smooth part) so switching the
+// noise basis never changes the flame silhouette; ring and SDF use the shared
+// emitter density like their raymarch pair.
+float flameWaveNodeDensity(vec3 p, float h) {
+    float wiggle = flameContourWiggle(p, h);
+    vec2 boundary = flameBoundaryDisplacement(p.xz);
+    float dens;
+    if (flame.emitterParams.x < 0.5) {
+        float hb = clamp(h / boundary.x, 0.0, 1.0);
+        float wb = max(wiggle * boundary.y, 1e-4);
+        float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, h) : 1.0;
+        dens = evaluateHeightFalloff(hb) * capFade
+            * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb);
+    } else {
+        dens = flameEmitterSmoothDensityDisplacedAt(p, h, wiggle, boundary);
+    }
+    return dens * flameNearCameraFade(p);
+}
+
+// Threshold argument at a node: attenuated (resolved) wave noise through the
+// erosion mapping against the exact density.
+float flameWaveNodeArgument(
+    vec3 p, float h, float density, float amplitudeEff[FLAME_WAVE_MODE_SLOTS],
+    int count, float eddyTime) {
+    vec3 w = flameWaveCoordinate(p, h);
+    float noise = 0.4375;
+    for (int n = 0; n < count; ++n) {
+        vec4 waveVector = flame.waveModes[2 * n];
+        vec4 wavePhase = flame.waveModes[2 * n + 1];
+        noise += amplitudeEff[n]
+            * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+    }
+    return flameErodedArgument(density, flameNoiseErosionFromValue(noise, h));
+}
+
+void flameWaveOccupancySegments(
+    vec3 o, vec3 d, float t0, float t1,
+    out float segEmission[FLAME_WAVE_SEGMENTS],
+    out float segTMean[FLAME_WAVE_SEGMENTS]) {
+    float dt = (t1 - t0) / float(FLAME_WAVE_SEGMENTS);
+    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
+        segEmission[segment] = 0.0;
+        segTMean[segment] = t0 + (float(segment) + 0.5) * dt;
+    }
+    if (dt <= 0.0) {
+        return;
+    }
+
+    // Per-ray mode split: resolved amplitudes (low-passed at the node Nyquist)
+    // and the unresolved power routed into sigma. The linear part of the
+    // warped coordinate gives beta; the bend variation is slow and ignored
+    // for the low-pass weight only (node values stay exact).
+    float eddyTime = flame.noiseScrollSpeed * flame.time;
+    vec3 dW = flameAnisoCompress(d, flame.temporalData.z) * flame.noiseFrequency;
+    int count = min(int(flame.waveParams.x), FLAME_WAVE_MODE_SLOTS);
+    float amplitudeEff[FLAME_WAVE_MODE_SLOTS];
+    float unresolvedPower = 0.0;
+    for (int n = 0; n < count; ++n) {
+        vec4 waveVector = flame.waveModes[2 * n];
+        // Quartic low-pass, flat until ~4 nodes per wavelength and cutting
+        // at the node Nyquist: resolved modes keep their full amplitude (the
+        // carving contrast), only genuinely sub-node power feeds sigma.
+        float beta = dot(waveVector.xyz, dW) * dt / 3.14159265;
+        float betaSq = beta * beta;
+        float weight = exp(-betaSq * betaSq);
+        amplitudeEff[n] = waveVector.w * weight;
+        unresolvedPower += 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
+    }
+    float sigmaNoise = sqrt(unresolvedPower);
+
+    // Streaming node walk: density first, the mode sum only at nodes touching
+    // support (empty segments cost no mode evaluation), one node carried
+    // between segments so nothing is evaluated twice.
+    float residual = flameCarveResidualStrength();
+    float previousDensity = flameWaveNodeDensity(o + t0 * d, clamp(o.y + t0 * d.y, 0.0, 1.0));
+    float previousArgument = 0.0;
+    bool previousArgumentValid = false;
+    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
+        float tPrev = t0 + float(segment) * dt;
+        float t = tPrev + dt;
+        vec3 p = o + t * d;
+        float h = clamp(p.y, 0.0, 1.0);
+        float density = flameWaveNodeDensity(p, h);
+        if (previousDensity <= 0.0 && density <= 0.0) {
+            previousDensity = density;
+            previousArgumentValid = false;
+            continue;
+        }
+        if (!previousArgumentValid) {
+            vec3 pPrev = o + tPrev * d;
+            float hPrev = clamp(pPrev.y, 0.0, 1.0);
+            previousArgument = flameWaveNodeArgument(
+                pPrev, hPrev, previousDensity, amplitudeEff, count, eddyTime);
+        }
+        float argument = flameWaveNodeArgument(p, h, density, amplitudeEff, count, eddyTime);
+
+        float hMid = clamp(o.y + (tPrev + 0.5 * dt) * d.y, 0.0, 1.0);
+        float sigmaEff = sigmaNoise * abs(flame.noiseAmplitude) * mix(0.2, 1.0, hMid)
+            * 0.5 * (flameEnvelopeFade(previousDensity) + flameEnvelopeFade(density));
+        FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
+        float slope = (argument - previousArgument) / dt;
+        vec2 carved = flameErosionResponseLinearIntegral(
+            response, previousArgument - slope * tPrev, slope, tPrev, t);
+        if (residual > 0.0) {
+            float plainSlope = (density - previousDensity) / dt;
+            vec2 plain = flameErosionResponseLinearIntegral(
+                flameSmoothErosionResponse(0.0),
+                previousDensity - plainSlope * tPrev, plainSlope, tPrev, t);
+            carved = mix(carved, plain, residual);
+        }
+        segEmission[segment] = max(carved.x, 0.0);
+        if (carved.x > 1e-6) {
+            segTMean[segment] = clamp(carved.y / carved.x, tPrev, t);
+        }
+
+        previousDensity = density;
+        previousArgument = argument;
+        previousArgumentValid = true;
+    }
+}
+
+// Support crossing of the wave path: the ring trims to its convex outer
+// cylinder like the band path; cylinder and SDF keep the proxy interval
+// (empty segments are gated by the node densities).
+bool flameWaveSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
+    bool ringEmitter = flame.emitterParams.x >= 0.5 && flame.emitterParams.x < 1.5;
+    if (ringEmitter) {
+        return flameRingSupportSpan(o, d, tNear, tFar);
+    }
+    return tFar > tNear;
+}
+
+float integrateWaveOccupancy(vec3 o, vec3 d, float tNear, float tFar) {
+    if (!flameWaveSupportSpan(o, d, tNear, tFar)) {
+        return 0.0;
+    }
+    float segEmission[FLAME_WAVE_SEGMENTS];
+    float segTMean[FLAME_WAVE_SEGMENTS];
+    flameWaveOccupancySegments(o, d, tNear, tFar, segEmission, segTMean);
+    float total = 0.0;
+    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
+        total += segEmission[segment];
+    }
+    return total;
+}
+
+// Beer-Lambert composite directly over the wave segments (camera-ordered by
+// construction) — no fixed band arrays anywhere in the wave pipeline.
+vec4 integrateWaveOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {
+    if (!flameWaveSupportSpan(o, d, tNear, tFar)) {
+        return vec4(0.0);
+    }
+    float segEmission[FLAME_WAVE_SEGMENTS];
+    float segTMean[FLAME_WAVE_SEGMENTS];
+    flameWaveOccupancySegments(o, d, tNear, tFar, segEmission, segTMean);
+
+    float total = 0.0;
+    float heightMean = 0.0;
+    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
+        total += segEmission[segment];
+        heightMean += segEmission[segment]
+            * clamp(o.y + segTMean[segment] * d.y, 0.0, 1.0);
+    }
+    heightMean = total > 1e-6 ? heightMean / total : 0.0;
+    float tempNorm = clamp(total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
+    float boost = 1.0 + flame.styleParams1.w * tempNorm * tempNorm;
+
+    vec3 radiance = vec3(0.0);
+    vec3 sigmaRgb = flame.sigmaT
+        * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
+    vec3 transmittance = vec3(1.0);
+    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
+        vec3 pMean = o + segTMean[segment] * d;
+        float hMean = clamp(pMean.y, 0.0, 1.0);
+        float edge = 0.0;
+        if (flame.emitterParams.x < 1.5) {
+            float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
+            float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+            float taperR = mix(1.0, flame.styleParams1.x, pow(hMean, flame.styleParams0.w));
+            float rhoNorm = abs((length(pMean.xz) - rm) / minorScale) / max(taperR, 1e-4);
+            edge = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, rhoNorm), 0.0, 1.0);
+        }
+        vec3 tau = sigmaRgb * segEmission[segment];
+        vec3 absorbed = vec3(1.0) - exp(-tau);
+        radiance += transmittance
+            * mix(flameRampColor(hMean), flame.colorTip.rgb, edge)
+            * flame.intensity * boost * absorbed;
+        transmittance *= exp(-tau);
+    }
+    return vec4(radiance, 1.0 - dot(transmittance, vec3(1.0 / 3.0)));
+}
+
 // Emitter-generic occupancy bands over t — the one band fill shared by the scalar
 // emission integral and the RTE composite. The t bands are camera-ordered; for
 // the ring they cover the (convex) outer-support crossing instead of the raw
@@ -1019,6 +1258,9 @@ vec4 integrateEmitterOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {
     if (tFar <= tNear) {
         return vec4(0.0);
     }
+    if (flameWaveModelActive()) {
+        return integrateWaveOccupancyRTE(o, d, tNear, tFar);
+    }
     float bandEmission[FLAME_RADIAL_BAND_COUNT];
     float bandHeight[FLAME_RADIAL_BAND_COUNT];
     float bandEdge[FLAME_RADIAL_BAND_COUNT];
@@ -1029,6 +1271,9 @@ vec4 integrateEmitterOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {
 float integrateEmitterOccupancy(vec3 o, vec3 d, float tNear, float tFar) {
     if (tFar <= tNear) {
         return 0.0;
+    }
+    if (flameWaveModelActive()) {
+        return integrateWaveOccupancy(o, d, tNear, tFar);
     }
     float bandEmission[FLAME_RADIAL_BAND_COUNT];
     float bandHeight[FLAME_RADIAL_BAND_COUNT];

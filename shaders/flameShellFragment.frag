@@ -51,6 +51,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 profileParams;
     vec4 heightMonomial[2];
     vec4 envelopeKnots[2];
+    vec4 waveParams;
+    vec4 waveModes[224];
 } flame;
 
 layout(set = 1, binding = 1) uniform sampler2D gbufferPositionSampler;

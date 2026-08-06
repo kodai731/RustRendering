@@ -15,6 +15,7 @@ fn compile_shaders() {
     println!("cargo:rerun-if-changed={}", shader_src_dir);
     println!("cargo:rerun-if-env-changed=THYLLORE_FLAME_BAND_COUNT");
     println!("cargo:rerun-if-env-changed=THYLLORE_FLAME_NOISE_ROT_DEG");
+    println!("cargo:rerun-if-env-changed=THYLLORE_FLAME_WAVE_SEGMENTS");
 
     // ディレクトリ内の全ての.vertと.fragファイルを取得
     let entries = match fs::read_dir(shader_src_dir) {
@@ -99,6 +100,9 @@ fn compile_shaders() {
             }
             if let Ok(val) = std::env::var("THYLLORE_FLAME_NOISE_ROT_DEG") {
                 cmd.arg(format!("-DFLAME_NOISE_ROT_DEG_OVERRIDE={}", val));
+            }
+            if let Ok(val) = std::env::var("THYLLORE_FLAME_WAVE_SEGMENTS") {
+                cmd.arg(format!("-DFLAME_WAVE_SEGMENTS_OVERRIDE={}", val));
             }
             cmd.arg("-o").arg(out_path.to_str().unwrap());
             let output = cmd.output();

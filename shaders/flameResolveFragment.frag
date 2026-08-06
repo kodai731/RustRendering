@@ -57,6 +57,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 profileParams;
     vec4 heightMonomial[2];
     vec4 envelopeKnots[2];
+    vec4 waveParams;
+    vec4 waveModes[224];
 } flame;
 
 #include "include/flame_shell_support.glsl"
@@ -410,7 +412,9 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
 float integrateEmissionAnalytic(FlameRaySegment segment) {
     // The kernel model has one unified t-band path: the cylinder core is just
     // the rm=0 case of the emitter density, so cylinder rays route through the
-    // emitter bands instead of the h-band erosion machinery.
+    // emitter bands instead of the h-band erosion machinery. The wave basis
+    // keeps the cylinder density convention: its band-free branch lives inside
+    // integrateRadialEmission.
     if (segment.cylinderDomain && !flameKernelModelActive()) {
         return max(integrateRadialEmission(
             segment.localOrigin, segment.localDir, segment.tNear, segment.tFar), 0.0);

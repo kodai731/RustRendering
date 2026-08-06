@@ -61,6 +61,16 @@ vec2 flameBendOffsetAt(float h) {
     return flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
 }
 
+// Turbulence basis switch (kernelParams.x = turbulence_model):
+// 0 = fbm lattice, 1 = kernel blob sum, 2 = wave mode sum.
+bool flameKernelModelActive() {
+    return flame.kernelParams.x >= 0.5 && flame.kernelParams.x < 1.5;
+}
+
+bool flameWaveModelActive() {
+    return flame.kernelParams.x >= 1.5;
+}
+
 // Turbulence may add density where erosion goes negative. The field is defined as
 // zero outside the smooth envelope's support (dSmooth == 0: above the tip, outside
 // the compact radius), so that addition is masked by exact membership — otherwise
@@ -140,6 +150,33 @@ float flameErodedArgument(float dSmooth, float erosion) {
     return dSmooth - (max(erosion, 0.0) + min(erosion, 0.0) * flameEnvelopeFade(dSmooth));
 }
 
+// Analytic mode-sum replacement of the fbm domain warp for the wave basis: a
+// low-wavenumber vector displacement field over the same warp coordinate chain
+// (aniso * warp_freq - advect), calibrated to the fbm warp statistics. The
+// billowing shear of the flame look lives in this nonlinear composition — a
+// purely spectral anisotropy of the erosion modes cannot reproduce it.
+// Warp modes sit in the waveModes pairs after the erosion modes
+// (waveParams.x = erosion count, waveParams.y = warp count).
+// Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_warp).
+vec3 flameWaveWarpOffset(vec3 pb, float h) {
+    float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
+    int warpCount = int(flame.waveParams.y);
+    if (amp == 0.0 || warpCount == 0) {
+        return vec3(0.0);
+    }
+    vec3 wp = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
+    int base = int(flame.waveParams.x);
+    vec3 displacement = vec3(0.0);
+    for (int m = 0; m < warpCount; ++m) {
+        vec4 waveVector = flame.waveModes[2 * (base + m)];
+        vec4 direction = flame.waveModes[2 * (base + m) + 1];
+        float value = waveVector.w * sin(dot(waveVector.xyz, wp) + direction.x);
+        displacement +=
+            vec3(direction.y, direction.z * flame.temporalData.w, direction.w) * value;
+    }
+    return amp * displacement;
+}
+
 // Internal helper: compute the warped coordinate q from world position p and height h.
 // This is the single source of truth for the domain-warp chain:
 //   bendOffset -> pb -> advect -> aniso -> wp -> w -> q
@@ -147,6 +184,12 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
     // Wind bend deformation (horizontal-only)
     vec2 bendOffset = flameBendOffsetAt(h);
     vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
+
+    // Wave basis: the fbm domain warp (3 fbm3 per point) is replaced by the
+    // analytic mode-sum warp below — same coordinate chain, no lattice.
+    if (flameWaveModelActive()) {
+        return pb + flameWaveWarpOffset(pb, h);
+    }
 
     // Domain warp with upward advection
     vec3 wp = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
@@ -187,8 +230,23 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
     return flameEmitterSmoothDensityDisplacedAt(c, h, wiggle, flameBoundaryDisplacement(c.xz));
 }
 
-bool flameKernelModelActive() {
-    return flame.kernelParams.x >= 0.5;
+// Wave-basis erosion noise: analytic sum of random wave modes over the same
+// warped coordinate the fbm samples — no lattice, no cells, so the ray
+// restriction is exact 1D and the closed form needs no radial bands. Advection
+// translates the coordinate (sweeping omega = k . U falls out); the per-mode
+// eddy-turnover rate ~ |k|^(2/3) is scaled by noiseScrollSpeed. Mean-matched to
+// fbm3 (0.4375) so flameNoiseErosionFromValue keeps its calibration.
+// Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_noise).
+float flameWaveNoiseSum(vec3 w) {
+    float eddyTime = flame.noiseScrollSpeed * flame.time;
+    float sum = 0.4375;
+    int count = int(flame.waveParams.x);
+    for (int n = 0; n < count; ++n) {
+        vec4 waveVector = flame.waveModes[2 * n];
+        vec4 wavePhase = flame.waveModes[2 * n + 1];
+        sum += waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+    }
+    return sum;
 }
 
 // Biweight kernel sum Σ aᵢ(1-|p-xᵢ|²/rᵢ²)₊². Mirrored in
@@ -215,9 +273,15 @@ float flameNoiseErosionFromValue(float noise, float h) {
 
 // Internal helper: compute erosion value from warped coordinate q and height h.
 float flameNoiseErosionAt(vec3 q, float h) {
-    float noise = flameKernelModelActive()
-        ? flameKernelBlobDensityAt(q)
-        : fbm3(flameNoiseLatticeRotate(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect()));
+    float noise;
+    if (flameKernelModelActive()) {
+        noise = flameKernelBlobDensityAt(q);
+    } else if (flameWaveModelActive()) {
+        noise = flameWaveNoiseSum(
+            flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect());
+    } else {
+        noise = fbm3(flameNoiseLatticeRotate(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect()));
+    }
     return flameNoiseErosionFromValue(noise, h);
 }
 

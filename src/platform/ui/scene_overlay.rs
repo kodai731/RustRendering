@@ -777,8 +777,12 @@ fn build_flame_section(
                     ui.color_edit3("Base Color", &mut effect_copy.color_base);
                     ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
 
-                    let noise_basis_labels = ["fbm", "kernel"];
-                    let mut noise_basis = usize::from(effect_copy.turbulence_model >= 0.5);
+                    let noise_basis_labels = ["fbm", "kernel", "wave"];
+                    let mut noise_basis = if effect_copy.turbulence_model >= 1.5 {
+                        2
+                    } else {
+                        usize::from(effect_copy.turbulence_model >= 0.5)
+                    };
                     if ui.combo_simple_string("Noise Basis", &mut noise_basis, &noise_basis_labels)
                     {
                         effect_copy.turbulence_model = noise_basis as f32;

@@ -13,6 +13,7 @@ mod flame_shell;
 mod flame_texture_fit;
 pub mod flame_trail;
 mod flame_wall_probe;
+pub mod flame_wave;
 mod gizmo;
 mod gizmo_data;
 mod mesh;

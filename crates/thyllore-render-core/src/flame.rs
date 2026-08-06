@@ -467,7 +467,7 @@ fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
 
     let params = [effect.turbulence_model, 0.0, 0.0, 0.0];
     let mut packed = [[0.0f32; 4]; 2 * KERNEL_BLOB_COUNT];
-    if effect.turbulence_model >= 0.5 {
+    if (0.5..1.5).contains(&effect.turbulence_model) {
         let ring_major_norm = if effect.emitter_kind == 1 {
             effect.ring_major_radius / flame_bounding_radius(effect)
         } else {
@@ -487,6 +487,41 @@ fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
         }
     }
     (params, packed)
+}
+
+type WaveUboFields = (
+    [f32; 4],
+    [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
+);
+
+fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
+    use crate::flame_wave::{
+        generate_wave_modes, generate_wave_warp_modes, WAVE_MODE_COUNT, WAVE_MODE_SLOTS,
+        WAVE_WARP_MODE_COUNT,
+    };
+
+    let mut packed = [[0.0f32; 4]; 2 * WAVE_MODE_SLOTS];
+    if effect.turbulence_model < 1.5 {
+        return ([0.0; 4], packed);
+    }
+    for (i, mode) in generate_wave_modes().iter().enumerate() {
+        packed[2 * i] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
+        packed[2 * i + 1] = [mode.phase, mode.eddy_rate, 0.0, 0.0];
+    }
+    for (i, mode) in generate_wave_warp_modes().iter().enumerate() {
+        let slot = WAVE_MODE_COUNT + i;
+        packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
+        packed[2 * slot + 1] = [
+            mode.phase,
+            mode.direction[0],
+            mode.direction[1],
+            mode.direction[2],
+        ];
+    }
+    (
+        [WAVE_MODE_COUNT as f32, WAVE_WARP_MODE_COUNT as f32, 0.0, 0.0],
+        packed,
+    )
 }
 
 /// Monomial coefficients (in u = 2h - 1) of the height envelope, packed for the UBO.
@@ -673,6 +708,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         dir.normalize()
     };
     let kernel_fields = build_kernel_ubo_fields(effect);
+    let wave_fields = build_wave_ubo_fields(effect);
     FlameUBO {
         model: build_flame_model_matrix(effect),
         inverse_model: build_flame_inverse_model_matrix(effect),
@@ -768,6 +804,8 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.edge_low,
             effect.edge_high,
         ),
+        wave_params: wave_fields.0,
+        wave_modes: wave_fields.1,
     }
 }
 
@@ -952,6 +990,7 @@ pub fn build_flame_ubo_with_trail(
     };
 
     let kernel_fields = build_kernel_ubo_fields(effect);
+    let wave_fields = build_wave_ubo_fields(effect);
     FlameUBO {
         model,
         inverse_model,
@@ -1047,6 +1086,8 @@ pub fn build_flame_ubo_with_trail(
             effect.edge_low,
             effect.edge_high,
         ),
+        wave_params: wave_fields.0,
+        wave_modes: wave_fields.1,
     }
 }
 
@@ -1098,6 +1139,8 @@ pub struct FlameUBO {
     pub profile_params: [f32; 4],
     pub height_monomial: [[f32; 4]; 2],
     pub envelope_knots: [[f32; 4]; 2],
+    pub wave_params: [f32; 4],
+    pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
 }
 
 impl Default for FlameUBO {
