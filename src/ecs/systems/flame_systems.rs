@@ -75,9 +75,6 @@ pub fn write_flame_transform(
     }
 }
 
-// Batch runs use a fixed timestep so noise-mode screenshots stay bit-deterministic.
-const BATCH_FIXED_DELTA_SECONDS: f32 = 1.0 / 60.0;
-
 const STABLE_FRAME_HISTORY_WEIGHT: f32 = 0.85;
 
 pub fn flame_time_advance(ctx: &mut FrameContext) {
@@ -112,8 +109,12 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
             })
             .collect()
     };
-
     let has_batch_run = ctx.world.contains_resource::<BatchRun>();
+    let batch_frames_rendered = if has_batch_run {
+        Some(ctx.world.resource::<BatchRun>().frames_rendered as f32)
+    } else {
+        None
+    };
     let timeline_current_time = if has_batch_run {
         None
     } else {
@@ -124,8 +125,8 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
 
     for &entity in &flame_entities {
         if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {
-            if has_batch_run {
-                advance_flame_time(&mut effect, BATCH_FIXED_DELTA_SECONDS);
+            if let Some(frames_rendered) = batch_frames_rendered {
+                effect.time = frames_rendered * (1.0 / 60.0);
             } else if let Some(timeline_time) = timeline_current_time {
                 effect.time = timeline_time * effect.time_scale + effect.time_offset;
             } else {
@@ -224,6 +225,11 @@ pub fn flame_bone_attach_sync(ctx: &mut FrameContext) {
 pub fn flame_trail_advance(ctx: &mut FrameContext) {
     let flame_entities = ctx.world.query_flames();
     let has_batch_run = ctx.world.contains_resource::<BatchRun>();
+    let batch_frames_rendered = if has_batch_run {
+        Some(ctx.world.resource::<BatchRun>().frames_rendered as f32)
+    } else {
+        None
+    };
     let timeline_current_time = if has_batch_run {
         None
     } else {
@@ -245,8 +251,9 @@ pub fn flame_trail_advance(ctx: &mut FrameContext) {
         if !trail.state.enabled {
             continue;
         }
-        let delta = if has_batch_run {
-            BATCH_FIXED_DELTA_SECONDS
+        let delta = if let Some(current_frame) = batch_frames_rendered {
+            let last_frame = trail.last_timeline_time.unwrap_or(current_frame);
+            current_frame - last_frame
         } else if let Some(timeline_time) = timeline_current_time {
             let last = trail.last_timeline_time.unwrap_or(timeline_time);
             timeline_time - last
@@ -255,7 +262,7 @@ pub fn flame_trail_advance(ctx: &mut FrameContext) {
         };
         let pos: [f32; 3] = [position.x, position.y, position.z];
         advance_flame_trail(&mut trail.state, pos, delta);
-        trail.last_timeline_time = timeline_current_time;
+        trail.last_timeline_time = batch_frames_rendered.or(timeline_current_time);
     }
 }
 
@@ -308,9 +315,20 @@ pub fn flame_temporal_accumulate(ctx: &mut FrameContext) {
     state.previous = Some(snapshot);
     drop(state);
 
+    // Read batch frames_rendered before the mutable borrow to avoid conflicting borrows
+    let batch_frames_rendered = if has_batch_run {
+        Some(ctx.world.resource::<BatchRun>().frames_rendered)
+    } else {
+        None
+    };
+
     // Now apply the changes to the component
     if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {
-        effect.frame_index = old_effect.frame_index.wrapping_add(1);
+        effect.frame_index = if let Some(fr) = batch_frames_rendered {
+            fr
+        } else {
+            old_effect.frame_index.wrapping_add(1)
+        };
         effect.temporal_weight = if matches_previous_frame && !has_batch_run {
             STABLE_FRAME_HISTORY_WEIGHT
         } else {

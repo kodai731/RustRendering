@@ -16,7 +16,7 @@ use thyllore_animation::ecs::resource::{
 use thyllore_animation::ecs::systems::{
     apply_flame_overrides, apply_texture_fit_from_path, batch_anim_dump_write,
     batch_apply_anim_edits, batch_apply_debug_actions, batch_run_report, debug_actions_json,
-    resolve_engine_cli_overrides, BATCH_LIST_DEBUG_ACTIONS_FLAG,
+    resolve_engine_cli_overrides, BatchDebugAction, BATCH_LIST_DEBUG_ACTIONS_FLAG,
 };
 use thyllore_animation::platform;
 
@@ -246,7 +246,13 @@ fn main() -> Result<()> {
         );
     }
     if !overrides.debug_actions.is_empty() {
-        batch_apply_debug_actions(&app.data.ecs_world, &overrides.debug_actions);
+        let filtered: Vec<_> = overrides
+            .debug_actions
+            .iter()
+            .filter(|a| !matches!(a, BatchDebugAction::WallProbeDump))
+            .cloned()
+            .collect();
+        batch_apply_debug_actions(&app.data.ecs_world, &filtered);
     }
 
     // Apply batch_play override: start timeline playback for deterministic batch clip runs.

@@ -18,7 +18,11 @@
 // (flameBiweight / flameRadialSupportRadius live there).
 // Mirrored in thyllore-render-core/src/flame_radial.rs; the accuracy tests live there.
 
+#ifdef FLAME_RADIAL_BAND_COUNT_OVERRIDE
+const int FLAME_RADIAL_BAND_COUNT = FLAME_RADIAL_BAND_COUNT_OVERRIDE;
+#else
 const int FLAME_RADIAL_BAND_COUNT = 6;
+#endif
 const float FLAME_RADIAL_MIN_DIR_Y = 1e-4;
 const float FLAME_RADIAL_MIN_HEIGHT_SPAN = 1e-5;
 const int FLAME_ENVELOPE_KNOT_COUNT = 8;

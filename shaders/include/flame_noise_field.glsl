@@ -3,6 +3,25 @@
 
 // Octagonal shell inscribed radius: 0.5 * cos(pi/8), derived from RING_SEGMENTS=8
 
+// Fixed rotation of the noise lattice for E2 experiments.
+// Defined as a compile-time constant from FLAME_NOISE_ROT_DEG_OVERRIDE (default 0).
+// When angle is 0, returns v unchanged (bit-identical to current behavior).
+// When nonzero, rotates v around axis (1,1,1)/sqrt(3) by the specified angle
+// using Rodrigues' rotation formula.
+#ifndef FLAME_NOISE_ROT_DEG_OVERRIDE
+#define FLAME_NOISE_ROT_DEG_OVERRIDE 0.0
+#endif
+vec3 flameNoiseLatticeRotate(vec3 v) {
+    const float angle = radians(FLAME_NOISE_ROT_DEG_OVERRIDE);
+    if (angle == 0.0) {
+        return v;
+    }
+    vec3 axis = normalize(vec3(1.0, 1.0, 1.0));
+    float c = cos(angle);
+    float s = sin(angle);
+    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
+}
+
 // Must be included after FlameUBO, chebyshev.glsl, flame_noise.glsl, and
 // flame_shell_profile.glsl (FLAME_SHELL_SUPPORT_HEADROOM).
 
@@ -64,8 +83,8 @@ vec2 flameBoundaryDisplacement(vec2 xz) {
         xz.y * flame.boundaryParams.y);
     // 3.0 ≈ 1/(2·fbm std): amp becomes the typical fractional displacement.
     // Raise capped at +amp so lifted tips stay clear of the y=1 cap; dips stay deep.
-    float heightNoise = min((fbm3(q) * (2.0 / 0.875) - 1.0) * 3.0, 1.0);
-    float radiusNoise = (fbm3(q + vec3(13.7, 41.3, 7.9)) * (2.0 / 0.875) - 1.0) * 3.0;
+    float heightNoise = min((fbm3(flameNoiseLatticeRotate(q)) * (2.0 / 0.875) - 1.0) * 3.0, 1.0);
+    float radiusNoise = (fbm3(flameNoiseLatticeRotate(q + vec3(13.7, 41.3, 7.9))) * (2.0 / 0.875) - 1.0) * 3.0;
     return max(
         vec2(1.0 + amp * heightNoise, 1.0 + amp * flame.boundaryParams.w * radiusNoise),
         vec2(0.2));
@@ -131,8 +150,8 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
 
     // Domain warp with upward advection
     vec3 wp = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
-    vec2 w = vec2(fbm3(wp), fbm3(wp + vec3(19.1, 7.7, 3.3))) * 2.0 - 1.0;
-    float wy = fbm3(wp + vec3(41.3, 23.7, 11.9)) * 2.0 - 1.0;
+    vec2 w = vec2(fbm3(flameNoiseLatticeRotate(wp)), fbm3(flameNoiseLatticeRotate(wp + vec3(19.1, 7.7, 3.3)))) * 2.0 - 1.0;
+    float wy = fbm3(flameNoiseLatticeRotate(wp + vec3(41.3, 23.7, 11.9))) * 2.0 - 1.0;
     vec3 q = pb + flame.styleParams0.x * mix(0.15, 1.0, h) * vec3(w.x, wy * flame.temporalData.w, w.y);
 
     return q;
@@ -198,7 +217,7 @@ float flameNoiseErosionFromValue(float noise, float h) {
 float flameNoiseErosionAt(vec3 q, float h) {
     float noise = flameKernelModelActive()
         ? flameKernelBlobDensityAt(q)
-        : fbm3(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect());
+        : fbm3(flameNoiseLatticeRotate(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect()));
     return flameNoiseErosionFromValue(noise, h);
 }
 

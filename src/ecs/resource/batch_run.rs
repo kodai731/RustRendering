@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+#[derive(Clone)]
 pub enum BatchRunState {
     WaitingForFrame,
     ScreenshotRequested,
@@ -12,6 +13,7 @@ pub struct BatchRun {
     pub frames_rendered: u64,
     pub state: BatchRunState,
     pub flame_set: Vec<(String, f32)>,
+    pub dump_wall_probe: bool,
 }
 
 impl BatchRun {
@@ -22,6 +24,7 @@ impl BatchRun {
             frames_rendered: 0,
             state: BatchRunState::WaitingForFrame,
             flame_set,
+            dump_wall_probe: false,
         }
     }
 

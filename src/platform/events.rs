@@ -14,6 +14,8 @@ use super::ui::{
 #[cfg(debug_assertions)]
 use super::ui::{build_click_debug_overlay, DebugWindowState};
 use crate::app::App;
+use crate::vulkanr::vulkan::*;
+
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{
     CameraFlyInput, ClipBrowserState, ClipLibrary, CurveEditorBuffer, CurveEditorState,
@@ -841,6 +843,42 @@ unsafe fn render_frame(
         let render_cpu_start = Instant::now();
         app.render(image_index, draw_data)?;
         let render_cpu_ms = render_cpu_start.elapsed().as_secs_f32() * 1000.0;
+
+        // Batch run screenshot: after render (which calls queue_present_khr),
+        // check if we need to save a screenshot for the batch run.
+        if app.data.ecs_world.contains_resource::<crate::ecs::resource::BatchRun>() {
+            let state = app
+                .data
+                .ecs_world
+                .get_resource::<crate::ecs::resource::BatchRun>()
+                .map(|b| b.state.clone());
+            let dump_wall_probe = app
+                .data
+                .ecs_world
+                .get_resource::<crate::ecs::resource::BatchRun>()
+                .map(|b| b.dump_wall_probe)
+                .unwrap_or(false);
+            if matches!(
+                state,
+                Some(crate::ecs::resource::BatchRunState::ScreenshotRequested)
+            ) {
+                app.rrdevice.device.device_wait_idle()?;
+                let save_result = app.save_screenshot(image_index);
+                crate::ecs::systems::batch_run_record_screenshot(
+                    &app.data.ecs_world,
+                    save_result.map_err(|e| format!("{e:?}")),
+                );
+                // Wall probe dump: if this batch run was started with
+                // --batch-debug-action dump_wall_probe, dump synchronously
+                // at the same frame/time as the screenshot.
+                if dump_wall_probe {
+                    crate::ecs::systems::flame_dump_systems::perform_flame_wall_probe_dump(
+                        &app.data.ecs_world,
+                        [1680.0, 840.0],
+                    );
+                }
+            }
+        }
 
         app.data
             .ecs_world

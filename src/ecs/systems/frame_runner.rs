@@ -26,7 +26,6 @@ use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
 pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
     let mut stages: Vec<(String, f32)> = Vec::new();
-
     let t = std::time::Instant::now();
     batch_run_tick(ctx.world);
     stages.push((

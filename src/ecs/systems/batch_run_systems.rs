@@ -112,10 +112,6 @@ pub enum BatchDebugAction {
     ApplyTextureFitRoundtrip { path: String, blend: f32, profile: bool },
 }
 
-/// Viewport size assumed by the headless wall-probe action, matching the
-/// standard batch viewport crop (560,20)-(2240,860) used by the CV tooling.
-const BATCH_VIEWPORT_SIZE: [f32; 2] = [1680.0, 840.0];
-
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
     Ok(EngineCliOverrides {
         batch_run: batch_run_resolve_from_args(args)?,
@@ -216,7 +212,11 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
 
     let flame_set = flame_set_resolve_from_args(args)?;
 
-    Ok(Some(BatchRun::new(output, screenshot_frame, flame_set)))
+    let dump_wall_probe = debug_actions_has_wall_probe_dump(args);
+
+    let mut batch = BatchRun::new(output, screenshot_frame, flame_set);
+    batch.dump_wall_probe = dump_wall_probe;
+    Ok(Some(batch))
 }
 
 pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadingMode>> {
@@ -751,18 +751,12 @@ pub fn batch_run_tick(world: &World) {
         return;
     }
 
-    let should_request = {
-        let mut batch = world.resource_mut::<BatchRun>();
-        batch.frames_rendered += 1;
-        matches!(batch.state, BatchRunState::WaitingForFrame)
-            && batch.frames_rendered >= batch.screenshot_frame
-    };
-
-    if should_request {
-        world
-            .resource_mut::<UIEventQueue>()
-            .send(UIEvent::TakeScreenshot);
-        world.resource_mut::<BatchRun>().state = BatchRunState::ScreenshotRequested;
+    let mut batch = world.resource_mut::<BatchRun>();
+    batch.frames_rendered += 1;
+    if matches!(batch.state, BatchRunState::WaitingForFrame)
+        && batch.frames_rendered >= batch.screenshot_frame
+    {
+        batch.state = BatchRunState::ScreenshotRequested;
     }
 }
 
@@ -1248,6 +1242,20 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
     }
 }
 
+/// Check if `--batch-debug-action dump_wall_probe` is present in the args.
+fn debug_actions_has_wall_probe_dump(args: &[String]) -> bool {
+    for i in 0..args.len() {
+        if args[i] == BATCH_DEBUG_ACTION_FLAG {
+            if let Some(name) = args.get(i + 1).filter(|v| !v.starts_with("--")) {
+                if name == "dump_wall_probe" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
 fn parse_texture_fit_args(rest: &str) -> Result<(String, f32, bool)> {
     let parts: Vec<&str> = rest.rsplit(',').collect();
     if parts.len() != 3 {
@@ -1315,11 +1323,8 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                 apply_flame_clip_preview(world, *end_seconds);
             }
             BatchDebugAction::WallProbeDump => {
-                world
-                    .resource_mut::<UIEventQueue>()
-                    .send(UIEvent::DumpFlameWallProbe {
-                        viewport_size: BATCH_VIEWPORT_SIZE,
-                    });
+                // Wall probe dump is now handled synchronously in the render path
+                // via batch.dump_wall_probe, so this is a no-op.
             }
             BatchDebugAction::TimelineSelectFlameClip => {
                 let clip_id = world.query_flames().first().and_then(|&flame| {

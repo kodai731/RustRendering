@@ -2,8 +2,9 @@ use std::io::Write;
 
 use serde_json::{json, Value};
 
-use crate::ecs::resource::{FlameDumpSink, FlameTemporalState};
-use thyllore_render_core::{build_flame_ubo, FlameEffect, FlameUBO};
+use crate::ecs::resource::{Camera, FlameDumpSink, FlameRenderSettings, FlameTemporalState};
+use crate::ecs::World;
+use thyllore_render_core::{build_flame_ubo, probe_flame_wall, FlameEffect, FlameUBO, WallProbeView};
 
 pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
     let mut value = json!({
@@ -310,6 +311,50 @@ pub fn write_flame_wall_probe_dump(
     std::fs::write(&path, serde_json::to_string_pretty(&record)?)?;
     Ok(path)
 }
+
+/// Build and write the wall-probe dump from the world's camera + flame entities.
+/// This is the shared implementation used by both the interactive mode (UIEvent)
+/// and the batch run path (synchronous call after render).
+pub fn perform_flame_wall_probe_dump(world: &World, viewport_size: [f32; 2]) {
+    use crate::ecs::systems::camera_systems::{
+        compute_camera_direction, compute_camera_position, compute_camera_right, compute_camera_up,
+    };
+
+    let camera = (*world.resource::<Camera>()).clone();
+    let settings = world
+        .get_resource::<FlameRenderSettings>()
+        .map(|s| *s)
+        .unwrap_or_default();
+    let view = WallProbeView {
+        position: compute_camera_position(&camera).into(),
+        forward: compute_camera_direction(&camera).into(),
+        right: compute_camera_right(&camera).into(),
+        up: compute_camera_up(&camera).into(),
+        fov_y_radians: camera.fov_y.0.to_radians(),
+        viewport_size_px: viewport_size,
+    };
+
+    let flames: Vec<_> = world
+        .query_flames()
+        .into_iter()
+        .filter_map(|entity| world.get_component::<FlameEffect>(entity))
+        .map(|effect| {
+            let report = probe_flame_wall(&effect, &view);
+            (effect.clone(), report)
+        })
+        .collect();
+    if flames.is_empty() {
+        log_warn!("wall probe dump skipped: no flame entity");
+        return;
+    }
+
+    match write_flame_wall_probe_dump(&camera, &settings, viewport_size, &flames) {
+        Ok(path) => log!("wall probe dumped to {}", path.display()),
+        Err(error) => log_warn!("wall probe dump failed: {}", error),
+    }
+}
+
+/// Provenance dump of one texture-fit load (G10): a metadata json plus a
 
 /// Provenance dump of one texture-fit load (G10): a metadata json plus a
 /// verbatim copy of the source bytes under `log/flame/texture_fit_<ts>.{json,png}`,
