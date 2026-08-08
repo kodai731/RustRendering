@@ -1,9 +1,32 @@
+use std::sync::OnceLock;
+
 use crate::flame_trail::{flame_trail_fade_weight, FlameTrailSample, FlameTrailState};
 use cgmath::{Deg, InnerSpace, Matrix3, Matrix4, Quaternion, Vector2, Vector3, Vector4};
 use thyllore_math_core::{
     evaluate_chebyshev, fit_chebyshev, fit_erf_response, integrate_chebyshev,
     pack_coefficients_vec4, ChebyshevSeries,
 };
+
+static WAVE_K_RATIO_ENV: OnceLock<f32> = OnceLock::new();
+static WAVE_TANH_ENV: OnceLock<f32> = OnceLock::new();
+
+fn read_env_wave_k_ratio() -> f32 {
+    *WAVE_K_RATIO_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_K_RATIO")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(crate::flame_wave::WAVE_K_RATIO)
+    })
+}
+
+fn read_env_wave_tanh() -> f32 {
+    *WAVE_TANH_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_TANH")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(crate::flame_wave::WAVE_TANH_SCALE)
+    })
+}
 
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
 pub const HEIGHT_COEFFICIENT_COUNT: usize = 8;
@@ -496,7 +519,8 @@ type WaveUboFields = (
 
 fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     use crate::flame_wave::{
-        generate_wave_modes, generate_wave_warp_modes, WAVE_MODE_COUNT, WAVE_MODE_SLOTS,
+        generate_wave_detail_modes, generate_wave_modes_with_ratio, generate_wave_warp_modes,
+        wave_shaping_params, WAVE_DETAIL_MODE_COUNT, WAVE_MODE_COUNT, WAVE_MODE_SLOTS,
         WAVE_WARP_MODE_COUNT,
     };
 
@@ -504,7 +528,8 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     if effect.turbulence_model < 1.5 {
         return ([0.0; 4], packed);
     }
-    for (i, mode) in generate_wave_modes().iter().enumerate() {
+    let k_ratio = read_env_wave_k_ratio();
+    for (i, mode) in generate_wave_modes_with_ratio(k_ratio).iter().enumerate() {
         packed[2 * i] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
         packed[2 * i + 1] = [mode.phase, mode.eddy_rate, 0.0, 0.0];
     }
@@ -513,13 +538,24 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
         packed[2 * slot + 1] = [
             mode.phase,
-            mode.direction[0],
-            mode.direction[1],
-            mode.direction[2],
+            mode.curl_direction[0],
+            mode.curl_direction[1],
+            mode.curl_direction[2],
         ];
     }
+    for (i, mode) in generate_wave_detail_modes().iter().enumerate() {
+        let slot = WAVE_MODE_COUNT + WAVE_WARP_MODE_COUNT + i;
+        packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
+        packed[2 * slot + 1] = [mode.phase, mode.eddy_rate, 0.0, 0.0];
+    }
+    let tanh_scale = read_env_wave_tanh();
+    let (inverse_scale, amplitude) = if tanh_scale <= 0.0 {
+        (0.0, 1.0)
+    } else {
+        wave_shaping_params(tanh_scale)
+    };
     (
-        [WAVE_MODE_COUNT as f32, WAVE_WARP_MODE_COUNT as f32, 0.0, 0.0],
+        [WAVE_MODE_COUNT as f32, WAVE_WARP_MODE_COUNT as f32, inverse_scale, amplitude],
         packed,
     )
 }
@@ -1438,11 +1474,11 @@ mod tests {
         );
     }
 
-    #[test]
+   #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 3072 + 16 + 16 + 32 + 128 + 16 + 64
+            784 + 16 + 3072 + 16 + 16 + 32 + 128 + 16 + 32 + 32 + 16 + 5632
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

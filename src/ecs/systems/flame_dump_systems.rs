@@ -246,7 +246,12 @@ fn build_wall_probe_ray_json(ray: &thyllore_render_core::WallProbeRay) -> Value 
         "density_max": ray.density_max,
         "saturated_fraction": ray.saturated_fraction,
         "tau": ray.tau,
-        "pixels_per_cell": ray.pixels_per_cell
+        "pixels_per_cell": ray.pixels_per_cell,
+        "segment_dt": ray.segment_dt,
+        "cells_per_segment": ray.cells_per_segment,
+        "unresolved_fraction": ray.unresolved_fraction,
+        "support_intervals": ray.support_intervals,
+        "support_gap": ray.support_gap
     })
 }
 

@@ -331,7 +331,11 @@ float flameWidestSupportRadius() {
 // Returns 1.0 when contourParams.x == 0 (identity, matches old path).
 float flameContourWiggle(vec3 p, float h) {
     if (flame.contourParams.x == 0.0) { return 1.0; }
-    return 1.0 + flame.contourParams.x * (fbm3(vec3(p.x, h - flame.styleParams0.z * flame.time, p.z) * flame.noiseFrequency) * (2.0 / 0.875) - 1.0);
+    vec3 q = vec3(p.x, h - flame.styleParams0.z * flame.time, p.z) * flame.noiseFrequency;
+    if (flame.waveParams.x > 0.5) {
+        return 1.0 + flame.contourParams.x * flameDetailNoise(q);
+    }
+    return 1.0 + flame.contourParams.x * (fbm3(q) * (2.0 / 0.875) - 1.0);
 }
 
 // Horizontal offset of the ray at a given height, with q = d.xz / d.y.
@@ -1003,8 +1007,7 @@ const int FLAME_WAVE_SEGMENTS = FLAME_WAVE_SEGMENTS_OVERRIDE;
 #else
 const int FLAME_WAVE_SEGMENTS = 64;
 #endif
-const int FLAME_WAVE_MODE_SLOTS = 112;
-
+const int FLAME_WAVE_MODE_SLOTS = 176;
 // Warped noise coordinate of the wave basis: wind bend removed, the analytic
 // mode-sum warp applied, then the same aniso/frequency/advect chain the fbm
 // erosion samples — exactly flameNoiseWarpedCoordinate's wave branch followed
@@ -1012,7 +1015,7 @@ const int FLAME_WAVE_MODE_SLOTS = 112;
 vec3 flameWaveCoordinate(vec3 p, float h) {
     vec2 bendOffset = flameBendOffsetAt(h);
     vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
-    vec3 q = pb + flameWaveWarpOffset(pb, h);
+    vec3 q = flameWaveFlowWarp(pb, h);
     return flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency
         - flameNoiseAdvect();
 }
@@ -1037,21 +1040,35 @@ float flameWaveNodeDensity(vec3 p, float h) {
     }
     return dens * flameNearCameraFade(p);
 }
+// Node-local low-pass: weights come from the warped rate at this node, so a
+// locally stretched node does not smooth the whole ray.
+float flameWaveNodeArgumentLocal(
+    vec3 p, vec3 d, float h, float density, float dt,
+    int count, float eddyTime, out float shapedNoise, out float sigmaNoise) {
+    vec2 bendOffset = flameBendOffsetAt(h);
+    vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
+    vec3 q;
+    vec3 rateRaw = flameWaveFlowWarpRate(pb, d, h, q);
+    vec3 w = flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect();
+    vec3 rate = flameAnisoCompress(rateRaw, flame.temporalData.z) * flame.noiseFrequency;
 
-// Threshold argument at a node: attenuated (resolved) wave noise through the
-// erosion mapping against the exact density.
-float flameWaveNodeArgument(
-    vec3 p, float h, float density, float amplitudeEff[FLAME_WAVE_MODE_SLOTS],
-    int count, float eddyTime) {
-    vec3 w = flameWaveCoordinate(p, h);
-    float noise = 0.4375;
+    float z = 0.0;
+    float unresolvedPower = 0.0;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
-        noise += amplitudeEff[n]
-            * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        float beta = dot(waveVector.xyz, rate) * dt / 3.14159265;
+        float b2 = beta * beta;
+        float weight = exp(-b2 * b2);
+        z += weight * waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        unresolvedPower += 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
     }
-    return flameErodedArgument(density, flameNoiseErosionFromValue(noise, h));
+
+    sigmaNoise = sqrt(unresolvedPower);
+    float invScale = flame.waveParams.z;
+    float amp = flame.waveParams.w;
+    shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
+    return flameErodedArgument(density, flameNoiseErosionFromValue(shapedNoise, h));
 }
 
 void flameWaveOccupancySegments(
@@ -1067,34 +1084,19 @@ void flameWaveOccupancySegments(
         return;
     }
 
-    // Per-ray mode split: resolved amplitudes (low-passed at the node Nyquist)
-    // and the unresolved power routed into sigma. The linear part of the
-    // warped coordinate gives beta; the bend variation is slow and ignored
-    // for the low-pass weight only (node values stay exact).
     float eddyTime = flame.noiseScrollSpeed * flame.time;
-    vec3 dW = flameAnisoCompress(d, flame.temporalData.z) * flame.noiseFrequency;
     int count = min(int(flame.waveParams.x), FLAME_WAVE_MODE_SLOTS);
-    float amplitudeEff[FLAME_WAVE_MODE_SLOTS];
-    float unresolvedPower = 0.0;
-    for (int n = 0; n < count; ++n) {
-        vec4 waveVector = flame.waveModes[2 * n];
-        // Quartic low-pass, flat until ~4 nodes per wavelength and cutting
-        // at the node Nyquist: resolved modes keep their full amplitude (the
-        // carving contrast), only genuinely sub-node power feeds sigma.
-        float beta = dot(waveVector.xyz, dW) * dt / 3.14159265;
-        float betaSq = beta * beta;
-        float weight = exp(-betaSq * betaSq);
-        amplitudeEff[n] = waveVector.w * weight;
-        unresolvedPower += 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
-    }
-    float sigmaNoise = sqrt(unresolvedPower);
 
     // Streaming node walk: density first, the mode sum only at nodes touching
     // support (empty segments cost no mode evaluation), one node carried
     // between segments so nothing is evaluated twice.
     float residual = flameCarveResidualStrength();
+    float invScale = flame.waveParams.z;
+    float amp = flame.waveParams.w;
     float previousDensity = flameWaveNodeDensity(o + t0 * d, clamp(o.y + t0 * d.y, 0.0, 1.0));
     float previousArgument = 0.0;
+    float previousShapedNoise = 0.4375;
+    float previousSigma = 0.0;
     bool previousArgumentValid = false;
     for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
         float tPrev = t0 + float(segment) * dt;
@@ -1110,13 +1112,29 @@ void flameWaveOccupancySegments(
         if (!previousArgumentValid) {
             vec3 pPrev = o + tPrev * d;
             float hPrev = clamp(pPrev.y, 0.0, 1.0);
-            previousArgument = flameWaveNodeArgument(
-                pPrev, hPrev, previousDensity, amplitudeEff, count, eddyTime);
+            previousArgument = flameWaveNodeArgumentLocal(
+                pPrev, d, hPrev, previousDensity, dt, count, eddyTime,
+                previousShapedNoise, previousSigma);
         }
-        float argument = flameWaveNodeArgument(p, h, density, amplitudeEff, count, eddyTime);
+        float currentShapedNoise;
+        float currentSigma;
+        float argument = flameWaveNodeArgumentLocal(p, d, h, density, dt, count, eddyTime,
+            currentShapedNoise, currentSigma);
+
+        // Shaping derivative average: g'(z) = amp * invScale * (1 - t^2) where
+        // t = (shapedNoise - 0.4375) / amp; if invScale <= 0 then gPrime = 1.0.
+        float shapingDerivAvg;
+        if (invScale > 0.0) {
+            float tPrevVal = (previousShapedNoise - 0.4375) / amp;
+            float tCurrVal = (currentShapedNoise - 0.4375) / amp;
+            shapingDerivAvg = 0.5 * amp * invScale
+                * ((1.0 - tPrevVal * tPrevVal) + (1.0 - tCurrVal * tCurrVal));
+        } else {
+            shapingDerivAvg = 1.0;
+        }
 
         float hMid = clamp(o.y + (tPrev + 0.5 * dt) * d.y, 0.0, 1.0);
-        float sigmaEff = sigmaNoise * abs(flame.noiseAmplitude) * mix(0.2, 1.0, hMid)
+        float sigmaEff = 0.5 * (previousSigma + currentSigma) * shapingDerivAvg * abs(flame.noiseAmplitude) * mix(0.2, 1.0, hMid)
             * 0.5 * (flameEnvelopeFade(previousDensity) + flameEnvelopeFade(density));
         FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
         float slope = (argument - previousArgument) / dt;
@@ -1136,9 +1154,12 @@ void flameWaveOccupancySegments(
 
         previousDensity = density;
         previousArgument = argument;
+        previousShapedNoise = currentShapedNoise;
+        previousSigma = currentSigma;
         previousArgumentValid = true;
     }
 }
+
 
 // Support crossing of the wave path: the ring trims to its convex outer
 // cylinder like the band path; cylinder and SDF keep the proxy interval

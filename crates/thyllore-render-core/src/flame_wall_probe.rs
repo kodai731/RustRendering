@@ -1,6 +1,8 @@
 //! CPU probe of the wall-plate regime: view-ray grid vs the envelope mirror
 //! (no warp/erosion/displacement; cylinder/SDF use the axis-centered approximation).
 
+use std::sync::OnceLock;
+
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
 
 use crate::flame::{
@@ -15,6 +17,26 @@ pub const WALL_PROBE_GRID_ROWS: usize = 5;
 const DENSITY_SAMPLES: usize = 32;
 const TANGENTIAL_GRAZING_DEG: f32 = 15.0;
 const SATURATED_RAY_FRACTION: f32 = 0.5;
+
+fn wall_probe_grid_cols() -> usize {
+    static COLS: OnceLock<usize> = OnceLock::new();
+    *COLS.get_or_init(|| {
+        std::env::var("THYLLORE_WALL_PROBE_COLS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(WALL_PROBE_GRID_COLS)
+    })
+}
+
+fn wall_probe_grid_rows() -> usize {
+    static ROWS: OnceLock<usize> = OnceLock::new();
+    *ROWS.get_or_init(|| {
+        std::env::var("THYLLORE_WALL_PROBE_ROWS")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(WALL_PROBE_GRID_ROWS)
+    })
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct WallProbeView {
@@ -41,6 +63,11 @@ pub struct WallProbeRay {
     pub saturated_fraction: f32,
     pub tau: f32,
     pub pixels_per_cell: f32,
+    pub segment_dt: f32,
+    pub cells_per_segment: f32,
+    pub unresolved_fraction: f32,
+    pub support_intervals: u32,
+    pub support_gap: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -118,12 +145,14 @@ pub fn probe_flame_wall(effect: &FlameEffect, view: &WallProbeView) -> WallProbe
     let up = Vector3::from(view.up);
     let t_max = camera_local.magnitude() + 4.0;
 
-    let mut rays = Vec::with_capacity(WALL_PROBE_GRID_COLS * WALL_PROBE_GRID_ROWS);
-    for row in 0..WALL_PROBE_GRID_ROWS {
-        for col in 0..WALL_PROBE_GRID_COLS {
+    let cols = wall_probe_grid_cols();
+    let rows = wall_probe_grid_rows();
+    let mut rays = Vec::with_capacity(cols * rows);
+    for row in 0..rows {
+        for col in 0..cols {
             let ndc = [
-                (col as f32 + 0.5) / WALL_PROBE_GRID_COLS as f32 * 2.0 - 1.0,
-                (row as f32 + 0.5) / WALL_PROBE_GRID_ROWS as f32 * 2.0 - 1.0,
+                (col as f32 + 0.5) / cols as f32 * 2.0 - 1.0,
+                (row as f32 + 0.5) / rows as f32 * 2.0 - 1.0,
             ];
             let direction_world =
                 (forward + right * ndc[0] * tan_half * aspect + up * ndc[1] * tan_half).normalize();
@@ -190,6 +219,63 @@ pub fn probe_flame_wall(effect: &FlameEffect, view: &WallProbeView) -> WallProbe
                     view.viewport_size_px[1] / (2.0 * mid_distance * tan_half.max(1e-4));
                 let cell_world = flame_bounding_radius(effect) / effect.noise_frequency.max(1e-3);
 
+                // Compute new diagnostic fields
+                let segment_dt = chord / crate::flame_wave::FLAME_WAVE_SEGMENTS as f32;
+
+                // Noise coordinate direction vector: dW = anisoCompress(dir, noise_aniso_y) * noise_frequency
+                // anisoCompress is a diagonal transform scaling y by noise_aniso_y
+                let dir_scaled = Vector3::new(
+                    direction_local.x,
+                    direction_local.y * effect.noise_aniso_y,
+                    direction_local.z,
+                );
+                let dW = dir_scaled * effect.noise_frequency;
+                let dW_magnitude = dW.magnitude();
+                let cells_per_segment = segment_dt * dW_magnitude / (2.0 * std::f32::consts::PI);
+
+                // unresolved_fraction: wave_ray_attenuation sigma / WAVE_NOISE_STD
+                let modes = crate::flame_wave::generate_wave_modes();
+                let rates: [[f32; 3]; 3] = [[dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z]];
+                let (_weights, sigma) =
+                    crate::flame_wave::wave_ray_attenuation(&modes, &rates, segment_dt);
+                let unresolved_fraction = sigma / crate::flame_wave::WAVE_NOISE_STD;
+
+                // support_intervals and support_gap: sample density at 512 points along the ray
+                let sample_count = 512;
+                let sample_dt = chord / sample_count as f32;
+                let mut intervals: Vec<(f32, f32)> = Vec::new();
+                let mut in_interval = false;
+                let mut interval_start = 0.0f32;
+                for i in 0..sample_count {
+                    let t = t_enter + (i as f32) * sample_dt;
+                    let density = density_at(camera_local + direction_local * t);
+                    if density > 0.0 {
+                        if !in_interval {
+                            interval_start = t;
+                            in_interval = true;
+                        }
+                    } else if in_interval {
+                        intervals.push((interval_start, t));
+                        in_interval = false;
+                    }
+                }
+                if in_interval {
+                    intervals.push((interval_start, t_exit));
+                }
+                let support_intervals = intervals.len() as u32;
+                let support_gap = if support_intervals > 1 {
+                    let mut max_gap = 0.0f32;
+                    for i in 0..intervals.len() - 1 {
+                        let gap = intervals[i + 1].0 - intervals[i].1;
+                        if gap > max_gap {
+                            max_gap = gap;
+                        }
+                    }
+                    max_gap
+                } else {
+                    0.0
+                };
+
                 ray.hit = true;
                 ray.t_enter = t_enter;
                 ray.t_exit = t_exit;
@@ -202,6 +288,11 @@ pub fn probe_flame_wall(effect: &FlameEffect, view: &WallProbeView) -> WallProbe
                 ray.saturated_fraction = saturated as f32 / DENSITY_SAMPLES as f32;
                 ray.tau = effect.sigma_t * density_sum * dt * world_step;
                 ray.pixels_per_cell = pixels_per_world * cell_world;
+                ray.segment_dt = segment_dt;
+                ray.cells_per_segment = cells_per_segment;
+                ray.unresolved_fraction = unresolved_fraction;
+                ray.support_intervals = support_intervals;
+                ray.support_gap = support_gap;
             }
             rays.push(ray);
         }
@@ -267,7 +358,9 @@ mod tests {
     }
 
     fn center_ray(report: &WallProbeReport) -> WallProbeRay {
-        report.rays[(WALL_PROBE_GRID_ROWS / 2) * WALL_PROBE_GRID_COLS + WALL_PROBE_GRID_COLS / 2]
+        let cols = wall_probe_grid_cols();
+        let rows = wall_probe_grid_rows();
+        report.rays[(rows / 2) * cols + cols / 2]
     }
 
     #[test]

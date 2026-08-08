@@ -54,6 +54,16 @@ vec3 flameAnisoCompress(vec3 v, float axialScale) {
     return v - dot(v, axis) * axis * (1.0 - axialScale);
 }
 
+// Internal helper: inverse of flameAnisoCompress — anisotropic expansion along the advection axis.
+vec3 flameAnisoExpand(vec3 v, float axialScale) {
+    vec3 adv = vec3(flame.styleParams2.x, flame.styleParams0.z, flame.styleParams2.y);
+    vec3 axis = vec3(0.0, 1.0, 0.0);
+    if (flame.contourParams.y > 0.0 && dot(adv, adv) > 1e-8) {
+        axis = normalize(mix(axis, normalize(adv), clamp(flame.contourParams.y, 0.0, 1.0)));
+    }
+    return v + dot(v, axis) * axis * (1.0 / axialScale - 1.0);
+}
+
 // Horizontal displacement of the density centerline from wind bend at height h.
 // Shared by the domain warp below and the radial band integrals, so the
 // analytic path bends exactly like the sampled field.
@@ -82,6 +92,22 @@ float flameFieldSupportMask(float dSmooth) {
 
 // Column-wise (heightScale, radiusScale) displacing the envelope support — the only
 // perturbation that survives tangent-view path averaging (plate-silhouette-diagnosis).
+const int FLAME_WAVE_DETAIL_MODE_COUNT = 64;
+
+// Lattice-free replacement for the fbm behind the contour wiggle and the
+// boundary displacement. Normalized to the same distribution as the
+// expression it replaces: fbm3(p) * (2/0.875) - 1, mean 0, std 0.2422.
+float flameDetailNoise(vec3 p) {
+    int base = int(flame.waveParams.x) + int(flame.waveParams.y);
+    float z = 0.0;
+    for (int n = 0; n < FLAME_WAVE_DETAIL_MODE_COUNT; ++n) {
+        vec4 waveVector = flame.waveModes[2 * (base + n)];
+        vec4 wavePhase = flame.waveModes[2 * (base + n) + 1];
+        z += waveVector.w * sin(dot(waveVector.xyz, p) + wavePhase.x);
+    }
+    return z * (2.0 / 0.875);
+}
+
 vec2 flameBoundaryDisplacement(vec2 xz) {
     float amp = flame.boundaryParams.x;
     if (amp == 0.0) {
@@ -177,6 +203,73 @@ vec3 flameWaveWarpOffset(vec3 pb, float h) {
     return amp * displacement;
 }
 
+const float FLAME_WAVE_SHEAR_STRENGTH_SCALE = 0.96;
+
+// Flow-map warp: apply each mode's shear sequentially (z += curl_dir * strength * a * cos(k·z + φ)).
+// Each mode is a pure shear (k·curl_dir = 0), so the flow map at time 1 equals one step of shear.
+// Modes are applied in index order (shear composition is non-commutative).
+vec3 flameWaveFlowWarp(vec3 pb, float h) {
+    float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
+    int warpCount = int(flame.waveParams.y);
+    if (amp == 0.0 || warpCount == 0) {
+        return pb;
+    }
+
+    // M: warp space (same chain as flameWaveWarpOffset)
+    vec3 z = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
+    float strength = amp * FLAME_WAVE_SHEAR_STRENGTH_SCALE;
+
+    // Sequential shear: each mode updates z, and the next mode's angle uses the updated z
+    int base = int(flame.waveParams.x);
+    for (int m = 0; m < warpCount; ++m) {
+        vec4 waveVector = flame.waveModes[2 * (base + m)];
+        vec4 direction = flame.waveModes[2 * (base + m) + 1];
+        float angle = dot(waveVector.xyz, z) + direction.x;
+        z += direction.yzw * (strength * waveVector.w * cos(angle));
+    }
+
+    // M^-1: back to physical space
+    return flameAnisoExpand(z / flame.styleParams0.y + flameNoiseAdvect() / flame.styleParams0.y, 0.35);
+}
+
+// Flow-map warp rate: same shear composition as flameWaveFlowWarp but also
+// accumulates the Jacobian-vector product on v. z is updated identically to
+// flameWaveFlowWarp; v starts as the linear part of M^-1 applied to dir and is
+// updated by v += curlDir * (-strength * a * sin(angle)) * dot(k, v) each step.
+// Returns the final v transformed by the linear part of M^-1 (no translation).
+vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
+    float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
+    int warpCount = int(flame.waveParams.y);
+    if (amp == 0.0 || warpCount == 0) {
+        warpedPoint = pb;
+        return dir;
+    }
+
+    // M: warp space (same chain as flameWaveFlowWarp)
+    vec3 z = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
+    // v starts as dir transformed by linear part of M^-1 (no translation for a direction vector)
+    vec3 v = flameAnisoCompress(dir, 0.35) * flame.styleParams0.y;
+    float strength = amp * FLAME_WAVE_SHEAR_STRENGTH_SCALE;
+
+    // Sequential shear: each mode updates both z and v
+    int base = int(flame.waveParams.x);
+    for (int m = 0; m < warpCount; ++m) {
+        vec4 waveVector = flame.waveModes[2 * (base + m)];
+        vec4 direction = flame.waveModes[2 * (base + m) + 1];
+        float angle = dot(waveVector.xyz, z) + direction.x;
+        float shearValue = strength * waveVector.w * cos(angle);
+        float fPrime = -strength * waveVector.w * sin(angle);
+        vec3 curlDir = direction.yzw;
+        z += curlDir * shearValue;
+        v += curlDir * (fPrime * dot(waveVector.xyz, v));
+    }
+
+    // M^-1: back to physical space
+    warpedPoint = flameAnisoExpand(z / flame.styleParams0.y + flameNoiseAdvect() / flame.styleParams0.y, 0.35);
+    // Return v transformed by linear part of M^-1 (no translation for a direction vector)
+    return flameAnisoExpand(v / flame.styleParams0.y, 0.35);
+}
+
 // Internal helper: compute the warped coordinate q from world position p and height h.
 // This is the single source of truth for the domain-warp chain:
 //   bendOffset -> pb -> advect -> aniso -> wp -> w -> q
@@ -188,7 +281,7 @@ vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
     // Wave basis: the fbm domain warp (3 fbm3 per point) is replaced by the
     // analytic mode-sum warp below — same coordinate chain, no lattice.
     if (flameWaveModelActive()) {
-        return pb + flameWaveWarpOffset(pb, h);
+        return flameWaveFlowWarp(pb, h);
     }
 
     // Domain warp with upward advection
@@ -239,14 +332,16 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
 // Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_noise).
 float flameWaveNoiseSum(vec3 w) {
     float eddyTime = flame.noiseScrollSpeed * flame.time;
-    float sum = 0.4375;
+    float z = 0.0;
     int count = int(flame.waveParams.x);
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
-        sum += waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        z += waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
     }
-    return sum;
+    float invScale = flame.waveParams.z;
+    float amp = flame.waveParams.w;
+    return invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
 }
 
 // Biweight kernel sum Σ aᵢ(1-|p-xᵢ|²/rᵢ²)₊². Mirrored in
