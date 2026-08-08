@@ -77,6 +77,15 @@ vec2 flameBendOffsetAt(float h) {
 // waveCfParams.y = shear layer count; layers sit at slot FLAME_WAVE_CF_SHEAR_BASE.
 // Mirrored in thyllore-render-core/src/flame_wave.rs (WaveCfContext/WaveCfSample).
 const float FLAME_WAVE_CF_CAP = 2.0;
+
+// Fixed slot layout of waveModes (mirrors flame_wave.rs WAVE_MODE_COUNT /
+// WAVE_WARP_MODE_COUNT): erosion region first, then warp, then detail.
+// waveParams.x is the TRACKED erosion mode count (5.1 probabilistic
+// reduction), not the region size, so the bases are compile-time constants.
+const int FLAME_WAVE_EROSION_SLOTS = 96;
+const int FLAME_WAVE_WARP_BASE = FLAME_WAVE_EROSION_SLOTS;
+const int FLAME_WAVE_WARP_COUNT = 16;
+const int FLAME_WAVE_DETAIL_BASE = FLAME_WAVE_WARP_BASE + FLAME_WAVE_WARP_COUNT;
 const float FLAME_WAVE_CF_PSI_BOUND = 11.313708;
 const int FLAME_WAVE_CF_CHEB_COEFFS = 21;
 const int FLAME_WAVE_CF_SHEAR_BASE = 176;
@@ -94,8 +103,8 @@ void flameWaveCfPsiVectors(
     ampDisp = flame.styleParams0.x * mix(0.15, 1.0, h);
     vec3 m0 = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
     vec3 dm0 = flameAnisoCompress(dir, 0.35) * flame.styleParams0.y;
-    int base = int(flame.waveParams.x);
-    int count = int(flame.waveParams.y);
+    int base = FLAME_WAVE_WARP_BASE;
+    int count = FLAME_WAVE_WARP_COUNT;
     vec3 v = vec3(0.0);
     vec3 vdot = vec3(0.0);
     for (int j = 0; j < count; ++j) {
@@ -115,7 +124,7 @@ void flameWaveCfPsiVectors(
 void flameWaveCfLoadCheb(
     out float chebSin[FLAME_WAVE_CF_CHEB_COEFFS],
     out float chebCos[FLAME_WAVE_CF_CHEB_COEFFS]) {
-    int base = int(flame.waveParams.x) + int(flame.waveParams.y);
+    int base = FLAME_WAVE_DETAIL_BASE;
     for (int i = 0; i < FLAME_WAVE_CF_CHEB_COEFFS; ++i) {
         vec4 wavePhase = flame.waveModes[2 * (base + i) + 1];
         chebSin[i] = wavePhase.z;
@@ -165,7 +174,7 @@ const int FLAME_WAVE_DETAIL_MODE_COUNT = 64;
 // boundary displacement. Normalized to the same distribution as the
 // expression it replaces: fbm3(p) * (2/0.875) - 1, mean 0, std 0.2422.
 float flameDetailNoise(vec3 p) {
-    int base = int(flame.waveParams.x) + int(flame.waveParams.y);
+    int base = FLAME_WAVE_DETAIL_BASE;
     float z = 0.0;
     for (int n = 0; n < FLAME_WAVE_DETAIL_MODE_COUNT; ++n) {
         vec4 waveVector = flame.waveModes[2 * (base + n)];
@@ -260,16 +269,16 @@ float flameErodedArgument(float dSmooth, float erosion) {
 // billowing shear of the flame look lives in this nonlinear composition — a
 // purely spectral anisotropy of the erosion modes cannot reproduce it.
 // Warp modes sit in the waveModes pairs after the erosion modes
-// (waveParams.x = erosion count, waveParams.y = warp count).
+// (bases fixed by the slot-layout constants above).
 // Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_warp).
 vec3 flameWaveWarpOffset(vec3 pb, float h) {
     float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
-    int warpCount = int(flame.waveParams.y);
+    int warpCount = FLAME_WAVE_WARP_COUNT;
     if (amp == 0.0 || warpCount == 0) {
         return vec3(0.0);
     }
     vec3 wp = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
-    int base = int(flame.waveParams.x);
+    int base = FLAME_WAVE_WARP_BASE;
     vec3 displacement = vec3(0.0);
     for (int m = 0; m < warpCount; ++m) {
         vec4 waveVector = flame.waveModes[2 * (base + m)];
@@ -289,7 +298,7 @@ const float FLAME_WAVE_SHEAR_STRENGTH_SCALE = 0.96;
 vec3 flameWaveFlowWarp(vec3 pb, float h) {
     float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
     bool cf = flameWaveCfActive();
-    int warpCount = cf ? int(flame.waveCfParams.y) : int(flame.waveParams.y);
+    int warpCount = cf ? int(flame.waveCfParams.y) : FLAME_WAVE_WARP_COUNT;
     if (amp == 0.0 || warpCount == 0) {
         return pb;
     }
@@ -299,7 +308,7 @@ vec3 flameWaveFlowWarp(vec3 pb, float h) {
     float strength = amp * FLAME_WAVE_SHEAR_STRENGTH_SCALE;
 
     // Sequential shear: each mode updates z, and the next mode's angle uses the updated z
-    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : int(flame.waveParams.x);
+    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
     for (int m = 0; m < warpCount; ++m) {
         vec4 waveVector = flame.waveModes[2 * (base + m)];
         vec4 direction = flame.waveModes[2 * (base + m) + 1];
@@ -319,7 +328,7 @@ vec3 flameWaveFlowWarp(vec3 pb, float h) {
 vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
     float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
     bool cf = flameWaveCfActive();
-    int warpCount = cf ? int(flame.waveCfParams.y) : int(flame.waveParams.y);
+    int warpCount = cf ? int(flame.waveCfParams.y) : FLAME_WAVE_WARP_COUNT;
     if (amp == 0.0 || warpCount == 0) {
         warpedPoint = pb;
         return dir;
@@ -332,7 +341,7 @@ vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
     float strength = amp * FLAME_WAVE_SHEAR_STRENGTH_SCALE;
 
     // Sequential shear: each mode updates both z and v
-    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : int(flame.waveParams.x);
+    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
     for (int m = 0; m < warpCount; ++m) {
         vec4 waveVector = flame.waveModes[2 * (base + m)];
         vec4 direction = flame.waveModes[2 * (base + m) + 1];

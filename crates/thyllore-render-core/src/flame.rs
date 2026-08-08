@@ -29,6 +29,20 @@ fn read_env_wave_tanh() -> f32 {
 }
 
 static WAVE_ENV_MU_ENV: OnceLock<f32> = OnceLock::new();
+static WAVE_TRACK_ENV: OnceLock<usize> = OnceLock::new();
+
+/// Tracked erosion mode count (5.1 probabilistic reduction): modes are sorted
+/// by |k| ascending and only the first `track` are evaluated per node; the
+/// skipped modes' variance enters the erosion response as blur instead.
+fn read_env_wave_track() -> usize {
+    *WAVE_TRACK_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_TRACK")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(crate::flame_wave::WAVE_MODE_COUNT)
+            .clamp(1, crate::flame_wave::WAVE_MODE_COUNT)
+    })
+}
 
 fn read_env_wave_env_mu() -> f32 {
     *WAVE_ENV_MU_ENV.get_or_init(|| {
@@ -549,6 +563,7 @@ fn build_wave_cf_params() -> [f32; 4] {
 type WaveUboFields = (
     [f32; 4],
     [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
+    [f32; 2],
 );
 
 fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
@@ -563,6 +578,27 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     let k_ratio = read_env_wave_k_ratio();
     let mut erosion_modes = generate_wave_modes_with_ratio(k_ratio);
     crate::flame_wave::apply_wave_envelope(&mut erosion_modes, read_env_wave_env_mu());
+
+    // 5.1 probabilistic reduction: sort by |k| ascending so the tracked prefix
+    // is the low-wavenumber part of the spectrum; aggregate the skipped modes'
+    // variance per octave class (the high class rides the shared low-octave
+    // envelope, whose coefficient is uniform across modes).
+    let k_mag = |m: &crate::flame_wave::WaveMode| {
+        (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
+    };
+    erosion_modes.sort_by(|a, b| k_mag(a).total_cmp(&k_mag(b)));
+    let tracked = read_env_wave_track();
+    let env_coeff = erosion_modes
+        .iter()
+        .map(|m| m.env_coeff)
+        .find(|c| *c != 0.0)
+        .unwrap_or(0.0);
+    let mut skipped_power = [0.0f32; 2];
+    for mode in erosion_modes.iter().skip(tracked) {
+        let power = 0.5 * mode.amplitude * mode.amplitude;
+        skipped_power[usize::from(mode.env_coeff != 0.0)] += power;
+    }
+
     let warp_modes = generate_wave_warp_modes();
     let cf_active = read_env_wave_cf();
     let depth_scale = if cf_active {
@@ -621,8 +657,9 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         wave_shaping_params(tanh_scale)
     };
     (
-        [WAVE_MODE_COUNT as f32, WAVE_WARP_MODE_COUNT as f32, inverse_scale, amplitude],
+        [tracked as f32, env_coeff, inverse_scale, amplitude],
         packed,
+        skipped_power,
     )
 }
 
@@ -822,7 +859,12 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.sigma_dispersion,
         ],
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
-        wave_cf_params: build_wave_cf_params(),
+        wave_cf_params: {
+            let mut params = build_wave_cf_params();
+            params[2] = wave_fields.2[0];
+            params[3] = wave_fields.2[1];
+            params
+        },
         boundary_params: [
             effect.boundary_amp,
             effect.boundary_freq,
@@ -1096,7 +1138,12 @@ pub fn build_flame_ubo_with_trail(
             effect.sigma_dispersion,
         ],
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
-        wave_cf_params: build_wave_cf_params(),
+        wave_cf_params: {
+            let mut params = build_wave_cf_params();
+            params[2] = wave_fields.2[0];
+            params[3] = wave_fields.2[1];
+            params
+        },
         boundary_params: [
             effect.boundary_amp,
             effect.boundary_freq,

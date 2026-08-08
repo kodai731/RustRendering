@@ -336,6 +336,36 @@ pub fn evaluate_wave_noise_local_lowpass_cf(
     eddy_time: f32,
     cf: Option<&WaveCfSample>,
 ) -> (f32, f32) {
+    evaluate_wave_noise_local_lowpass_reduced(
+        modes,
+        w,
+        rate,
+        node_spacing,
+        eddy_time,
+        cf,
+        [0.0; 2],
+        0.0,
+    )
+}
+
+/// Like [`evaluate_wave_noise_local_lowpass_cf`] with the 5.1 probabilistic
+/// reduction: `modes` is the tracked (|k|-ascending) prefix and
+/// `skipped_power` = [low, high] octave-class variance of the untracked
+/// suffix, which enters the response as blur. The skipped high-octave power
+/// rides the same low-octave envelope as the tracked high modes (their
+/// uniform `env_coeff`). Mirror of the waveCfParams.zw / waveParams.y path in
+/// flameWaveNodeArgumentLocal.
+#[allow(clippy::too_many_arguments)]
+pub fn evaluate_wave_noise_local_lowpass_reduced(
+    modes: &[WaveMode],
+    w: [f32; 3],
+    rate: [f32; 3],
+    node_spacing: f32,
+    eddy_time: f32,
+    cf: Option<&WaveCfSample>,
+    skipped_power: [f32; 2],
+    skipped_env_coeff: f32,
+) -> (f32, f32) {
     let carrier = |index: usize, mode: &WaveMode| {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
@@ -366,6 +396,10 @@ pub fn evaluate_wave_noise_local_lowpass_cf(
         unresolved_power +=
             envelope * envelope * 0.5 * mode.amplitude * mode.amplitude * (1.0 - weight * weight);
     }
+    unresolved_power += skipped_power[0];
+    let env_skip = 1.0 + skipped_env_coeff * z_low;
+    unresolved_power += skipped_power[1] * env_skip * env_skip;
+
     let (inverse_scale, amplitude) = get_wave_shaping_params_cached();
     let noise = WAVE_NOISE_MEAN + amplitude * (z * inverse_scale).tanh();
     let sigma_noise = unresolved_power.sqrt();
@@ -1433,4 +1467,59 @@ mod tests {
         );
     }
 
+
+    #[test]
+    fn test_reduced_lowpass_sigma_accounting() {
+        // The skipped-mode variance must enter sigma^2 additively: exactly
+        // P_low + P_high for decoupled classes, and within the low-octave
+        // envelope bounds (1 +- c * |z_low|_max)^2 when coupled.
+        let mut modes = generate_wave_modes();
+        apply_wave_envelope(&mut modes, 0.6);
+        modes.sort_by(|a, b| {
+            let mag = |m: &WaveMode| {
+                (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
+            };
+            mag(a).total_cmp(&mag(b))
+        });
+        let env_coeff = modes
+            .iter()
+            .map(|m| m.env_coeff)
+            .find(|c| *c != 0.0)
+            .unwrap_or(0.0);
+        assert!(env_coeff > 0.0, "envelope coefficient present");
+        let tracked = 24usize;
+        let w = [0.31, 0.52, -0.17];
+        let rate = [3.0, -2.0, 4.0];
+        let dt = 0.02;
+        let base = evaluate_wave_noise_local_lowpass_reduced(
+            &modes[..tracked], w, rate, dt, 0.0, None, [0.0; 2], 0.0,
+        );
+
+        let p_low = 0.013f32;
+        let with_low = evaluate_wave_noise_local_lowpass_reduced(
+            &modes[..tracked], w, rate, dt, 0.0, None, [p_low, 0.0], env_coeff,
+        );
+        assert!(
+            (with_low.1 * with_low.1 - base.1 * base.1 - p_low).abs() < 1e-6,
+            "low-class power is additive in sigma^2"
+        );
+        assert!((with_low.0 - base.0).abs() < 1e-7, "noise value untouched");
+
+        let p_high = 0.021f32;
+        let with_high = evaluate_wave_noise_local_lowpass_reduced(
+            &modes[..tracked], w, rate, dt, 0.0, None, [0.0, p_high], env_coeff,
+        );
+        let delta = with_high.1 * with_high.1 - base.1 * base.1;
+        let z_low_bound: f32 = modes[..tracked]
+            .iter()
+            .filter(|m| m.env_coeff == 0.0)
+            .map(|m| m.amplitude.abs())
+            .sum();
+        let lo = p_high * (1.0 - env_coeff * z_low_bound).max(0.0).powi(2);
+        let hi = p_high * (1.0 + env_coeff * z_low_bound).powi(2);
+        assert!(
+            delta >= lo - 1e-6 && delta <= hi + 1e-6,
+            "high-class power rides the envelope: delta {delta} not in [{lo}, {hi}]"
+        );
+    }
 }

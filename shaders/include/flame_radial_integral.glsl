@@ -176,7 +176,6 @@ const int FLAME_WAVE_SEGMENTS = FLAME_WAVE_SEGMENTS_OVERRIDE;
 #else
 const int FLAME_WAVE_SEGMENTS = 64;
 #endif
-const int FLAME_WAVE_MODE_SLOTS = 178;
 // Warped noise coordinate of the wave basis: wind bend removed, the analytic
 // mode-sum warp applied, then the same aniso/frequency/advect chain the fbm
 // erosion samples — exactly flameNoiseWarpedCoordinate's wave branch followed
@@ -287,6 +286,14 @@ float flameWaveNodeArgumentLocal(
         unresolvedPower += envelope * envelope * 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
     }
 
+    // 5.1 probabilistic reduction: erosion modes past waveParams.x (sorted by
+    // |k| ascending on the CPU) are not tracked; their full variance enters the
+    // response as blur. The skipped high-octave power rides the same low-octave
+    // envelope as the tracked high modes (uniform coefficient in waveParams.y).
+    unresolvedPower += flame.waveCfParams.z;
+    float envSkip = 1.0 + flame.waveParams.y * zLow;
+    unresolvedPower += flame.waveCfParams.w * envSkip * envSkip;
+
     sigmaNoise = sqrt(unresolvedPower);
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
@@ -339,7 +346,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
         * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
 
     float eddyTime = flame.noiseScrollSpeed * flame.time;
-    int count = min(int(flame.waveParams.x), FLAME_WAVE_MODE_SLOTS);
+    int count = min(int(flame.waveParams.x), FLAME_WAVE_EROSION_SLOTS);
 
     // Streaming node walk: density first, the mode sum only at nodes touching
     // support (empty segments cost no mode evaluation), one node carried
