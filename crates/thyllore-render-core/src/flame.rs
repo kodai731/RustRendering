@@ -367,7 +367,7 @@ impl Default for FlameEffect {
             rte_bands: 4.0,
             sigma_dispersion: 1.0,
             edge_temperature_blend: 0.0,
-            turbulence_model: 0.0,
+            turbulence_model: 2.0,
             kernel_blob_size: 0.15,
             kernel_blob_amp: 1.0,
             boundary_amp: 0.2,
