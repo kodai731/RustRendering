@@ -234,7 +234,8 @@ pub fn probe_flame_wall(effect: &FlameEffect, view: &WallProbeView) -> WallProbe
                 let cells_per_segment = segment_dt * dW_magnitude / (2.0 * std::f32::consts::PI);
 
                 // unresolved_fraction: wave_ray_attenuation sigma / WAVE_NOISE_STD
-                let modes = crate::flame_wave::generate_wave_modes();
+                let mut modes = crate::flame_wave::generate_wave_modes();
+                crate::flame_wave::apply_wave_envelope(&mut modes, crate::flame_wave::WAVE_ENV_MU);
                 let rates: [[f32; 3]; 3] = [[dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z]];
                 let (_weights, sigma) =
                     crate::flame_wave::wave_ray_attenuation(&modes, &rates, segment_dt);

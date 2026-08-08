@@ -1052,16 +1052,35 @@ float flameWaveNodeArgumentLocal(
     vec3 w = flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect();
     vec3 rate = flameAnisoCompress(rateRaw, flame.temporalData.z) * flame.noiseFrequency;
 
-    float z = 0.0;
+    // Low-octave pass first (wavePhase.z == 0): the resolved low sum drives the
+    // envelope 1 + coeff * zLow of the higher octaves (cross-scale coupling).
+    float zLow = 0.0;
     float unresolvedPower = 0.0;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
+        if (wavePhase.z != 0.0) {
+            continue;
+        }
         float beta = dot(waveVector.xyz, rate) * dt / 3.14159265;
         float b2 = beta * beta;
         float weight = exp(-b2 * b2);
-        z += weight * waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        zLow += weight * waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
         unresolvedPower += 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
+    }
+    float z = zLow;
+    for (int n = 0; n < count; ++n) {
+        vec4 waveVector = flame.waveModes[2 * n];
+        vec4 wavePhase = flame.waveModes[2 * n + 1];
+        if (wavePhase.z == 0.0) {
+            continue;
+        }
+        float beta = dot(waveVector.xyz, rate) * dt / 3.14159265;
+        float b2 = beta * beta;
+        float weight = exp(-b2 * b2);
+        float envelope = 1.0 + wavePhase.z * zLow;
+        z += envelope * weight * waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        unresolvedPower += envelope * envelope * 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
     }
 
     sigmaNoise = sqrt(unresolvedPower);

@@ -28,6 +28,17 @@ fn read_env_wave_tanh() -> f32 {
     })
 }
 
+static WAVE_ENV_MU_ENV: OnceLock<f32> = OnceLock::new();
+
+fn read_env_wave_env_mu() -> f32 {
+    *WAVE_ENV_MU_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_ENV_MU")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(crate::flame_wave::WAVE_ENV_MU)
+    })
+}
+
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
 pub const HEIGHT_COEFFICIENT_COUNT: usize = 8;
 pub const RADIAL_COEFFICIENT_COUNT: usize = 8;
@@ -529,9 +540,11 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         return ([0.0; 4], packed);
     }
     let k_ratio = read_env_wave_k_ratio();
-    for (i, mode) in generate_wave_modes_with_ratio(k_ratio).iter().enumerate() {
+    let mut erosion_modes = generate_wave_modes_with_ratio(k_ratio);
+    crate::flame_wave::apply_wave_envelope(&mut erosion_modes, read_env_wave_env_mu());
+    for (i, mode) in erosion_modes.iter().enumerate() {
         packed[2 * i] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
-        packed[2 * i + 1] = [mode.phase, mode.eddy_rate, 0.0, 0.0];
+        packed[2 * i + 1] = [mode.phase, mode.eddy_rate, mode.env_coeff, 0.0];
     }
     for (i, mode) in generate_wave_warp_modes().iter().enumerate() {
         let slot = WAVE_MODE_COUNT + i;

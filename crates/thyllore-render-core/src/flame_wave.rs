@@ -57,6 +57,11 @@ pub struct WaveMode {
     /// Eddy-turnover angular rate |k_hat|^(2/3) with alternating sign; the
     /// shader multiplies by noise_scroll_speed * time.
     pub eddy_rate: f32,
+    /// Low-octave envelope coefficient: 0 for bottom-octave (and detail/warp)
+    /// modes, `mu / sigma_low` for higher octaves. A high mode's contribution
+    /// is multiplied by `1 + env_coeff * z_low`, tying fine detail to the
+    /// coarse structure (cross-scale coupling the independent phases lack).
+    pub env_coeff: f32,
 }
 
 /// Deterministic mode table in normalized units. Every call returns the same
@@ -64,6 +69,47 @@ pub struct WaveMode {
 /// through the shared warped coordinate and the erosion mapping instead.
 pub fn generate_wave_modes() -> [WaveMode; WAVE_MODE_COUNT] {
     generate_wave_modes_with_ratio(WAVE_K_RATIO)
+}
+
+/// Envelope modulation strength: high-octave amplitudes ride `1 + mu * z_low/sigma_low`
+/// (multiplicative cascade driven by the field's own bottom octave). Chosen from
+/// the 2D study (geometric_replacement_plan.md「fmT を fbm の層構造に近づける」):
+/// mu 0.6 lifts coh15 0.574 -> 0.634 and skew +0.07 -> +0.18 toward fbm.
+pub const WAVE_ENV_MU: f32 = 0.6;
+
+/// Applies the low-octave envelope to an erosion mode table: marks modes above
+/// the bottom octave with `env_coeff = mu / sigma_low` and renormalizes all
+/// amplitudes so the total variance stays WAVE_NOISE_STD^2
+/// (Var[z_low + (1+mu*z_low/sigma_low)*z_high] = sigma_low^2 + (1+mu^2)*sigma_high^2
+/// for independent phases). `mu <= 0` leaves the table untouched.
+pub fn apply_wave_envelope(modes: &mut [WaveMode], mu: f32) {
+    if mu <= 0.0 {
+        return;
+    }
+    let split = 2.0 * (2.0 * std::f64::consts::PI) as f32;
+    let mut power_low = 0.0f64;
+    let mut power_high = 0.0f64;
+    for mode in modes.iter() {
+        let k_mag = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2]).sqrt();
+        let power = 0.5 * (mode.amplitude as f64) * (mode.amplitude as f64);
+        if k_mag < split {
+            power_low += power;
+        } else {
+            power_high += power;
+        }
+    }
+    if power_low <= 0.0 || power_high <= 0.0 {
+        return;
+    }
+    let scale = (WAVE_NOISE_STD as f64)
+        / (power_low + (1.0 + (mu as f64) * (mu as f64)) * power_high).sqrt();
+    let sigma_low_scaled = power_low.sqrt() * scale;
+    let coeff = (mu as f64 / sigma_low_scaled) as f32;
+    for mode in modes.iter_mut() {
+        mode.amplitude *= scale as f32;
+        let k_mag = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2]).sqrt();
+        mode.env_coeff = if k_mag < split { 0.0 } else { coeff };
+    }
 }
 
 /// Like [`generate_wave_modes`] but with an explicit `k_ratio` (the upper bound of
@@ -391,14 +437,23 @@ pub fn evaluate_wave_flow_warp_with_rate(
 /// mean-matched to fbm3 so `flameNoiseErosionFromValue` keeps its calibration.
 /// `eddy_time` is `noise_scroll_speed * time`.
 pub fn evaluate_wave_noise(modes: &[WaveMode], w: [f32; 3], eddy_time: f32) -> f32 {
-    let mut z = 0.0f32;
-    for mode in modes {
+    let mut z_low = 0.0f32;
+    for mode in modes.iter().filter(|m| m.env_coeff == 0.0) {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
             + mode.k[2] * w[2]
             + mode.phase
             + mode.eddy_rate * eddy_time;
-        z += mode.amplitude * angle.sin();
+        z_low += mode.amplitude * angle.sin();
+    }
+    let mut z = z_low;
+    for mode in modes.iter().filter(|m| m.env_coeff != 0.0) {
+        let angle = mode.k[0] * w[0]
+            + mode.k[1] * w[1]
+            + mode.k[2] * w[2]
+            + mode.phase
+            + mode.eddy_rate * eddy_time;
+        z += (1.0 + mode.env_coeff * z_low) * mode.amplitude * angle.sin();
     }
     let (inverse_scale, amplitude) = get_wave_shaping_params_cached();
     WAVE_NOISE_MEAN + amplitude * (z * inverse_scale).tanh()
@@ -470,9 +525,9 @@ pub fn evaluate_wave_noise_local_lowpass(
     node_spacing: f32,
     eddy_time: f32,
 ) -> (f32, f32) {
-    let mut z = 0.0f32;
+    let mut z_low = 0.0f32;
     let mut unresolved_power = 0.0f32;
-    for mode in modes {
+    for mode in modes.iter().filter(|m| m.env_coeff == 0.0) {
         let beta = mode.k[0] * rate[0] + mode.k[1] * rate[1] + mode.k[2] * rate[2];
         let x = beta * node_spacing / std::f32::consts::PI;
         let weight = (-(x * x) * (x * x)).exp();
@@ -481,8 +536,23 @@ pub fn evaluate_wave_noise_local_lowpass(
             + mode.k[2] * w[2]
             + mode.phase
             + mode.eddy_rate * eddy_time;
-        z += weight * mode.amplitude * angle.sin();
+        z_low += weight * mode.amplitude * angle.sin();
         unresolved_power += 0.5 * mode.amplitude * mode.amplitude * (1.0 - weight * weight);
+    }
+    let mut z = z_low;
+    for mode in modes.iter().filter(|m| m.env_coeff != 0.0) {
+        let beta = mode.k[0] * rate[0] + mode.k[1] * rate[1] + mode.k[2] * rate[2];
+        let x = beta * node_spacing / std::f32::consts::PI;
+        let weight = (-(x * x) * (x * x)).exp();
+        let angle = mode.k[0] * w[0]
+            + mode.k[1] * w[1]
+            + mode.k[2] * w[2]
+            + mode.phase
+            + mode.eddy_rate * eddy_time;
+        let envelope = 1.0 + mode.env_coeff * z_low;
+        z += envelope * weight * mode.amplitude * angle.sin();
+        unresolved_power +=
+            envelope * envelope * 0.5 * mode.amplitude * mode.amplitude * (1.0 - weight * weight);
     }
     let (inverse_scale, amplitude) = get_wave_shaping_params_cached();
     let noise = WAVE_NOISE_MEAN + amplitude * (z * inverse_scale).tanh();
@@ -1318,6 +1388,49 @@ mod tests {
             expected_std,
             lower,
             upper
+        );
+    }
+
+    #[test]
+    fn test_apply_wave_envelope_preserves_variance_and_marks_octaves() {
+        let mut modes = generate_wave_modes();
+        apply_wave_envelope(&mut modes, WAVE_ENV_MU);
+
+        let split = 2.0 * std::f32::consts::TAU;
+        let mut power_low = 0.0f64;
+        let mut power_high = 0.0f64;
+        let mut high_count = 0;
+        for mode in &modes {
+            let k_mag =
+                (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2]).sqrt();
+            let power = 0.5 * (mode.amplitude as f64) * (mode.amplitude as f64);
+            if k_mag < split {
+                assert_eq!(mode.env_coeff, 0.0);
+                power_low += power;
+            } else {
+                assert!(mode.env_coeff > 0.0);
+                high_count += 1;
+                power_high += power;
+            }
+        }
+        assert!(high_count > 0 && high_count < modes.len());
+
+        let mu = WAVE_ENV_MU as f64;
+        let total_std = (power_low + (1.0 + mu * mu) * power_high).sqrt();
+        assert!(
+            (total_std - WAVE_NOISE_STD as f64).abs() < 1e-4,
+            "effective std {} != {}",
+            total_std,
+            WAVE_NOISE_STD
+        );
+
+        let coeff = modes.iter().find(|m| m.env_coeff > 0.0).unwrap().env_coeff as f64;
+        let expected = mu / power_low.sqrt();
+        assert!(
+            ((coeff - expected) / expected).abs() < 1e-4,
+            "env_coeff {} != mu/sigma_low {}",
+            coeff,
+            expected
         );
     }
 }

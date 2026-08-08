@@ -332,12 +332,27 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
 // Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_noise).
 float flameWaveNoiseSum(vec3 w) {
     float eddyTime = flame.noiseScrollSpeed * flame.time;
-    float z = 0.0;
     int count = int(flame.waveParams.x);
+    // Low-octave pass first (wavePhase.z == 0): its sum drives the envelope
+    // 1 + coeff * zLow that ties the higher octaves to the coarse structure.
+    float zLow = 0.0;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
-        z += waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        if (wavePhase.z != 0.0) {
+            continue;
+        }
+        zLow += waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+    }
+    float z = zLow;
+    for (int n = 0; n < count; ++n) {
+        vec4 waveVector = flame.waveModes[2 * n];
+        vec4 wavePhase = flame.waveModes[2 * n + 1];
+        if (wavePhase.z == 0.0) {
+            continue;
+        }
+        z += (1.0 + wavePhase.z * zLow) * waveVector.w
+            * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
     }
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
