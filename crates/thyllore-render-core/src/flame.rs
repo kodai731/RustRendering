@@ -4,7 +4,7 @@ use crate::flame_trail::{flame_trail_fade_weight, FlameTrailSample, FlameTrailSt
 use cgmath::{Deg, InnerSpace, Matrix3, Matrix4, Quaternion, Vector2, Vector3, Vector4};
 use thyllore_math_core::{
     evaluate_chebyshev, fit_chebyshev, fit_erf_response, integrate_chebyshev,
-    pack_coefficients_vec4, ChebyshevSeries,
+    pack_coefficients_vec4,
 };
 
 static WAVE_K_RATIO_ENV: OnceLock<f32> = OnceLock::new();
@@ -93,10 +93,6 @@ fn noise_aniso_compress(effect: &FlameEffect, v: [f32; 3]) -> [f32; 3] {
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
 pub const HEIGHT_COEFFICIENT_COUNT: usize = 8;
 pub const RADIAL_COEFFICIENT_COUNT: usize = 8;
-/// Field-fixed envelope knot slots in the UBO; unused slots hold the sentinel.
-pub const ENVELOPE_KNOT_COUNT: usize = 8;
-/// Sentinel above the h domain, terminating the sorted knot list.
-pub const ENVELOPE_KNOT_SENTINEL: f32 = 9.0;
 
 pub struct FlameProfile {
     pub sigma_t: f32,
@@ -358,10 +354,6 @@ pub struct FlameEffect {
     pub sigma_dispersion: f32,
     /// RTE 帯色を外縁 (r̂≈1) で tip 色へ寄せる薄い項。0=現行
     pub edge_temperature_blend: f32,
-    /// erosion のノイズ基底。0=fbm (既定)、1=kernel (blob 和)
-    pub turbulence_model: f32,
-    pub kernel_blob_size: f32,
-    pub kernel_blob_amp: f32,
     /// 境界変位 amp。0 = off (変位前と bit 一致)
     pub boundary_amp: f32,
     pub boundary_freq: f32,
@@ -429,9 +421,6 @@ impl Default for FlameEffect {
             rte_bands: 4.0,
             sigma_dispersion: 1.0,
             edge_temperature_blend: 0.0,
-            turbulence_model: 2.0,
-            kernel_blob_size: 0.15,
-            kernel_blob_amp: 1.0,
             boundary_amp: 0.2,
             boundary_freq: 1.6,
             boundary_speed: 0.8,
@@ -542,19 +531,10 @@ pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
         * Matrix4::from_translation(-effect.position)
 }
 
-type KernelUboFields = (
-    [f32; 4],
-    [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
-);
-
-fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
-    use crate::flame_kernel::{generate_kernel_blobs, KernelBlobParams, KERNEL_BLOB_COUNT};
-
-    // kernelParams.y/z carry the closed-form wave switch (unused by the kernel
-    // basis): y = cf active, z = cf shear layer count.
-    let cf_active = effect.turbulence_model >= 1.5 && read_env_wave_cf();
-    let params = [
-        effect.turbulence_model,
+/// waveCfParams: x = closed-form variant active, y = shear layer count.
+fn build_wave_cf_params() -> [f32; 4] {
+    let cf_active = read_env_wave_cf();
+    [
         if cf_active { 1.0 } else { 0.0 },
         if cf_active {
             read_env_wave_cf_layers() as f32
@@ -562,28 +542,8 @@ fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
             0.0
         },
         0.0,
-    ];
-    let mut packed = [[0.0f32; 4]; 2 * KERNEL_BLOB_COUNT];
-    if (0.5..1.5).contains(&effect.turbulence_model) {
-        let ring_major_norm = if effect.emitter_kind == 1 {
-            effect.ring_major_radius / flame_bounding_radius(effect)
-        } else {
-            0.0
-        };
-        let blobs = generate_kernel_blobs(&KernelBlobParams {
-            emitter_kind: effect.emitter_kind,
-            ring_major_norm,
-            blob_size: effect.kernel_blob_size,
-            blob_amp: effect.kernel_blob_amp,
-            rise_speed: effect.rise_speed,
-            time: effect.time,
-        });
-        for (i, blob) in blobs.iter().enumerate() {
-            packed[2 * i] = [blob.center[0], blob.center[1], blob.center[2], blob.radius];
-            packed[2 * i + 1] = [blob.amplitude, 0.0, 0.0, 0.0];
-        }
-    }
-    (params, packed)
+        0.0,
+    ]
 }
 
 type WaveUboFields = (
@@ -595,14 +555,11 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     use crate::flame_wave::{
         generate_wave_cf_shear_layers, generate_wave_detail_modes, generate_wave_modes_with_ratio,
         generate_wave_warp_modes, wave_cf_chebyshev_tables, wave_cf_depth_scale,
-        wave_shaping_params, WAVE_CF_CHEB_COEFFS, WAVE_CF_SHEAR_SLOT, WAVE_DETAIL_MODE_COUNT,
-        WAVE_MODE_COUNT, WAVE_MODE_SLOTS, WAVE_WARP_MODE_COUNT,
+        wave_shaping_params, WAVE_CF_CHEB_COEFFS, WAVE_CF_SHEAR_SLOT, WAVE_MODE_COUNT,
+        WAVE_MODE_SLOTS, WAVE_WARP_MODE_COUNT,
     };
 
     let mut packed = [[0.0f32; 4]; 2 * WAVE_MODE_SLOTS];
-    if effect.turbulence_model < 1.5 {
-        return ([0.0; 4], packed);
-    }
     let k_ratio = read_env_wave_k_ratio();
     let mut erosion_modes = generate_wave_modes_with_ratio(k_ratio);
     crate::flame_wave::apply_wave_envelope(&mut erosion_modes, read_env_wave_env_mu());
@@ -667,71 +624,6 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         [WAVE_MODE_COUNT as f32, WAVE_WARP_MODE_COUNT as f32, inverse_scale, amplitude],
         packed,
     )
-}
-
-/// Monomial coefficients (in u = 2h - 1) of the height envelope, packed for the UBO.
-pub fn height_envelope_monomial_slots(height_coefficients: &[[f32; 4]; 2]) -> [[f32; 4]; 2] {
-    let monomial = crate::flame_radial::height_envelope_monomial(height_coefficients);
-    let mut slots = [[0.0f32; 4]; 2];
-    for (i, &value) in monomial.iter().enumerate() {
-        slots[i / 4][i % 4] = value;
-    }
-    slots
-}
-
-/// Field-fixed occupancy knots: the h where the height envelope crosses edge_low
-/// and edge_high — the cliffs the threshold binarizes. The closed-form occupancy
-/// aligns its linearization nodes to these so no piece straddles a crossing;
-/// being properties of the field (not of the ray), they vary only with the bake
-/// and the ray-continuous displacement scale. Sorted ascending, sentinel-padded;
-/// when more crossings exist than slots, the steepest ones win.
-pub fn height_envelope_knots(
-    height_coefficients: &[[f32; 4]; 2],
-    edge_low: f32,
-    edge_high: f32,
-) -> [[f32; 4]; 2] {
-    let series = ChebyshevSeries::new(
-        height_coefficients.iter().flatten().copied().collect(),
-        (0.0, 1.0),
-    );
-    const SAMPLES: usize = 256;
-    let mut crossings: Vec<(f32, f32)> = Vec::new();
-    let mut previous = evaluate_chebyshev(&series, 0.0);
-    for i in 1..=SAMPLES {
-        let h = i as f32 / SAMPLES as f32;
-        let value = evaluate_chebyshev(&series, h);
-        for edge in [edge_low, edge_high] {
-            if (previous - edge) * (value - edge) < 0.0 {
-                let mut lo = (i - 1) as f32 / SAMPLES as f32;
-                let mut hi = h;
-                let low_sign = previous - edge;
-                for _ in 0..24 {
-                    let mid = 0.5 * (lo + hi);
-                    if (evaluate_chebyshev(&series, mid) - edge) * low_sign > 0.0 {
-                        lo = mid;
-                    } else {
-                        hi = mid;
-                    }
-                }
-                let root = 0.5 * (lo + hi);
-                let slope = (evaluate_chebyshev(&series, (root + 2e-3).min(1.0))
-                    - evaluate_chebyshev(&series, (root - 2e-3).max(0.0)))
-                    / 4e-3;
-                crossings.push((root, slope.abs()));
-            }
-        }
-        previous = value;
-    }
-    crossings.sort_by(|a, b| b.1.total_cmp(&a.1));
-    crossings.truncate(ENVELOPE_KNOT_COUNT);
-    let mut knots: Vec<f32> = crossings.into_iter().map(|(root, _)| root).collect();
-    knots.sort_by(f32::total_cmp);
-
-    let mut slots = [[ENVELOPE_KNOT_SENTINEL; 4]; 2];
-    for (i, &knot) in knots.iter().enumerate() {
-        slots[i / 4][i % 4] = knot;
-    }
-    slots
 }
 
 fn build_profile_params(effect: &FlameEffect) -> [f32; 4] {
@@ -852,7 +744,6 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
     } else {
         dir.normalize()
     };
-    let kernel_fields = build_kernel_ubo_fields(effect);
     let wave_fields = build_wave_ubo_fields(effect);
     FlameUBO {
         model: build_flame_model_matrix(effect),
@@ -931,8 +822,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.sigma_dispersion,
         ],
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
-        kernel_params: kernel_fields.0,
-        kernel_blobs: kernel_fields.1,
+        wave_cf_params: build_wave_cf_params(),
         boundary_params: [
             effect.boundary_amp,
             effect.boundary_freq,
@@ -943,12 +833,6 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         radius_coefficients: effect.coefficients.radius_scale,
         color_ramp: build_color_ramp(effect),
         profile_params: build_profile_params(effect),
-        height_monomial: height_envelope_monomial_slots(&effect.coefficients.height),
-        envelope_knots: height_envelope_knots(
-            &effect.coefficients.height,
-            effect.edge_low,
-            effect.edge_high,
-        ),
         wave_params: wave_fields.0,
         wave_modes: wave_fields.1,
     }
@@ -1134,7 +1018,6 @@ pub fn build_flame_ubo_with_trail(
         dir.normalize()
     };
 
-    let kernel_fields = build_kernel_ubo_fields(effect);
     let wave_fields = build_wave_ubo_fields(effect);
     FlameUBO {
         model,
@@ -1213,8 +1096,7 @@ pub fn build_flame_ubo_with_trail(
             effect.sigma_dispersion,
         ],
         erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
-        kernel_params: kernel_fields.0,
-        kernel_blobs: kernel_fields.1,
+        wave_cf_params: build_wave_cf_params(),
         boundary_params: [
             effect.boundary_amp,
             effect.boundary_freq,
@@ -1225,12 +1107,6 @@ pub fn build_flame_ubo_with_trail(
         radius_coefficients: effect.coefficients.radius_scale,
         color_ramp: build_color_ramp(effect),
         profile_params: build_profile_params(effect),
-        height_monomial: height_envelope_monomial_slots(&effect.coefficients.height),
-        envelope_knots: height_envelope_knots(
-            &effect.coefficients.height,
-            effect.edge_low,
-            effect.edge_high,
-        ),
         wave_params: wave_fields.0,
         wave_modes: wave_fields.1,
     }
@@ -1275,15 +1151,12 @@ pub struct FlameUBO {
     pub emitter_params: Vector4<f32>,
     pub contour_params: [f32; 4],
     pub erosion_response: [f32; 4],
-    pub kernel_params: [f32; 4],
-    pub kernel_blobs: [[f32; 4]; 2 * crate::flame_kernel::KERNEL_BLOB_COUNT],
+    pub wave_cf_params: [f32; 4],
     pub boundary_params: [f32; 4],
     pub near_fade_params: [f32; 4],
     pub radius_coefficients: [[f32; 4]; 2],
     pub color_ramp: [[f32; 4]; 8],
     pub profile_params: [f32; 4],
-    pub height_monomial: [[f32; 4]; 2],
-    pub envelope_knots: [[f32; 4]; 2],
     pub wave_params: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
 }
@@ -1587,7 +1460,7 @@ mod tests {
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 3072 + 16 + 16 + 32 + 128 + 16 + 32 + 32 + 16 + 5696
+            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 5696
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

@@ -71,20 +71,10 @@ vec2 flameBendOffsetAt(float h) {
     return flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
 }
 
-// Turbulence basis switch (kernelParams.x = turbulence_model):
-// 0 = fbm lattice, 1 = kernel blob sum, 2 = wave mode sum.
-bool flameKernelModelActive() {
-    return flame.kernelParams.x >= 0.5 && flame.kernelParams.x < 1.5;
-}
-
-bool flameWaveModelActive() {
-    return flame.kernelParams.x >= 1.5;
-}
-
 // Closed-form (family-T) wave variant: pseudo-FM carriers + at most two
 // single-frequency shear layers replacing the 16-shear transport
-// (geometric_replacement_plan.md「厳密閉形式化」). kernelParams.y = active flag,
-// kernelParams.z = shear layer count; layers sit at slot FLAME_WAVE_CF_SHEAR_BASE.
+// (geometric_replacement_plan.md「厳密閉形式化」). waveCfParams.x = active flag,
+// waveCfParams.y = shear layer count; layers sit at slot FLAME_WAVE_CF_SHEAR_BASE.
 // Mirrored in thyllore-render-core/src/flame_wave.rs (WaveCfContext/WaveCfSample).
 const float FLAME_WAVE_CF_CAP = 2.0;
 const float FLAME_WAVE_CF_PSI_BOUND = 11.313708;
@@ -92,7 +82,7 @@ const int FLAME_WAVE_CF_CHEB_COEFFS = 21;
 const int FLAME_WAVE_CF_SHEAR_BASE = 176;
 
 bool flameWaveCfActive() {
-    return flame.kernelParams.y > 0.5;
+    return flame.waveCfParams.x > 0.5;
 }
 
 // Modulator displacement field at the UNWARPED warp coordinate, pushed through
@@ -288,7 +278,7 @@ const float FLAME_WAVE_SHEAR_STRENGTH_SCALE = 0.96;
 vec3 flameWaveFlowWarp(vec3 pb, float h) {
     float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
     bool cf = flameWaveCfActive();
-    int warpCount = cf ? int(flame.kernelParams.z) : int(flame.waveParams.y);
+    int warpCount = cf ? int(flame.waveCfParams.y) : int(flame.waveParams.y);
     if (amp == 0.0 || warpCount == 0) {
         return pb;
     }
@@ -318,7 +308,7 @@ vec3 flameWaveFlowWarp(vec3 pb, float h) {
 vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
     float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
     bool cf = flameWaveCfActive();
-    int warpCount = cf ? int(flame.kernelParams.z) : int(flame.waveParams.y);
+    int warpCount = cf ? int(flame.waveCfParams.y) : int(flame.waveParams.y);
     if (amp == 0.0 || warpCount == 0) {
         warpedPoint = pb;
         return dir;
@@ -358,19 +348,7 @@ vec3 flameNoiseBendRemoved(vec3 p, float h) {
 }
 
 vec3 flameNoiseWarpedCoordinateFromPb(vec3 pb, float h) {
-    // Wave basis: the fbm domain warp (3 fbm3 per point) is replaced by the
-    // analytic mode-sum warp below — same coordinate chain, no lattice.
-    if (flameWaveModelActive()) {
-        return flameWaveFlowWarp(pb, h);
-    }
-
-    // Domain warp with upward advection
-    vec3 wp = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
-    vec2 w = vec2(fbm3(flameNoiseLatticeRotate(wp)), fbm3(flameNoiseLatticeRotate(wp + vec3(19.1, 7.7, 3.3)))) * 2.0 - 1.0;
-    float wy = fbm3(flameNoiseLatticeRotate(wp + vec3(41.3, 23.7, 11.9))) * 2.0 - 1.0;
-    vec3 q = pb + flame.styleParams0.x * mix(0.15, 1.0, h) * vec3(w.x, wy * flame.temporalData.w, w.y);
-
-    return q;
+    return flameWaveFlowWarp(pb, h);
 }
 
 vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
@@ -462,24 +440,6 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
     return invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
 }
 
-// Biweight kernel sum Σ aᵢ(1-|p-xᵢ|²/rᵢ²)₊². Mirrored in
-// thyllore-render-core/src/flame_kernel.rs (evaluate_kernel_blob_density).
-float flameKernelBlobDensityAt(vec3 p) {
-    float total = 0.0;
-    for (int i = 0; i < 96; ++i) {
-        vec4 blob = flame.kernelBlobs[2 * i];
-        float amp = flame.kernelBlobs[2 * i + 1].x;
-        if (amp <= 0.0 || blob.w <= 0.0) {
-            continue;
-        }
-        vec3 rel = p - blob.xyz;
-        float u2 = dot(rel, rel) / (blob.w * blob.w);
-        float inside = max(1.0 - u2, 0.0);
-        total += amp * inside * inside;
-    }
-    return total;
-}
-
 float flameNoiseErosionFromValue(float noise, float h) {
     return flame.noiseAmplitude * mix(0.2, 1.0, h) * (noise - 0.35);
 }
@@ -487,16 +447,9 @@ float flameNoiseErosionFromValue(float noise, float h) {
 // Internal helper: compute erosion value from warped coordinate q and height h.
 // `pb` is the pre-warp (bend-removed) coordinate the closed-form modulators need.
 float flameNoiseErosionAt(vec3 q, vec3 pb, float h) {
-    float noise;
-    if (flameKernelModelActive()) {
-        noise = flameKernelBlobDensityAt(q);
-    } else if (flameWaveModelActive()) {
-        noise = flameWaveNoiseSum(
-            flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect(),
-            pb, h);
-    } else {
-        noise = fbm3(flameNoiseLatticeRotate(flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect()));
-    }
+    float noise = flameWaveNoiseSum(
+        flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect(),
+        pb, h);
     return flameNoiseErosionFromValue(noise, h);
 }
 

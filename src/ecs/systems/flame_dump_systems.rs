@@ -67,9 +67,6 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
     value["rte_bands"] = json!(effect.rte_bands);
     value["sigma_dispersion"] = json!(effect.sigma_dispersion);
     value["edge_temperature_blend"] = json!(effect.edge_temperature_blend);
-    value["turbulence_model"] = json!(effect.turbulence_model);
-    value["kernel_blob_size"] = json!(effect.kernel_blob_size);
-    value["kernel_blob_amp"] = json!(effect.kernel_blob_amp);
     value["boundary_amp"] = json!(effect.boundary_amp);
     value["boundary_freq"] = json!(effect.boundary_freq);
     value["boundary_speed"] = json!(effect.boundary_speed);
@@ -97,8 +94,6 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "height_primitive_coefficients": ubo.height_primitive_coefficients,
         "radial_coefficients": ubo.radial_coefficients,
         "height_coefficients": ubo.height_coefficients,
-        "height_monomial": ubo.height_monomial,
-        "envelope_knots": ubo.envelope_knots,
         "sigma_t": ubo.sigma_t,
         "intensity": ubo.intensity,
         "height_axis_scale": ubo.height_axis_scale,

@@ -1,6 +1,6 @@
 //! Wave-basis erosion noise: an analytic sum of random wave modes
 //!   e(w) = sum_n a_n sin(k_n . w + phi_n + eddy_n t)
-//! replacing the fbm lattice as the erosion source when `turbulence_model == 2`.
+//! the erosion source of the flame field (the sole turbulence basis since P6).
 //! The field is defined by position alone — no lattice, no cells, no localized
 //! elements — so the ray restriction is an exact 1D quasi-periodic function and
 //! the closed-form integral needs no radial bands (band-boundary-coherence.md).

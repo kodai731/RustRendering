@@ -13,7 +13,6 @@ fn compile_shaders() {
 
     // シェーダーディレクトリが変更されたら再ビルド
     println!("cargo:rerun-if-changed={}", shader_src_dir);
-    println!("cargo:rerun-if-env-changed=THYLLORE_FLAME_BAND_COUNT");
     println!("cargo:rerun-if-env-changed=THYLLORE_FLAME_NOISE_ROT_DEG");
     println!("cargo:rerun-if-env-changed=THYLLORE_FLAME_WAVE_SEGMENTS");
 
@@ -95,9 +94,6 @@ fn compile_shaders() {
             // シェーダーをコンパイル
             let mut cmd = Command::new("glslc");
             cmd.arg(path.to_str().unwrap());
-            if let Ok(val) = std::env::var("THYLLORE_FLAME_BAND_COUNT") {
-                cmd.arg(format!("-DFLAME_RADIAL_BAND_COUNT_OVERRIDE={}", val));
-            }
             if let Ok(val) = std::env::var("THYLLORE_FLAME_NOISE_ROT_DEG") {
                 cmd.arg(format!("-DFLAME_NOISE_ROT_DEG_OVERRIDE={}", val));
             }

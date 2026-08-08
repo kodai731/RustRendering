@@ -45,15 +45,12 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 emitterParams;
     vec4 contourParams;
     vec4 erosionResponse;
-    vec4 kernelParams;
-    vec4 kernelBlobs[192];
+    vec4 waveCfParams;
     vec4 boundaryParams;
     vec4 nearFadeParams;
     vec4 radiusCoefficients[2];
     vec4 colorRamp[8];
     vec4 profileParams;
-    vec4 heightMonomial[2];
-    vec4 envelopeKnots[2];
     vec4 waveParams;
     vec4 waveModes[356];
 } flame;
