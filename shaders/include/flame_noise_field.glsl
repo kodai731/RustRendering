@@ -193,6 +193,17 @@ vec2 flameBoundaryDisplacement(vec2 xz) {
         vec2(0.2));
 }
 
+// Raised columns must vanish before the y=1 proxy cap or the slab cuts them
+// flat. The fade follows the displaced tip (P4): only columns lifted past the
+// cap (bx > 1) fade, over their own overhang [2 - bx, 1] — no fixed world-h
+// band, so nothing aligns across columns.
+float flameCapFade(float h, float bx) {
+    if (flame.boundaryParams.x == 0.0 || bx <= 1.0) {
+        return 1.0;
+    }
+    return smoothstep(1.0, 2.0 - bx, h);
+}
+
 // Envelope fade toward the support boundary, shared by the flooded-erosion
 // argument below and the unresolved-noise sigma of the analytic band integrals:
 // both the mean shift and the fluctuation of the erosion must shrink with the
@@ -376,9 +387,7 @@ float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 b
     float rho = (length(c.xz) - rm) / minorScale;
     float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
     float u = rn / flameRadialSupportRadius();
-    // raised columns must vanish before the y=1 cap or the slab cuts them flat
-    float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, h) : 1.0;
-    return evaluateHeightFalloff(hb) * flameBiweight(u * u) * capFade;
+    return evaluateHeightFalloff(hb) * flameBiweight(u * u) * flameCapFade(h, boundary.x);
 }
 
 float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {

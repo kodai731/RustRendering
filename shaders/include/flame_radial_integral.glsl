@@ -56,8 +56,7 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
     vec2 boundary = flameBoundaryDisplacement(p.xz);
     float hb = clamp(h / boundary.x, 0.0, 1.0);
     float wb = wiggle * boundary.y;
-    float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, h) : 1.0;
-    float dSmooth = evaluateHeightFalloff(hb) * capFade
+    float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x)
         * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb)
         * flameNearCameraFade(p);
     float erosion = flameNoiseErosionValue(p, h);
@@ -202,8 +201,7 @@ float flameWaveNodeDensity(vec3 p, float h) {
     if (flame.emitterParams.x < 0.5) {
         float hb = clamp(h / boundary.x, 0.0, 1.0);
         float wb = max(wiggle * boundary.y, 1e-4);
-        float capFade = flame.boundaryParams.x != 0.0 ? smoothstep(1.0, 0.94, h) : 1.0;
-        dens = evaluateHeightFalloff(hb) * capFade
+        dens = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x)
             * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb);
     } else {
         dens = flameEmitterSmoothDensityDisplacedAt(p, h, wiggle, boundary);

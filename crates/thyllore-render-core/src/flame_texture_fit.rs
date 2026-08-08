@@ -984,13 +984,12 @@ pub fn finalize_fit_envelope(effect: &mut crate::flame::FlameEffect) {
         f_old[i] = v;
     }
 
-    // Visibility Rescue
+    // Visibility Rescue. The runtime cap fade follows the displaced tip (P4:
+    // only columns lifted past y=1 fade), so the envelope itself is the
+    // visibility — no fixed-h capfade in the model.
     let mut vis_max = 0.0f32;
-    for i in 0..=32 {
-        let h = i as f32 / 32.0;
-        let t = ((h - 1.0) / (0.94 - 1.0)).clamp(0.0, 1.0);
-        let capfade = t * t * (3.0 - 2.0 * t);
-        vis_max = vis_max.max(f[i] * capfade);
+    for value in f.iter().take(33) {
+        vis_max = vis_max.max(*value);
     }
     let target = effect.edge_high + 0.12;
     if vis_max < target {
@@ -1817,10 +1816,7 @@ mod tests {
         let mut vis_max = 0.0f32;
         for i in 0..=32 {
             let h = i as f64 / 32.0;
-            let v = height_falloff(h) as f32;
-            let t = ((h as f32 - 1.0) / (0.94 - 1.0)).clamp(0.0, 1.0);
-            let capfade = t * t * (3.0 - 2.0 * t);
-            vis_max = vis_max.max(v * capfade);
+            vis_max = vis_max.max(height_falloff(h) as f32);
         }
         assert!(
             vis_max >= 0.45,
