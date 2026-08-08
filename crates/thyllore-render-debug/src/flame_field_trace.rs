@@ -888,6 +888,7 @@ fn trace_ray(
     let mut height_mean_num = 0.0f32;
     let mut radiance_pre = [0.0f32; 3];
     let mut transmittance = [1.0f32; 3];
+    let mut trans_track: Vec<(f32, f32)> = Vec::with_capacity(SEGMENTS);
     let mut segments_json = Vec::with_capacity(SEGMENTS);
     for segment in 0..SEGMENTS {
         let t_prev = t0 + segment as f32 * dt;
@@ -1013,6 +1014,8 @@ fn trace_ray(
             radiance_pre[c] += transmittance[c] * color[c] * absorbed;
             transmittance[c] *= (-tau[c]).exp();
         }
+        let mean_trans = (transmittance[0] + transmittance[1] + transmittance[2]) / 3.0;
+        trans_track.push((t_mean, mean_trans));
 
         segments_json.push(json!({
             "seg_start": round5(seg_start),
@@ -1059,6 +1062,41 @@ fn trace_ray(
 
     let luma = radiance[0] * LUMA_WEIGHTS[0] + radiance[1] * LUMA_WEIGHTS[1] + radiance[2] * LUMA_WEIGHTS[2];
     let alpha_final = alpha_rte * smoothstep(0.0, ctx.u.color_base.w, luma);
+
+    // Optical front: the t where the accumulated opacity first reaches half
+    // of its final value — the slice the RTE composite weights most, i.e.
+    // where visible banding lives (works for optically thin rays too).
+    let final_mean_trans = (transmittance[0] + transmittance[1] + transmittance[2]) / 3.0;
+    let target = 0.5 * (1.0 + final_mean_trans);
+    let t_front = trans_track
+        .iter()
+        .find(|(_, trans)| *trans <= target)
+        .map(|(t, _)| *t);
+    let front_json = match t_front {
+        Some(tf) => {
+            let p = [o[0] + tf * d[0], o[1] + tf * d[1], o[2] + tf * d[2]];
+            let h = p[1].clamp(0.0, 1.0);
+            let nd = ctx.node_density(p, h);
+            let a = ctx.node_argument(p, d, h, nd.density, dt);
+            json!({
+                "t": round5(tf),
+                "h": round5(h),
+                "density": round5(nd.density),
+                "wiggle": round5(nd.wiggle),
+                "boundary": vec_json(&nd.boundary),
+                "warp_d": vec_json(&[a.q[0] - a.pb[0], a.q[1] - a.pb[1], a.q[2] - a.pb[2]]),
+                "w": vec_json(&a.w),
+                "jitter_psi": vec_json(&a.jitter_psi),
+                "z_low": round5(a.z_low),
+                "z": round5(a.z),
+                "shaped_noise": round5(a.shaped),
+                "sigma_noise": round5(a.sigma_noise),
+                "erosion": round5(a.erosion),
+                "argument": round5(a.argument),
+            })
+        }
+        None => json!(null),
+    };
 
     // Per-node arrays (structure of arrays).
     macro_rules! node_arr {
@@ -1122,6 +1160,7 @@ fn trace_ray(
         "t_far": round5(t1),
         "nodes": nodes_json,
         "segments": Value::Array(segments_json),
+        "front": front_json,
         "mode_trace": mode_trace,
         "final": {
             "emission_total": round5(total),

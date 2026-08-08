@@ -496,6 +496,27 @@ fn build_flame_section(
                 }
             }
 
+            {
+                use thyllore_render_core::flame_wave::{
+                    read_env_wave_jitter, read_env_wave_jitter_freq, set_wave_jitter,
+                    set_wave_jitter_freq,
+                };
+                let mut jitter = read_env_wave_jitter();
+                if ui
+                    .slider_config("Jitter Depth", 0.0f32, 2.0f32)
+                    .build(&mut jitter)
+                {
+                    set_wave_jitter(jitter);
+                }
+                let mut jitter_freq = read_env_wave_jitter_freq();
+                if ui
+                    .slider_config("Jitter Freq", 0.25f32, 6.0f32)
+                    .build(&mut jitter_freq)
+                {
+                    set_wave_jitter_freq(jitter_freq);
+                }
+            }
+
             match settings_copy.shading_mode {
                 FlameShadingMode::ReferenceRaymarch => {
                     let mut steps = settings_copy.reference_step_count as i32;

@@ -123,37 +123,54 @@ pub fn wave_mode_jitter_phase(jitter: &[f32; WAVE_JITTER_RANK], psi: &[f32; WAVE
     jitter[0] * psi[0] + jitter[1] * psi[1] + jitter[2] * psi[2]
 }
 
-static WAVE_JITTER_ENV: OnceLock<f32> = OnceLock::new();
+use std::sync::atomic::{AtomicU32, Ordering};
 
-/// Runtime scale of the rank-M phase jitter (THYLLORE_FLAME_WAVE_JITTER,
-/// default 1.0; 0 disables). Applied where the mode table is consumed (UBO
-/// packing, replay probes) so the deterministic table stays parameter-free.
-pub fn read_env_wave_jitter() -> f32 {
-    *WAVE_JITTER_ENV.get_or_init(|| {
-        std::env::var("THYLLORE_FLAME_WAVE_JITTER")
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(1.0)
-    })
+static WAVE_JITTER_CURRENT: AtomicU32 = AtomicU32::new(u32::MAX);
+static WAVE_JITTER_FREQ_CURRENT: AtomicU32 = AtomicU32::new(u32::MAX);
+
+fn read_lever(slot: &AtomicU32, env_name: &str, default: f32) -> f32 {
+    let bits = slot.load(Ordering::Relaxed);
+    if bits != u32::MAX {
+        return f32::from_bits(bits);
+    }
+    let value = std::env::var(env_name)
+        .ok()
+        .and_then(|v| v.parse::<f32>().ok())
+        .unwrap_or(default);
+    slot.store(value.to_bits(), Ordering::Relaxed);
+    value
 }
 
-static WAVE_JITTER_FREQ_ENV: OnceLock<f32> = OnceLock::new();
+/// Runtime scale of the rank-M phase jitter (0 disables). Initialized from
+/// THYLLORE_FLAME_WAVE_JITTER (default 1.0), adjustable at runtime from the
+/// Flame UI panel via [`set_wave_jitter`]. Applied where the mode table is
+/// consumed (UBO packing, replay probes) so the deterministic table stays
+/// parameter-free; the UBO rebuilds every frame, so changes apply immediately.
+pub fn read_env_wave_jitter() -> f32 {
+    read_lever(&WAVE_JITTER_CURRENT, "THYLLORE_FLAME_WAVE_JITTER", 1.0)
+}
 
-/// Runtime scale of the jitter field wavevectors (THYLLORE_FLAME_WAVE_JITTER_FREQ,
-/// default WAVE_JITTER_FREQ_DEFAULT). Larger = the jitter varies on a finer
-/// spatial scale, decohering beats within a smaller view. 3.0 is the measured
-/// knee of the close-up tip fringes (probe peak 32711 off / 23189 at 1.0 /
-/// 9155 at 3.0, no further gain at 4-6); at 1.0 the jitter wavelength exceeds
-/// a close-up view and the beats stay locally coherent.
+pub fn set_wave_jitter(value: f32) {
+    WAVE_JITTER_CURRENT.store(value.max(0.0).to_bits(), Ordering::Relaxed);
+}
+
+/// Runtime scale of the jitter field wavevectors. Larger = the jitter varies
+/// on a finer spatial scale, decohering beats within a smaller view. 3.0 is
+/// the measured knee of the close-up tip fringes (probe peak 32711 off /
+/// 23189 at 1.0 / 9155 at 3.0, no further gain at 4-6). Initialized from
+/// THYLLORE_FLAME_WAVE_JITTER_FREQ, adjustable via [`set_wave_jitter_freq`].
 pub const WAVE_JITTER_FREQ_DEFAULT: f32 = 3.0;
 
 pub fn read_env_wave_jitter_freq() -> f32 {
-    *WAVE_JITTER_FREQ_ENV.get_or_init(|| {
-        std::env::var("THYLLORE_FLAME_WAVE_JITTER_FREQ")
-            .ok()
-            .and_then(|v| v.parse::<f32>().ok())
-            .unwrap_or(WAVE_JITTER_FREQ_DEFAULT)
-    })
+    read_lever(
+        &WAVE_JITTER_FREQ_CURRENT,
+        "THYLLORE_FLAME_WAVE_JITTER_FREQ",
+        WAVE_JITTER_FREQ_DEFAULT,
+    )
+}
+
+pub fn set_wave_jitter_freq(value: f32) {
+    WAVE_JITTER_FREQ_CURRENT.store(value.max(0.01).to_bits(), Ordering::Relaxed);
 }
 
 /// Deterministic mode table in normalized units. Every call returns the same

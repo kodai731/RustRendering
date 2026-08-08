@@ -549,6 +549,14 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
         float total = integrateWaveOccupancy(o, d, tNear, tFar);
         return vec4(flameDebugHeat(total * 2.0), 1.0);
     }
+    if (push.debugView == 9) {
+        // Segment grid geometry: R = node-grid phase (level sets are the
+        // integrator's t-lattice — compare its arcs against the fringes),
+        // G = segment length dt, B = interval entry phase in world t.
+        float dt = (tFar - tNear) / float(FLAME_WAVE_SEGMENTS);
+        return vec4(fract(tNear / max(dt, 1e-6)), clamp(dt * 8.0, 0.0, 1.0),
+            fract(tNear * 8.0), 1.0);
+    }
     float dt = (tFar - tNear) / float(FLAME_WAVE_SEGMENTS);
     float bestT = tNear;
     float bestDensity = 0.0;

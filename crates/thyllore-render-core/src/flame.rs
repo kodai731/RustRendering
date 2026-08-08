@@ -347,10 +347,11 @@ pub enum FlameDebugView {
     EmissionTotal,
     JitterPsi,
     NoiseCoord,
+    SegmentGrid,
 }
 
 impl FlameDebugView {
-    pub const ALL: [FlameDebugView; 9] = [
+    pub const ALL: [FlameDebugView; 10] = [
         FlameDebugView::Off,
         FlameDebugView::ShapedNoise,
         FlameDebugView::Erosion,
@@ -360,6 +361,7 @@ impl FlameDebugView {
         FlameDebugView::EmissionTotal,
         FlameDebugView::JitterPsi,
         FlameDebugView::NoiseCoord,
+        FlameDebugView::SegmentGrid,
     ];
 
     pub fn label(self) -> &'static str {
@@ -373,6 +375,7 @@ impl FlameDebugView {
             FlameDebugView::EmissionTotal => "Emission Total",
             FlameDebugView::JitterPsi => "Jitter Psi",
             FlameDebugView::NoiseCoord => "Noise Coord w",
+            FlameDebugView::SegmentGrid => "Segment Grid",
         }
     }
 
@@ -387,6 +390,7 @@ impl FlameDebugView {
             FlameDebugView::EmissionTotal => 6,
             FlameDebugView::JitterPsi => 7,
             FlameDebugView::NoiseCoord => 8,
+            FlameDebugView::SegmentGrid => 9,
         }
     }
 
@@ -401,6 +405,7 @@ impl FlameDebugView {
             "emission" => Some(FlameDebugView::EmissionTotal),
             "jitter" => Some(FlameDebugView::JitterPsi),
             "wcoord" | "noise-coord" => Some(FlameDebugView::NoiseCoord),
+            "grid" | "segment-grid" => Some(FlameDebugView::SegmentGrid),
             _ => None,
         }
     }
