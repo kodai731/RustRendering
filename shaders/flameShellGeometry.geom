@@ -55,7 +55,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 heightMonomial[2];
     vec4 envelopeKnots[2];
     vec4 waveParams;
-    vec4 waveModes[352];
+    vec4 waveModes[356];
 } flame;
 
 #include "include/flame_shell_support.glsl"

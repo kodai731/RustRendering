@@ -21,8 +21,11 @@ use crate::flame_radial::{envelope_fade, eroded_argument};
 
 use std::sync::OnceLock;
 
-/// UBO slot capacity (2 vec4 per mode).
-pub const WAVE_MODE_SLOTS: usize = 176;
+/// UBO slot capacity (2 vec4 per mode): erosion + warp/modulator + detail
+/// tables plus the closed-form shear layers appended at WAVE_CF_SHEAR_SLOT.
+pub const WAVE_MODE_SLOTS: usize = 178;
+/// Slot index of the closed-form transport shear layers (after the detail table).
+pub const WAVE_CF_SHEAR_SLOT: usize = 176;
 /// Active mode count (N=96: N=48 still showed fine interference fringes on
 /// the real flame under the warp; N=16 reads as discrete elements).
 pub const WAVE_MODE_COUNT: usize = 96;
@@ -433,27 +436,237 @@ pub fn evaluate_wave_flow_warp_with_rate(
     )
 }
 
+/// Closed-form (family-T) variant: the 16-shear transport is replaced by at
+/// most two single-frequency shear layers, and the erosion carrier phases are
+/// pseudo-FM modulated by the 16 warp modes evaluated at the UNWARPED
+/// coordinate — sin(A + psi) expanded as sinA*T_c(psi) + cosA*T_s(psi) with
+/// T_c/T_s Chebyshev polynomials, so every factor stays a finite sum/product
+/// of sinusoids (geometric_replacement_plan.md「厳密閉形式化」).
+/// Per-mode modulation depth is RMS-capped at WAVE_CF_CAP; the pointwise bound
+/// |psi| <= sqrt(2 * modulators * CAP^2) fixes the Chebyshev fit domain.
+pub const WAVE_CF_CAP: f32 = 2.0;
+/// sqrt(16 * 8): Sum |gamma| <= sqrt(16 * Sum gamma^2) with Sum gamma^2 <= 2*CAP^2.
+pub const WAVE_CF_PSI_BOUND: f32 = 11.313_708;
+pub const WAVE_CF_CHEB_COEFFS: usize = 21;
+/// Default shear gain of the transport layers (0.15-0.3 balances organic base
+/// and streaks; > 0.5 turns directionally monotone — 2D study).
+pub const WAVE_CF_SHEAR_GAIN: f32 = 0.3;
+pub const WAVE_CF_SHEAR_LAYERS: usize = 2;
+
+/// Chebyshev interpolation of `f` at WAVE_CF_CHEB_COEFFS points over
+/// [-WAVE_CF_PSI_BOUND, WAVE_CF_PSI_BOUND], returned as series coefficients in
+/// x = psi / bound (deterministic closed-form DCT, no fitting libraries).
+fn chebyshev_fit(f: impl Fn(f64) -> f64) -> [f32; WAVE_CF_CHEB_COEFFS] {
+    let n = WAVE_CF_CHEB_COEFFS;
+    let bound = WAVE_CF_PSI_BOUND as f64;
+    let samples: Vec<f64> = (0..n)
+        .map(|i| {
+            let theta = std::f64::consts::PI * (i as f64 + 0.5) / n as f64;
+            f(bound * theta.cos())
+        })
+        .collect();
+    let mut coeffs = [0.0f32; WAVE_CF_CHEB_COEFFS];
+    for (k, slot) in coeffs.iter_mut().enumerate() {
+        let mut sum = 0.0f64;
+        for (i, sample) in samples.iter().enumerate() {
+            let theta = std::f64::consts::PI * (i as f64 + 0.5) / n as f64;
+            sum += sample * (k as f64 * theta).cos();
+        }
+        *slot = (sum * if k == 0 { 1.0 } else { 2.0 } / n as f64) as f32;
+    }
+    coeffs
+}
+
+/// `(T_s, T_c)`: Chebyshev tables of sin and cos over the psi bound.
+pub fn wave_cf_chebyshev_tables() -> (
+    [f32; WAVE_CF_CHEB_COEFFS],
+    [f32; WAVE_CF_CHEB_COEFFS],
+) {
+    static CACHED: OnceLock<([f32; WAVE_CF_CHEB_COEFFS], [f32; WAVE_CF_CHEB_COEFFS])> =
+        OnceLock::new();
+    *CACHED.get_or_init(|| (chebyshev_fit(f64::sin), chebyshev_fit(f64::cos)))
+}
+
+/// Clenshaw evaluation of a Chebyshev series at x in [-1, 1]
+/// (mirror of `flameWaveCfClenshaw`).
+pub fn evaluate_wave_cf_chebyshev(coeffs: &[f32; WAVE_CF_CHEB_COEFFS], x: f32) -> f32 {
+    let t = 2.0 * x;
+    let mut b1 = 0.0f32;
+    let mut b2 = 0.0f32;
+    for k in (1..WAVE_CF_CHEB_COEFFS).rev() {
+        let b0 = t * b1 - b2 + coeffs[k];
+        b2 = b1;
+        b1 = b0;
+    }
+    x * b1 - b2 + coeffs[0]
+}
+
+/// Transport layers of the closed-form variant: the top-`layers` warp modes by
+/// amplitude, each promoted to a single-frequency shear whose amplitude
+/// `half / a_i * gain` splits the full warp power across two layers
+/// (half = sqrt(sum a^2 / 2)); `strength * amplitude` at evaluation then
+/// matches the 2D study's `s * (half / WA_i * gain)` coefficient exactly.
+pub fn generate_wave_cf_shear_layers(
+    warp_modes: &[WaveWarpMode],
+    layers: usize,
+    gain: f32,
+) -> Vec<WaveWarpMode> {
+    let half = (warp_modes.iter().map(|m| (m.amplitude as f64).powi(2)).sum::<f64>() / 2.0)
+        .sqrt() as f32;
+    let mut order: Vec<usize> = (0..warp_modes.len()).collect();
+    order.sort_by(|&a, &b| {
+        warp_modes[b]
+            .amplitude
+            .partial_cmp(&warp_modes[a].amplitude)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    order
+        .into_iter()
+        .take(layers)
+        .map(|i| {
+            let mut layer = warp_modes[i];
+            layer.amplitude = half / warp_modes[i].amplitude * gain;
+            layer
+        })
+        .collect()
+}
+
+/// Per-mode modulation depth per unit warp displacement amplitude:
+/// D_n = noise_frequency * sqrt(0.5 * sum_j dot(k_n, aniso(c_j * a_j))^2).
+/// The runtime depth is `amp_disp(h) * D_n` and the coupling cap scale
+/// `min(1, CAP / depth)`; `noise_aniso` is the erosion-side anisotropy
+/// (a displacement delta in pb shifts the carrier by k . aniso(delta) * freq).
+pub fn wave_cf_depth_scale(
+    erosion_modes: &[WaveMode],
+    modulators: &[WaveWarpMode],
+    noise_frequency: f32,
+    noise_aniso: impl Fn([f32; 3]) -> [f32; 3],
+) -> [f32; WAVE_MODE_COUNT] {
+    let displaced: Vec<[f32; 3]> = modulators
+        .iter()
+        .map(|m| {
+            noise_aniso([
+                m.curl_direction[0] * m.amplitude,
+                m.curl_direction[1] * m.amplitude,
+                m.curl_direction[2] * m.amplitude,
+            ])
+        })
+        .collect();
+    let mut scale = [0.0f32; WAVE_MODE_COUNT];
+    for (n, mode) in erosion_modes.iter().enumerate().take(WAVE_MODE_COUNT) {
+        let mut power = 0.0f64;
+        for c in &displaced {
+            let g = (mode.k[0] * c[0] + mode.k[1] * c[1] + mode.k[2] * c[2]) as f64;
+            power += 0.5 * g * g;
+        }
+        scale[n] = noise_frequency * power.sqrt() as f32;
+    }
+    scale
+}
+
+/// Modulator displacement field and its ray rate at the unwarped warp
+/// coordinate `m0` (direction `dm0` through the same linear map):
+///   v    = sum_j a_j c_j sin(k_j . m0 + phi_j)
+///   vdot = sum_j a_j c_j cos(k_j . m0 + phi_j) * (k_j . dm0)
+/// (mirror of `flameWaveCfPsiVectors` before the aniso/frequency transform).
+pub fn wave_cf_modulator_state(
+    modulators: &[WaveWarpMode],
+    m0: [f32; 3],
+    dm0: [f32; 3],
+) -> ([f32; 3], [f32; 3]) {
+    let mut v = [0.0f32; 3];
+    let mut vdot = [0.0f32; 3];
+    for mode in modulators {
+        let angle = mode.k[0] * m0[0] + mode.k[1] * m0[1] + mode.k[2] * m0[2] + mode.phase;
+        let s = mode.amplitude * angle.sin();
+        let c = mode.amplitude
+            * angle.cos()
+            * (mode.k[0] * dm0[0] + mode.k[1] * dm0[1] + mode.k[2] * dm0[2]);
+        for axis in 0..3 {
+            v[axis] += mode.curl_direction[axis] * s;
+            vdot[axis] += mode.curl_direction[axis] * c;
+        }
+    }
+    (v, vdot)
+}
+
+/// Precomputed closed-form context (per parameter set, not per sample).
+pub struct WaveCfContext {
+    pub cheb_sin: [f32; WAVE_CF_CHEB_COEFFS],
+    pub cheb_cos: [f32; WAVE_CF_CHEB_COEFFS],
+    pub depth_scale: [f32; WAVE_MODE_COUNT],
+}
+
+/// Per-sample closed-form state: `psi_vector` / `rate_vector` are the
+/// modulator field v / vdot pushed through the erosion coordinate transform
+/// and scaled by the warp displacement amplitude, so per mode
+/// psi_n = cap_scale_n * dot(k_n, psi_vector).
+pub struct WaveCfSample<'a> {
+    pub ctx: &'a WaveCfContext,
+    pub psi_vector: [f32; 3],
+    pub rate_vector: [f32; 3],
+    pub amp_disp: f32,
+}
+
+impl WaveCfSample<'_> {
+    fn mode_terms(&self, index: usize, k: [f32; 3]) -> (f32, f32) {
+        let depth = self.amp_disp * self.ctx.depth_scale[index];
+        let scale = if depth > WAVE_CF_CAP {
+            WAVE_CF_CAP / depth
+        } else {
+            1.0
+        };
+        let psi =
+            scale * (k[0] * self.psi_vector[0] + k[1] * self.psi_vector[1] + k[2] * self.psi_vector[2]);
+        let rate = scale
+            * (k[0] * self.rate_vector[0] + k[1] * self.rate_vector[1] + k[2] * self.rate_vector[2]);
+        (psi, rate)
+    }
+
+    /// sin(angle + psi) via the family-T expansion sinA*T_c + cosA*T_s, plus
+    /// the FM contribution to the phase rate along the ray.
+    fn wave_value(&self, index: usize, k: [f32; 3], angle: f32) -> (f32, f32) {
+        let (psi, rate) = self.mode_terms(index, k);
+        let x = (psi / WAVE_CF_PSI_BOUND).clamp(-1.0, 1.0);
+        let value = angle.sin() * evaluate_wave_cf_chebyshev(&self.ctx.cheb_cos, x)
+            + angle.cos() * evaluate_wave_cf_chebyshev(&self.ctx.cheb_sin, x);
+        (value, rate)
+    }
+}
+
 /// Pointwise wave noise at a warped coordinate (mirror of `flameWaveNoiseSum`):
 /// mean-matched to fbm3 so `flameNoiseErosionFromValue` keeps its calibration.
 /// `eddy_time` is `noise_scroll_speed * time`.
 pub fn evaluate_wave_noise(modes: &[WaveMode], w: [f32; 3], eddy_time: f32) -> f32 {
-    let mut z_low = 0.0f32;
-    for mode in modes.iter().filter(|m| m.env_coeff == 0.0) {
+    evaluate_wave_noise_cf(modes, w, eddy_time, None)
+}
+
+/// Like [`evaluate_wave_noise`] but with the optional closed-form pseudo-FM
+/// phase modulation applied to every carrier.
+pub fn evaluate_wave_noise_cf(
+    modes: &[WaveMode],
+    w: [f32; 3],
+    eddy_time: f32,
+    cf: Option<&WaveCfSample>,
+) -> f32 {
+    let carrier = |index: usize, mode: &WaveMode| {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
             + mode.k[2] * w[2]
             + mode.phase
             + mode.eddy_rate * eddy_time;
-        z_low += mode.amplitude * angle.sin();
+        match cf {
+            Some(sample) => sample.wave_value(index, mode.k, angle).0,
+            None => angle.sin(),
+        }
+    };
+    let mut z_low = 0.0f32;
+    for (index, mode) in modes.iter().enumerate().filter(|(_, m)| m.env_coeff == 0.0) {
+        z_low += mode.amplitude * carrier(index, mode);
     }
     let mut z = z_low;
-    for mode in modes.iter().filter(|m| m.env_coeff != 0.0) {
-        let angle = mode.k[0] * w[0]
-            + mode.k[1] * w[1]
-            + mode.k[2] * w[2]
-            + mode.phase
-            + mode.eddy_rate * eddy_time;
-        z += (1.0 + mode.env_coeff * z_low) * mode.amplitude * angle.sin();
+    for (index, mode) in modes.iter().enumerate().filter(|(_, m)| m.env_coeff != 0.0) {
+        z += (1.0 + mode.env_coeff * z_low) * mode.amplitude * carrier(index, mode);
     }
     let (inverse_scale, amplitude) = get_wave_shaping_params_cached();
     WAVE_NOISE_MEAN + amplitude * (z * inverse_scale).tanh()
@@ -525,32 +738,47 @@ pub fn evaluate_wave_noise_local_lowpass(
     node_spacing: f32,
     eddy_time: f32,
 ) -> (f32, f32) {
-    let mut z_low = 0.0f32;
-    let mut unresolved_power = 0.0f32;
-    for mode in modes.iter().filter(|m| m.env_coeff == 0.0) {
-        let beta = mode.k[0] * rate[0] + mode.k[1] * rate[1] + mode.k[2] * rate[2];
-        let x = beta * node_spacing / std::f32::consts::PI;
-        let weight = (-(x * x) * (x * x)).exp();
+    evaluate_wave_noise_local_lowpass_cf(modes, w, rate, node_spacing, eddy_time, None)
+}
+
+/// Like [`evaluate_wave_noise_local_lowpass`] but with the optional closed-form
+/// pseudo-FM modulation: each carrier becomes sinA*T_c(psi) + cosA*T_s(psi) and
+/// its low-pass beta gains the FM phase rate d psi/dt along the ray.
+pub fn evaluate_wave_noise_local_lowpass_cf(
+    modes: &[WaveMode],
+    w: [f32; 3],
+    rate: [f32; 3],
+    node_spacing: f32,
+    eddy_time: f32,
+    cf: Option<&WaveCfSample>,
+) -> (f32, f32) {
+    let carrier = |index: usize, mode: &WaveMode| {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
             + mode.k[2] * w[2]
             + mode.phase
             + mode.eddy_rate * eddy_time;
-        z_low += weight * mode.amplitude * angle.sin();
+        let beta_carrier = mode.k[0] * rate[0] + mode.k[1] * rate[1] + mode.k[2] * rate[2];
+        let (value, beta_fm) = match cf {
+            Some(sample) => sample.wave_value(index, mode.k, angle),
+            None => (angle.sin(), 0.0),
+        };
+        let x = (beta_carrier + beta_fm) * node_spacing / std::f32::consts::PI;
+        let weight = (-(x * x) * (x * x)).exp();
+        (value, weight)
+    };
+    let mut z_low = 0.0f32;
+    let mut unresolved_power = 0.0f32;
+    for (index, mode) in modes.iter().enumerate().filter(|(_, m)| m.env_coeff == 0.0) {
+        let (value, weight) = carrier(index, mode);
+        z_low += weight * mode.amplitude * value;
         unresolved_power += 0.5 * mode.amplitude * mode.amplitude * (1.0 - weight * weight);
     }
     let mut z = z_low;
-    for mode in modes.iter().filter(|m| m.env_coeff != 0.0) {
-        let beta = mode.k[0] * rate[0] + mode.k[1] * rate[1] + mode.k[2] * rate[2];
-        let x = beta * node_spacing / std::f32::consts::PI;
-        let weight = (-(x * x) * (x * x)).exp();
-        let angle = mode.k[0] * w[0]
-            + mode.k[1] * w[1]
-            + mode.k[2] * w[2]
-            + mode.phase
-            + mode.eddy_rate * eddy_time;
+    for (index, mode) in modes.iter().enumerate().filter(|(_, m)| m.env_coeff != 0.0) {
+        let (value, weight) = carrier(index, mode);
         let envelope = 1.0 + mode.env_coeff * z_low;
-        z += envelope * weight * mode.amplitude * angle.sin();
+        z += envelope * weight * mode.amplitude * value;
         unresolved_power +=
             envelope * envelope * 0.5 * mode.amplitude * mode.amplitude * (1.0 - weight * weight);
     }
@@ -1021,6 +1249,202 @@ mod tests {
             }
             previous = Some(total);
         }
+    }
+
+    #[test]
+    fn test_cf_chebyshev_tables_accurate() {
+        let (cheb_sin, cheb_cos) = wave_cf_chebyshev_tables();
+        let steps = 4001;
+        let mut max_err_sin = 0.0f32;
+        let mut max_err_cos = 0.0f32;
+        for i in 0..steps {
+            let x = -1.0 + 2.0 * i as f32 / (steps - 1) as f32;
+            let psi = x * WAVE_CF_PSI_BOUND;
+            max_err_sin =
+                max_err_sin.max((evaluate_wave_cf_chebyshev(&cheb_sin, x) - psi.sin()).abs());
+            max_err_cos =
+                max_err_cos.max((evaluate_wave_cf_chebyshev(&cheb_cos, x) - psi.cos()).abs());
+        }
+        assert!(max_err_sin < 2e-4, "sin approximation error {max_err_sin}");
+        assert!(max_err_cos < 2e-4, "cos approximation error {max_err_cos}");
+    }
+
+    #[test]
+    fn test_cf_shear_layers_split_warp_power() {
+        let warp_modes = generate_wave_warp_modes();
+        let layers = generate_wave_cf_shear_layers(&warp_modes, 2, WAVE_CF_SHEAR_GAIN);
+        assert_eq!(layers.len(), 2);
+        let half = (warp_modes.iter().map(|m| (m.amplitude as f64).powi(2)).sum::<f64>() / 2.0)
+            .sqrt() as f32;
+        let mut sorted: Vec<f32> = warp_modes.iter().map(|m| m.amplitude).collect();
+        sorted.sort_by(|a, b| b.partial_cmp(a).unwrap());
+        for (layer, original_amp) in layers.iter().zip(&sorted) {
+            assert!((layer.amplitude - half / original_amp * WAVE_CF_SHEAR_GAIN).abs() < 1e-6);
+            // Single-frequency shear stays exactly volume preserving: c ⊥ k.
+            let dot = layer.k[0] * layer.curl_direction[0]
+                + layer.k[1] * layer.curl_direction[1]
+                + layer.k[2] * layer.curl_direction[2];
+            assert!(dot.abs() < 1e-5, "shear layer not divergence-free: {dot}");
+        }
+    }
+
+    /// Builds the closed-form sample at a point exactly like the shader chain
+    /// (warp-side aniso 0.35, erosion-side aniso ANISO_Y, both diagonal in y).
+    fn cf_sample_at<'a>(
+        ctx: &'a WaveCfContext,
+        modulators: &[WaveWarpMode],
+        pb: [f32; 3],
+        dir: [f32; 3],
+        amp_disp: f32,
+        warp_frequency: f32,
+        noise_frequency: f32,
+        noise_aniso_y: f32,
+    ) -> WaveCfSample<'a> {
+        let m0 = [pb[0] * warp_frequency, pb[1] * 0.35 * warp_frequency, pb[2] * warp_frequency];
+        let dm0 = [dir[0] * warp_frequency, dir[1] * 0.35 * warp_frequency, dir[2] * warp_frequency];
+        let (v, vdot) = wave_cf_modulator_state(modulators, m0, dm0);
+        let scale = noise_frequency * amp_disp;
+        WaveCfSample {
+            ctx,
+            psi_vector: [v[0] * scale, v[1] * noise_aniso_y * scale, v[2] * scale],
+            rate_vector: [vdot[0] * scale, vdot[1] * noise_aniso_y * scale, vdot[2] * scale],
+            amp_disp,
+        }
+    }
+
+    fn cf_test_context(
+        erosion_modes: &[WaveMode],
+        modulators: &[WaveWarpMode],
+        noise_frequency: f32,
+        noise_aniso_y: f32,
+    ) -> WaveCfContext {
+        let (cheb_sin, cheb_cos) = wave_cf_chebyshev_tables();
+        WaveCfContext {
+            cheb_sin,
+            cheb_cos,
+            depth_scale: wave_cf_depth_scale(erosion_modes, modulators, noise_frequency, |v| {
+                [v[0], v[1] * noise_aniso_y, v[2]]
+            }),
+        }
+    }
+
+    /// The pseudo-FM carriers keep the field statistics: sin(A + psi) has the
+    /// same second moment as sin(A), so mean/std stay calibrated to fbm3.
+    #[test]
+    fn test_cf_field_statistics_match_reference() {
+        let modes = generate_wave_modes();
+        let modulators = generate_wave_warp_modes();
+        let (warp_frequency, noise_frequency, aniso_y) = (5.0f32, 6.0f32, 0.35f32);
+        let amp_disp = 1.4 * (0.15 + 0.85 * 0.8);
+        let ctx = cf_test_context(&modes, &modulators, noise_frequency, aniso_y);
+
+        let mut sum = 0.0f64;
+        let mut sum_sq = 0.0f64;
+        let count = 40usize;
+        let total = (count * count * count) as f64;
+        for ix in 0..count {
+            for iy in 0..count {
+                for iz in 0..count {
+                    let pb = [
+                        ix as f32 * 0.083 + 0.031,
+                        iy as f32 * 0.079 + 0.017,
+                        iz as f32 * 0.087 + 0.053,
+                    ];
+                    let sample = cf_sample_at(
+                        &ctx,
+                        &modulators,
+                        pb,
+                        [0.0; 3],
+                        amp_disp,
+                        warp_frequency,
+                        noise_frequency,
+                        aniso_y,
+                    );
+                    let w = [
+                        pb[0] * noise_frequency,
+                        pb[1] * aniso_y * noise_frequency,
+                        pb[2] * noise_frequency,
+                    ];
+                    let value = evaluate_wave_noise_cf(&modes, w, 0.0, Some(&sample)) as f64;
+                    sum += value;
+                    sum_sq += value * value;
+                }
+            }
+        }
+        let mean = sum / total;
+        let std = (sum_sq / total - mean * mean).sqrt();
+        assert!((mean - WAVE_NOISE_MEAN as f64).abs() < 0.015, "mean {mean}");
+        assert!(
+            (std - WAVE_NOISE_STD as f64).abs() < 0.02,
+            "std {std} vs {WAVE_NOISE_STD}"
+        );
+    }
+
+    /// The RMS cap keeps every psi inside the Chebyshev fit domain.
+    #[test]
+    fn test_cf_psi_within_bound() {
+        let modes = generate_wave_modes();
+        let modulators = generate_wave_warp_modes();
+        let (warp_frequency, noise_frequency, aniso_y) = (5.0f32, 6.0f32, 0.35f32);
+        let ctx = cf_test_context(&modes, &modulators, noise_frequency, aniso_y);
+        for amp_disp in [0.3f32, 1.4, 3.0] {
+            for point in flow_warp_sample_points() {
+                let pb = [point[0] as f32, point[1] as f32, point[2] as f32];
+                let sample = cf_sample_at(
+                    &ctx,
+                    &modulators,
+                    pb,
+                    [0.577; 3],
+                    amp_disp,
+                    warp_frequency,
+                    noise_frequency,
+                    aniso_y,
+                );
+                for (n, mode) in modes.iter().enumerate() {
+                    let (psi, _) = sample.mode_terms(n, mode.k);
+                    assert!(
+                        psi.abs() <= WAVE_CF_PSI_BOUND * 1.0001,
+                        "psi {psi} out of bound at mode {n}, amp {amp_disp}"
+                    );
+                }
+            }
+        }
+    }
+
+    /// Slow ray: the low-pass version with cf reduces to the pointwise cf field.
+    #[test]
+    fn test_cf_local_lowpass_matches_pointwise_when_resolved() {
+        let modes = generate_wave_modes();
+        let modulators = generate_wave_warp_modes();
+        let (warp_frequency, noise_frequency, aniso_y) = (5.0f32, 6.0f32, 0.35f32);
+        let ctx = cf_test_context(&modes, &modulators, noise_frequency, aniso_y);
+        let pb = [0.31f32, 0.45, 0.12];
+        let sample = cf_sample_at(
+            &ctx,
+            &modulators,
+            pb,
+            [0.001; 3],
+            1.2,
+            warp_frequency,
+            noise_frequency,
+            aniso_y,
+        );
+        let w = [
+            pb[0] * noise_frequency,
+            pb[1] * aniso_y * noise_frequency,
+            pb[2] * noise_frequency,
+        ];
+        let pointwise = evaluate_wave_noise_cf(&modes, w, 0.3, Some(&sample));
+        let (lowpassed, sigma) = evaluate_wave_noise_local_lowpass_cf(
+            &modes,
+            w,
+            [0.001; 3],
+            0.01,
+            0.3,
+            Some(&sample),
+        );
+        assert!((pointwise - lowpassed).abs() < 1e-4);
+        assert!(sigma < 1e-3);
     }
 
     #[test]

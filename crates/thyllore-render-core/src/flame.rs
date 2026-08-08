@@ -39,6 +39,57 @@ fn read_env_wave_env_mu() -> f32 {
     })
 }
 
+static WAVE_CF_ENV: OnceLock<bool> = OnceLock::new();
+static WAVE_CF_SHEAR_ENV: OnceLock<f32> = OnceLock::new();
+static WAVE_CF_LAYERS_ENV: OnceLock<usize> = OnceLock::new();
+
+/// Opt-in switch for the closed-form wave variant (pseudo-FM carriers +
+/// single-frequency shear transport), for A/B against the 16-shear baseline.
+fn read_env_wave_cf() -> bool {
+    *WAVE_CF_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_CF")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+    })
+}
+
+fn read_env_wave_cf_shear() -> f32 {
+    *WAVE_CF_SHEAR_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_CF_SHEAR")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(crate::flame_wave::WAVE_CF_SHEAR_GAIN)
+    })
+}
+
+fn read_env_wave_cf_layers() -> usize {
+    *WAVE_CF_LAYERS_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_CF_LAYERS")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(crate::flame_wave::WAVE_CF_SHEAR_LAYERS)
+            .min(crate::flame_wave::WAVE_MODE_SLOTS - crate::flame_wave::WAVE_CF_SHEAR_SLOT)
+    })
+}
+
+/// CPU mirror of the shader's `flameAnisoCompress` over the erosion chain
+/// (axis optionally bent toward the advection direction by aniso_axis_advect).
+fn noise_aniso_compress(effect: &FlameEffect, v: [f32; 3]) -> [f32; 3] {
+    let advect = Vector3::new(
+        effect.wind_direction.x,
+        effect.rise_speed,
+        effect.wind_direction.y,
+    );
+    let mut axis = Vector3::new(0.0, 1.0, 0.0);
+    if effect.aniso_axis_advect > 0.0 && advect.magnitude2() > 1e-8 {
+        let blend = effect.aniso_axis_advect.clamp(0.0, 1.0);
+        axis = (axis * (1.0 - blend) + advect.normalize() * blend).normalize();
+    }
+    let vector = Vector3::new(v[0], v[1], v[2]);
+    let compressed = vector - axis * vector.dot(axis) * (1.0 - effect.noise_aniso_y);
+    [compressed.x, compressed.y, compressed.z]
+}
+
 pub const HEIGHT_PRIMITIVE_COEFFICIENT_COUNT: usize = 12;
 pub const HEIGHT_COEFFICIENT_COUNT: usize = 8;
 pub const RADIAL_COEFFICIENT_COUNT: usize = 8;
@@ -499,7 +550,19 @@ type KernelUboFields = (
 fn build_kernel_ubo_fields(effect: &FlameEffect) -> KernelUboFields {
     use crate::flame_kernel::{generate_kernel_blobs, KernelBlobParams, KERNEL_BLOB_COUNT};
 
-    let params = [effect.turbulence_model, 0.0, 0.0, 0.0];
+    // kernelParams.y/z carry the closed-form wave switch (unused by the kernel
+    // basis): y = cf active, z = cf shear layer count.
+    let cf_active = effect.turbulence_model >= 1.5 && read_env_wave_cf();
+    let params = [
+        effect.turbulence_model,
+        if cf_active { 1.0 } else { 0.0 },
+        if cf_active {
+            read_env_wave_cf_layers() as f32
+        } else {
+            0.0
+        },
+        0.0,
+    ];
     let mut packed = [[0.0f32; 4]; 2 * KERNEL_BLOB_COUNT];
     if (0.5..1.5).contains(&effect.turbulence_model) {
         let ring_major_norm = if effect.emitter_kind == 1 {
@@ -530,9 +593,10 @@ type WaveUboFields = (
 
 fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     use crate::flame_wave::{
-        generate_wave_detail_modes, generate_wave_modes_with_ratio, generate_wave_warp_modes,
-        wave_shaping_params, WAVE_DETAIL_MODE_COUNT, WAVE_MODE_COUNT, WAVE_MODE_SLOTS,
-        WAVE_WARP_MODE_COUNT,
+        generate_wave_cf_shear_layers, generate_wave_detail_modes, generate_wave_modes_with_ratio,
+        generate_wave_warp_modes, wave_cf_chebyshev_tables, wave_cf_depth_scale,
+        wave_shaping_params, WAVE_CF_CHEB_COEFFS, WAVE_CF_SHEAR_SLOT, WAVE_DETAIL_MODE_COUNT,
+        WAVE_MODE_COUNT, WAVE_MODE_SLOTS, WAVE_WARP_MODE_COUNT,
     };
 
     let mut packed = [[0.0f32; 4]; 2 * WAVE_MODE_SLOTS];
@@ -542,11 +606,20 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     let k_ratio = read_env_wave_k_ratio();
     let mut erosion_modes = generate_wave_modes_with_ratio(k_ratio);
     crate::flame_wave::apply_wave_envelope(&mut erosion_modes, read_env_wave_env_mu());
+    let warp_modes = generate_wave_warp_modes();
+    let cf_active = read_env_wave_cf();
+    let depth_scale = if cf_active {
+        wave_cf_depth_scale(&erosion_modes, &warp_modes, effect.noise_frequency, |v| {
+            noise_aniso_compress(effect, v)
+        })
+    } else {
+        [0.0; WAVE_MODE_COUNT]
+    };
     for (i, mode) in erosion_modes.iter().enumerate() {
         packed[2 * i] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
-        packed[2 * i + 1] = [mode.phase, mode.eddy_rate, mode.env_coeff, 0.0];
+        packed[2 * i + 1] = [mode.phase, mode.eddy_rate, mode.env_coeff, depth_scale[i]];
     }
-    for (i, mode) in generate_wave_warp_modes().iter().enumerate() {
+    for (i, mode) in warp_modes.iter().enumerate() {
         let slot = WAVE_MODE_COUNT + i;
         packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
         packed[2 * slot + 1] = [
@@ -560,6 +633,29 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         let slot = WAVE_MODE_COUNT + WAVE_WARP_MODE_COUNT + i;
         packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
         packed[2 * slot + 1] = [mode.phase, mode.eddy_rate, 0.0, 0.0];
+    }
+    if cf_active {
+        let (cheb_sin, cheb_cos) = wave_cf_chebyshev_tables();
+        for i in 0..WAVE_CF_CHEB_COEFFS {
+            let slot = WAVE_MODE_COUNT + WAVE_WARP_MODE_COUNT + i;
+            packed[2 * slot + 1][2] = cheb_sin[i];
+            packed[2 * slot + 1][3] = cheb_cos[i];
+        }
+        let layers = generate_wave_cf_shear_layers(
+            &warp_modes,
+            read_env_wave_cf_layers(),
+            read_env_wave_cf_shear(),
+        );
+        for (i, mode) in layers.iter().enumerate() {
+            let slot = WAVE_CF_SHEAR_SLOT + i;
+            packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
+            packed[2 * slot + 1] = [
+                mode.phase,
+                mode.curl_direction[0],
+                mode.curl_direction[1],
+                mode.curl_direction[2],
+            ];
+        }
     }
     let tanh_scale = read_env_wave_tanh();
     let (inverse_scale, amplitude) = if tanh_scale <= 0.0 {
@@ -1491,7 +1587,7 @@ mod tests {
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 3072 + 16 + 16 + 32 + 128 + 16 + 32 + 32 + 16 + 5632
+            784 + 16 + 3072 + 16 + 16 + 32 + 128 + 16 + 32 + 32 + 16 + 5696
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

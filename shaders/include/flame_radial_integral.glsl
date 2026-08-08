@@ -1007,7 +1007,7 @@ const int FLAME_WAVE_SEGMENTS = FLAME_WAVE_SEGMENTS_OVERRIDE;
 #else
 const int FLAME_WAVE_SEGMENTS = 64;
 #endif
-const int FLAME_WAVE_MODE_SLOTS = 176;
+const int FLAME_WAVE_MODE_SLOTS = 178;
 // Warped noise coordinate of the wave basis: wind bend removed, the analytic
 // mode-sum warp applied, then the same aniso/frequency/advect chain the fbm
 // erosion samples — exactly flameNoiseWarpedCoordinate's wave branch followed
@@ -1045,12 +1045,24 @@ float flameWaveNodeDensity(vec3 p, float h) {
 float flameWaveNodeArgumentLocal(
     vec3 p, vec3 d, float h, float density, float dt,
     int count, float eddyTime, out float shapedNoise, out float sigmaNoise) {
-    vec2 bendOffset = flameBendOffsetAt(h);
-    vec3 pb = vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
+    vec3 pb = flameNoiseBendRemoved(p, h);
     vec3 q;
     vec3 rateRaw = flameWaveFlowWarpRate(pb, d, h, q);
     vec3 w = flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect();
     vec3 rate = flameAnisoCompress(rateRaw, flame.temporalData.z) * flame.noiseFrequency;
+
+    // Closed-form variant: pseudo-FM phase psi_n and its ray rate from the
+    // modulator field at the unwarped coordinate (parity with flameWaveNoiseSum).
+    bool cf = flameWaveCfActive();
+    vec3 psiVec = vec3(0.0);
+    vec3 psiRateVec = vec3(0.0);
+    float ampDisp = 0.0;
+    float chebSin[FLAME_WAVE_CF_CHEB_COEFFS];
+    float chebCos[FLAME_WAVE_CF_CHEB_COEFFS];
+    if (cf) {
+        flameWaveCfPsiVectors(pb, d, h, psiVec, psiRateVec, ampDisp);
+        flameWaveCfLoadCheb(chebSin, chebCos);
+    }
 
     // Low-octave pass first (wavePhase.z == 0): the resolved low sum drives the
     // envelope 1 + coeff * zLow of the higher octaves (cross-scale coupling).
@@ -1062,10 +1074,22 @@ float flameWaveNodeArgumentLocal(
         if (wavePhase.z != 0.0) {
             continue;
         }
-        float beta = dot(waveVector.xyz, rate) * dt / 3.14159265;
+        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime;
+        float betaPhase = dot(waveVector.xyz, rate);
+        float carrier;
+        if (cf) {
+            float depth = ampDisp * wavePhase.w;
+            float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
+            betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
+            carrier = flameWaveCfCarrier(
+                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
+        } else {
+            carrier = sin(angle);
+        }
+        float beta = betaPhase * dt / 3.14159265;
         float b2 = beta * beta;
         float weight = exp(-b2 * b2);
-        zLow += weight * waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        zLow += weight * waveVector.w * carrier;
         unresolvedPower += 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
     }
     float z = zLow;
@@ -1075,11 +1099,23 @@ float flameWaveNodeArgumentLocal(
         if (wavePhase.z == 0.0) {
             continue;
         }
-        float beta = dot(waveVector.xyz, rate) * dt / 3.14159265;
+        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime;
+        float betaPhase = dot(waveVector.xyz, rate);
+        float carrier;
+        if (cf) {
+            float depth = ampDisp * wavePhase.w;
+            float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
+            betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
+            carrier = flameWaveCfCarrier(
+                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
+        } else {
+            carrier = sin(angle);
+        }
+        float beta = betaPhase * dt / 3.14159265;
         float b2 = beta * beta;
         float weight = exp(-b2 * b2);
         float envelope = 1.0 + wavePhase.z * zLow;
-        z += envelope * weight * waveVector.w * sin(dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime);
+        z += envelope * weight * waveVector.w * carrier;
         unresolvedPower += envelope * envelope * 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
     }
 
