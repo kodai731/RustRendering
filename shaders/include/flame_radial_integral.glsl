@@ -234,6 +234,9 @@ float flameWaveNodeArgumentLocal(
         flameWaveCfPsiVectors(pb, d, h, psiVec, psiRateVec, ampDisp);
         flameWaveCfLoadCheb(chebSin, chebCos);
     }
+    vec3 jitterPsi;
+    vec3 jitterPsiRate;
+    flameWaveJitterState(w, rate, jitterPsi, jitterPsiRate);
 
     // Low-octave pass first (wavePhase.z == 0): the resolved low sum drives the
     // envelope 1 + coeff * zLow of the higher octaves (cross-scale coupling).
@@ -245,8 +248,9 @@ float flameWaveNodeArgumentLocal(
         if (wavePhase.z != 0.0) {
             continue;
         }
-        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime;
-        float betaPhase = dot(waveVector.xyz, rate);
+        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
+            + dot(flame.waveJitter[n].xyz, jitterPsi);
+        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[n].xyz, jitterPsiRate);
         float carrier;
         if (cf) {
             float depth = ampDisp * wavePhase.w;
@@ -270,8 +274,9 @@ float flameWaveNodeArgumentLocal(
         if (wavePhase.z == 0.0) {
             continue;
         }
-        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime;
-        float betaPhase = dot(waveVector.xyz, rate);
+        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
+            + dot(flame.waveJitter[n].xyz, jitterPsi);
+        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[n].xyz, jitterPsiRate);
         float carrier;
         if (cf) {
             float depth = ampDisp * wavePhase.w;

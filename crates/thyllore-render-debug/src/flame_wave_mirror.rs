@@ -265,12 +265,14 @@ pub fn evaluate_wave_noise_cf(
     eddy_time: f32,
     cf: Option<&WaveCfSample>,
 ) -> f32 {
+    let (jitter_psi, _) = wave_jitter_state(w, [0.0; 3]);
     let carrier = |index: usize, mode: &WaveMode| {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
             + mode.k[2] * w[2]
             + mode.phase
-            + mode.eddy_rate * eddy_time;
+            + mode.eddy_rate * eddy_time
+            + wave_mode_jitter_phase(&mode.jitter, &jitter_psi);
         match cf {
             Some(sample) => sample.wave_value(index, mode.k, angle).0,
             None => angle.sin(),
@@ -297,13 +299,15 @@ pub fn evaluate_wave_noise_attenuated(
     w: [f32; 3],
     eddy_time: f32,
 ) -> f32 {
+    let (jitter_psi, _) = wave_jitter_state(w, [0.0; 3]);
     let mut z = 0.0f32;
     for (mode, weight) in modes.iter().zip(weights) {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
             + mode.k[2] * w[2]
             + mode.phase
-            + mode.eddy_rate * eddy_time;
+            + mode.eddy_rate * eddy_time
+            + wave_mode_jitter_phase(&mode.jitter, &jitter_psi);
         z += weight * mode.amplitude * angle.sin();
     }
     let (inverse_scale, amplitude) = get_wave_shaping_params_cached();
@@ -366,13 +370,18 @@ pub fn evaluate_wave_noise_local_lowpass_reduced(
     skipped_power: [f32; 2],
     skipped_env_coeff: f32,
 ) -> (f32, f32) {
+    let (jitter_psi, jitter_psi_rate) = wave_jitter_state(w, rate);
     let carrier = |index: usize, mode: &WaveMode| {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
             + mode.k[2] * w[2]
             + mode.phase
-            + mode.eddy_rate * eddy_time;
-        let beta_carrier = mode.k[0] * rate[0] + mode.k[1] * rate[1] + mode.k[2] * rate[2];
+            + mode.eddy_rate * eddy_time
+            + wave_mode_jitter_phase(&mode.jitter, &jitter_psi);
+        let beta_carrier = mode.k[0] * rate[0]
+            + mode.k[1] * rate[1]
+            + mode.k[2] * rate[2]
+            + wave_mode_jitter_phase(&mode.jitter, &jitter_psi_rate);
         let (value, beta_fm) = match cf {
             Some(sample) => sample.wave_value(index, mode.k, angle),
             None => (angle.sin(), 0.0),
@@ -1399,7 +1408,13 @@ mod tests {
 
     #[test]
     fn test_local_lowpass_varies_along_ray() {
-        let modes = generate_wave_modes();
+        // Jitter-free table: wave_ray_attenuation is the coarse per-ray
+        // diagnostic without the jitter FM rate, so the consistency check (a)
+        // holds only for zeroed jitter coefficients.
+        let mut modes = generate_wave_modes();
+        for mode in modes.iter_mut() {
+            mode.jitter = [0.0; 3];
+        }
         let warp_modes = generate_wave_warp_modes();
         let dt = 1.0 / FLAME_WAVE_SEGMENTS as f32;
 

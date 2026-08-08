@@ -72,6 +72,12 @@ fn main() -> Result<()> {
         settings.reference_step_count = step_count;
         settings.noise_step_count = step_count;
     }
+    if let Some(debug_view) = overrides.flame_debug_view {
+        app.data
+            .ecs_world
+            .resource_mut::<FlameRenderSettings>()
+            .debug_view = debug_view;
+    }
     if let Some(pose) = overrides.camera_pose {
         let mut camera = app.data.ecs_world.resource_mut::<Camera>();
         camera.yaw = pose.yaw_degrees.to_radians();

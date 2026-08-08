@@ -141,6 +141,12 @@ fn main() {
     // Build mode table: generate_wave_modes_with_ratio(WAVE_K_RATIO) -> apply_wave_envelope -> sort by |k| ascending
     let mut modes = generate_wave_modes_with_ratio(WAVE_K_RATIO);
     apply_wave_envelope(&mut modes, WAVE_ENV_MU);
+    let jitter_scale = read_env_wave_jitter();
+    for mode in modes.iter_mut() {
+        for c in mode.jitter.iter_mut() {
+            *c *= jitter_scale;
+        }
+    }
     let k_mag = |m: &WaveMode| (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt();
     modes.sort_by(|a, b| k_mag(a).total_cmp(&k_mag(b)));
 

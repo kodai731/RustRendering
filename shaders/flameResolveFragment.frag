@@ -58,6 +58,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 profileParams;
     vec4 waveParams;
     vec4 waveModes[356];
+    vec4 waveJitter[96];
 } flame;
 
 #include "include/flame_shell_support.glsl"
@@ -74,6 +75,7 @@ layout(location = 1) out vec4 outHistory;
 layout(push_constant) uniform FlamePush {
     int mode;
     int stepCount;
+    int debugView;
 } push;
 
 const float SEGMENT_T_MAX = 1e4;
@@ -519,8 +521,95 @@ vec4 shadeEmission(FlameRaySegment segment, float emission) {
     return vec4(radiance, alpha);
 }
 
+// ---- Numeric debug views (push.debugView > 0) ----
+// The flame color is replaced by a colormap of the selected intermediate,
+// sampled at the max-density node along the ray (Emission Total integrates).
+// History blending is bypassed so the display is the raw current-frame value.
+
+vec3 flameDebugHeat(float v) {
+    v = clamp(v, 0.0, 1.0);
+    return vec3(clamp(v * 3.0, 0.0, 1.0), clamp(v * 3.0 - 1.0, 0.0, 1.0), clamp(v * 3.0 - 2.0, 0.0, 1.0));
+}
+
+vec3 flameDebugDiverging(float v) {
+    float p = clamp(v, 0.0, 1.0);
+    float n = clamp(-v, 0.0, 1.0);
+    return vec3(p, 0.08 + 0.5 * p * p, n);
+}
+
+vec4 flameDebugViewColor(FlameRaySegment segment) {
+    vec3 o = segment.localOrigin;
+    vec3 d = segment.localDir;
+    float tNear = segment.tNear;
+    float tFar = segment.tFar;
+    if (!flameWaveSupportSpan(o, d, tNear, tFar)) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+    if (push.debugView == 6) {
+        float total = integrateWaveOccupancy(o, d, tNear, tFar);
+        return vec4(flameDebugHeat(total * 2.0), 1.0);
+    }
+    float dt = (tFar - tNear) / float(FLAME_WAVE_SEGMENTS);
+    float bestT = tNear;
+    float bestDensity = 0.0;
+    for (int i = 0; i <= FLAME_WAVE_SEGMENTS; ++i) {
+        float t = tNear + float(i) * dt;
+        vec3 pNode = o + t * d;
+        float density = flameWaveNodeDensity(pNode, clamp(pNode.y, 0.0, 1.0));
+        if (density > bestDensity) {
+            bestDensity = density;
+            bestT = t;
+        }
+    }
+    if (bestDensity <= 0.0) {
+        return vec4(0.0, 0.0, 0.0, 1.0);
+    }
+    vec3 p = o + bestT * d;
+    float h = clamp(p.y, 0.0, 1.0);
+    if (push.debugView == 4) {
+        return vec4(flameDebugHeat(bestDensity), 1.0);
+    }
+    if (push.debugView == 7 || push.debugView == 8) {
+        vec3 pb = flameNoiseBendRemoved(p, h);
+        vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
+        vec3 w = flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency
+            - flameNoiseAdvect();
+        if (push.debugView == 7) {
+            return vec4(flameWaveJitterFields(w) * 0.5 + 0.5, 1.0);
+        }
+        return vec4(fract(w * 0.15915494), 1.0);
+    }
+    float eddyTime = flame.noiseScrollSpeed * flame.time;
+    int count = min(int(flame.waveParams.x), FLAME_WAVE_EROSION_SLOTS);
+    float shapedNoise;
+    float sigmaNoise;
+    float remapScale;
+    float argument = flameWaveNodeArgumentLocal(
+        p, d, h, bestDensity, dt, count, eddyTime, shapedNoise, sigmaNoise, remapScale);
+    if (push.debugView == 1) {
+        float v = (shapedNoise - 0.4375) / max(flame.waveParams.w, 1e-4);
+        return vec4(flameDebugDiverging(v), 1.0);
+    }
+    if (push.debugView == 2) {
+        return vec4(flameDebugDiverging(flameNoiseErosionFromValue(shapedNoise, h)), 1.0);
+    }
+    if (push.debugView == 3) {
+        return vec4(flameDebugDiverging(argument * 2.0), 1.0);
+    }
+    if (push.debugView == 5) {
+        return vec4(flameDebugHeat(sigmaNoise * 4.0), 1.0);
+    }
+    return vec4(flameDebugHeat(bestDensity), 1.0);
+}
+
 void main() {
     FlameRaySegment segment = buildRaySegment();
+
+    if (push.debugView > 0 && flame.trailMeta.x < 1.0 && segment.tNear <= segment.tFar) {
+        outColor = flameDebugViewColor(segment);
+        outHistory = outColor;
+        return;
+    }
 
     if (push.mode == 4) {
         outColor = vec4(visualizeDepthClamp(segment.depthClamp), 1.0);

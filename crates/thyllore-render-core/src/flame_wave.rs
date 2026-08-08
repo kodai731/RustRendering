@@ -63,6 +63,97 @@ pub struct WaveMode {
     /// is multiplied by `1 + env_coeff * z_low`, tying fine detail to the
     /// coarse structure (cross-scale coupling the independent phases lack).
     pub env_coeff: f32,
+    /// Rank-M phase-jitter mixing coefficients: the carrier phase gains
+    /// `sum_m jitter[m] * Psi_m(w)` over the shared fields WAVE_JITTER_K.
+    pub jitter: [f32; WAVE_JITTER_RANK],
+}
+
+/// Rank-M phase jitter of the erosion carriers. The bottom octave packs many
+/// near-equal |k| modes whose pairwise difference frequencies pile up on the
+/// same low screen frequency — a collective beat that renders as quasi-periodic
+/// fringes and that a SINGLE shared modulation field cannot break (every pair
+/// difference stays proportional to that one field; fringe_beat_analysis.md).
+/// With M >= 2 independent low-wavenumber fields Psi_m(w) = sin(kappa_m . w + phi_m)
+/// and per-mode mixing coefficients c_{n,m}, the beat phase of pair (i, j)
+/// gains `sum_m (c_i - c_j)_m Psi_m` — a pair-specific spatial modulation, so
+/// the beats cannot align into one fringe family. Phase-only: |k| is untouched,
+/// the per-mode power and the erf closed form are exact as before; the jitter's
+/// ray rate joins the node low-pass beta like the cf psiRateVec.
+pub const WAVE_JITTER_RANK: usize = 3;
+/// |kappa| = 2*pi*{0.45, 0.62, 0.85}: below the bottom octave (2*pi) so the
+/// jitter varies slower than every carrier, comparable to the beat wavenumbers.
+/// Directions are unit cyclic permutations of (0.36, 0.48, -0.80).
+pub const WAVE_JITTER_K: [[f32; 3]; WAVE_JITTER_RANK] = [
+    [1.017_876, 1.357_168, -2.261_947],
+    [-3.116_460, 1.402_407, 1.869_876],
+    [2.563_540, -4.272_566, 1.922_655],
+];
+pub const WAVE_JITTER_PHASE: [f32; WAVE_JITTER_RANK] = [1.234_568, 3.456_790, 5.678_901];
+/// Max |mixing coefficient| per field: uniform c in [-D, D] gives the per-mode
+/// phase jitter a spatial RMS of D * sqrt(RANK / 6) ~= 1.3 rad at D = 1.85 and
+/// a pair-difference RMS of ~1.85 rad — enough to decohere a fringe over one
+/// jitter wavelength without changing the field statistics (phase-only).
+pub const WAVE_JITTER_DEPTH: f32 = 1.85;
+
+/// Shared jitter fields at a warped coordinate: value Psi_m and its ray rate
+/// dPsi_m/dt for rate = dw/dt (zero rate is fine for point evaluation).
+/// The field wavevectors are WAVE_JITTER_K scaled by the runtime kappa scale
+/// (read_env_wave_jitter_freq / waveJitter[0].w on the GPU).
+/// Mirror of flameWaveJitterState in flame_noise_field.glsl.
+pub fn wave_jitter_state(
+    w: [f32; 3],
+    rate: [f32; 3],
+) -> ([f32; WAVE_JITTER_RANK], [f32; WAVE_JITTER_RANK]) {
+    let scale = read_env_wave_jitter_freq();
+    let mut psi = [0.0f32; WAVE_JITTER_RANK];
+    let mut psi_rate = [0.0f32; WAVE_JITTER_RANK];
+    for m in 0..WAVE_JITTER_RANK {
+        let k = WAVE_JITTER_K[m];
+        let angle =
+            scale * (k[0] * w[0] + k[1] * w[1] + k[2] * w[2]) + WAVE_JITTER_PHASE[m];
+        psi[m] = angle.sin();
+        psi_rate[m] =
+            angle.cos() * scale * (k[0] * rate[0] + k[1] * rate[1] + k[2] * rate[2]);
+    }
+    (psi, psi_rate)
+}
+
+/// Per-mode jitter phase `sum_m c_{n,m} * Psi_m` from a precomputed field state.
+pub fn wave_mode_jitter_phase(jitter: &[f32; WAVE_JITTER_RANK], psi: &[f32; WAVE_JITTER_RANK]) -> f32 {
+    jitter[0] * psi[0] + jitter[1] * psi[1] + jitter[2] * psi[2]
+}
+
+static WAVE_JITTER_ENV: OnceLock<f32> = OnceLock::new();
+
+/// Runtime scale of the rank-M phase jitter (THYLLORE_FLAME_WAVE_JITTER,
+/// default 1.0; 0 disables). Applied where the mode table is consumed (UBO
+/// packing, replay probes) so the deterministic table stays parameter-free.
+pub fn read_env_wave_jitter() -> f32 {
+    *WAVE_JITTER_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_JITTER")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(1.0)
+    })
+}
+
+static WAVE_JITTER_FREQ_ENV: OnceLock<f32> = OnceLock::new();
+
+/// Runtime scale of the jitter field wavevectors (THYLLORE_FLAME_WAVE_JITTER_FREQ,
+/// default WAVE_JITTER_FREQ_DEFAULT). Larger = the jitter varies on a finer
+/// spatial scale, decohering beats within a smaller view. 3.0 is the measured
+/// knee of the close-up tip fringes (probe peak 32711 off / 23189 at 1.0 /
+/// 9155 at 3.0, no further gain at 4-6); at 1.0 the jitter wavelength exceeds
+/// a close-up view and the beats stay locally coherent.
+pub const WAVE_JITTER_FREQ_DEFAULT: f32 = 3.0;
+
+pub fn read_env_wave_jitter_freq() -> f32 {
+    *WAVE_JITTER_FREQ_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WAVE_JITTER_FREQ")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .unwrap_or(WAVE_JITTER_FREQ_DEFAULT)
+    })
 }
 
 /// Deterministic mode table in normalized units. Every call returns the same
@@ -143,6 +234,18 @@ fn fill_wave_modes(modes: &mut [WaveMode], k_ratio: f32) {
 
         let phase_u = (n as f64 * PLASTIC_INV_SQ + 0.5 * PLASTIC_INV).fract();
         mode.phase = (std::f64::consts::TAU * phase_u) as f32;
+        // Jitter mixing coefficients: three low-discrepancy streams (sqrt(2)-1,
+        // sqrt(3)-1, sqrt(5)-2) decorrelated from the direction/magnitude/phase
+        // streams, uniform in [-DEPTH, DEPTH].
+        const JITTER_STREAMS: [f64; WAVE_JITTER_RANK] = [
+            0.414_213_562_373_095_1,
+            0.732_050_807_568_877_2,
+            0.236_067_977_499_789_7,
+        ];
+        for (m, stream) in JITTER_STREAMS.iter().enumerate() {
+            let u = (n as f64 * stream + 0.5 * PLASTIC_INV * (m as f64 + 1.0)).fract();
+            mode.jitter[m] = ((2.0 * u - 1.0) * WAVE_JITTER_DEPTH as f64) as f32;
+        }
         let sign = if (n as f64 * PLASTIC_INV + 0.25).fract() < 0.5 {
             1.0
         } else {

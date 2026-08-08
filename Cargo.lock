@@ -3708,6 +3708,7 @@ dependencies = [
  "thyllore-ml-core",
  "thyllore-model-core",
  "thyllore-render-core",
+ "thyllore-render-debug",
  "thyllore-vulkan-core",
  "ufbx",
  "vulkanalia",

@@ -28,11 +28,16 @@ impl GBufferPushConstants {
 pub struct FlamePushConstants {
     pub mode: i32,
     pub step_count: i32,
+    pub debug_view: i32,
 }
 
 impl FlamePushConstants {
-    pub fn new(mode: i32, step_count: i32) -> Self {
-        Self { mode, step_count }
+    pub fn new(mode: i32, step_count: i32, debug_view: i32) -> Self {
+        Self {
+            mode,
+            step_count,
+            debug_view,
+        }
     }
 
     pub fn as_bytes(&self) -> &[u8] {

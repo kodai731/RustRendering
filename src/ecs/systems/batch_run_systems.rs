@@ -23,6 +23,7 @@ use crate::ecs::world::World;
 const BATCH_SCREENSHOT_FLAG: &str = "--batch-screenshot";
 const BATCH_FRAMES_FLAG: &str = "--batch-frames";
 const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
+const BATCH_FLAME_DEBUG_VIEW_FLAG: &str = "--batch-flame-debug-view";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
@@ -55,6 +56,7 @@ pub struct BatchCameraPose {
 pub struct EngineCliOverrides {
     pub batch_run: Option<BatchRun>,
     pub flame_mode: Option<FlameShadingMode>,
+    pub flame_debug_view: Option<thyllore_render_core::FlameDebugView>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
     pub flame_dump_path: Option<String>,
@@ -116,6 +118,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
     Ok(EngineCliOverrides {
         batch_run: batch_run_resolve_from_args(args)?,
         flame_mode: flame_mode_resolve_from_args(args)?,
+        flame_debug_view: flame_debug_view_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
         camera_pose: camera_pose_resolve_from_args(args)?,
         flame_dump_path: flame_dump_path_resolve_from_args(args)?,
@@ -232,6 +235,23 @@ pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadi
         )
     })?;
     Ok(Some(mode))
+}
+
+pub fn flame_debug_view_resolve_from_args(
+    args: &[String],
+) -> Result<Option<thyllore_render_core::FlameDebugView>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_DEBUG_VIEW_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_FLAME_DEBUG_VIEW_FLAG} requires a value: off|shaped|erosion|argument|density|sigma|emission|jitter|wcoord");
+    };
+    let view = thyllore_render_core::FlameDebugView::parse(value).ok_or_else(|| {
+        anyhow::anyhow!(
+            "invalid flame debug view '{value}': expected off|shaped|erosion|argument|density|sigma|emission|jitter|wcoord"
+        )
+    })?;
+    Ok(Some(view))
 }
 
 pub fn flame_steps_resolve_from_args(args: &[String]) -> Result<Option<u32>> {

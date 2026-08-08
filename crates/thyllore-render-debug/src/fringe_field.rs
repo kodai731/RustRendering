@@ -54,15 +54,20 @@ pub fn sample_wave_field(
     skipped_power: [f32; 2],
     skipped_env_coeff: f32,
 ) -> FieldSample {
+    let (jitter_psi, jitter_psi_rate) = wave_jitter_state(w, rate);
     let carrier = |_index: usize, mode: &WaveMode| {
         let angle = mode.k[0] * w[0]
             + mode.k[1] * w[1]
             + mode.k[2] * w[2]
             + mode.phase
-            + mode.eddy_rate * eddy_time;
-        let beta_carrier = mode.k[0] * rate[0] + mode.k[1] * rate[1] + mode.k[2] * rate[2];
+            + mode.eddy_rate * eddy_time
+            + wave_mode_jitter_phase(&mode.jitter, &jitter_psi);
+        let beta_carrier = mode.k[0] * rate[0]
+            + mode.k[1] * rate[1]
+            + mode.k[2] * rate[2]
+            + wave_mode_jitter_phase(&mode.jitter, &jitter_psi_rate);
         let value = angle.sin();
-        let x = (beta_carrier) * node_spacing / std::f32::consts::PI;
+        let x = beta_carrier * node_spacing / std::f32::consts::PI;
         let weight = (-(x * x) * (x * x)).exp();
         (value, weight)
     };

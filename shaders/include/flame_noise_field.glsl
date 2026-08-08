@@ -90,6 +90,46 @@ const float FLAME_WAVE_CF_PSI_BOUND = 11.313708;
 const int FLAME_WAVE_CF_CHEB_COEFFS = 21;
 const int FLAME_WAVE_CF_SHEAR_BASE = 176;
 
+// Rank-M phase jitter of the erosion carriers: M shared low-wavenumber fields
+// Psi_m(w) = sin(kappa_m . w + phi_m) in the warped erosion coordinate; mode n
+// adds dot(waveJitter[n].xyz, Psi) to its carrier phase. Pair (i, j) beats then
+// carry the pair-specific modulation sum_m (c_i - c_j)_m Psi_m, so the dense
+// bottom octave's difference frequencies cannot align into one fringe family
+// (fringe_beat_analysis.md; a single shared field — M = 1 — cannot break them).
+// Phase-only: |k| and per-mode power are untouched, the erf closed form stays
+// exact; the jitter ray rate joins the node low-pass beta below.
+// Mirrored in flame_wave.rs (WAVE_JITTER_K / wave_jitter_state).
+const int FLAME_WAVE_JITTER_RANK = 3;
+const vec3 FLAME_WAVE_JITTER_K[3] = vec3[3](
+    vec3(1.017876, 1.357168, -2.261947),
+    vec3(-3.116460, 1.402407, 1.869876),
+    vec3(2.563540, -4.272566, 1.922655));
+const vec3 FLAME_WAVE_JITTER_PHASE = vec3(1.234568, 3.456790, 5.678901);
+
+// waveJitter[0].w carries the runtime kappa scale (0 reads as 1 so a zeroed
+// UBO stays neutral); larger = finer jitter, decohering close-up fringes.
+float flameWaveJitterKappaScale() {
+    float scale = flame.waveJitter[0].w;
+    return scale > 0.0 ? scale : 1.0;
+}
+
+vec3 flameWaveJitterFields(vec3 w) {
+    float scale = flameWaveJitterKappaScale();
+    return vec3(
+        sin(scale * dot(FLAME_WAVE_JITTER_K[0], w) + FLAME_WAVE_JITTER_PHASE.x),
+        sin(scale * dot(FLAME_WAVE_JITTER_K[1], w) + FLAME_WAVE_JITTER_PHASE.y),
+        sin(scale * dot(FLAME_WAVE_JITTER_K[2], w) + FLAME_WAVE_JITTER_PHASE.z));
+}
+
+void flameWaveJitterState(vec3 w, vec3 rate, out vec3 psi, out vec3 psiRate) {
+    float scale = flameWaveJitterKappaScale();
+    for (int m = 0; m < FLAME_WAVE_JITTER_RANK; ++m) {
+        float angle = scale * dot(FLAME_WAVE_JITTER_K[m], w) + FLAME_WAVE_JITTER_PHASE[m];
+        psi[m] = sin(angle);
+        psiRate[m] = cos(angle) * scale * dot(FLAME_WAVE_JITTER_K[m], rate);
+    }
+}
+
 bool flameWaveCfActive() {
     return flame.waveCfParams.x > 0.5;
 }
@@ -432,6 +472,7 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
         flameWaveCfPsiVectors(pb, vec3(0.0), h, psiVec, rateVecUnused, ampDisp);
         flameWaveCfLoadCheb(chebSin, chebCos);
     }
+    vec3 jitterPsi = flameWaveJitterFields(w);
     // Low-octave pass first (wavePhase.z == 0): its sum drives the envelope
     // 1 + coeff * zLow that ties the higher octaves to the coarse structure.
     float zLow = 0.0;
@@ -441,7 +482,8 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
         if (wavePhase.z != 0.0) {
             continue;
         }
-        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime;
+        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
+            + dot(flame.waveJitter[n].xyz, jitterPsi);
         float carrier = cf
             ? flameWaveCfCarrier(waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos)
             : sin(angle);
@@ -454,7 +496,8 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
         if (wavePhase.z == 0.0) {
             continue;
         }
-        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime;
+        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
+            + dot(flame.waveJitter[n].xyz, jitterPsi);
         float carrier = cf
             ? flameWaveCfCarrier(waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos)
             : sin(angle);

@@ -352,6 +352,45 @@ pub fn perform_flame_wall_probe_dump(world: &World, viewport_size: [f32; 2]) {
         Ok(path) => log!("wall probe dumped to {}", path.display()),
         Err(error) => log_warn!("wall probe dump failed: {}", error),
     }
+
+    match write_flame_field_traces(&view, &flames) {
+        Ok(paths) => {
+            for path in paths {
+                log!("flame field trace dumped to {}", path.display());
+            }
+        }
+        Err(error) => log_warn!("flame field trace dump failed: {}", error),
+    }
+}
+
+/// Full numerical replay of the analytic flame path (every node / segment
+/// intermediate, from the packed FlameUBO the GPU receives) — one JSON per
+/// flame, next to the wall probe dump. Grid density via
+/// THYLLORE_FLAME_TRACE_COLS / THYLLORE_FLAME_TRACE_ROWS.
+pub fn write_flame_field_traces(
+    view: &WallProbeView,
+    flames: &[(FlameEffect, thyllore_render_core::WallProbeReport)],
+) -> std::io::Result<Vec<std::path::PathBuf>> {
+    let unix_time = std::time::SystemTime::now()
+        .duration_since(std::time::SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let directory = std::path::Path::new("log/flame");
+    std::fs::create_dir_all(directory)?;
+    let mut paths = Vec::new();
+    for (index, (effect, _)) in flames.iter().enumerate() {
+        let ubo = thyllore_render_core::build_flame_ubo(effect);
+        let trace = thyllore_render_debug::flame_field_trace::trace_flame_field(&ubo, view);
+        let name = if flames.len() > 1 {
+            format!("flame_trace_{}_{}.json", unix_time, index)
+        } else {
+            format!("flame_trace_{}.json", unix_time)
+        };
+        let path = directory.join(name);
+        std::fs::write(&path, serde_json::to_string(&trace)?)?;
+        paths.push(path);
+    }
+    Ok(paths)
 }
 
 /// Provenance dump of one texture-fit load (G10): a metadata json plus a

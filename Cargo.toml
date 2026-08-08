@@ -36,6 +36,7 @@ thyllore-ml-core = { path = "crates/thyllore-ml-core", optional = true }
 thyllore-importer-core = { path = "crates/thyllore-importer-core" }
 thyllore-exporter-core = { path = "crates/thyllore-exporter-core" }
 thyllore-render-core = { path = "crates/thyllore-render-core" }
+thyllore-render-debug = { path = "crates/thyllore-render-debug" }
 thyllore-vulkan-core = { path = "crates/thyllore-vulkan-core" }
 thyllore-grpc-client = { path = "crates/thyllore-grpc-client", optional = true }
 anyhow = "1"

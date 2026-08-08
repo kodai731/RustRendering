@@ -478,6 +478,24 @@ fn build_flame_section(
                 }
             }
 
+            {
+                use crate::ecs::resource::FlameDebugView;
+                if let Some(_token) =
+                    ui.begin_combo("Debug View", settings_copy.debug_view.label())
+                {
+                    for view in FlameDebugView::ALL {
+                        let selected = view == settings_copy.debug_view;
+                        if ui
+                            .selectable_config(view.label())
+                            .selected(selected)
+                            .build()
+                        {
+                            settings_copy.debug_view = view;
+                        }
+                    }
+                }
+            }
+
             match settings_copy.shading_mode {
                 FlameShadingMode::ReferenceRaymarch => {
                     let mut steps = settings_copy.reference_step_count as i32;

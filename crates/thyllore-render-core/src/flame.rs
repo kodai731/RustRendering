@@ -332,11 +332,86 @@ impl FlameShadingMode {
     }
 }
 
+/// Numeric debug visualization of the wave-path intermediates: the shader
+/// replaces the flame color with a colormap of the selected quantity, sampled
+/// at the max-density node along each ray (Emission Total integrates instead).
+/// History blending is bypassed so the display is the raw current-frame value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FlameDebugView {
+    Off,
+    ShapedNoise,
+    Erosion,
+    Argument,
+    Density,
+    SigmaNoise,
+    EmissionTotal,
+    JitterPsi,
+    NoiseCoord,
+}
+
+impl FlameDebugView {
+    pub const ALL: [FlameDebugView; 9] = [
+        FlameDebugView::Off,
+        FlameDebugView::ShapedNoise,
+        FlameDebugView::Erosion,
+        FlameDebugView::Argument,
+        FlameDebugView::Density,
+        FlameDebugView::SigmaNoise,
+        FlameDebugView::EmissionTotal,
+        FlameDebugView::JitterPsi,
+        FlameDebugView::NoiseCoord,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            FlameDebugView::Off => "Off",
+            FlameDebugView::ShapedNoise => "Shaped Noise",
+            FlameDebugView::Erosion => "Erosion",
+            FlameDebugView::Argument => "Eroded Argument",
+            FlameDebugView::Density => "Smooth Density",
+            FlameDebugView::SigmaNoise => "Sigma (unresolved)",
+            FlameDebugView::EmissionTotal => "Emission Total",
+            FlameDebugView::JitterPsi => "Jitter Psi",
+            FlameDebugView::NoiseCoord => "Noise Coord w",
+        }
+    }
+
+    pub fn as_shader_value(self) -> i32 {
+        match self {
+            FlameDebugView::Off => 0,
+            FlameDebugView::ShapedNoise => 1,
+            FlameDebugView::Erosion => 2,
+            FlameDebugView::Argument => 3,
+            FlameDebugView::Density => 4,
+            FlameDebugView::SigmaNoise => 5,
+            FlameDebugView::EmissionTotal => 6,
+            FlameDebugView::JitterPsi => 7,
+            FlameDebugView::NoiseCoord => 8,
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "off" => Some(FlameDebugView::Off),
+            "shaped" | "shaped-noise" => Some(FlameDebugView::ShapedNoise),
+            "erosion" => Some(FlameDebugView::Erosion),
+            "argument" => Some(FlameDebugView::Argument),
+            "density" => Some(FlameDebugView::Density),
+            "sigma" => Some(FlameDebugView::SigmaNoise),
+            "emission" => Some(FlameDebugView::EmissionTotal),
+            "jitter" => Some(FlameDebugView::JitterPsi),
+            "wcoord" | "noise-coord" => Some(FlameDebugView::NoiseCoord),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlameRenderSettings {
     pub shading_mode: FlameShadingMode,
     pub reference_step_count: u32,
     pub noise_step_count: u32,
+    pub debug_view: FlameDebugView,
 }
 
 impl Default for FlameRenderSettings {
@@ -345,6 +420,7 @@ impl Default for FlameRenderSettings {
             shading_mode: FlameShadingMode::Analytic,
             reference_step_count: 128,
             noise_step_count: 8,
+            debug_view: FlameDebugView::Off,
         }
     }
 }
@@ -610,6 +686,7 @@ type WaveUboFields = (
     [f32; 4],
     [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     [f32; 2],
+    [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 );
 
 /// Compute the effective edge window (low, high) from noise amplitude.
@@ -727,10 +804,19 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         wave_shaping_params(tanh_scale)
     };
     amplitude *= (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
+    let jitter_scale = crate::flame_wave::read_env_wave_jitter();
+    let mut jitter = [[0.0f32; 4]; WAVE_MODE_COUNT];
+    for (slot, mode) in jitter.iter_mut().zip(erosion_modes.iter()) {
+        slot[0] = mode.jitter[0] * jitter_scale;
+        slot[1] = mode.jitter[1] * jitter_scale;
+        slot[2] = mode.jitter[2] * jitter_scale;
+    }
+    jitter[0][3] = crate::flame_wave::read_env_wave_jitter_freq();
     (
         [tracked as f32, env_coeff, inverse_scale, amplitude],
         packed,
         skipped_power,
+        jitter,
     )
 }
 
@@ -954,6 +1040,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         profile_params: build_profile_params(effect),
         wave_params: wave_fields.0,
         wave_modes: wave_fields.1,
+        wave_jitter: wave_fields.3,
     }
 }
 
@@ -1239,6 +1326,7 @@ pub fn build_flame_ubo_with_trail(
         profile_params: build_profile_params(effect),
         wave_params: wave_fields.0,
         wave_modes: wave_fields.1,
+        wave_jitter: wave_fields.3,
     }
 }
 
@@ -1289,6 +1377,7 @@ pub struct FlameUBO {
     pub profile_params: [f32; 4],
     pub wave_params: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
+    pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }
 
 impl Default for FlameUBO {
@@ -1590,7 +1679,7 @@ mod tests {
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 5696
+            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 5696 + 1536
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

@@ -717,6 +717,7 @@ pub unsafe fn record_flame_passes(
         let push_constants = thyllore_vulkan_core::renderer::FlamePushConstants::new(
             settings.shading_mode.as_shader_value(),
             settings.resolved_step_count() as i32,
+            settings.debug_view.as_shader_value(),
         );
 
         // Record shading pass for this instance (F2_i completed before next instance)
