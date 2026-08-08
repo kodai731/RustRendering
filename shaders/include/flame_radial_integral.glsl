@@ -294,25 +294,61 @@ float flameWaveNodeArgumentLocal(
     return flameErodedArgument(density, flameNoiseErosionFromValue(shapedNoise, h));
 }
 
-void flameWaveOccupancySegments(
-    vec3 o, vec3 d, float t0, float t1,
-    out float segEmission[FLAME_WAVE_SEGMENTS],
-    out float segTMean[FLAME_WAVE_SEGMENTS]) {
+// Support-edge crossing between a dead node (density <= 0) and a live node
+// (density > 0): fixed-count bisection on support membership. The count is
+// constant, so there is no per-ray integer switch; the returned point moves
+// continuously with the ray and locates the edge to (t1 - t0) / 2^8.
+float flameWaveSupportCrossing(vec3 o, vec3 d, float tDead, float tLive) {
+    for (int iter = 0; iter < 8; ++iter) {
+        float tMid = 0.5 * (tDead + tLive);
+        vec3 pMid = o + tMid * d;
+        if (flameWaveNodeDensity(pMid, clamp(pMid.y, 0.0, 1.0)) > 0.0) {
+            tLive = tMid;
+        } else {
+            tDead = tMid;
+        }
+    }
+    return 0.5 * (tDead + tLive);
+}
+
+// Streaming reduction of the segment walk. No per-segment arrays: the walk
+// below feeds each segment's (emission, tMean) straight into these
+// accumulators, so nothing spills to scratch memory. The RTE booster is a
+// scalar on the whole radiance sum, so radiancePre accumulates without it and
+// the caller multiplies once at the end (identical math, only the rounding
+// order of that product changes).
+struct FlameWaveIntegral {
+    float total;
+    float heightMeanNum;
+    vec3 radiancePre;
+    vec3 transmittance;
+};
+
+FlameWaveIntegral flameWaveOccupancySegments(
+    vec3 o, vec3 d, float t0, float t1, bool rte) {
+    FlameWaveIntegral acc;
+    acc.total = 0.0;
+    acc.heightMeanNum = 0.0;
+    acc.radiancePre = vec3(0.0);
+    acc.transmittance = vec3(1.0);
     float dt = (t1 - t0) / float(FLAME_WAVE_SEGMENTS);
-    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
-        segEmission[segment] = 0.0;
-        segTMean[segment] = t0 + (float(segment) + 0.5) * dt;
-    }
     if (dt <= 0.0) {
-        return;
+        return acc;
     }
+    vec3 sigmaRgb = flame.sigmaT
+        * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
 
     float eddyTime = flame.noiseScrollSpeed * flame.time;
     int count = min(int(flame.waveParams.x), FLAME_WAVE_MODE_SLOTS);
 
     // Streaming node walk: density first, the mode sum only at nodes touching
     // support (empty segments cost no mode evaluation), one node carried
-    // between segments so nothing is evaluated twice.
+    // between segments so nothing is evaluated twice. Segments straddling the
+    // support edge are cut at the actual crossing (fixed-count bisection on the
+    // density, continuous per ray) and their edge argument evaluated at the
+    // crossing instead of extrapolated from the dead node, so the silhouette
+    // edge resolves independently of the segment count and nothing is emitted
+    // outside the support the raymarch pair masks to zero.
     float residual = flameCarveResidualStrength();
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
@@ -332,7 +368,24 @@ void flameWaveOccupancySegments(
             previousArgumentValid = false;
             continue;
         }
-        if (!previousArgumentValid) {
+        bool entering = previousDensity <= 0.0;
+        bool exiting = density <= 0.0;
+        float segStart = entering ? flameWaveSupportCrossing(o, d, tPrev, t) : tPrev;
+        float segEnd = exiting ? flameWaveSupportCrossing(o, d, t, tPrev) : t;
+        float span = segEnd - segStart;
+        if (span < 1e-4 * dt) {
+            previousDensity = density;
+            previousArgumentValid = false;
+            continue;
+        }
+        float densityStart = entering ? 0.0 : previousDensity;
+        float densityEnd = exiting ? 0.0 : density;
+        if (entering) {
+            vec3 pStart = o + segStart * d;
+            previousArgument = flameWaveNodeArgumentLocal(
+                pStart, d, clamp(pStart.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
+                previousShapedNoise, previousSigma);
+        } else if (!previousArgumentValid) {
             vec3 pPrev = o + tPrev * d;
             float hPrev = clamp(pPrev.y, 0.0, 1.0);
             previousArgument = flameWaveNodeArgumentLocal(
@@ -341,8 +394,16 @@ void flameWaveOccupancySegments(
         }
         float currentShapedNoise;
         float currentSigma;
-        float argument = flameWaveNodeArgumentLocal(p, d, h, density, dt, count, eddyTime,
-            currentShapedNoise, currentSigma);
+        float argument;
+        if (exiting) {
+            vec3 pEnd = o + segEnd * d;
+            argument = flameWaveNodeArgumentLocal(
+                pEnd, d, clamp(pEnd.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
+                currentShapedNoise, currentSigma);
+        } else {
+            argument = flameWaveNodeArgumentLocal(p, d, h, density, dt, count, eddyTime,
+                currentShapedNoise, currentSigma);
+        }
 
         // Shaping derivative average: g'(z) = amp * invScale * (1 - t^2) where
         // t = (shapedNoise - 0.4375) / amp; if invScale <= 0 then gPrime = 1.0.
@@ -356,31 +417,51 @@ void flameWaveOccupancySegments(
             shapingDerivAvg = 1.0;
         }
 
-        float hMid = clamp(o.y + (tPrev + 0.5 * dt) * d.y, 0.0, 1.0);
+        float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
         float sigmaEff = 0.5 * (previousSigma + currentSigma) * shapingDerivAvg * abs(flame.noiseAmplitude) * mix(0.2, 1.0, hMid)
-            * 0.5 * (flameEnvelopeFade(previousDensity) + flameEnvelopeFade(density));
+            * 0.5 * (flameEnvelopeFade(densityStart) + flameEnvelopeFade(densityEnd));
         FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
-        float slope = (argument - previousArgument) / dt;
+        float slope = (argument - previousArgument) / span;
         vec2 carved = flameErosionResponseLinearIntegral(
-            response, previousArgument - slope * tPrev, slope, tPrev, t);
+            response, previousArgument - slope * segStart, slope, segStart, segEnd);
         if (residual > 0.0) {
-            float plainSlope = (density - previousDensity) / dt;
+            float plainSlope = (densityEnd - densityStart) / span;
             vec2 plain = flameErosionResponseLinearIntegral(
                 flameSmoothErosionResponse(0.0),
-                previousDensity - plainSlope * tPrev, plainSlope, tPrev, t);
+                densityStart - plainSlope * segStart, plainSlope, segStart, segEnd);
             carved = mix(carved, plain, residual);
         }
-        segEmission[segment] = max(carved.x, 0.0);
-        if (carved.x > 1e-6) {
-            segTMean[segment] = clamp(carved.y / carved.x, tPrev, t);
+        float emission = max(carved.x, 0.0);
+        float tMean = carved.x > 1e-6
+            ? clamp(carved.y / carved.x, segStart, segEnd)
+            : t0 + (float(segment) + 0.5) * dt;
+        acc.total += emission;
+        if (rte) {
+            vec3 pMean = o + tMean * d;
+            float hMean = clamp(pMean.y, 0.0, 1.0);
+            acc.heightMeanNum += emission * hMean;
+            float edge = 0.0;
+            if (flame.emitterParams.x < 1.5) {
+                float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
+                float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+                float taperR = mix(1.0, flame.styleParams1.x, pow(hMean, flame.styleParams0.w));
+                float rhoNorm = abs((length(pMean.xz) - rm) / minorScale) / max(taperR, 1e-4);
+                edge = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, rhoNorm), 0.0, 1.0);
+            }
+            vec3 tau = sigmaRgb * emission;
+            vec3 absorbed = vec3(1.0) - exp(-tau);
+            acc.radiancePre += acc.transmittance
+                * mix(flameRampColor(hMean), flame.colorTip.rgb, edge) * absorbed;
+            acc.transmittance *= exp(-tau);
         }
 
         previousDensity = density;
         previousArgument = argument;
         previousShapedNoise = currentShapedNoise;
         previousSigma = currentSigma;
-        previousArgumentValid = true;
+        previousArgumentValid = !exiting;
     }
+    return acc;
 }
 
 
@@ -399,60 +480,23 @@ float integrateWaveOccupancy(vec3 o, vec3 d, float tNear, float tFar) {
     if (!flameWaveSupportSpan(o, d, tNear, tFar)) {
         return 0.0;
     }
-    float segEmission[FLAME_WAVE_SEGMENTS];
-    float segTMean[FLAME_WAVE_SEGMENTS];
-    flameWaveOccupancySegments(o, d, tNear, tFar, segEmission, segTMean);
-    float total = 0.0;
-    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
-        total += segEmission[segment];
-    }
-    return total;
+    return flameWaveOccupancySegments(o, d, tNear, tFar, false).total;
 }
 
 // Beer-Lambert composite directly over the wave segments (camera-ordered by
-// construction) — no fixed band arrays anywhere in the wave pipeline.
+// construction), streamed inside the walk — no per-segment arrays anywhere.
 vec4 integrateWaveOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {
     if (!flameWaveSupportSpan(o, d, tNear, tFar)) {
         return vec4(0.0);
     }
-    float segEmission[FLAME_WAVE_SEGMENTS];
-    float segTMean[FLAME_WAVE_SEGMENTS];
-    flameWaveOccupancySegments(o, d, tNear, tFar, segEmission, segTMean);
+    FlameWaveIntegral acc = flameWaveOccupancySegments(o, d, tNear, tFar, true);
 
-    float total = 0.0;
-    float heightMean = 0.0;
-    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
-        total += segEmission[segment];
-        heightMean += segEmission[segment]
-            * clamp(o.y + segTMean[segment] * d.y, 0.0, 1.0);
-    }
-    heightMean = total > 1e-6 ? heightMean / total : 0.0;
-    float tempNorm = clamp(total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
+    float heightMean = acc.total > 1e-6 ? acc.heightMeanNum / acc.total : 0.0;
+    float tempNorm = clamp(acc.total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
     float boost = 1.0 + flame.styleParams1.w * tempNorm * tempNorm;
 
-    vec3 radiance = vec3(0.0);
-    vec3 sigmaRgb = flame.sigmaT
-        * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
-    vec3 transmittance = vec3(1.0);
-    for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
-        vec3 pMean = o + segTMean[segment] * d;
-        float hMean = clamp(pMean.y, 0.0, 1.0);
-        float edge = 0.0;
-        if (flame.emitterParams.x < 1.5) {
-            float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
-            float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
-            float taperR = mix(1.0, flame.styleParams1.x, pow(hMean, flame.styleParams0.w));
-            float rhoNorm = abs((length(pMean.xz) - rm) / minorScale) / max(taperR, 1e-4);
-            edge = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, rhoNorm), 0.0, 1.0);
-        }
-        vec3 tau = sigmaRgb * segEmission[segment];
-        vec3 absorbed = vec3(1.0) - exp(-tau);
-        radiance += transmittance
-            * mix(flameRampColor(hMean), flame.colorTip.rgb, edge)
-            * flame.intensity * boost * absorbed;
-        transmittance *= exp(-tau);
-    }
-    return vec4(radiance, 1.0 - dot(transmittance, vec3(1.0 / 3.0)));
+    vec3 radiance = acc.radiancePre * flame.intensity * boost;
+    return vec4(radiance, 1.0 - dot(acc.transmittance, vec3(1.0 / 3.0)));
 }
 
 vec4 integrateEmitterOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {

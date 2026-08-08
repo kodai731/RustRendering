@@ -487,19 +487,8 @@ impl App {
         ) else {
             return Ok(());
         };
-        let Some(ref gbuffer) = self.data.raytracing.gbuffer else {
-            return Ok(());
-        };
-        let Some(position_sampler) = self.data.raytracing.gbuffer_sampler else {
-            return Ok(());
-        };
-
         flame_descriptor.update_image_views(
             &self.rrdevice,
-            gbuffer.position_image_view,
-            position_sampler,
-            flame_buffer.accum_image_view,
-            flame_buffer.interval_image_view,
             flame_buffer.history_image_views,
             flame_buffer.sampler,
             self.data.raytracing.flame_sdf_image_view,

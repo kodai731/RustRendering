@@ -1,9 +1,11 @@
 #version 450
 
 // F2 shading pass. push.mode swaps HOW emission is integrated and nothing else:
-// ray/interval decoding, camera-inside correction, color ramp and alpha live in
-// the shared FlameRaySegment path, so analytic vs raymarch comparisons isolate
-// the integration method alone regardless of mesh, colors, or future noise.
+// the ray interval, camera-inside handling, color ramp and alpha live in the
+// shared FlameRaySegment path, so analytic vs raymarch comparisons isolate
+// the integration method alone regardless of colors or future noise.
+// The interval [tNear, tFar] is derived in closed form from the shell envelope
+// (cone x y-slab, clampToShellCone); no rasterized proxy geometry exists.
 // push.mode: 0 = analytic boundary integral, 1 = reference raymarch,
 // 2 = delta-t debug view, 3 = styled raymarch (IGN jitter + noise erosion).
 
@@ -60,8 +62,6 @@ layout(set = 1, binding = 0) uniform FlameUBO {
 
 #include "include/flame_shell_support.glsl"
 
-layout(set = 1, binding = 2) uniform sampler2D flameAccumSampler;
-layout(set = 1, binding = 3) uniform sampler2D flameIntervalSampler;
 layout(set = 1, binding = 4) uniform sampler2D flameHistorySampler;
 layout(set = 1, binding = 5) uniform sampler2D flameSdfSampler;
 layout(set = 1, binding = 6) uniform sampler2D sceneDepthSampler;
@@ -76,7 +76,7 @@ layout(push_constant) uniform FlamePush {
     int stepCount;
 } push;
 
-const float INTERVAL_CLEAR_THRESHOLD = 1e37;
+const float SEGMENT_T_MAX = 1e4;
 const float H_DIR_EPSILON = 1e-4;
 const vec3 LUMA_WEIGHTS = vec3(0.2126, 0.7152, 0.0722);
 
@@ -232,14 +232,14 @@ bool isCylinderDomain() {
     return flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0;
 }
 
-bool clampToShellCone(vec3 o, vec3 d, inout float tNear, inout float tFar) {
-    // Shell cone: |p.xz| <= flameShellOuterRadius(p.y), which is linear in y:
-    // f(t) = m + n*t with m = flameShellOuterRadius(o.y) and n = its slope along the ray.
+bool clampToShellCone(vec3 o, vec3 d, float radiusPad, inout float tNear, inout float tFar) {
+    // Shell cone: |p.xz| <= flameShellOuterRadius(p.y) + radiusPad, which is linear in y:
+    // f(t) = m + n*t with m = flameShellOuterRadius(o.y) + radiusPad and n = its slope along the ray.
     // Condition |o.xz + t*d.xz|^2 - f(t)^2 <= 0 -> a = dot(d.xz,d.xz) - n*n, b = 2.0*(dot(o.xz,d.xz) - m*n), c = dot(o.xz,o.xz) - m*m
     float supportScale = flameShellSupportScale();
     float coneSlope =
         flameShellOuterRadius(1.0, supportScale) - flameShellOuterRadius(0.0, supportScale);
-    float m = flameShellOuterRadius(o.y, supportScale);
+    float m = flameShellOuterRadius(o.y, supportScale) + radiusPad;
     float n = coneSlope * d.y;
     float a = dot(d.xz, d.xz) - n * n;
     float b = 2.0 * (dot(o.xz, d.xz) - m * n);
@@ -324,32 +324,37 @@ FlameDepthClamp resolveSceneDepthClamp(mat4 invViewProj, vec3 rayDir, float tNea
     return depthClamp;
 }
 
-FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 interval) {
+FlameRaySegment buildRaySegment() {
     mat4 invViewProj = inverse(frame.proj * frame.view);
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
 
     FlameRaySegment segment;
     segment.localOrigin = (flame.inverseModel * vec4(frame.camera_pos.xyz, 1.0)).xyz;
     segment.localDir = (flame.inverseModel * vec4(rayDir, 0.0)).xyz;
-    segment.tNear = interval.x > INTERVAL_CLEAR_THRESHOLD ? 0.0 : interval.x;
-    float tFar = interval.y > INTERVAL_CLEAR_THRESHOLD ? segment.tNear : -interval.y;
-    segment.tFar = max(tFar, segment.tNear);
-    segment.boundaryHeightIntegral = heightIntegral;
+    segment.tNear = 0.0;
+    segment.tFar = SEGMENT_T_MAX;
+    segment.boundaryHeightIntegral = 0.0;
     segment.cylinderDomain = isCylinderDomain();
+    segment.depthClamp.sceneDepth = DEPTH_FAR;
+    segment.depthClamp.tDepth = 0.0;
+    segment.depthClamp.state = DEPTH_CLAMP_NO_SURFACE;
 
-    // Geometric camera-inside test: local origin must be within the shell cone
-    bool cameraInside = segment.localOrigin.y >= 0.0 && segment.localOrigin.y <= 1.0
-        && length(segment.localOrigin.xz)
-            <= flameShellOuterRadius(segment.localOrigin.y, flameShellSupportScale());
-
-    // Camera inside the shell: front boundary terms at t = 0 were never
-    // rasterized, so coverage = +N and the missing (-1) * H1(h_o) / h_d
-    // terms are restored here (their t and delta-t contributions are zero).
-    if (coverage > 0.5 && cameraInside && abs(segment.localDir.y) > H_DIR_EPSILON) {
-        float missingCount = round(coverage);
-        segment.boundaryHeightIntegral -= missingCount
-            * evaluateHeightPrimitive(clamp(segment.localOrigin.y, 0.0, 1.0)) / segment.localDir.y;
-        segment.tNear = 0.0;
+    // Wind bend shifts the density sideways by at most |wind| * bendAmount (h^p <= 1);
+    // the trail proxy must not cut it, so its cone is padded by that bound. Non-trail
+    // emitters keep the unpadded cone (their integrators bend per evaluation).
+    float radiusPad = flame.trailMeta.x >= 1.0
+        ? length(flame.styleParams2.xy) * flame.styleParams2.z
+        : 0.0;
+    if (!clampToShellCone(segment.localOrigin, segment.localDir, radiusPad, segment.tNear, segment.tFar)) {
+        segment.tNear = 1.0;
+        segment.tFar = 0.0;
+        return segment;
+    }
+    segment.tNear = max(segment.tNear, 0.0);
+    if (segment.tFar < segment.tNear) {
+        segment.tNear = 1.0;
+        segment.tFar = 0.0;
+        return segment;
     }
 
     // Scene depth must cut the interval before the emission integral is derived from it,
@@ -360,47 +365,20 @@ FlameRaySegment buildRaySegment(float coverage, float heightIntegral, vec2 inter
         segment.tFar = 0.0;
         return segment;
     }
-    float tFarLimit = segment.depthClamp.state == DEPTH_CLAMP_NO_SURFACE
-        ? INTERVAL_CLEAR_THRESHOLD
-        : segment.depthClamp.tDepth;
-    segment.tFar = min(segment.tFar, tFarLimit);
+    if (segment.depthClamp.state != DEPTH_CLAMP_NO_SURFACE) {
+        segment.tFar = min(segment.tFar, segment.depthClamp.tDepth);
+    }
 
-    // The cone/y-slab clamp describes the proxy of every non-trail emitter (the
-    // support scale widens it for rings), so the unpaired-coverage rescue below
-    // applies to all of them. Unpaired coverage is common when the exit boundary
-    // is the bottom cap: it is coplanar with the ground plane and loses the
-    // depth test, which used to erase rings seen from above.
-    if (flame.trailMeta.x < 1.0) {
-        // For unpaired coverage pixels (abs(round(coverage)) > 0.5 && !cameraInside), the interval
-        // buffer is degenerate (tNear == tFar). Reset to wide interval before cone clamping so
-        // clampToShellCone correctly finds the intersection with the shell cone/y-slab.
-        if (abs(round(coverage)) > 0.5 && !cameraInside) {
-            segment.tNear = 0.0;
-            segment.tFar = 1e4;
-        }
-        if (!clampToShellCone(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar)) {
-            // Empty interval: return with tNear > tFar so caller can detect it
-            segment.tNear = 1.0;
-            segment.tFar = 0.0;
-        } else if (abs(segment.localDir.y) > H_DIR_EPSILON) {
-            // Re-apply the depth cut: the unpaired-coverage reset and the cone clamp above
-            // may have pushed tFar past the occluding surface again.
-            segment.tFar = min(segment.tFar, tFarLimit);
-
-            // Recalculate boundaryHeightIntegral using analytical form for clamped interval
-            vec3 o = segment.localOrigin;
-            vec3 d = segment.localDir;
-            segment.boundaryHeightIntegral = (evaluateHeightPrimitive(clamp(o.y + segment.tFar * d.y, 0.0, 1.0))
-                - evaluateHeightPrimitive(clamp(o.y + segment.tNear * d.y, 0.0, 1.0))) / segment.localDir.y;
-        } else if (abs(round(coverage)) > 0.5 && !cameraInside) {
-            // Camera outside but coverage non-zero (boundary artifact): use mid-point rule
-            segment.tFar = min(segment.tFar, tFarLimit);
-
-            vec3 o = segment.localOrigin;
-            vec3 d = segment.localDir;
-            segment.boundaryHeightIntegral = evaluateChebyshev8(flame.heightCoefficients[0], flame.heightCoefficients[1],
-                clamp(o.y + 0.5 * (segment.tNear + segment.tFar) * d.y, 0.0, 1.0)) * (segment.tFar - segment.tNear);
-       }
+    vec3 o = segment.localOrigin;
+    vec3 d = segment.localDir;
+    if (abs(d.y) > H_DIR_EPSILON) {
+        segment.boundaryHeightIntegral = (evaluateHeightPrimitive(clamp(o.y + segment.tFar * d.y, 0.0, 1.0))
+            - evaluateHeightPrimitive(clamp(o.y + segment.tNear * d.y, 0.0, 1.0))) / d.y;
+    } else {
+        // Near-horizontal ray: h is constant over the interval, use the mid-point rule.
+        segment.boundaryHeightIntegral = evaluateHeightFalloff(
+            clamp(o.y + 0.5 * (segment.tNear + segment.tFar) * d.y, 0.0, 1.0))
+            * (segment.tFar - segment.tNear);
     }
 
     return segment;
@@ -523,7 +501,7 @@ vec3 visualizeDepthClamp(FlameDepthClamp depthClamp) {
     return vec3(0.0, band, 0.0);
 }
 
-vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
+vec4 shadeEmission(FlameRaySegment segment, float emission) {
     float heightMid = clamp(
         evaluateHeightAlongRay(
             0.5 * (segment.tNear + segment.tFar), segment.localOrigin.y, segment.localDir.y),
@@ -542,32 +520,26 @@ vec4 shadeEmission(FlameRaySegment segment, float emission, float deltaT) {
 }
 
 void main() {
-    vec4 accum = texture(flameAccumSampler, fragTexCoord);
-    vec2 interval = texture(flameIntervalSampler, fragTexCoord).xy;
-
-    float coverage = accum.x;
-    float deltaT = max(accum.y, 0.0);
+    FlameRaySegment segment = buildRaySegment();
 
     if (push.mode == 4) {
-        FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
         outColor = vec4(visualizeDepthClamp(segment.depthClamp), 1.0);
         outHistory = outColor;
         return;
     }
 
     if (push.mode == 2) {
-        outColor = vec4(max(accum.z, 0.0), deltaT, max(-accum.z, 0.0), 1.0);
+        float deltaT = max(segment.tFar - segment.tNear, 0.0);
+        outColor = vec4(
+            max(segment.boundaryHeightIntegral, 0.0),
+            deltaT,
+            max(-segment.boundaryHeightIntegral, 0.0),
+            1.0);
         outHistory = outColor;
         return;
     }
 
-    if (coverage == 0.0 && deltaT <= 0.0) {
-        discard;
-    }
-
-    FlameRaySegment segment = buildRaySegment(coverage, accum.z, interval);
-
-    // Discard if clamping produced an empty interval (tNear > tFar)
+    // Discard if the analytic envelope produced an empty interval (tNear > tFar)
     if (segment.tNear > segment.tFar) {
         discard;
     }
@@ -666,7 +638,7 @@ void main() {
                 vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
                 emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
             }
-            vec4 shaded = shadeEmission(segment, emission, deltaT);
+            vec4 shaded = shadeEmission(segment, emission);
             L = shaded.rgb;
             trans = 1.0 - shaded.a;
         }

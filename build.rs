@@ -52,7 +52,6 @@ fn compile_shaders() {
             // 例: vertex.vert -> vert.spv (vertexを削除)
             //     gridVertex.vert -> gridVert.spv (末尾のVertexを削除)
             //     imguiFragment.frag -> imguiFrag.spv (末尾のFragmentを削除)
-            //     flameShellGeometry.geom -> flameShellGeom.spv (末尾のGeometryを削除)
             let base_name = file_stem
                 .trim_end_matches("Vertex")
                 .trim_end_matches("vertex")

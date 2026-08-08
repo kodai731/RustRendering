@@ -59,7 +59,6 @@ pub struct RayTracingData {
 
     pub onion_skin_pass: Option<OnionSkinPassResources>,
 
-    pub flame_thickness_pipeline: Option<RRPipeline>,
     pub flame_shading_pipeline: Option<RRPipeline>,
     pub flame_descriptor: Option<RRFlameDescriptorSet>,
     pub flame_uniform_buffer: Option<vk::Buffer>,
@@ -421,55 +420,12 @@ impl RayTracingData {
             rrdevice,
             flame_ubo_buffer,
             slot_size,
-            position_image_view,
-            position_sampler,
-            flame_buffer.accum_image_view,
-            flame_buffer.interval_image_view,
             flame_buffer.history_image_views,
             flame_buffer.sampler,
             position_image_view,
             position_sampler,
             scene_depth_view,
         )?;
-
-        let additive_blend = BlendConfig {
-            enable: true,
-            src_color_factor: vk::BlendFactor::ONE,
-            dst_color_factor: vk::BlendFactor::ONE,
-            color_op: vk::BlendOp::ADD,
-            src_alpha_factor: vk::BlendFactor::ONE,
-            dst_alpha_factor: vk::BlendFactor::ONE,
-            alpha_op: vk::BlendOp::ADD,
-        };
-        let min_blend = BlendConfig {
-            color_op: vk::BlendOp::MIN,
-            alpha_op: vk::BlendOp::MIN,
-            ..additive_blend
-        };
-
-        let flame_thickness_pipeline = PipelineBuilder::new(
-            "assets/shaders/flameShellVert.spv",
-            "assets/shaders/flameShellFrag.spv",
-        )
-        .geometry_shader("assets/shaders/flameShellGeom.spv")
-        .vertex_input(VertexInputConfig::Custom {
-            bindings: vec![],
-            attributes: vec![],
-        })
-        .topology(vk::PrimitiveTopology::LINE_LIST_WITH_ADJACENCY)
-        .cull_mode(vk::CullModeFlags::NONE)
-        .no_depth_test()
-        .custom_render_pass(flame_buffer.thickness_render_pass)
-        .msaa_samples(vk::SampleCountFlags::_1)
-        .mrt_attachments(2)
-        .blend(additive_blend)
-        .attachment_blend(1, min_blend)
-        .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
-        .descriptor_layouts(vec![
-            graphics_resources.frame_set.layout,
-            flame_descriptor.descriptor_set_layout,
-        ])
-        .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
 
         let flame_shading_pipeline = PipelineBuilder::new(
             "assets/shaders/tonemapVert.spv",
@@ -517,7 +473,6 @@ impl RayTracingData {
         ])
         .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
 
-        self.flame_thickness_pipeline = Some(flame_thickness_pipeline);
         self.flame_shading_pipeline = Some(flame_shading_pipeline);
         self.flame_descriptor = Some(flame_descriptor);
         self.flame_uniform_buffer = Some(flame_ubo_buffer);

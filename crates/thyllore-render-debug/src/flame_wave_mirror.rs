@@ -388,8 +388,11 @@ pub struct WaveSegmentEmission {
 /// with the closed-form erf response. `noise_at(t)` returns `(noise, sigma_noise)`
 /// where sigma is the local unresolved mode power at that node;
 /// `erosion_scale_at(t)` is the `amp * mix(0.2, 1, h)` mapping. Segments whose node
-/// densities all vanish are skipped before any erosion work (exact membership
-/// at node resolution). Mirror of `flameWaveOccupancySegments`.
+/// densities all vanish are skipped before any erosion work; segments straddling
+/// the support edge are cut at the actual crossing (fixed-count bisection on the
+/// density, continuous per ray) with the edge argument evaluated at the crossing,
+/// so the silhouette edge resolves independently of the segment count.
+/// Mirror of `flameWaveOccupancySegments`.
 #[allow(clippy::too_many_arguments)]
 pub fn evaluate_wave_occupancy_segments(
     model: &ErfResponseModel,
@@ -415,20 +418,37 @@ pub fn evaluate_wave_occupancy_segments(
     let mut noise_values = [0.0f32; FLAME_WAVE_SEGMENTS + 1];
     let mut sigma_values = [0.0f32; FLAME_WAVE_SEGMENTS + 1];
     for node in 0..=FLAME_WAVE_SEGMENTS {
-        let adjacent_support = density[node] > 0.0
-            || (node > 0 && density[node - 1] > 0.0)
-            || (node < FLAME_WAVE_SEGMENTS && density[node + 1] > 0.0);
-        argument[node] = if adjacent_support {
+        if density[node] > 0.0 {
             let t = t0 + node as f32 * dt;
             let (noise_val, sigma_local) = noise_at(t);
             noise_values[node] = noise_val;
             sigma_values[node] = sigma_local;
             let erosion = erosion_scale_at(t) * (noise_val - 0.35);
-            eroded_argument(density[node], erosion, flood_fade_scale)
-        } else {
-            0.0
-        };
+            argument[node] = eroded_argument(density[node], erosion, flood_fade_scale);
+        }
     }
+
+    let support_crossing = |t_dead: f32, t_live: f32| -> f32 {
+        let (mut t_dead, mut t_live) = (t_dead, t_live);
+        for _ in 0..8 {
+            let t_mid = 0.5 * (t_dead + t_live);
+            if density_at(t_mid) > 0.0 {
+                t_live = t_mid;
+            } else {
+                t_dead = t_mid;
+            }
+        }
+        0.5 * (t_dead + t_live)
+    };
+    let edge_values = |t: f32| -> (f32, f32, f32) {
+        let (noise_val, sigma_local) = noise_at(t);
+        let erosion = erosion_scale_at(t) * (noise_val - 0.35);
+        (
+            eroded_argument(0.0, erosion, flood_fade_scale),
+            noise_val,
+            sigma_local,
+        )
+    };
 
     let (inverse_scale, amplitude) = get_wave_shaping_params_cached();
 
@@ -438,41 +458,79 @@ pub fn evaluate_wave_occupancy_segments(
         if density[segment] <= 0.0 && density[segment + 1] <= 0.0 {
             continue;
         }
+        let entering = density[segment] <= 0.0;
+        let exiting = density[segment + 1] <= 0.0;
+        let seg_start = if entering {
+            support_crossing(t_prev, t_prev + dt)
+        } else {
+            t_prev
+        };
+        let seg_end = if exiting {
+            support_crossing(t_prev + dt, t_prev)
+        } else {
+            t_prev + dt
+        };
+        let span = seg_end - seg_start;
+        if span < 1e-4 * dt {
+            continue;
+        }
+        let (arg_start, noise_start, sigma_start, density_start) = if entering {
+            let (arg, noise_val, sigma_local) = edge_values(seg_start);
+            (arg, noise_val, sigma_local, 0.0)
+        } else {
+            (
+                argument[segment],
+                noise_values[segment],
+                sigma_values[segment],
+                density[segment],
+            )
+        };
+        let (arg_end, noise_end, sigma_end, density_end) = if exiting {
+            let (arg, noise_val, sigma_local) = edge_values(seg_end);
+            (arg, noise_val, sigma_local, 0.0)
+        } else {
+            (
+                argument[segment + 1],
+                noise_values[segment + 1],
+                sigma_values[segment + 1],
+                density[segment + 1],
+            )
+        };
         let shaping_deriv_avg = 0.5
-            * (wave_shaping_derivative(noise_values[segment], inverse_scale, amplitude)
-                + wave_shaping_derivative(noise_values[segment + 1], inverse_scale, amplitude));
-        let sigma_local = 0.5 * (sigma_values[segment] + sigma_values[segment + 1]);
+            * (wave_shaping_derivative(noise_start, inverse_scale, amplitude)
+                + wave_shaping_derivative(noise_end, inverse_scale, amplitude));
+        let sigma_local = 0.5 * (sigma_start + sigma_end);
         let sigma_eff = sigma_local
             * shaping_deriv_avg
-            * erosion_scale_at(t_prev + 0.5 * dt).abs()
+            * erosion_scale_at(seg_start + 0.5 * span).abs()
             * 0.5
-            * (envelope_fade(density[segment], flood_fade_scale)
-                + envelope_fade(density[segment + 1], flood_fade_scale));
-        let slope = (argument[segment + 1] - argument[segment]) / dt;
+            * (envelope_fade(density_start, flood_fade_scale)
+                + envelope_fade(density_end, flood_fade_scale));
+        let slope = (arg_end - arg_start) / span;
         let (mut integral, mut first_moment) = integrate_erf_response_linear(
             model,
             sigma_eff,
-            argument[segment] - slope * t_prev,
+            arg_start - slope * seg_start,
             slope,
-            t_prev,
-            t_prev + dt,
+            seg_start,
+            seg_end,
         );
         if carve_residual > 0.0 {
-            let plain_slope = (density[segment + 1] - density[segment]) / dt;
+            let plain_slope = (density_end - density_start) / span;
             let (plain_integral, plain_moment) = integrate_erf_response_linear(
                 model,
                 0.0,
-                density[segment] - plain_slope * t_prev,
+                density_start - plain_slope * seg_start,
                 plain_slope,
-                t_prev,
-                t_prev + dt,
+                seg_start,
+                seg_end,
             );
             integral += carve_residual * (plain_integral - integral);
             first_moment += carve_residual * (plain_moment - first_moment);
         }
         slot.emission = integral.max(0.0);
         if integral > 1e-6 {
-            slot.t_mean = (first_moment / integral).clamp(t_prev, t_prev + dt);
+            slot.t_mean = (first_moment / integral).clamp(seg_start, seg_end);
         }
     }
     segments
@@ -722,6 +780,131 @@ mod tests {
             assert!(
                 (closed - reference).abs() < tolerance,
                 "case {case}: closed {closed} vs reference {reference}"
+            );
+        }
+    }
+
+    /// Support edges landing strictly inside a segment must be resolved at the
+    /// actual crossing, not at segment granularity: the closed form matches the
+    /// support-masked dense quadrature for every sub-segment edge offset, and
+    /// fully dead segments emit exactly zero.
+    #[test]
+    fn test_occupancy_support_edge_resolves_subsegment() {
+        let modes = generate_wave_modes();
+        let warp_modes = generate_wave_warp_modes();
+        let model = fit_erf_response(0.27, 0.33);
+        let flood_fade_scale = 0.33;
+        let carve_residual = 0.12;
+        let (t0, t1) = (0.0f32, 0.4f32);
+        let dt = (t1 - t0) / FLAME_WAVE_SEGMENTS as f32;
+        let warp_frequency = 1.0;
+        let axial_scale = 0.35;
+        let strength = 0.35;
+        let origin = [0.1f32, 0.2, 0.05];
+        let dir = [0.3f32, 0.5, 0.1];
+        let warped_at = move |t: f32| {
+            [
+                origin[0] + t * dir[0],
+                origin[1] + t * dir[1],
+                origin[2] + t * dir[2],
+            ]
+        };
+        let height_at = move |t: f32| (origin[1] + t * dir[1]).clamp(0.0, 1.0);
+        let erosion_scale_at = move |t: f32| 1.5 * (0.2 + 0.8 * height_at(t));
+
+        for offset_step in 0..16 {
+            let edge_lo = t0 + 16.0 * dt + dt * (offset_step as f32 + 0.5) / 16.0;
+            let edge_hi = edge_lo + 34.37 * dt;
+            let ramp = 0.4 * dt;
+            let density_at = move |t: f32| {
+                let rise = ((t - edge_lo) / ramp).clamp(0.0, 1.0);
+                let fall = ((edge_hi - t) / ramp).clamp(0.0, 1.0);
+                0.8 * rise * fall * if t > edge_lo && t < edge_hi { 1.0 } else { 0.0 }
+            };
+            let segments = evaluate_wave_occupancy_segments(
+                &model,
+                t0,
+                t1,
+                density_at,
+                |t| {
+                    let (_, rate) = evaluate_wave_flow_warp_with_rate(
+                        &warp_modes,
+                        warped_at(t),
+                        dir,
+                        warp_frequency,
+                        axial_scale,
+                        strength,
+                    );
+                    evaluate_wave_noise_local_lowpass(&modes, warped_at(t), rate, dt, 0.0)
+                },
+                erosion_scale_at,
+                flood_fade_scale,
+                carve_residual,
+            );
+            let closed: f32 = segments.iter().map(|s| s.emission).sum();
+
+            for (segment, slot) in segments.iter().enumerate() {
+                let seg_a = t0 + segment as f32 * dt;
+                if seg_a + dt <= edge_lo || seg_a >= edge_hi {
+                    assert_eq!(
+                        slot.emission, 0.0,
+                        "dead segment {segment} emitted at offset {offset_step}"
+                    );
+                }
+            }
+
+            let steps = 8000;
+            let quad_dt = (t1 - t0) / steps as f32;
+            let mut reference = 0.0f32;
+            for i in 0..steps {
+                let t = t0 + (i as f32 + 0.5) * quad_dt;
+                let density = density_at(t);
+                if density <= 0.0 {
+                    continue;
+                }
+                let erosion =
+                    erosion_scale_at(t) * (evaluate_wave_noise(&modes, warped_at(t), 0.0) - 0.35);
+                let argument = eroded_argument(density, erosion, flood_fade_scale);
+                let carved = evaluate_erf_response(&model, argument, 0.0);
+                let plain = evaluate_erf_response(&model, density, 0.0);
+                reference += (carved + carve_residual * (plain - carved)) * quad_dt;
+            }
+
+            let masked_segment_reference = |segment: usize| -> f32 {
+                let seg_a = t0 + segment as f32 * dt;
+                let mut acc = 0.0f32;
+                for i in 0..steps {
+                    let t = t0 + (i as f32 + 0.5) * quad_dt;
+                    if t < seg_a || t > seg_a + dt {
+                        continue;
+                    }
+                    let density = density_at(t);
+                    if density <= 0.0 {
+                        continue;
+                    }
+                    let erosion = erosion_scale_at(t)
+                        * (evaluate_wave_noise(&modes, warped_at(t), 0.0) - 0.35);
+                    let argument = eroded_argument(density, erosion, flood_fade_scale);
+                    let carved = evaluate_erf_response(&model, argument, 0.0);
+                    let plain = evaluate_erf_response(&model, density, 0.0);
+                    acc += (carved + carve_residual * (plain - carved)) * quad_dt;
+                }
+                acc
+            };
+            for edge in [edge_lo, edge_hi] {
+                let segment = ((edge - t0) / dt) as usize;
+                let seg_reference = masked_segment_reference(segment);
+                let diff = (segments[segment].emission - seg_reference).abs();
+                assert!(
+                    diff < 0.35 * seg_reference.max(2e-5),
+                    "offset {offset_step}: boundary segment {segment} emission {} vs masked reference {seg_reference} (edge position quantized away)",
+                    segments[segment].emission
+                );
+            }
+            let tolerance = 0.02 * (edge_hi - edge_lo);
+            assert!(
+                (closed - reference).abs() < tolerance,
+                "offset {offset_step}: closed {closed} vs masked reference {reference}"
             );
         }
     }

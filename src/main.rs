@@ -345,25 +345,16 @@ fn main() -> Result<()> {
                 &app.data.viewport.flame_buffer,
                 &app.data.raytracing.flame_descriptor,
             ) {
-                if let (Some(ref gbuffer), Some(position_sampler)) = (
-                    &app.data.raytracing.gbuffer,
-                    app.data.raytracing.gbuffer_sampler,
-                ) {
-                    flame_descriptor.update_image_views(
-                        &app.rrdevice,
-                        gbuffer.position_image_view,
-                        position_sampler,
-                        flame_buffer.accum_image_view,
-                        flame_buffer.interval_image_view,
-                        flame_buffer.history_image_views,
-                        flame_buffer.sampler,
-                        image_view,
-                        sampler,
-                        app.resource::<thyllore_animation::vulkanr::context::RenderTargets>()
-                            .render
-                            .gbuffer_depth_image_view,
-                    );
-                }
+                flame_descriptor.update_image_views(
+                    &app.rrdevice,
+                    flame_buffer.history_image_views,
+                    flame_buffer.sampler,
+                    image_view,
+                    sampler,
+                    app.resource::<thyllore_animation::vulkanr::context::RenderTargets>()
+                        .render
+                        .gbuffer_depth_image_view,
+                );
             }
         }
     }

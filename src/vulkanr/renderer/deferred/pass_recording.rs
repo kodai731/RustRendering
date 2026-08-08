@@ -568,9 +568,8 @@ pub unsafe fn record_flame_passes(
     command_buffer: vk::CommandBuffer,
     image_index: usize,
 ) -> Result<()> {
-    let (Some(flame_buffer), Some(thickness_pipeline), Some(shading_pipeline), Some(descriptor)) = (
+    let (Some(flame_buffer), Some(shading_pipeline), Some(descriptor)) = (
         app.data.viewport.flame_buffer.as_ref(),
-        app.data.raytracing.flame_thickness_pipeline.as_ref(),
         app.data.raytracing.flame_shading_pipeline.as_ref(),
         app.data.raytracing.flame_descriptor.as_ref(),
     ) else {
@@ -720,19 +719,7 @@ pub unsafe fn record_flame_passes(
             settings.resolved_step_count() as i32,
         );
 
-        // Record thickness pass for this instance
-        thyllore_vulkan_core::renderer::record_flame_thickness_pass(
-            &ctx,
-            flame_buffer,
-            thickness_pipeline,
-            descriptor,
-            history_index,
-            offset_i as u32,
-            image_index,
-            command_buffer,
-        )?;
-
-        // Record shading pass for this instance (F1_i -> F2_i completed before next instance)
+        // Record shading pass for this instance (F2_i completed before next instance)
         thyllore_vulkan_core::renderer::record_flame_shading_pass(
             &ctx,
             flame_buffer,

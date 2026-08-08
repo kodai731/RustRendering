@@ -92,11 +92,6 @@ impl App {
             flame_descriptor.destroy(&self.rrdevice.device);
         }
 
-        if let Some(flame_thickness_pipeline) = self.data.raytracing.flame_thickness_pipeline.take()
-        {
-            flame_thickness_pipeline.destroy(&self.rrdevice.device);
-        }
-
         if let Some(flame_shading_pipeline) = self.data.raytracing.flame_shading_pipeline.take() {
             flame_shading_pipeline.destroy(&self.rrdevice.device);
         }

@@ -42,8 +42,7 @@ pub use flame_radial::{
 };
 pub use flame_shell::{
     flame_shell_outer_radius, flame_shell_radius_scale, flame_shell_support_scale,
-    generate_flame_shell_triangles, FLAME_SHELL_BASE_RADIUS, FLAME_SHELL_RING_SEGMENTS,
-    FLAME_SHELL_STACKS, FLAME_SHELL_TAPER_TIP_SCALE,
+    FLAME_SHELL_BASE_RADIUS, FLAME_SHELL_TAPER_TIP_SCALE,
 };
 pub use flame_texture_fit::*;
 pub use flame_trail::*;
