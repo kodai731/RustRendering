@@ -1,0 +1,1251 @@
+{
+  "camera": {
+    "batch_camera": "-2.269,-25.756,1.7485,-0.1178,1.0426,-2.3061",
+    "distance": 1.7484766244888306,
+    "forward": [
+      0.03565838932991028,
+      0.4345327317714691,
+      -0.8999499082565308
+    ],
+    "fov_y_degrees": 45.0,
+    "near_plane": 0.10000000149011612,
+    "pitch_degrees": -25.755563735961914,
+    "pivot": [
+      -0.11779233813285828,
+      1.0426342487335205,
+      -2.3061017990112305
+    ],
+    "position": [
+      -0.1801401972770691,
+      0.28286391496658325,
+      -0.732560396194458
+    ],
+    "right": [
+      0.9992159605026245,
+      -0.0,
+      0.03959157317876816
+    ],
+    "up": [
+      -0.017203833907842636,
+      0.9006561040878296,
+      0.434192031621933
+    ],
+    "yaw_degrees": -2.2690229415893555
+  },
+  "flames": [
+    {
+      "aniso_axis_advect": 0.0,
+      "baked_blend": 0.0,
+      "baked_color": null,
+      "baked_envelope": null,
+      "baked_radius": null,
+      "bend_amount": 0.0,
+      "bend_power": 1.7000000476837158,
+      "boundary_amp": 0.20000000298023224,
+      "boundary_freq": 1.600000023841858,
+      "boundary_radius_ratio": 0.20000000298023224,
+      "boundary_speed": 0.800000011920929,
+      "coefficients": {
+        "height": [
+          [
+            0.35347262024879456,
+            -0.20611025393009186,
+            -0.3745514452457428,
+            0.2588193714618683
+          ],
+          [
+            -0.004593815188854933,
+            -0.05847638100385666,
+            0.059848252683877945,
+            -0.03883884474635124
+          ]
+        ],
+        "height_primitive": [
+          [
+            0.27757278084754944,
+            0.2692018747329712,
+            -0.05740804970264435,
+            -0.030936511233448982
+          ],
+          [
+            0.01943674497306347,
+            -0.0026634777896106243,
+            -0.0010777421994134784,
+            0.0017521771369501948
+          ],
+          [
+            -0.001380104455165565,
+            0.0004330916563048959,
+            0.0003459719300735742,
+            -0.00029755543801002204
+          ]
+        ],
+        "radial": [
+          [
+            0.4153062403202057,
+            -0.5782304406166077,
+            0.12170721590518951,
+            0.09089422971010208
+          ],
+          [
+            -0.04341977834701538,
+            -0.018193449825048447,
+            0.007235158700495958,
+            0.009413418360054493
+          ]
+        ],
+        "radius_scale": [
+          [
+            0.6068612337112427,
+            -0.45869192481040955,
+            -0.053940050303936005,
+            0.007332806009799242
+          ],
+          [
+            -0.002147879684343934,
+            0.0008424833067692816,
+            -0.0003701444366015494,
+            0.00014613266102969646
+          ]
+        ]
+      },
+      "color_base": [
+        1.0,
+        0.44999998807907104,
+        0.10000000149011612
+      ],
+      "color_tip": [
+        1.0,
+        0.10000000149011612,
+        0.019999999552965164
+      ],
+      "contour_wiggle_amp": 0.30000001192092896,
+      "edge_high": 0.33000001311302185,
+      "edge_low": 0.27000001072883606,
+      "edge_temperature_blend": 0.0,
+      "emitter_kind": 1,
+      "envelope_base": 0.05000000074505806,
+      "envelope_peak": 0.25,
+      "envelope_tail": 1.25,
+      "frame_index": 6698,
+      "height": 1.2000000476837158,
+      "intensity": 2.4000000953674316,
+      "kernel_blob_amp": 1.0,
+      "kernel_blob_size": 0.15000000596046448,
+      "light_position_world": [
+        1.0,
+        1.0,
+        2.0
+      ],
+      "noise_amplitude": 1.600000023841858,
+      "noise_aniso_y": 0.3499999940395355,
+      "noise_frequency": 6.0,
+      "noise_scroll_speed": 1.0,
+      "occlusion_lum_ref": 1.0,
+      "position": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "radial_sharpness": 4.0,
+      "radius": 0.5,
+      "radius_tip_ratio": 0.10000000149011612,
+      "ring_angular_speed": 0.6000000238418579,
+      "ring_major_radius": 1.5,
+      "rise_speed": 1.5,
+      "rotation": [
+        1.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "rte_bands": 4.0,
+      "self_shadow_strength": 0.5,
+      "sigma_dispersion": 1.0,
+      "sigma_t": 1.0,
+      "taper_power": 1.399999976158142,
+      "temperature_base_k": 3200.0,
+      "temperature_tip_k": 1500.0,
+      "temporal_weight": 0.8500000238418579,
+      "time": 2.1973180770874023,
+      "time_offset": 0.0,
+      "time_scale": 1.0,
+      "turbulence_model": 2.0,
+      "use_blackbody": true,
+      "wall_probe": {
+        "camera_density": 0.0,
+        "camera_inside_support": false,
+        "camera_local": [
+          -0.09007009863853455,
+          0.23571991920471191,
+          -0.366280198097229
+        ],
+        "emitter_approximated": false,
+        "rays": [
+          {
+            "cells_per_segment": 0.009296882897615433,
+            "chord": 0.6307002902030945,
+            "chord_world": 1.2503076791763306,
+            "density_max": 1.0158571004867554,
+            "density_mean": 0.2633797526359558,
+            "grazing_deg": 77.08206939697266,
+            "hit": true,
+            "ndc": [
+              -0.8888888955116272,
+              -0.800000011920929
+            ],
+            "noise_cells": 3.7842016220092773,
+            "pixels_per_cell": 550.3052978515625,
+            "saturated_fraction": 0.3125,
+            "segment_dt": 0.009854692034423351,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6307002902030945,
+            "tau": 0.3293057382106781,
+            "unresolved_fraction": 0.05783528462052345
+          },
+          {
+            "cells_per_segment": 0.009138837456703186,
+            "chord": 0.6215639710426331,
+            "chord_world": 1.22991943359375,
+            "density_max": 1.0158709287643433,
+            "density_mean": 0.2629398703575134,
+            "grazing_deg": 77.98262786865234,
+            "hit": true,
+            "ndc": [
+              -0.6666666269302368,
+              -0.800000011920929
+            ],
+            "noise_cells": 3.729383945465088,
+            "pixels_per_cell": 559.4276733398438,
+            "saturated_fraction": 0.3125,
+            "segment_dt": 0.009711937047541142,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6215639710426331,
+            "tau": 0.32339486479759216,
+            "unresolved_fraction": 0.058707669377326965
+          },
+          {
+            "cells_per_segment": 0.009034412913024426,
+            "chord": 0.6160599589347839,
+            "chord_world": 1.2167410850524902,
+            "density_max": 1.0137344598770142,
+            "density_mean": 0.26177310943603516,
+            "grazing_deg": 78.39679718017578,
+            "hit": true,
+            "ndc": [
+              -0.4444444179534912,
+              -0.800000011920929
+            ],
+            "noise_cells": 3.696359634399414,
+            "pixels_per_cell": 565.4866943359375,
+            "saturated_fraction": 0.3125,
+            "segment_dt": 0.009625936858355999,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6160599589347839,
+            "tau": 0.31851011514663696,
+            "unresolved_fraction": 0.0622788742184639
+          },
+          {
+            "cells_per_segment": 0.009026970714330673,
+            "chord": 0.6168166995048523,
+            "chord_world": 1.2164323329925537,
+            "density_max": 1.010122299194336,
+            "density_mean": 0.25978538393974304,
+            "grazing_deg": 77.87328338623047,
+            "hit": true,
+            "ndc": [
+              -0.2222222089767456,
+              -0.800000011920929
+            ],
+            "noise_cells": 3.700900077819824,
+            "pixels_per_cell": 565.6303100585938,
+            "saturated_fraction": 0.3125,
+            "segment_dt": 0.009637760929763317,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6168166995048523,
+            "tau": 0.31601133942604065,
+            "unresolved_fraction": 0.06873451173305511
+          },
+          {
+            "cells_per_segment": 0.009154757484793663,
+            "chord": 0.626046895980835,
+            "chord_world": 1.2339259386062622,
+            "density_max": 1.0054047107696533,
+            "density_mean": 0.25698602199554443,
+            "grazing_deg": 76.32675170898438,
+            "hit": true,
+            "ndc": [
+              0.0,
+              -0.800000011920929
+            ],
+            "noise_cells": 3.7562813758850098,
+            "pixels_per_cell": 557.6111450195312,
+            "saturated_fraction": 0.3125,
+            "segment_dt": 0.009781982749700546,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.626046895980835,
+            "tau": 0.31710171699523926,
+            "unresolved_fraction": 0.07755164802074432
+          },
+          {
+            "cells_per_segment": 0.009426450356841087,
+            "chord": 0.644113302230835,
+            "chord_world": 1.2702642679214478,
+            "density_max": 0.999138593673706,
+            "density_mean": 0.2535059452056885,
+            "grazing_deg": 74.2259750366211,
+            "hit": true,
+            "ndc": [
+              0.2222222089767456,
+              -0.800000011920929
+            ],
+            "noise_cells": 3.8646798133850098,
+            "pixels_per_cell": 541.65966796875,
+            "saturated_fraction": 0.3125,
+            "segment_dt": 0.010064270347356796,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.644113302230835,
+            "tau": 0.3220195472240448,
+            "unresolved_fraction": 0.08772024512290955
+          },
+          {
+            "cells_per_segment": 0.009810036048293114,
+            "chord": 0.6689499616622925,
+            "chord_world": 1.3212007284164429,
+            "density_max": 1.0061873197555542,
+            "density_mean": 0.24964457750320435,
+            "grazing_deg": 72.16675567626953,
+            "hit": true,
+            "ndc": [
+              0.4444444179534912,
+              -0.800000011920929
+            ],
+            "noise_cells": 4.013699531555176,
+            "pixels_per_cell": 520.77685546875,
+            "saturated_fraction": 0.3125,
+            "segment_dt": 0.01045234315097332,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6689499616622925,
+            "tau": 0.3298305869102478,
+            "unresolved_fraction": 0.09813327342271805
+          },
+          {
+            "cells_per_segment": 0.010250025428831577,
+            "chord": 0.6971397399902344,
+            "chord_world": 1.379464864730835,
+            "density_max": 1.009515643119812,
+            "density_mean": 0.24553221464157104,
+            "grazing_deg": 70.49198150634766,
+            "hit": true,
+            "ndc": [
+              0.6666666269302368,
+              -0.800000011920929
+            ],
+            "noise_cells": 4.182838439941406,
+            "pixels_per_cell": 498.781005859375,
+            "saturated_fraction": 0.28125,
+            "segment_dt": 0.010892808437347412,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6971397399902344,
+            "tau": 0.33870306611061096,
+            "unresolved_fraction": 0.10790470242500305
+          },
+          {
+            "cells_per_segment": 0.010695138014853,
+            "chord": 0.7255578637123108,
+            "chord_world": 1.438354730606079,
+            "density_max": 1.005730152130127,
+            "density_mean": 0.24151985347270966,
+            "grazing_deg": 69.27193450927734,
+            "hit": true,
+            "ndc": [
+              0.8888888359069824,
+              -0.800000011920929
+            ],
+            "noise_cells": 4.353347301483154,
+            "pixels_per_cell": 478.3597106933594,
+            "saturated_fraction": 0.28125,
+            "segment_dt": 0.011336841620504856,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7255578637123108,
+            "tau": 0.3473912179470062,
+            "unresolved_fraction": 0.1165248230099678
+          },
+          {
+            "cells_per_segment": 0.009410100989043713,
+            "chord": 0.6662339568138123,
+            "chord_world": 1.2809826135635376,
+            "density_max": 0.911719560623169,
+            "density_mean": 0.21741290390491486,
+            "grazing_deg": 67.83213806152344,
+            "hit": true,
+            "ndc": [
+              -0.8888888955116272,
+              -0.3999999761581421
+            ],
+            "noise_cells": 3.997403621673584,
+            "pixels_per_cell": 537.12744140625,
+            "saturated_fraction": 0.28125,
+            "segment_dt": 0.010409905575215816,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6662339568138123,
+            "tau": 0.27850213646888733,
+            "unresolved_fraction": 0.05945152789354324
+          },
+          {
+            "cells_per_segment": 0.009245001710951328,
+            "chord": 0.6623983979225159,
+            "chord_world": 1.2629486322402954,
+            "density_max": 0.8912858366966248,
+            "density_mean": 0.2106015384197235,
+            "grazing_deg": 66.90372467041016,
+            "hit": true,
+            "ndc": [
+              -0.6666666269302368,
+              -0.3999999761581421
+            ],
+            "noise_cells": 3.9743905067443848,
+            "pixels_per_cell": 544.7971801757812,
+            "saturated_fraction": 0.28125,
+            "segment_dt": 0.01034997496753931,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6623983979225159,
+            "tau": 0.26597893238067627,
+            "unresolved_fraction": 0.0599488690495491
+          },
+          {
+            "cells_per_segment": 0.009132957085967064,
+            "chord": 0.662459671497345,
+            "chord_world": 1.2522553205490112,
+            "density_max": 0.8682973384857178,
+            "density_mean": 0.20326876640319824,
+            "grazing_deg": 65.73211669921875,
+            "hit": true,
+            "ndc": [
+              -0.4444444179534912,
+              -0.3999999761581421
+            ],
+            "noise_cells": 3.9747581481933594,
+            "pixels_per_cell": 549.4493408203125,
+            "saturated_fraction": 0.28125,
+            "segment_dt": 0.010350932367146015,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.662459671497345,
+            "tau": 0.25454437732696533,
+            "unresolved_fraction": 0.06329941004514694
+          },
+          {
+            "cells_per_segment": 0.009123249910771847,
+            "chord": 0.6682841181755066,
+            "chord_world": 1.2546762228012085,
+            "density_max": 0.8465297818183899,
+            "density_mean": 0.19598737359046936,
+            "grazing_deg": 64.44471740722656,
+            "hit": true,
+            "ndc": [
+              -0.2222222089767456,
+              -0.3999999761581421
+            ],
+            "noise_cells": 4.00970458984375,
+            "pixels_per_cell": 548.38916015625,
+            "saturated_fraction": 0.28125,
+            "segment_dt": 0.01044193934649229,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6682841181755066,
+            "tau": 0.2459006905555725,
+            "unresolved_fraction": 0.06984837353229523
+          },
+          {
+            "cells_per_segment": 0.009261108003556728,
+            "chord": 0.6809916496276855,
+            "chord_world": 1.2751418352127075,
+            "density_max": 0.8299711346626282,
+            "density_mean": 0.18970611691474915,
+            "grazing_deg": 63.286136627197266,
+            "hit": true,
+            "ndc": [
+              0.0,
+              -0.3999999761581421
+            ],
+            "noise_cells": 4.085949897766113,
+            "pixels_per_cell": 539.5877075195312,
+            "saturated_fraction": 0.28125,
+            "segment_dt": 0.010640494525432587,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.6809916496276855,
+            "tau": 0.2419022023677826,
+            "unresolved_fraction": 0.07907684892416
+          },
+          {
+            "cells_per_segment": 0.009556377306580544,
+            "chord": 0.7000110149383545,
+            "chord_world": 1.3142421245574951,
+            "density_max": 0.8194247484207153,
+            "density_mean": 0.18521299958229065,
+            "grazing_deg": 62.50527572631836,
+            "hit": true,
+            "ndc": [
+              0.2222222089767456,
+              -0.3999999761581421
+            ],
+            "noise_cells": 4.200066089630127,
+            "pixels_per_cell": 523.5342407226562,
+            "saturated_fraction": 0.25,
+            "segment_dt": 0.010937672108411789,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7000110149383545,
+            "tau": 0.2434147447347641,
+            "unresolved_fraction": 0.08980967104434967
+          },
+          {
+            "cells_per_segment": 0.009969181381165981,
+            "chord": 0.7231152653694153,
+            "chord_world": 1.3669133186340332,
+            "density_max": 0.8202775120735168,
+            "density_mean": 0.1826966255903244,
+            "grazing_deg": 62.20088195800781,
+            "hit": true,
+            "ndc": [
+              0.4444444179534912,
+              -0.3999999761581421
+            ],
+            "noise_cells": 4.338691711425781,
+            "pixels_per_cell": 503.36102294921875,
+            "saturated_fraction": 0.25,
+            "segment_dt": 0.011298676021397114,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7231152653694153,
+            "tau": 0.2497304528951645,
+            "unresolved_fraction": 0.10072939842939377
+          },
+          {
+            "cells_per_segment": 0.01043377909809351,
+            "chord": 0.7475734949111938,
+            "chord_world": 1.42534601688385,
+            "density_max": 0.8365066647529602,
+            "density_mean": 0.18214938044548035,
+            "grazing_deg": 62.29355239868164,
+            "hit": true,
+            "ndc": [
+              0.6666666269302368,
+              -0.3999999761581421
+            ],
+            "noise_cells": 4.485441207885742,
+            "pixels_per_cell": 482.7254638671875,
+            "saturated_fraction": 0.25,
+            "segment_dt": 0.011680835857987404,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7475734949111938,
+            "tau": 0.2596258819103241,
+            "unresolved_fraction": 0.11081793159246445
+          },
+          {
+            "cells_per_segment": 0.010893615894019604,
+            "chord": 0.771266520023346,
+            "chord_world": 1.4829308986663818,
+            "density_max": 0.8480453491210938,
+            "density_mean": 0.182988241314888,
+            "grazing_deg": 62.62736511230469,
+            "hit": true,
+            "ndc": [
+              0.8888888359069824,
+              -0.3999999761581421
+            ],
+            "noise_cells": 4.627599239349365,
+            "pixels_per_cell": 463.98040771484375,
+            "saturated_fraction": 0.25,
+            "segment_dt": 0.01205103937536478,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.771266520023346,
+            "tau": 0.2713589072227478,
+            "unresolved_fraction": 0.11954601109027863
+          },
+          {
+            "cells_per_segment": 0.009589002467691898,
+            "chord": 0.7286137938499451,
+            "chord_world": 1.3340375423431396,
+            "density_max": 0.7362634539604187,
+            "density_mean": 0.1584380865097046,
+            "grazing_deg": 58.26333236694336,
+            "hit": true,
+            "ndc": [
+              -0.8888888955116272,
+              0.0
+            ],
+            "noise_cells": 4.371682643890381,
+            "pixels_per_cell": 515.7657470703125,
+            "saturated_fraction": 0.21875,
+            "segment_dt": 0.011384590528905392,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7286137938499451,
+            "tau": 0.21136236190795898,
+            "unresolved_fraction": 0.06261082738637924
+          },
+          {
+            "cells_per_segment": 0.009430576115846634,
+            "chord": 0.7361961007118225,
+            "chord_world": 1.3237050771713257,
+            "density_max": 0.69500732421875,
+            "density_mean": 0.14641821384429932,
+            "grazing_deg": 56.093528747558594,
+            "hit": true,
+            "ndc": [
+              -0.6666666269302368,
+              0.0
+            ],
+            "noise_cells": 4.417176723480225,
+            "pixels_per_cell": 519.791748046875,
+            "saturated_fraction": 0.21875,
+            "segment_dt": 0.011503064073622227,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7361961007118225,
+            "tau": 0.19381453096866608,
+            "unresolved_fraction": 0.0628969743847847
+          },
+          {
+            "cells_per_segment": 0.00932530127465725,
+            "chord": 0.7484968900680542,
+            "chord_world": 1.3213976621627808,
+            "density_max": 0.6525342464447021,
+            "density_mean": 0.13445545732975006,
+            "grazing_deg": 53.86994934082031,
+            "hit": true,
+            "ndc": [
+              -0.4444444179534912,
+              0.0
+            ],
+            "noise_cells": 4.490981101989746,
+            "pixels_per_cell": 520.6993408203125,
+            "saturated_fraction": 0.21875,
+            "segment_dt": 0.011695263907313347,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7484968900680542,
+            "tau": 0.17766913771629333,
+            "unresolved_fraction": 0.06608991324901581
+          },
+          {
+            "cells_per_segment": 0.009326308034360409,
+            "chord": 0.7653912901878357,
+            "chord_world": 1.3319263458251953,
+            "density_max": 0.6149563789367676,
+            "density_mean": 0.12355650961399078,
+            "grazing_deg": 51.95589065551758,
+            "hit": true,
+            "ndc": [
+              -0.2222222089767456,
+              0.0
+            ],
+            "noise_cells": 4.592347621917725,
+            "pixels_per_cell": 516.583251953125,
+            "saturated_fraction": 0.1875,
+            "segment_dt": 0.011959238909184933,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7653912901878357,
+            "tau": 0.16456817090511322,
+            "unresolved_fraction": 0.07270458340644836
+          },
+          {
+            "cells_per_segment": 0.009483068250119686,
+            "chord": 0.7850494384765625,
+            "chord_world": 1.3585518598556519,
+            "density_max": 0.5888619422912598,
+            "density_mean": 0.11523532122373581,
+            "grazing_deg": 50.792457580566406,
+            "hit": true,
+            "ndc": [
+              0.0,
+              0.0
+            ],
+            "noise_cells": 4.710296630859375,
+            "pixels_per_cell": 506.45904541015625,
+            "saturated_fraction": 0.1875,
+            "segment_dt": 0.012266397476196289,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.7850494384765625,
+            "tau": 0.15655316412448883,
+            "unresolved_fraction": 0.08226654678583145
+          },
+          {
+            "cells_per_segment": 0.009803722612559795,
+            "chord": 0.8045717477798462,
+            "chord_world": 1.400107741355896,
+            "density_max": 0.5763752460479736,
+            "density_mean": 0.11070038378238678,
+            "grazing_deg": 50.65934753417969,
+            "hit": true,
+            "ndc": [
+              0.2222222089767456,
+              0.0
+            ],
+            "noise_cells": 4.827430725097656,
+            "pixels_per_cell": 491.4270935058594,
+            "saturated_fraction": 0.15625,
+            "segment_dt": 0.012571433559060097,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.8045717477798462,
+            "tau": 0.1549924612045288,
+            "unresolved_fraction": 0.09343737363815308
+          },
+          {
+            "cells_per_segment": 0.010239262133836746,
+            "chord": 0.8218561410903931,
+            "chord_world": 1.4509063959121704,
+            "density_max": 0.57597815990448,
+            "density_mean": 0.11008517444133759,
+            "grazing_deg": 51.4839973449707,
+            "hit": true,
+            "ndc": [
+              0.4444444179534912,
+              0.0
+            ],
+            "noise_cells": 4.9311370849609375,
+            "pixels_per_cell": 474.22149658203125,
+            "saturated_fraction": 0.1875,
+            "segment_dt": 0.012841502204537392,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.8218561410903931,
+            "tau": 0.15972328186035156,
+            "unresolved_fraction": 0.1046745628118515
+          },
+          {
+            "cells_per_segment": 0.010715652257204056,
+            "chord": 0.8365153074264526,
+            "chord_world": 1.504082441329956,
+            "density_max": 0.6028044819831848,
+            "density_mean": 0.1125669851899147,
+            "grazing_deg": 52.92292404174805,
+            "hit": true,
+            "ndc": [
+              0.6666666269302368,
+              0.0
+            ],
+            "noise_cells": 5.019091606140137,
+            "pixels_per_cell": 457.4555358886719,
+            "saturated_fraction": 0.1875,
+            "segment_dt": 0.013070551678538322,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.8365153074264526,
+            "tau": 0.16931001842021942,
+            "unresolved_fraction": 0.11485011130571365
+          },
+          {
+            "cells_per_segment": 0.011174906976521015,
+            "chord": 0.849117636680603,
+            "chord_world": 1.554671049118042,
+            "density_max": 0.6267992854118347,
+            "density_mean": 0.11746329069137573,
+            "grazing_deg": 54.60012435913086,
+            "hit": true,
+            "ndc": [
+              0.8888888359069824,
+              0.0
+            ],
+            "noise_cells": 5.094705581665039,
+            "pixels_per_cell": 442.5700378417969,
+            "saturated_fraction": 0.1875,
+            "segment_dt": 0.013267463073134422,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.849117636680603,
+            "tau": 0.18261678516864777,
+            "unresolved_fraction": 0.12345864623785019
+          },
+          {
+            "cells_per_segment": 0.009848076850175858,
+            "chord": 0.8189055919647217,
+            "chord_world": 1.4131231307983398,
+            "density_max": 0.5508778095245361,
+            "density_mean": 0.10350385308265686,
+            "grazing_deg": 49.5179557800293,
+            "hit": true,
+            "ndc": [
+              -0.8888888955116272,
+              0.3999999761581421
+            ],
+            "noise_cells": 4.91343355178833,
+            "pixels_per_cell": 486.9008483886719,
+            "saturated_fraction": 0.15625,
+            "segment_dt": 0.012795399874448776,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.8189055919647217,
+            "tau": 0.14626368880271912,
+            "unresolved_fraction": 0.06760295480489731
+          },
+          {
+            "cells_per_segment": 0.009717494249343872,
+            "chord": 0.8447266817092896,
+            "chord_world": 1.4177244901657104,
+            "density_max": 0.49295416474342346,
+            "density_mean": 0.08839433640241623,
+            "grazing_deg": 46.538455963134766,
+            "hit": true,
+            "ndc": [
+              -0.6666666269302368,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.068360328674316,
+            "pixels_per_cell": 485.3206481933594,
+            "saturated_fraction": 0.15625,
+            "segment_dt": 0.01319885440170765,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.8447266817092896,
+            "tau": 0.12531881034374237,
+            "unresolved_fraction": 0.06800048053264618
+          },
+          {
+            "cells_per_segment": 0.009643210098147392,
+            "chord": 0.8770580291748047,
+            "chord_world": 1.4322582483291626,
+            "density_max": 0.43096914887428284,
+            "density_mean": 0.07344874739646912,
+            "grazing_deg": 43.6518440246582,
+            "hit": true,
+            "ndc": [
+              -0.4444444179534912,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.262348175048828,
+            "pixels_per_cell": 480.3958435058594,
+            "saturated_fraction": 0.125,
+            "segment_dt": 0.013704031705856323,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.8770580291748047,
+            "tau": 0.10519757866859436,
+            "unresolved_fraction": 0.07126441597938538
+          },
+          {
+            "cells_per_segment": 0.009678231552243233,
+            "chord": 0.9124183058738708,
+            "chord_world": 1.4590184688568115,
+            "density_max": 0.3730049133300781,
+            "density_mean": 0.060256291180849075,
+            "grazing_deg": 41.33955383300781,
+            "hit": true,
+            "ndc": [
+              -0.2222222089767456,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.4745097160339355,
+            "pixels_per_cell": 471.5846862792969,
+            "saturated_fraction": 0.0625,
+            "segment_dt": 0.014256536029279232,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9124183058738708,
+            "tau": 0.08791504800319672,
+            "unresolved_fraction": 0.07803913205862045
+          },
+          {
+            "cells_per_segment": 0.009869137778878212,
+            "chord": 0.9435345530509949,
+            "chord_world": 1.4967156648635864,
+            "density_max": 0.3326244652271271,
+            "density_mean": 0.05093275383114815,
+            "grazing_deg": 40.143795013427734,
+            "hit": true,
+            "ndc": [
+              0.0,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.66120719909668,
+            "pixels_per_cell": 459.70709228515625,
+            "saturated_fraction": 0.03125,
+            "segment_dt": 0.014742727391421795,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9435345530509949,
+            "tau": 0.07623185217380524,
+            "unresolved_fraction": 0.0879015177488327
+          },
+          {
+            "cells_per_segment": 0.010215548798441887,
+            "chord": 0.9630740284919739,
+            "chord_world": 1.54002046585083,
+            "density_max": 0.3183888792991638,
+            "density_mean": 0.04684959352016449,
+            "grazing_deg": 40.371665954589844,
+            "hit": true,
+            "ndc": [
+              0.2222222089767456,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.778444290161133,
+            "pixels_per_cell": 446.78033447265625,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.015048031695187092,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9630740284919739,
+            "tau": 0.07214933633804321,
+            "unresolved_fraction": 0.09932362288236618
+          },
+          {
+            "cells_per_segment": 0.010658911429345608,
+            "chord": 0.9694368243217468,
+            "chord_world": 1.5831152200698853,
+            "density_max": 0.3238407075405121,
+            "density_mean": 0.04809267073869705,
+            "grazing_deg": 41.87638473510742,
+            "hit": true,
+            "ndc": [
+              0.4444444179534912,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.816620826721191,
+            "pixels_per_cell": 434.6182861328125,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.015147450380027294,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9694368243217468,
+            "tau": 0.07613623887300491,
+            "unresolved_fraction": 0.11053210496902466
+          },
+          {
+            "cells_per_segment": 0.011123604141175747,
+            "chord": 0.966957688331604,
+            "chord_world": 1.6228675842285156,
+            "density_max": 0.3628070056438446,
+            "density_mean": 0.05354221910238266,
+            "grazing_deg": 44.181610107421875,
+            "hit": true,
+            "ndc": [
+              0.6666666269302368,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.801746368408203,
+            "pixels_per_cell": 423.9722595214844,
+            "saturated_fraction": 0.0625,
+            "segment_dt": 0.015108713880181313,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.966957688331604,
+            "tau": 0.08689193427562714,
+            "unresolved_fraction": 0.12038613855838776
+          },
+          {
+            "cells_per_segment": 0.011557807214558125,
+            "chord": 0.9610761404037476,
+            "chord_world": 1.6584562063217163,
+            "density_max": 0.4037984609603882,
+            "density_mean": 0.06152805685997009,
+            "grazing_deg": 46.78654098510742,
+            "hit": true,
+            "ndc": [
+              0.8888888359069824,
+              0.3999999761581421
+            ],
+            "noise_cells": 5.766456604003906,
+            "pixels_per_cell": 414.87432861328125,
+            "saturated_fraction": 0.09375,
+            "segment_dt": 0.015016814693808556,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9610761404037476,
+            "tau": 0.1020415872335434,
+            "unresolved_fraction": 0.12850801646709442
+          },
+          {
+            "cells_per_segment": 0.010203014127910137,
+            "chord": 0.9369308948516846,
+            "chord_world": 1.5213589668273926,
+            "density_max": 0.3611845076084137,
+            "density_mean": 0.055779390037059784,
+            "grazing_deg": 41.9807014465332,
+            "hit": true,
+            "ndc": [
+              -0.8888888955116272,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.621585369110107,
+            "pixels_per_cell": 452.2607116699219,
+            "saturated_fraction": 0.0625,
+            "segment_dt": 0.014639545232057571,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9369308948516846,
+            "tau": 0.08486047387123108,
+            "unresolved_fraction": 0.07464557886123657
+          },
+          {
+            "cells_per_segment": 0.010097499936819077,
+            "chord": 0.9851635694503784,
+            "chord_world": 1.544937252998352,
+            "density_max": 0.27352961897850037,
+            "density_mean": 0.038669783622026443,
+            "grazing_deg": 38.53397750854492,
+            "hit": true,
+            "ndc": [
+              -0.6666666269302368,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.910981178283691,
+            "pixels_per_cell": 445.3584899902344,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.015393180772662163,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9851635694503784,
+            "tau": 0.05974239110946655,
+            "unresolved_fraction": 0.07520128786563873
+          },
+          {
+            "cells_per_segment": 0.009048858657479286,
+            "chord": 0.9382765293121338,
+            "chord_world": 1.4234094619750977,
+            "density_max": 0.1822739839553833,
+            "density_mean": 0.02562129683792591,
+            "grazing_deg": 35.267723083496094,
+            "hit": true,
+            "ndc": [
+              -0.4444444179534912,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.629659175872803,
+            "pixels_per_cell": 483.38226318359375,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.01466057077050209,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9382765293121338,
+            "tau": 0.03646959364414215,
+            "unresolved_fraction": 0.06505551934242249
+          },
+          {
+            "cells_per_segment": 0.008356748148798943,
+            "chord": 0.9089843034744263,
+            "chord_world": 1.3452330827713013,
+            "density_max": 0.10516182333230972,
+            "density_mean": 0.014382229186594486,
+            "grazing_deg": 32.774532318115234,
+            "hit": true,
+            "ndc": [
+              -0.2222222089767456,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.453906059265137,
+            "pixels_per_cell": 511.47332763671875,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.01420287974178791,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9089843034744263,
+            "tau": 0.019347451627254486,
+            "unresolved_fraction": 0.06086329370737076
+          },
+          {
+            "cells_per_segment": 0.008112934418022633,
+            "chord": 0.8990081548690796,
+            "chord_world": 1.3181445598602295,
+            "density_max": 0.06376933306455612,
+            "density_mean": 0.00798152107745409,
+            "grazing_deg": 31.499658584594727,
+            "hit": true,
+            "ndc": [
+              0.0,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.394048690795898,
+            "pixels_per_cell": 521.984375,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.014047002419829369,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.8990081548690796,
+            "tau": 0.010520799085497856,
+            "unresolved_fraction": 0.06262250989675522
+          },
+          {
+            "cells_per_segment": 0.008356749080121517,
+            "chord": 0.9089843034744263,
+            "chord_world": 1.3452333211898804,
+            "density_max": 0.05016444995999336,
+            "density_mean": 0.006008745636790991,
+            "grazing_deg": 31.71648597717285,
+            "hit": true,
+            "ndc": [
+              0.2222222089767456,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.453906059265137,
+            "pixels_per_cell": 511.47332763671875,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.01420287974178791,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9089843034744263,
+            "tau": 0.008083164691925049,
+            "unresolved_fraction": 0.07041198760271072
+          },
+          {
+            "cells_per_segment": 0.009048858657479286,
+            "chord": 0.9382765293121338,
+            "chord_world": 1.4234094619750977,
+            "density_max": 0.06301376223564148,
+            "density_mean": 0.00722021609544754,
+            "grazing_deg": 33.38247299194336,
+            "hit": true,
+            "ndc": [
+              0.4444444179534912,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.629659175872803,
+            "pixels_per_cell": 483.3822937011719,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.01466057077050209,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9382765293121338,
+            "tau": 0.010277323424816132,
+            "unresolved_fraction": 0.08398552983999252
+          },
+          {
+            "cells_per_segment": 0.010097500868141651,
+            "chord": 0.9851635694503784,
+            "chord_world": 1.544937252998352,
+            "density_max": 0.09982635825872421,
+            "density_mean": 0.01141531951725483,
+            "grazing_deg": 36.160308837890625,
+            "hit": true,
+            "ndc": [
+              0.6666666269302368,
+              0.7999999523162842
+            ],
+            "noise_cells": 5.910981178283691,
+            "pixels_per_cell": 445.3584899902344,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.015393180772662163,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 0.9851635694503784,
+            "tau": 0.017635952681303024,
+            "unresolved_fraction": 0.10246161371469498
+          },
+          {
+            "cells_per_segment": 0.01140474621206522,
+            "chord": 1.0472846031188965,
+            "chord_world": 1.7005478143692017,
+            "density_max": 0.1554383486509323,
+            "density_mean": 0.018250592052936554,
+            "grazing_deg": 39.58597183227539,
+            "hit": true,
+            "ndc": [
+              0.8888888359069824,
+              0.7999999523162842
+            ],
+            "noise_cells": 6.283707618713379,
+            "pixels_per_cell": 404.6054382324219,
+            "saturated_fraction": 0.0,
+            "segment_dt": 0.016363821923732758,
+            "support_gap": 0.0,
+            "support_intervals": 1,
+            "t_enter": 0.0,
+            "t_exit": 1.0472846031188965,
+            "tau": 0.031036006286740303,
+            "unresolved_fraction": 0.12448221445083618
+          }
+        ],
+        "summary": {
+          "hit_fraction": 1.0,
+          "mean_tau": 0.17733235657215118,
+          "median_noise_cells": 4.710296630859375,
+          "median_pixels_per_cell": 498.781005859375,
+          "saturated_hit_fraction": 0.0,
+          "tangential_hit_fraction": 0.0
+        }
+      },
+      "warp_amp": 1.399999976158142,
+      "warp_freq": 5.0,
+      "warp_y_scale": 0.6000000238418579,
+      "white_boost": 4.0,
+      "wind_direction": [
+        0.0,
+        0.0
+      ]
+    }
+  ],
+  "render_settings": {
+    "noise_step_count": 8,
+    "reference_step_count": 128,
+    "shading_mode": "Analytic"
+  },
+  "schema": "flame-wall-probe-v1",
+  "unix_time": 1786149179,
+  "viewport_size_px": [
+    1994.0,
+    855.0
+  ]
+}

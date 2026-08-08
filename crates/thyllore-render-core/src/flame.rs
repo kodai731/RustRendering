@@ -86,6 +86,52 @@ fn read_env_wave_cf_layers() -> usize {
     })
 }
 
+static WAVE_MODE_MASK_ENV: OnceLock<Option<String>> = OnceLock::new();
+
+fn read_env_wave_mode_mask() -> Option<String> {
+    WAVE_MODE_MASK_ENV
+        .get_or_init(|| std::env::var("THYLLORE_FLAME_WAVE_MODE_MASK").ok())
+        .clone()
+}
+
+pub const NOISE_AMPLITUDE_REF: f32 = 1.5;
+pub const EDGE_WIDTH_GAMMA: f32 = 1.0;
+pub const SHAPING_GAMMA: f32 = 0.5;
+
+/// Parse a mode mask string into a set of matched indices.
+/// Supports: "0-32" (range), "5" (single), "!17" (exclusion: all except 17),
+/// comma-separated combinations.
+fn parse_mode_mask(mask: &str) -> std::collections::HashSet<usize> {
+    let mut result: std::collections::HashSet<usize> = std::collections::HashSet::new();
+
+    for part in mask.split(',') {
+        let part = part.trim();
+        if part.starts_with('!') {
+            // Exclusion mode: "!17" means all modes except 17
+            let inner = &part[1..];
+            let excluded: std::collections::HashSet<usize> = parse_mode_mask(inner);
+            // Collect all indices up to WAVE_MODE_COUNT and subtract excluded
+            for i in 0..crate::flame_wave::WAVE_MODE_COUNT {
+                if !excluded.contains(&i) {
+                    result.insert(i);
+                }
+            }
+        } else if let Some(range) = part.split_once('-') {
+            // Range: "0-32"
+            if let (Ok(start), Ok(end)) = (range.0.parse::<usize>(), range.1.parse::<usize>()) {
+                for i in start..=end {
+                    result.insert(i);
+                }
+            }
+        } else if let Ok(single) = part.parse::<usize>() {
+            // Single: "5"
+            result.insert(single);
+        }
+    }
+
+    result
+}
+
 /// CPU mirror of the shader's `flameAnisoCompress` over the erosion chain
 /// (axis optionally bent toward the advection direction by aniso_axis_advect).
 fn noise_aniso_compress(effect: &FlameEffect, v: [f32; 3]) -> [f32; 3] {
@@ -566,6 +612,18 @@ type WaveUboFields = (
     [f32; 2],
 );
 
+/// Compute the effective edge window (low, high) from noise amplitude.
+/// Center c = 0.5*(edge_low + edge_high) is fixed; half-width scales with
+/// |noise_amplitude| / NOISE_AMPLITUDE_REF raised to EDGE_WIDTH_GAMMA, clamped
+/// to [0.25*hw0, 4.0*hw0] where hw0 = original half-width.
+pub fn effective_edge_window(effect: &FlameEffect) -> (f32, f32) {
+    let c = 0.5 * (effect.edge_low + effect.edge_high);
+    let hw0 = 0.5 * (effect.edge_high - effect.edge_low);
+    let hw = hw0 * (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(EDGE_WIDTH_GAMMA);
+    let hw = hw.max(0.25 * hw0).min(4.0 * hw0);
+    (c - hw, c + hw)
+}
+
 fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     use crate::flame_wave::{
         generate_wave_cf_shear_layers, generate_wave_detail_modes, generate_wave_modes_with_ratio,
@@ -587,6 +645,18 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
     };
     erosion_modes.sort_by(|a, b| k_mag(a).total_cmp(&k_mag(b)));
+
+    // Mode ablation: if THYLLORE_FLAME_WAVE_MODE_MASK is set, zero the amplitude
+    // of matched modes (sorted by |k| ascending index). No re-normalization.
+    if let Some(mask) = read_env_wave_mode_mask() {
+        let matched = parse_mode_mask(&mask);
+        for (i, mode) in erosion_modes.iter_mut().enumerate() {
+            if matched.contains(&i) {
+                mode.amplitude = 0.0;
+            }
+        }
+    }
+
     let tracked = read_env_wave_track();
     let env_coeff = erosion_modes
         .iter()
@@ -651,11 +721,12 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         }
     }
     let tanh_scale = read_env_wave_tanh();
-    let (inverse_scale, amplitude) = if tanh_scale <= 0.0 {
+    let (inverse_scale, mut amplitude) = if tanh_scale <= 0.0 {
         (0.0, 1.0)
     } else {
         wave_shaping_params(tanh_scale)
     };
+    amplitude *= (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
     (
         [tracked as f32, env_coeff, inverse_scale, amplitude],
         packed,
@@ -858,7 +929,10 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.rte_bands,
             effect.sigma_dispersion,
         ],
-        erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
+        erosion_response: {
+            let (elo, ehi) = effective_edge_window(effect);
+            fit_erf_response(elo, ehi).pack()
+        },
         wave_cf_params: {
             let mut params = build_wave_cf_params();
             params[2] = wave_fields.2[0];
@@ -871,7 +945,10 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
             effect.boundary_speed,
             effect.boundary_radius_ratio,
         ],
-        near_fade_params: [effect.near_fade_radius, effect.carve_residual, 0.0, 0.0],
+        near_fade_params: {
+            let (elo, ehi) = effective_edge_window(effect);
+            [effect.near_fade_radius, effect.carve_residual, elo, ehi]
+        },
         radius_coefficients: effect.coefficients.radius_scale,
         color_ramp: build_color_ramp(effect),
         profile_params: build_profile_params(effect),
@@ -1137,7 +1214,10 @@ pub fn build_flame_ubo_with_trail(
             effect.rte_bands,
             effect.sigma_dispersion,
         ],
-        erosion_response: fit_erf_response(effect.edge_low, effect.edge_high).pack(),
+        erosion_response: {
+            let (elo, ehi) = effective_edge_window(effect);
+            fit_erf_response(elo, ehi).pack()
+        },
         wave_cf_params: {
             let mut params = build_wave_cf_params();
             params[2] = wave_fields.2[0];
@@ -1150,7 +1230,10 @@ pub fn build_flame_ubo_with_trail(
             effect.boundary_speed,
             effect.boundary_radius_ratio,
         ],
-        near_fade_params: [effect.near_fade_radius, effect.carve_residual, 0.0, 0.0],
+        near_fade_params: {
+            let (elo, ehi) = effective_edge_window(effect);
+            [effect.near_fade_radius, effect.carve_residual, elo, ehi]
+        },
         radius_coefficients: effect.coefficients.radius_scale,
         color_ramp: build_color_ramp(effect),
         profile_params: build_profile_params(effect),
@@ -1735,5 +1818,28 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn test_effective_edge_window() {
+        // noise_amplitude = 1.5 (REF): should match original values exactly
+        let mut effect = FlameEffect::default();
+        let (elo, ehi) = effective_edge_window(&effect);
+        assert!((elo - 0.27).abs() < 1e-6, "elo={}", elo);
+        assert!((ehi - 0.33).abs() < 1e-6, "ehi={}", ehi);
+
+        // noise_amplitude = 3.0: half-width doubles (gamma=1.0)
+        effect.noise_amplitude = 3.0;
+        let (elo, ehi) = effective_edge_window(&effect);
+        assert!((elo - 0.24).abs() < 1e-6, "elo={}", elo);
+        assert!((ehi - 0.36).abs() < 1e-6, "ehi={}", ehi);
+
+        // noise_amplitude = 0.0: lower bound clamp applies (hw clamped to 0.25*hw0)
+        effect.noise_amplitude = 0.0;
+        let (elo, ehi) = effective_edge_window(&effect);
+        // hw0 = 0.03, clamped hw = 0.25 * 0.03 = 0.0075
+        // c = 0.3, so elo = 0.3 - 0.0075 = 0.2925, ehi = 0.3 + 0.0075 = 0.3075
+        assert!((elo - 0.2925).abs() < 1e-6, "elo={}", elo);
+        assert!((ehi - 0.3075).abs() < 1e-6, "ehi={}", ehi);
     }
 }

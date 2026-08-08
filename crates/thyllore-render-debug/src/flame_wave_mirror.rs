@@ -7,11 +7,11 @@ use std::sync::OnceLock;
 
 use thyllore_math_core::{integrate_erf_response_linear, ErfResponseModel};
 use thyllore_render_core::flame_wave::*;
-use thyllore_render_core::{eroded_argument, envelope_fade};
+use thyllore_render_core::{eroded_argument, envelope_fade, erosion_remap_scale};
 
 /// Cached shaping parameters for the default `WAVE_TANH_SCALE`.
 /// Computed once via `wave_shaping_params` and stored in a `OnceLock`.
-fn get_wave_shaping_params_cached() -> (f32, f32) {
+pub fn get_wave_shaping_params_cached() -> (f32, f32) {
     static CACHED: OnceLock<(f32, f32)> = OnceLock::new();
     *CACHED.get_or_init(|| wave_shaping_params(WAVE_TANH_SCALE))
 }
@@ -534,12 +534,16 @@ pub fn evaluate_wave_occupancy_segments(
             * (wave_shaping_derivative(noise_start, inverse_scale, amplitude)
                 + wave_shaping_derivative(noise_end, inverse_scale, amplitude));
         let sigma_local = 0.5 * (sigma_start + sigma_end);
+        let erosion_start = erosion_scale_at(seg_start) * (noise_start - 0.35);
+        let erosion_end = erosion_scale_at(seg_end) * (noise_end - 0.35);
+        let remap_scale_avg = 0.5 * (erosion_remap_scale(erosion_start) + erosion_remap_scale(erosion_end));
         let sigma_eff = sigma_local
             * shaping_deriv_avg
             * erosion_scale_at(seg_start + 0.5 * span).abs()
             * 0.5
             * (envelope_fade(density_start, flood_fade_scale)
-                + envelope_fade(density_end, flood_fade_scale));
+                + envelope_fade(density_end, flood_fade_scale))
+            * remap_scale_avg;
         let slope = (arg_end - arg_start) / span;
         let (mut integral, mut first_moment) = integrate_erf_response_linear(
             model,

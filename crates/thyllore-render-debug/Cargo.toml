@@ -6,5 +6,7 @@ license = "Apache-2.0"
 description = "Debug-only CPU mirrors of the render shaders (not a dependency of the product)"
 
 [dependencies]
+cgmath = "0.18"
+serde_json = "1"
 thyllore-render-core = { path = "../thyllore-render-core" }
 thyllore-math-core = { path = "../thyllore-math-core" }

@@ -27,7 +27,7 @@ pub use buffer_handle::{BufferHandle, IndexBufferHandle, VertexBufferHandle};
 pub use flame::{
     advance_flame_time, build_flame_inverse_model_matrix, build_flame_model_matrix,
     build_flame_ubo, build_flame_ubo_with_trail, default_height_falloff, default_radial_falloff,
-    fit_flame_coefficients, integrate_emission_segment, profile_from_effect,
+    fit_flame_coefficients, flame_bounding_radius, integrate_emission_segment, profile_from_effect,
     refresh_flame_coefficients, FlameCoefficients, FlameEffect, FlameProfile, FlameRenderSettings,
     FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
 };
@@ -37,8 +37,9 @@ pub use flame_pick::{
 };
 pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
 pub use flame_radial::{
-    eroded_argument, envelope_fade, evaluate_gaussian_moments, evaluate_radial_density_factor,
-    flame_radial_radius_scale, flame_radial_support_radius, FlameRadialTaper,
+    build_height_series, eroded_argument, envelope_fade, erosion_remap_scale,
+    evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_radius_scale,
+    flame_radial_support_radius, ring_support_span, FlameRadialTaper,
 };
 pub use flame_shell::{
     flame_shell_outer_radius, flame_shell_radius_scale, flame_shell_support_scale,

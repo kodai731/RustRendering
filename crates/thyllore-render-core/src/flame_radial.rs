@@ -117,7 +117,16 @@ pub fn envelope_fade(d_smooth: f32, flood_fade_scale: f32) -> f32 {
 /// so the field stays continuous across the support boundary (mirror of
 /// `flameErodedArgument`).
 pub fn eroded_argument(d_smooth: f32, erosion: f32, flood_fade_scale: f32) -> f32 {
-    d_smooth - (erosion.max(0.0) + erosion.min(0.0) * envelope_fade(d_smooth, flood_fade_scale))
+    let base = d_smooth - (erosion.max(0.0) + erosion.min(0.0) * envelope_fade(d_smooth, flood_fade_scale));
+    base * erosion_remap_scale(erosion)
+}
+
+/// Remap scale: inverse of the remaining range after erosion, floored at 0.15.
+/// Mirrors `flameErosionRemapScale` in flame_noise_field.glsl.
+pub const EROSION_REMAP_STRENGTH: f32 = 0.0; // 0 = off (default look), 1 = full Nubis-style remap
+pub fn erosion_remap_scale(erosion: f32) -> f32 {
+    let remapped = 1.0 / (1.0 - erosion.max(0.0)).max(0.15);
+    (1.0 - EROSION_REMAP_STRENGTH) * 1.0 + EROSION_REMAP_STRENGTH * remapped
 }
 
 /// Smooth (pre-threshold) ring density at an unwarped local point, following the
@@ -199,7 +208,7 @@ pub fn ring_support_span(
     (hi > lo).then_some((lo, hi))
 }
 
-pub(crate) fn build_height_series(height_coefficients: &[[f32; 4]; 2]) -> ChebyshevSeries {
+pub fn build_height_series(height_coefficients: &[[f32; 4]; 2]) -> ChebyshevSeries {
     ChebyshevSeries::new(
         height_coefficients.iter().flatten().copied().collect(),
         (0.0, 1.0),

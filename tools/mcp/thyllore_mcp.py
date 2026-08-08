@@ -394,5 +394,63 @@ def profile(
                 pass
 
 
+@mcp.tool()
+def fringe_score(image: str, background: str) -> str:
+    """Horizontal line-coherence score for flame screenshots.
+
+    image: path or comma-separated paths to flame screenshot(s).
+    background: path to the background reference image.
+
+    Returns JSON with {"ok": true, "scores": [...]} where each entry is one
+    image's analysis (score_p99, dominant_period_px, dominant_power per region).
+    """
+    images = [p.strip() for p in image.split(",") if p.strip()]
+    result = subprocess.run(
+        ["uv", "run", "--with", "pillow", "--with", "numpy", "python3",
+         "tools/flame_linescore.py", "--image", *images, "--background", background],
+       capture_output=True, text=True, cwd=str(_repo_root()),
+    )
+    if result.returncode != 0:
+        return json.dumps({"ok": False, "error": result.stderr.strip()})
+    scores = [json.loads(line) for line in result.stdout.strip().splitlines()]
+    return json.dumps({"ok": True, "scores": scores})
+
+
+@mcp.tool()
+def fringe_field_patch(dump: str, out: str = "", res: int = 128, rect: str = "-1,-1,1,1") -> str:
+    """Fringe probe + beat-table analysis of a flame dump.
+
+    dump: path to a flame JSONL dump (from profile or batch).
+    out: output patch path; defaults to log/flame/fringe_patch_<unixtime>.json.
+    res: probe resolution (default 128).
+    rect: screen-space rectangle as "x0,y0,x1,y1" (default "-1,-1,1,1").
+
+    Runs fringe_probe to extract the patch, then flame_fringe_beats.py for
+    beat-table analysis. Returns JSON with {"ok": true, "patch": "<path>",
+    "report": {...}} where report is the beat-table JSON from flame_fringe_beats.py.
+    """
+    if not out:
+        out = f"log/flame/fringe_patch_{int(time.time())}.json"
+
+    result1 = subprocess.run(
+        ["./target/debug/fringe_probe", "--dump", dump, "--out", out,
+         "--res", str(res), "--rect", rect],
+        capture_output=True, text=True, cwd=str(_repo_root()),
+    )
+    if result1.returncode != 0:
+        return json.dumps({"ok": False, "error": result1.stderr.strip()})
+
+    result2 = subprocess.run(
+        ["uv", "run", "--with", "numpy", "python3",
+         "tools/flame_fringe_beats.py", "--patch", out],
+        capture_output=True, text=True, cwd=str(_repo_root()),
+    )
+    if result2.returncode != 0:
+        return json.dumps({"ok": False, "error": result2.stderr.strip()})
+
+    report = json.loads(result2.stdout.strip())
+    return json.dumps({"ok": True, "patch": out, "report": report})
+
+
 if __name__ == "__main__":
     mcp.run()

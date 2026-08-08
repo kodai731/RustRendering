@@ -18,6 +18,10 @@
 // (flameBiweight / flameRadialSupportRadius live there).
 // Mirrored in thyllore-render-core/src/flame_radial.rs; the accuracy tests live there.
 
+// Beer-Powder (Schneider 2015, non-physical): darkens the rim of carved
+// notches so interior structure reads on an optically thick body.
+// 0 = off (default look), 1 = full powder.
+const float FLAME_POWDER_STRENGTH = 0.0;
 
 // Radius R(h) of the radial density profile, in flame-local units. Texture fit
 // bakes an arbitrary R(h) curve (profileParams.x flags it); the parametric taper
@@ -61,7 +65,7 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
         * flameNearCameraFade(p);
     float erosion = flameNoiseErosionValue(p, h);
     return flameApplyCarveResidual(
-        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+       smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
@@ -82,7 +86,7 @@ float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
     float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle) * flameNearCameraFade(p);
     float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h) : 0.0;
     return flameApplyCarveResidual(
-        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+      smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
@@ -211,7 +215,7 @@ float flameWaveNodeDensity(vec3 p, float h) {
 // locally stretched node does not smooth the whole ray.
 float flameWaveNodeArgumentLocal(
     vec3 p, vec3 d, float h, float density, float dt,
-    int count, float eddyTime, out float shapedNoise, out float sigmaNoise) {
+    int count, float eddyTime, out float shapedNoise, out float sigmaNoise, out float remapScale) {
     vec3 pb = flameNoiseBendRemoved(p, h);
     vec3 q;
     vec3 rateRaw = flameWaveFlowWarpRate(pb, d, h, q);
@@ -298,6 +302,7 @@ float flameWaveNodeArgumentLocal(
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
     shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
+    remapScale = flameErosionRemapScale(flameNoiseErosionFromValue(shapedNoise, h));
     return flameErodedArgument(density, flameNoiseErosionFromValue(shapedNoise, h));
 }
 
@@ -363,6 +368,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
     float previousArgument = 0.0;
     float previousShapedNoise = 0.4375;
     float previousSigma = 0.0;
+    float previousRemapScale = 1.0;
     bool previousArgumentValid = false;
     for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
         float tPrev = t0 + float(segment) * dt;
@@ -391,25 +397,26 @@ FlameWaveIntegral flameWaveOccupancySegments(
             vec3 pStart = o + segStart * d;
             previousArgument = flameWaveNodeArgumentLocal(
                 pStart, d, clamp(pStart.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
-                previousShapedNoise, previousSigma);
+                previousShapedNoise, previousSigma, previousRemapScale);
         } else if (!previousArgumentValid) {
             vec3 pPrev = o + tPrev * d;
             float hPrev = clamp(pPrev.y, 0.0, 1.0);
             previousArgument = flameWaveNodeArgumentLocal(
                 pPrev, d, hPrev, previousDensity, dt, count, eddyTime,
-                previousShapedNoise, previousSigma);
+                previousShapedNoise, previousSigma, previousRemapScale);
         }
         float currentShapedNoise;
         float currentSigma;
+        float currentRemapScale;
         float argument;
         if (exiting) {
             vec3 pEnd = o + segEnd * d;
             argument = flameWaveNodeArgumentLocal(
                 pEnd, d, clamp(pEnd.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
-                currentShapedNoise, currentSigma);
+                currentShapedNoise, currentSigma, currentRemapScale);
         } else {
             argument = flameWaveNodeArgumentLocal(p, d, h, density, dt, count, eddyTime,
-                currentShapedNoise, currentSigma);
+                currentShapedNoise, currentSigma, currentRemapScale);
         }
 
         // Shaping derivative average: g'(z) = amp * invScale * (1 - t^2) where
@@ -426,7 +433,8 @@ FlameWaveIntegral flameWaveOccupancySegments(
 
         float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
         float sigmaEff = 0.5 * (previousSigma + currentSigma) * shapingDerivAvg * abs(flame.noiseAmplitude) * mix(0.2, 1.0, hMid)
-            * 0.5 * (flameEnvelopeFade(densityStart) + flameEnvelopeFade(densityEnd));
+            * 0.5 * (flameEnvelopeFade(densityStart) + flameEnvelopeFade(densityEnd))
+            * 0.5 * (previousRemapScale + currentRemapScale);
         FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
         float slope = (argument - previousArgument) / span;
         vec2 carved = flameErosionResponseLinearIntegral(
@@ -457,6 +465,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
             }
             vec3 tau = sigmaRgb * emission;
             vec3 absorbed = vec3(1.0) - exp(-tau);
+            absorbed = mix(absorbed, absorbed * (vec3(1.0) - exp(-2.0 * tau)), FLAME_POWDER_STRENGTH);
             acc.radiancePre += acc.transmittance
                 * mix(flameRampColor(hMean), flame.colorTip.rgb, edge) * absorbed;
             acc.transmittance *= exp(-tau);
@@ -466,6 +475,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
         previousArgument = argument;
         previousShapedNoise = currentShapedNoise;
         previousSigma = currentSigma;
+        previousRemapScale = currentRemapScale;
         previousArgumentValid = !exiting;
     }
     return acc;

@@ -259,8 +259,15 @@ float flameApplyCarveResidual(float carvedOccupancy, float dSmooth) {
 // flooded volume, a sharp world-space seam most visible looking down the flame.
 // Positive erosion (carving tongues) is untouched.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (eroded_argument).
+const float FLAME_EROSION_REMAP_FLOOR = 0.15;
+const float FLAME_EROSION_REMAP_STRENGTH = 0.0;   // 0 = off (default look), 1 = full Nubis-style remap
+float flameErosionRemapScale(float erosion) {
+    return mix(1.0, 1.0 / max(1.0 - max(erosion, 0.0), FLAME_EROSION_REMAP_FLOOR),
+               FLAME_EROSION_REMAP_STRENGTH);
+}
 float flameErodedArgument(float dSmooth, float erosion) {
-    return dSmooth - (max(erosion, 0.0) + min(erosion, 0.0) * flameEnvelopeFade(dSmooth));
+    float base = dSmooth - (max(erosion, 0.0) + min(erosion, 0.0) * flameEnvelopeFade(dSmooth));
+    return base * flameErosionRemapScale(erosion);
 }
 
 // Analytic mode-sum replacement of the fbm domain warp for the wave basis: a
@@ -477,7 +484,7 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, pb, h);
     return flameApplyCarveResidual(
-        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+      smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
@@ -511,7 +518,7 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
     float erosion = flameNoiseErosionAt(q, pb, h);
     return flameApplyCarveResidual(
-        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+     smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
@@ -522,7 +529,7 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
     float erosion = flameNoiseErosionAt(q, pb, h);
     return flameApplyCarveResidual(
-        smoothstep(flame.styleParams1.y, flame.styleParams1.z, flameErodedArgument(dSmooth, erosion)),
+    smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
