@@ -1,0 +1,10 @@
+[package]
+name = "thyllore-render-debug"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+description = "Debug-only CPU mirrors of the render shaders (not a dependency of the product)"
+
+[dependencies]
+thyllore-render-core = { path = "../thyllore-render-core" }
+thyllore-math-core = { path = "../thyllore-math-core" }

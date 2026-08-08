@@ -3836,6 +3836,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "thyllore-render-debug"
+version = "0.0.1"
+dependencies = [
+ "thyllore-math-core",
+ "thyllore-render-core",
+]
+
+[[package]]
 name = "thyllore-vulkan-core"
 version = "0.0.1"
 dependencies = [

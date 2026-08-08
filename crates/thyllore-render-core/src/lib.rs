@@ -37,8 +37,8 @@ pub use flame_pick::{
 };
 pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
 pub use flame_radial::{
-    evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_radius_scale,
-    flame_radial_support_radius, FlameRadialTaper,
+    eroded_argument, envelope_fade, evaluate_gaussian_moments, evaluate_radial_density_factor,
+    flame_radial_radius_scale, flame_radial_support_radius, FlameRadialTaper,
 };
 pub use flame_shell::{
     flame_shell_outer_radius, flame_shell_radius_scale, flame_shell_support_scale,
