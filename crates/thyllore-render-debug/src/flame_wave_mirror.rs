@@ -168,6 +168,63 @@ pub fn evaluate_wave_flow_warp_with_rate(
     )
 }
 
+/// Displacement-form warp with rate (mirror of the flameWarpMapJvp
+/// displacement branch): every mode evaluated at the input z, so the Jacobian
+/// is the sum I + sum c_m f'_m k_m^T applied to the direction.
+pub fn evaluate_wave_displacement_warp_with_rate(
+    modes: &[WaveWarpMode],
+    point: [f32; 3],
+    direction: [f32; 3],
+    warp_frequency: f32,
+    axial_scale: f32,
+    strength: f32,
+) -> ([f32; 3], [f32; 3]) {
+    let z0 = wave_linear_map(
+        [point[0] as f64, point[1] as f64, point[2] as f64],
+        warp_frequency as f64,
+        axial_scale as f64,
+    );
+    let v0 = [
+        direction[0] as f64 * warp_frequency as f64,
+        direction[1] as f64 * axial_scale as f64 * warp_frequency as f64,
+        direction[2] as f64 * warp_frequency as f64,
+    ];
+    let strength = strength as f64;
+    let mut displacement = [0.0f64; 3];
+    let mut rate_sum = [0.0f64; 3];
+    for mode in modes {
+        let angle = mode.k[0] as f64 * z0[0]
+            + mode.k[1] as f64 * z0[1]
+            + mode.k[2] as f64 * z0[2]
+            + mode.phase as f64;
+        let value = strength * mode.amplitude as f64 * angle.cos();
+        let fp = -strength * mode.amplitude as f64 * angle.sin();
+        let k_dot_v = mode.k[0] as f64 * v0[0]
+            + mode.k[1] as f64 * v0[1]
+            + mode.k[2] as f64 * v0[2];
+        for axis in 0..3 {
+            displacement[axis] += mode.curl_direction[axis] as f64 * value;
+            rate_sum[axis] += mode.curl_direction[axis] as f64 * fp * k_dot_v;
+        }
+    }
+    let z = [
+        z0[0] + displacement[0],
+        z0[1] + displacement[1],
+        z0[2] + displacement[2],
+    ];
+    let v = [v0[0] + rate_sum[0], v0[1] + rate_sum[1], v0[2] + rate_sum[2]];
+    let warped_point = wave_linear_map_inverse(z, warp_frequency as f64, axial_scale as f64);
+    let rate = [
+        v[0] / warp_frequency as f64,
+        v[1] / (axial_scale as f64 * warp_frequency as f64),
+        v[2] / warp_frequency as f64,
+    ];
+    (
+        [warped_point[0] as f32, warped_point[1] as f32, warped_point[2] as f32],
+        [rate[0] as f32, rate[1] as f32, rate[2] as f32],
+    )
+}
+
 /// Clenshaw evaluation of a Chebyshev series at x in [-1, 1]
 /// (mirror of `flameWaveCfClenshaw`).
 pub fn evaluate_wave_cf_chebyshev(coeffs: &[f32; WAVE_CF_CHEB_COEFFS], x: f32) -> f32 {

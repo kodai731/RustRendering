@@ -367,12 +367,32 @@ vec3 flameWaveWarpOffset(vec3 pb, float h) {
     return amp * displacement;
 }
 
-// S1 — the warp map proper, isolated so the evaluation form (sequential shear
-// composition today, a one-shot displacement sum if redesigned) lives in these
-// two functions and nowhere else. Each mode is a pure shear (k·curl_dir = 0):
-// z += curl_dir * strength * a * cos(k·z + φ), applied in index order
-// (shear composition is non-commutative).
+// S1 — the warp map proper, isolated so the evaluation form lives in these
+// two functions and nowhere else. Two forms, selected by warpFormParams.x
+// (CPU env THYLLORE_FLAME_WARP_FORM, K in warpStrainParams matches the form):
+//   displacement (default): every mode evaluated at the INPUT z, so the
+//     Jacobian is the bounded sum I + sum c_m f'_m k_m^T — no multiplicative
+//     stretch growth, hence no height-chirped lamination (追補2);
+//   sequential: the legacy composition — mode m+1 sees the z mode m moved,
+//     the Jacobian is a product (kept for A/B).
+// Each mode is a pure shear (k·curl_dir = 0):
+// z += curl_dir * strength * a * cos(k·z + φ).
+bool flameWarpFormDisplacement() {
+    return flame.warpFormParams.x > 0.5;
+}
+
 vec3 flameWarpMapZ(vec3 z, int base, int warpCount, float strength) {
+    if (flameWarpFormDisplacement()) {
+        vec3 z0 = z;
+        vec3 displacement = vec3(0.0);
+        for (int m = 0; m < warpCount; ++m) {
+            vec4 waveVector = flame.waveModes[2 * (base + m)];
+            vec4 direction = flame.waveModes[2 * (base + m) + 1];
+            float angle = dot(waveVector.xyz, z0) + direction.x;
+            displacement += direction.yzw * (strength * waveVector.w * cos(angle));
+        }
+        return z0 + displacement;
+    }
     for (int m = 0; m < warpCount; ++m) {
         vec4 waveVector = flame.waveModes[2 * (base + m)];
         vec4 direction = flame.waveModes[2 * (base + m) + 1];
@@ -382,10 +402,29 @@ vec3 flameWarpMapZ(vec3 z, int base, int warpCount, float strength) {
     return z;
 }
 
-// S1 with the Jacobian-vector product: z is updated exactly like
-// flameWarpMapZ; v accumulates J·v via v += curl_dir * (f' * dot(k, v)) with
-// f' = -strength * a * sin(k·z + φ).
+// S1 with the Jacobian-vector product J·v, exact for either form:
+// displacement: v += sum c_m (f'_m dot(k_m, v0)) with every f' at z0;
+// sequential:   v updated through each shear in composition order.
 void flameWarpMapJvp(inout vec3 z, inout vec3 v, int base, int warpCount, float strength) {
+    if (flameWarpFormDisplacement()) {
+        vec3 z0 = z;
+        vec3 v0 = v;
+        vec3 displacement = vec3(0.0);
+        vec3 rate = vec3(0.0);
+        for (int m = 0; m < warpCount; ++m) {
+            vec4 waveVector = flame.waveModes[2 * (base + m)];
+            vec4 direction = flame.waveModes[2 * (base + m) + 1];
+            float angle = dot(waveVector.xyz, z0) + direction.x;
+            float shearValue = strength * waveVector.w * cos(angle);
+            float fPrime = -strength * waveVector.w * sin(angle);
+            vec3 curlDir = direction.yzw;
+            displacement += curlDir * shearValue;
+            rate += curlDir * (fPrime * dot(waveVector.xyz, v0));
+        }
+        z = z0 + displacement;
+        v = v0 + rate;
+        return;
+    }
     for (int m = 0; m < warpCount; ++m) {
         vec4 waveVector = flame.waveModes[2 * (base + m)];
         vec4 direction = flame.waveModes[2 * (base + m) + 1];

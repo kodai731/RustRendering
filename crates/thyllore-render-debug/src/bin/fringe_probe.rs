@@ -230,6 +230,7 @@ fn main() {
                     aniso_axis_advect: effect.aniso_axis_advect,
                     height_primitive: ubo.height_primitive_coefficients,
                     mu_zw: [ubo.tip_carve_params[2], ubo.tip_carve_params[3]],
+                    displacement_form: ubo.warp_form_params[0] > 0.5,
                 };
                 let (q, rate_raw) = flow_warp_with_rate(&warp_modes, &warp_params, p, [direction_local.x, direction_local.y, direction_local.z], h);
 

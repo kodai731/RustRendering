@@ -86,6 +86,20 @@ fn read_env_wave_cf_layers() -> usize {
     })
 }
 
+static WARP_FORM_ENV: OnceLock<bool> = OnceLock::new();
+
+/// Warp evaluation form (20260809_warp_asymptotic_strain_redesign.md 追補2):
+/// true (default) = one-shot displacement sum whose Jacobian is a bounded SUM,
+/// false = the legacy 16-shear sequential composition (multiplicative stretch)
+/// for A/B. THYLLORE_FLAME_WARP_FORM = disp | seq.
+pub fn read_env_warp_form_displacement() -> bool {
+    *WARP_FORM_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_WARP_FORM")
+            .map(|v| !v.eq_ignore_ascii_case("seq"))
+            .unwrap_or(true)
+    })
+}
+
 static WAVE_MODE_MASK_ENV: OnceLock<Option<String>> = OnceLock::new();
 
 fn read_env_wave_mode_mask() -> Option<String> {
@@ -940,21 +954,44 @@ fn build_color_ramp(effect: &FlameEffect) -> [[f32; 4]; 8] {
 }
 
 /// [s_base, s_tip, 1/mu_w, 1/K] for the asymptotic warp-strain profile. K is
-/// taken over the shear table the flow warp actually composes (cf layers when
-/// the closed-form variant is active, the 16 warp modes otherwise).
+/// taken over the shear table the warp actually evaluates (cf layers when the
+/// closed-form variant is active, the 16 warp modes otherwise), with the norm
+/// matching the evaluation form: max a|k| for the sequential composition
+/// (per-shear bound), RMS for the displacement sum (gradient-sum bound).
 pub fn build_warp_strain_params(effect: &FlameEffect) -> [f32; 4] {
     let warp_modes = crate::flame_wave::generate_wave_warp_modes();
+    let norm_of = |modes: &[crate::flame_wave::WaveWarpMode]| {
+        if read_env_warp_form_displacement() {
+            crate::flame_wave::warp_strain_norm_rms(modes)
+        } else {
+            crate::flame_wave::warp_strain_norm(modes)
+        }
+    };
     let strain_norm = if read_env_wave_cf() {
         let layers = crate::flame_wave::generate_wave_cf_shear_layers(
             &warp_modes,
             read_env_wave_cf_layers(),
             read_env_wave_cf_shear(),
         );
-        crate::flame_wave::warp_strain_norm(&layers)
+        norm_of(&layers)
     } else {
-        crate::flame_wave::warp_strain_norm(&warp_modes)
+        norm_of(&warp_modes)
     };
     crate::flame_wave::warp_strain_params(effect.warp_amp, effect.warp_reach, strain_norm)
+}
+
+/// x = 1 for the displacement form, 0 for the sequential composition; yzw spare.
+fn build_warp_form_params() -> [f32; 4] {
+    [
+        if read_env_warp_form_displacement() {
+            1.0
+        } else {
+            0.0
+        },
+        0.0,
+        0.0,
+        0.0,
+    ]
 }
 
 fn build_tip_carve_params(effect: &FlameEffect) -> [f32; 4] {
@@ -1108,6 +1145,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         wave_params: wave_fields.0,
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
+        warp_form_params: build_warp_form_params(),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1396,6 +1434,7 @@ pub fn build_flame_ubo_with_trail(
         wave_params: wave_fields.0,
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
+        warp_form_params: build_warp_form_params(),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1449,6 +1488,7 @@ pub struct FlameUBO {
     pub wave_params: [f32; 4],
     pub tip_carve_params: [f32; 4],
     pub warp_strain_params: [f32; 4],
+    pub warp_form_params: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }
@@ -1752,7 +1792,7 @@ mod tests {
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 5696 + 1536
+            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 5696 + 1536
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

@@ -26,6 +26,9 @@ pub struct WarpParams {
     pub height_primitive: [[f32; 4]; 3],
     /// FlameUBO.tip_carve_params zw: [primitive at h=1, 1 / total envelope mass].
     pub mu_zw: [f32; 2],
+    /// FlameUBO.warp_form_params.x > 0.5: displacement sum instead of the
+    /// sequential shear composition.
+    pub displacement_form: bool,
 }
 
 /// Chebyshev-12 evaluation over [0, 1] (mirror of evaluateChebyshev12).
@@ -44,9 +47,41 @@ fn cheb12(c0: [f32; 4], c1: [f32; 4], c2: [f32; 4], x01: f32) -> f32 {
     t * b0 - b1 + coeffs[0]
 }
 
-/// S1 mirror (flameWarpMapJvp): sequential shear composition with the
-/// Jacobian-vector product on v.
-fn warp_map_jvp(warp_modes: &[WaveWarpMode], z: &mut [f64; 3], v: &mut [f64; 3], strength: f64) {
+/// S1 mirror (flameWarpMapJvp): displacement sum or the legacy sequential
+/// shear composition, with the Jacobian-vector product on v.
+fn warp_map_jvp(
+    warp_modes: &[WaveWarpMode],
+    z: &mut [f64; 3],
+    v: &mut [f64; 3],
+    strength: f64,
+    displacement_form: bool,
+) {
+    if displacement_form {
+        let z0 = *z;
+        let v0 = *v;
+        let mut displacement = [0.0f64; 3];
+        let mut rate = [0.0f64; 3];
+        for mode in warp_modes {
+            let angle = mode.k[0] as f64 * z0[0]
+                + mode.k[1] as f64 * z0[1]
+                + mode.k[2] as f64 * z0[2]
+                + mode.phase as f64;
+            let shear_value = strength * mode.amplitude as f64 * angle.cos();
+            let f_prime = -strength * mode.amplitude as f64 * angle.sin();
+            let k_dot_v = mode.k[0] as f64 * v0[0]
+                + mode.k[1] as f64 * v0[1]
+                + mode.k[2] as f64 * v0[2];
+            for axis in 0..3 {
+                displacement[axis] += mode.curl_direction[axis] as f64 * shear_value;
+                rate[axis] += mode.curl_direction[axis] as f64 * f_prime * k_dot_v;
+            }
+        }
+        for axis in 0..3 {
+            z[axis] = z0[axis] + displacement[axis];
+            v[axis] = v0[axis] + rate[axis];
+        }
+        return;
+    }
     for mode in warp_modes {
         let angle = mode.k[0] as f64 * z[0]
             + mode.k[1] as f64 * z[1]
@@ -202,7 +237,13 @@ pub fn flow_warp_with_rate(
         v_compressed[2] * p.warp_freq as f64,
     ];
 
-    warp_map_jvp(warp_modes, &mut z, &mut v, strength_profile as f64);
+    warp_map_jvp(
+        warp_modes,
+        &mut z,
+        &mut v,
+        strength_profile as f64,
+        p.displacement_form,
+    );
 
     // M^-1: back to physical space
     let warp_freq = p.warp_freq as f64;

@@ -1,6 +1,9 @@
 use thyllore_render_core::flame_wave::*;
 use thyllore_render_debug::fringe_field::{flow_warp_with_rate, sample_wave_field, WarpParams};
-use thyllore_render_debug::flame_wave_mirror::{evaluate_wave_flow_warp_with_rate, evaluate_wave_noise_local_lowpass_reduced};
+use thyllore_render_debug::flame_wave_mirror::{
+    evaluate_wave_displacement_warp_with_rate, evaluate_wave_flow_warp_with_rate,
+    evaluate_wave_noise_local_lowpass_reduced,
+};
 
 /// 5 deterministic (w, rate) pairs for testing.
 const TEST_CASES: &[[f32; 6]] = &[
@@ -79,6 +82,7 @@ fn test_flow_warp_with_rate_matches_mirror_zero_advect() {
             aniso_axis_advect: 0.0,
             height_primitive: [[0.0; 4]; 3],
             mu_zw: [0.0, 0.0],
+            displacement_form: false,
         };
         let h = 0.5;
 
@@ -97,5 +101,30 @@ fn test_flow_warp_with_rate_matches_mirror_zero_advect() {
             "h={}: rate mismatch: got [{:?},{:?},{:?}], expected [{:?},{:?},{:?}]",
             h, rate_new[0], rate_new[1], rate_new[2], rate_ref[0], rate_ref[1], rate_ref[2]
         );
+    }
+}
+
+#[test]
+fn test_flow_warp_displacement_form_matches_mirror() {
+    let warp_modes = generate_wave_warp_modes();
+    let warp_freq = 2.0;
+    for strength in [0.05f32, 0.12, 0.2] {
+        let pb = [1.0, 2.0, 3.0];
+        let dir = [0.5, -0.3, 0.8];
+        let params = WarpParams {
+            strain_params: [strength, strength, 0.0, 1.0],
+            warp_freq,
+            advect: [0.0, 0.0, 0.0],
+            aniso_axis_advect: 0.0,
+            height_primitive: [[0.0; 4]; 3],
+            mu_zw: [0.0, 0.0],
+            displacement_form: true,
+        };
+        let (q_new, rate_new) = flow_warp_with_rate(&warp_modes, &params, pb, dir, 0.5);
+        let (q_ref, rate_ref) = evaluate_wave_displacement_warp_with_rate(
+            &warp_modes, pb, dir, warp_freq, 0.35, strength,
+        );
+        assert_eq!(q_new, q_ref, "strength {strength}: q mismatch");
+        assert_eq!(rate_new, rate_ref, "strength {strength}: rate mismatch");
     }
 }

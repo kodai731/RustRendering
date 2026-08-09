@@ -29,6 +29,7 @@ pub use flame::{
     build_flame_ubo, build_flame_ubo_with_trail, build_warp_strain_params,
     default_height_falloff, default_radial_falloff,
     fit_flame_coefficients, flame_bounding_radius, integrate_emission_segment, profile_from_effect,
+    read_env_warp_form_displacement,
     refresh_flame_coefficients, FlameCoefficients, FlameDebugView, FlameEffect, FlameProfile,
     FlameRenderSettings, FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT,
     RADIAL_COEFFICIENT_COUNT,

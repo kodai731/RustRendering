@@ -419,7 +419,8 @@ pub const WARP_STRAIN_BASE_RATIO: f32 = 0.15;
 /// same units as tip_carve_reach).
 pub const WARP_REACH_DEFAULT: f32 = 0.35;
 
-/// Strain normalization K = max_m a_m * |k_m| over a warp shear mode table.
+/// Strain normalization K = max_m a_m * |k_m| over a warp shear mode table —
+/// the per-shear bound of the sequential composition form.
 pub fn warp_strain_norm(modes: &[WaveWarpMode]) -> f32 {
     modes
         .iter()
@@ -428,6 +429,22 @@ pub fn warp_strain_norm(modes: &[WaveWarpMode]) -> f32 {
                 * (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
         })
         .fold(0.0, f32::max)
+}
+
+/// RMS strain normalization K = sqrt(sum_m (a_m * |k_m|)^2) — the statistical
+/// gradient bound of the one-shot displacement form, whose Jacobian is the SUM
+/// I + sum_m c_m f'_m k_m^T (random phases cancel, so the RMS is the right
+/// scale; the det(J) > 0 sweep test below backs the fold-free claim).
+pub fn warp_strain_norm_rms(modes: &[WaveWarpMode]) -> f32 {
+    modes
+        .iter()
+        .map(|m| {
+            let s = m.amplitude
+                * (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt();
+            s * s
+        })
+        .sum::<f32>()
+        .sqrt()
 }
 
 /// Saturating lever map: any warp_amp stays below WARP_STRAIN_CAP.
@@ -844,6 +861,57 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Displacement form fold-free gate (20260809 追補2): the Jacobian
+    /// J = I + sum c_m f'_m k_m^T must stay orientation-preserving
+    /// (det J > 0) over a deterministic low-discrepancy sweep of evaluation
+    /// points and strengths up to the cap. The RMS normalization is
+    /// statistical, so this numeric sweep is the enforcement.
+    #[test]
+    fn test_displacement_warp_jacobian_stays_orientation_preserving() {
+        let modes = generate_wave_warp_modes();
+        let k_rms = warp_strain_norm_rms(&modes);
+        let max_strength = (WARP_STRAIN_CAP / k_rms) as f64;
+        let mut min_det = f64::MAX;
+        for strength_step in 1..=4 {
+            let strength = max_strength * strength_step as f64 / 4.0;
+            for i in 0..50_000u64 {
+                let z0 = [
+                    (i as f64 * 0.754_876_66) % 37.0 - 18.5,
+                    (i as f64 * 0.569_840_29) % 29.0 - 14.5,
+                    (i as f64 * 0.618_033_99) % 23.0 - 11.5,
+                ];
+                let mut jac = [[0.0f64; 3]; 3];
+                for (r, row) in jac.iter_mut().enumerate() {
+                    row[r] = 1.0;
+                }
+                for mode in &modes {
+                    let angle = mode.k[0] as f64 * z0[0]
+                        + mode.k[1] as f64 * z0[1]
+                        + mode.k[2] as f64 * z0[2]
+                        + mode.phase as f64;
+                    let fp = -strength * mode.amplitude as f64 * angle.sin();
+                    for r in 0..3 {
+                        for c in 0..3 {
+                            jac[r][c] += mode.curl_direction[r] as f64 * fp * mode.k[c] as f64;
+                        }
+                    }
+                }
+                let det = jac[0][0] * (jac[1][1] * jac[2][2] - jac[1][2] * jac[2][1])
+                    - jac[0][1] * (jac[1][0] * jac[2][2] - jac[1][2] * jac[2][0])
+                    + jac[0][2] * (jac[1][0] * jac[2][1] - jac[1][1] * jac[2][0]);
+                min_det = min_det.min(det);
+                assert!(
+                    det > 0.0,
+                    "det(J) = {} <= 0 at strength {} point {:?}",
+                    det,
+                    strength,
+                    z0
+                );
+            }
+        }
+        assert!(min_det > 0.05, "min det {} too close to folding", min_det);
     }
 
     /// Default lever (warp_amp 1.4) lands near the designed s_tip ~= 0.8.

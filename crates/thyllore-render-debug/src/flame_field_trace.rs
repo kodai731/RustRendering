@@ -231,9 +231,34 @@ impl<'a> UboCtx<'a> {
         )
     }
 
-    /// S1 mirror (flameWarpMapJvp): sequential shear composition with the
-    /// Jacobian-vector product on v.
+    /// S1 mirror (flameWarpMapJvp): displacement sum (warp_form_params.x > 0.5)
+    /// or the legacy sequential shear composition, with the Jacobian-vector
+    /// product on v.
     fn warp_map_jvp(&self, z: &mut [f32; 3], v: &mut [f32; 3], strength: f32) {
+        if self.u.warp_form_params[0] > 0.5 {
+            let z0 = *z;
+            let v0 = *v;
+            let mut displacement = [0.0f32; 3];
+            let mut rate = [0.0f32; 3];
+            for m in 0..WARP_COUNT {
+                let (kv, dv) = self.wave_mode(WARP_BASE + m);
+                let k = [kv[0], kv[1], kv[2]];
+                let curl = [dv[1], dv[2], dv[3]];
+                let angle = dot3(k, z0) + dv[0];
+                let shear = strength * kv[3] * angle.cos();
+                let fp = -strength * kv[3] * angle.sin();
+                let kdv = dot3(k, v0);
+                for axis in 0..3 {
+                    displacement[axis] += curl[axis] * shear;
+                    rate[axis] += curl[axis] * fp * kdv;
+                }
+            }
+            for axis in 0..3 {
+                z[axis] = z0[axis] + displacement[axis];
+                v[axis] = v0[axis] + rate[axis];
+            }
+            return;
+        }
         for m in 0..WARP_COUNT {
             let (kv, dv) = self.wave_mode(WARP_BASE + m);
             let k = [kv[0], kv[1], kv[2]];
@@ -853,6 +878,7 @@ pub fn trace_flame_field(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "noise_amplitude": round5(ubo.noise_amplitude),
             "tip_carve_params": vec_json(&ubo.tip_carve_params),
             "warp_strain_params": vec_json(&ubo.warp_strain_params),
+            "warp_form_params": vec_json(&ubo.warp_form_params),
             "height_primitive_coefficients": Value::Array(
                 ubo.height_primitive_coefficients.iter().map(|s| vec_json(s)).collect()),
             "noise_frequency": round5(ubo.noise_frequency),
