@@ -280,6 +280,29 @@ pub fn build_wall_probe_json(report: &thyllore_render_core::WallProbeReport) -> 
     })
 }
 
+/// Declared field composition for the dump: which noise was active, driving what, gated by which lever.
+pub fn build_field_manifest_json(manifest: &thyllore_render_core::FieldManifest) -> Value {
+    json!({
+        "summary": manifest.summary(),
+        "active_sources": manifest
+            .active_sources()
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>(),
+        "unification_pending": manifest
+            .active_unification_pending()
+            .iter()
+            .map(|s| s.as_str())
+            .collect::<Vec<_>>(),
+        "influences": manifest.influences.iter().map(|i| json!({
+            "source": i.source.as_str(),
+            "target": i.target.as_str(),
+            "lever": i.lever,
+            "active": i.active,
+        })).collect::<Vec<_>>(),
+    })
+}
+
 pub fn build_wall_probe_dump_record(
     camera: &crate::ecs::resource::Camera,
     settings: &crate::ecs::resource::FlameRenderSettings,
@@ -300,6 +323,10 @@ pub fn build_wall_probe_dump_record(
         "flames": flames.iter().map(|(effect, report)| {
             let mut entry = build_effect_json(effect).as_object().unwrap().clone();
             entry.insert("wall_probe".to_string(), build_wall_probe_json(report));
+            entry.insert(
+                "field_manifest".to_string(),
+                build_field_manifest_json(&thyllore_render_core::flame_field_manifest(effect)),
+            );
             Value::Object(entry)
         }).collect::<Vec<_>>()
     })
@@ -582,6 +609,26 @@ mod tests {
             flame["wall_probe"]["rays"].as_array().unwrap().len(),
             thyllore_render_core::WALL_PROBE_GRID_COLS * thyllore_render_core::WALL_PROBE_GRID_ROWS
         );
+    }
+
+    #[test]
+    fn field_manifest_json_names_sources_targets_and_levers() {
+        let mut effect = sample_effect();
+        effect.noise_amplitude = 1.5;
+        effect.boundary_amp = 0.2;
+        let manifest = thyllore_render_core::flame_field_manifest(&effect);
+        let value = build_field_manifest_json(&manifest);
+        assert!(value["summary"].as_str().unwrap().contains("erosion-wave-table"));
+        assert!(value["active_sources"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|s| s == "boundary-fbm"));
+        let first = &value["influences"][0];
+        assert!(first["source"].is_string());
+        assert!(first["target"].is_string());
+        assert!(first["lever"].is_string());
+        assert!(first["active"].is_boolean());
     }
 
     #[test]

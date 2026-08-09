@@ -2,6 +2,7 @@ pub mod backend;
 mod billboard;
 mod buffer_handle;
 mod flame;
+pub mod flame_field_manifest;
 pub mod flame_fit;
 mod flame_pick;
 pub mod flame_plume;
@@ -33,6 +34,9 @@ pub use flame::{
     refresh_flame_coefficients, FlameCoefficients, FlameDebugView, FlameEffect, FlameProfile,
     FlameRenderSettings, FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT,
     RADIAL_COEFFICIENT_COUNT,
+};
+pub use flame_field_manifest::{
+    flame_field_manifest, FieldInfluence, FieldManifest, FieldSourceKind, FieldTargetKind,
 };
 pub use flame_pick::{
     flame_bend_offset, flame_local_bounds, flame_local_bounds_corners, flame_support_scale,
