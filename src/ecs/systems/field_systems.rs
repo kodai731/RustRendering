@@ -66,7 +66,6 @@ mod tests {
             .expect("flame gets the FieldAffected attribute");
         let sources = field.manifest.active_sources();
         assert!(sources.contains(&FieldSourceKind::ErosionWaveTable));
-        assert!(sources.contains(&FieldSourceKind::BoundaryFbm));
     }
 
     #[test]
@@ -81,7 +80,7 @@ mod tests {
         world
             .get_component_mut::<FlameEffect>(entity)
             .unwrap()
-            .boundary_amp = 0.0;
+            .noise_amplitude = 0.0;
         sync_world(&mut world);
 
         let field = world.get_component::<FieldAffected>(entity).unwrap();
@@ -89,7 +88,7 @@ mod tests {
             !field
                 .manifest
                 .active_sources()
-                .contains(&FieldSourceKind::BoundaryFbm),
+                .contains(&FieldSourceKind::ErosionWaveTable),
             "manifest follows the lever"
         );
     }

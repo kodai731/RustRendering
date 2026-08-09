@@ -21,10 +21,10 @@ use thyllore_render_core::flame_wave::{
 use thyllore_render_core::FlameUBO;
 
 const SEGMENTS: usize = 64;
-const EROSION_SLOTS: usize = 96;
-const WARP_BASE: usize = 96;
+const EROSION_SLOTS: usize = thyllore_render_core::flame_wave::WAVE_EROSION_SLOTS;
+const WARP_BASE: usize = thyllore_render_core::flame_wave::WAVE_WARP_BASE;
 const WARP_COUNT: usize = 16;
-const DETAIL_BASE: usize = 112;
+const DETAIL_BASE: usize = thyllore_render_core::flame_wave::WAVE_DETAIL_BASE;
 const DETAIL_COUNT: usize = 64;
 const SHELL_BASE_RADIUS: f32 = 0.5;
 const SUPPORT_HEADROOM: f32 = 1.5;
@@ -324,7 +324,7 @@ impl<'a> UboCtx<'a> {
     }
 
     fn contour_wiggle(&self, p: [f32; 3], h: f32) -> f32 {
-        if self.u.contour_params[0] == 0.0 {
+        if self.u.contour_params[0] == 0.0 || self.unified() {
             return 1.0;
         }
         let q = [
@@ -337,7 +337,7 @@ impl<'a> UboCtx<'a> {
 
     fn boundary_displacement(&self, x: f32, z: f32) -> [f32; 2] {
         let bp = self.u.boundary_params;
-        if bp[0] == 0.0 {
+        if bp[0] == 0.0 || self.unified() {
             return [1.0, 1.0];
         }
         let q = [x * bp[1], -bp[2] * self.u.time, z * bp[1]];
@@ -410,6 +410,17 @@ impl<'a> UboCtx<'a> {
         );
         let tc = self.u.tip_carve_params;
         ((tc[2] - primitive) * tc[3]).clamp(0.0, 1.0)
+    }
+
+    fn unified(&self) -> bool {
+        self.u.unified_params[0] > 0.5
+    }
+
+    fn unified_sigma_floor(&self, h: f32, density: f32) -> f32 {
+        if !self.unified() {
+            return 0.0;
+        }
+        self.u.unified_params[1] * self.tip_carve_lambda(h) * density / EROSION_SHELL_REF
     }
 
     fn tip_carve_lambda(&self, h: f32) -> f32 {
@@ -514,10 +525,11 @@ impl<'a> UboCtx<'a> {
                     continue;
                 }
                 let k = [kv[0], kv[1], kv[2]];
+                let jn = n.min(self.u.wave_jitter.len() - 1);
                 let jit = [
-                    self.u.wave_jitter[n][0],
-                    self.u.wave_jitter[n][1],
-                    self.u.wave_jitter[n][2],
+                    self.u.wave_jitter[jn][0],
+                    self.u.wave_jitter[jn][1],
+                    self.u.wave_jitter[jn][2],
                 ];
                 let angle = dot3(k, w) + ph[0] + ph[1] * eddy_time + dot3(jit, jitter_psi);
                 let beta_phase = dot3(k, rate) + dot3(jit, jitter_psi_rate);
@@ -1021,7 +1033,7 @@ fn trace_ray(
         };
         let shaping_deriv_avg = 0.5 * (shaping_deriv(start_arg.shaped) + shaping_deriv(end_arg.shaped));
         let h_mid = (o[1] + (seg_start + 0.5 * span) * d[1]).clamp(0.0, 1.0);
-        let sigma_eff = 0.5 * (start_arg.sigma_noise + end_arg.sigma_noise)
+        let mut sigma_eff = 0.5 * (start_arg.sigma_noise + end_arg.sigma_noise)
             * shaping_deriv_avg
             * ctx.u.noise_amplitude.abs()
             * ctx.tip_carve_lambda(h_mid)
@@ -1029,6 +1041,10 @@ fn trace_ray(
             * 0.5
             * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
         let slope = (end_arg.argument - start_arg.argument) / span;
+        let fade_avg = 0.5 * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
+        sigma_eff = sigma_eff.max(
+            ctx.unified_sigma_floor(h_mid, 0.5 * (density_start + density_end)) * fade_avg,
+        );
         let (mut integral, mut first_moment) = integrate_erf_response_linear(
             &ctx.erf,
             sigma_eff,

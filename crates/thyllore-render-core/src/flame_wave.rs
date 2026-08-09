@@ -19,14 +19,42 @@
 
 use std::sync::OnceLock;
 
-/// UBO slot capacity (2 vec4 per mode): erosion + warp/modulator + detail
-/// tables plus the closed-form shear layers appended at WAVE_CF_SHEAR_SLOT.
-pub const WAVE_MODE_SLOTS: usize = 178;
+/// Erosion region capacity: legacy 96-mode table + 32 appended low octaves
+/// (unified field, 20260809_unified_field_redesign.md).
+pub const WAVE_EROSION_SLOTS: usize = 128;
+/// Slot bases of the warp and detail tables after the erosion region.
+pub const WAVE_WARP_BASE: usize = WAVE_EROSION_SLOTS;
+pub const WAVE_DETAIL_BASE: usize = WAVE_WARP_BASE + WAVE_WARP_MODE_COUNT;
 /// Slot index of the closed-form transport shear layers (after the detail table).
-pub const WAVE_CF_SHEAR_SLOT: usize = 176;
-/// Active mode count (N=96: N=48 still showed fine interference fringes on
+pub const WAVE_CF_SHEAR_SLOT: usize = WAVE_DETAIL_BASE + WAVE_DETAIL_MODE_COUNT;
+/// UBO slot capacity (2 vec4 per mode): erosion + warp + detail + shear layers.
+pub const WAVE_MODE_SLOTS: usize = WAVE_CF_SHEAR_SLOT + 2;
+/// Legacy table mode count (N=96: N=48 still showed fine interference fringes on
 /// the real flame under the warp; N=16 reads as discrete elements).
 pub const WAVE_MODE_COUNT: usize = 96;
+/// Appended low-octave modes |k| in 2*pi*[WAVE_LOW_K_MIN, 1): the unified
+/// field's silhouette-scale structure (replacing boundary fbm / wiggle).
+pub const WAVE_LOW_MODE_COUNT: usize = 32;
+pub const WAVE_UNIFIED_MODE_COUNT: usize = WAVE_MODE_COUNT + WAVE_LOW_MODE_COUNT;
+pub const WAVE_LOW_K_MIN: f32 = 0.25;
+
+static WAVE_LOW_K_MIN_ENV: OnceLock<f32> = OnceLock::new();
+
+/// Runtime override of the low-octave floor (calibration lever for the
+/// unified table; the constant is the design default).
+pub fn read_env_wave_low_k_min() -> f32 {
+    *WAVE_LOW_K_MIN_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_UNIFIED_LOWK")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(WAVE_LOW_K_MIN)
+    })
+}
+/// Extra y-compression of the lowest octave's wavevectors, linear in ln|k| up
+/// to 1.0 at the legacy band floor: elongates silhouette-scale structures
+/// vertically so they survive tangent-view path averaging like the column
+/// field they replace. Smooth in |k| — no family boundary.
+pub const WAVE_LOW_ANISO_Y_MIN: f32 = 0.4;
 /// Detail mode count for lattice-free contour wiggle and boundary displacement.
 pub const WAVE_DETAIL_MODE_COUNT: usize = 64;
 /// Uniform segments of the band-free closed form over the support crossing.
@@ -275,6 +303,128 @@ fn fill_wave_modes(modes: &mut [WaveMode], k_ratio: f32) {
     for mode in &mut *modes {
         mode.amplitude *= scale;
     }
+}
+
+/// The 32 appended low-octave modes |k| in 2*pi*[WAVE_LOW_K_MIN, 1): same
+/// deterministic construction as the legacy table (Fibonacci directions,
+/// low-discrepancy magnitudes/phases with an index offset so the streams stay
+/// decorrelated from the base 96), plus the smooth low-octave y-compression.
+pub fn generate_wave_low_modes() -> [WaveMode; WAVE_LOW_MODE_COUNT] {
+    let count = WAVE_LOW_MODE_COUNT;
+    let k_min = read_env_wave_low_k_min();
+    let mut modes = [WaveMode::default(); WAVE_LOW_MODE_COUNT];
+    let span = (1.0f64 / k_min as f64).ln();
+    for (n, mode) in modes.iter_mut().enumerate() {
+        let stream_index = (WAVE_MODE_COUNT + n) as f64;
+        let vertical = 1.0 - 2.0 * (n as f64 + 0.5) / count as f64;
+        let ring = (1.0 - vertical * vertical).max(0.0).sqrt();
+        let azimuth = std::f64::consts::TAU * ((stream_index / GOLDEN_RATIO).fract());
+        let magnitude_u = (0.5 / count as f64 + stream_index * PLASTIC_INV).fract();
+        let magnitude = std::f64::consts::TAU
+            * (k_min as f64)
+            * (span * magnitude_u).exp();
+        let aniso_y = wave_low_aniso_y((magnitude / std::f64::consts::TAU) as f32) as f64;
+        mode.k = [
+            (ring * azimuth.cos() * magnitude) as f32,
+            (vertical * magnitude * aniso_y) as f32,
+            (ring * azimuth.sin() * magnitude) as f32,
+        ];
+        mode.amplitude = (magnitude / std::f64::consts::TAU).powf(-5.0 / 6.0) as f32;
+        let phase_u = (stream_index * PLASTIC_INV_SQ + 0.5 * PLASTIC_INV).fract();
+        mode.phase = (std::f64::consts::TAU * phase_u) as f32;
+        let sign = if (stream_index * PLASTIC_INV + 0.25).fract() < 0.5 {
+            1.0
+        } else {
+            -1.0
+        };
+        mode.eddy_rate = (sign * (magnitude / std::f64::consts::TAU).powf(2.0 / 3.0)) as f32;
+    }
+    modes
+}
+
+/// Smooth y-compression profile over normalized |k|/2pi: WAVE_LOW_ANISO_Y_MIN
+/// at WAVE_LOW_K_MIN rising linearly in ln k to 1.0 at the legacy band floor.
+pub fn wave_low_aniso_y(k_norm: f32) -> f32 {
+    let u = (k_norm.max(WAVE_LOW_K_MIN) / WAVE_LOW_K_MIN).ln()
+        / (1.0f32 / WAVE_LOW_K_MIN).ln();
+    WAVE_LOW_ANISO_Y_MIN + (1.0 - WAVE_LOW_ANISO_Y_MIN) * u.clamp(0.0, 1.0)
+}
+
+/// Smooth spectral tilt over normalized |k|/2pi: the unified field's role
+/// weights. `kappa_b` lifts the silhouette-scale low octaves (old boundary
+/// amp), `kappa_w` a mid-band bump (old contour wiggle amp). Smooth in |k| —
+/// any lever value keeps the spectrum family-free.
+pub fn wave_spectral_tilt(k_norm: f32, kappa_b: f32, kappa_w: f32) -> f32 {
+    const K_B: f32 = 0.5;
+    const K_W: f32 = 2.0;
+    let x = k_norm / K_W;
+    let tilt = 1.0 + kappa_b * (-k_norm / K_B).exp() + kappa_w * x * (-x).exp();
+    tilt * wave_low_rolloff(k_norm)
+}
+
+/// Smooth quartic-knee high-pass over normalized |k|/2pi: keeps the carving
+/// band [1, 8] near full power while damping the appended low octaves, so the
+/// unified table does not re-normalize the interior texture away. C-infinity
+/// in |k| — no family boundary.
+pub fn wave_low_rolloff(k_norm: f32) -> f32 {
+    const K_C: f32 = 0.55;
+    let k4 = k_norm * k_norm * k_norm * k_norm;
+    let c4 = K_C * K_C * K_C * K_C;
+    k4 / (k4 + c4)
+}
+
+/// The unified erosion table: legacy 96 + appended 32 low octaves on one
+/// continuous Kolmogorov line, spectral tilt applied, envelope + total-variance
+/// normalization over the combined set. Deterministic given the levers.
+pub fn build_unified_erosion_modes(
+    k_ratio: f32,
+    env_mu: f32,
+    kappa_b: f32,
+    kappa_w: f32,
+) -> Vec<WaveMode> {
+    let mut modes: Vec<WaveMode> = Vec::with_capacity(WAVE_UNIFIED_MODE_COUNT);
+    modes.extend_from_slice(&generate_wave_modes_with_ratio(k_ratio));
+    modes.extend_from_slice(&generate_wave_low_modes());
+    for mode in modes.iter_mut() {
+        let k_norm = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2])
+            .sqrt()
+            / std::f32::consts::TAU;
+        mode.amplitude = k_norm.max(1e-4).powf(-5.0 / 6.0)
+            * wave_spectral_tilt(k_norm, kappa_b, kappa_w);
+        mode.jitter = [0.0; WAVE_JITTER_RANK];
+    }
+    apply_wave_envelope(&mut modes, env_mu.max(1e-6));
+
+    // Band-preserving calibration: the carving band [1, K_RATIO] keeps the
+    // legacy variance (so the interior texture does not soften); the appended
+    // low octaves add their silhouette-scale variance on top.
+    let mut band_power = 0.0f64;
+    for mode in &modes {
+        let k_norm = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2])
+            .sqrt()
+            / std::f32::consts::TAU;
+        if k_norm >= 1.0 {
+            band_power += 0.5 * (mode.amplitude as f64) * (mode.amplitude as f64);
+        }
+    }
+    if band_power > 0.0 {
+        let rescale = (WAVE_NOISE_STD as f64 / band_power.sqrt()) as f32;
+        for mode in modes.iter_mut() {
+            mode.amplitude *= rescale;
+        }
+    }
+    modes
+}
+
+/// Actual std of the unified table (carving band at WAVE_NOISE_STD plus the
+/// low-octave addition) — the sigma-floor coefficient scales with this.
+pub fn unified_noise_std(k_ratio: f32, env_mu: f32, kappa_b: f32, kappa_w: f32) -> f32 {
+    let modes = build_unified_erosion_modes(k_ratio, env_mu, kappa_b, kappa_w);
+    let total: f64 = modes
+        .iter()
+        .map(|m| 0.5 * (m.amplitude as f64) * (m.amplitude as f64))
+        .sum();
+    total.sqrt() as f32
 }
 
 /// Lattice-free replacement for the fbm behind the contour wiggle and the
@@ -923,5 +1073,57 @@ mod tests {
             "default s_tip {} out of design window",
             s_tip
         );
+    }
+
+    #[test]
+    fn unified_table_spectrum_is_gap_free_and_family_free() {
+        let modes = build_unified_erosion_modes(WAVE_K_RATIO, WAVE_ENV_MU, 2.0, 0.6);
+        assert_eq!(modes.len(), WAVE_UNIFIED_MODE_COUNT);
+        let mut mags: Vec<f32> = modes
+            .iter()
+            .map(|m| {
+                (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
+                    / std::f32::consts::TAU
+            })
+            .collect();
+        mags.sort_by(f32::total_cmp);
+        assert!(mags[0] < 0.3, "low octave starts near WAVE_LOW_K_MIN: {}", mags[0]);
+        assert!(*mags.last().unwrap() > 6.0, "top of the legacy band present");
+        let max_gap_octaves = mags
+            .windows(2)
+            .map(|w| (w[1] / w[0]).log2())
+            .fold(0.0f32, f32::max);
+        assert!(
+            max_gap_octaves < 0.5,
+            "spectrum has a gap of {max_gap_octaves} octaves — a discrete family boundary"
+        );
+        let total_power: f32 = modes.iter().map(|m| 0.5 * m.amplitude * m.amplitude).sum();
+        assert!(
+            total_power.sqrt() >= WAVE_NOISE_STD && total_power.sqrt() <= WAVE_NOISE_STD * 2.0,
+            "band-preserving calibration: carving band at STD, lows add on top: sqrt(power) = {}",
+            total_power.sqrt()
+        );
+        for m in &modes {
+            assert_eq!(m.jitter, [0.0; WAVE_JITTER_RANK], "unified table carries no jitter");
+        }
+    }
+
+    #[test]
+    fn spectral_tilt_and_low_aniso_are_smooth_and_continuous() {
+        let a_edge = wave_low_aniso_y(1.0);
+        assert!((a_edge - 1.0).abs() < 1e-6, "aniso profile reaches 1 at the band floor");
+        let mut prev_t = wave_spectral_tilt(0.25, 2.0, 0.6);
+        let mut prev_a = wave_low_aniso_y(0.25);
+        let mut k = 0.25f32;
+        while k < 8.0 {
+            let next = k * 1.02;
+            let t = wave_spectral_tilt(next, 2.0, 0.6);
+            let a = wave_low_aniso_y(next);
+            assert!((t - prev_t).abs() < 0.1, "tilt jumps at k={next}");
+            assert!((a - prev_a).abs() < 0.05, "aniso jumps at k={next}");
+            prev_t = t;
+            prev_a = a;
+            k = next;
+        }
     }
 }

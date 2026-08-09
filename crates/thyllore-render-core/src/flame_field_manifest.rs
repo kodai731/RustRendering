@@ -119,10 +119,26 @@ impl FieldManifest {
     }
 }
 
-/// Derives the manifest from the same values the UBO packer reads (jitter via the shared lever).
+/// Derives the manifest from the same values the UBO packer reads (jitter and
+/// the unified switch via the shared levers). Under the unified field the old
+/// boundary/wiggle/jitter sources are inert; their levers become spectral-tilt
+/// edges of the one broadband table.
 pub fn flame_field_manifest(effect: &FlameEffect) -> FieldManifest {
+    flame_field_manifest_with(
+        effect,
+        crate::flame::read_env_wave_unified(),
+        read_env_wave_jitter(),
+    )
+}
+
+/// Pure derivation for a given unified switch and jitter lever value.
+pub fn flame_field_manifest_with(
+    effect: &FlameEffect,
+    unified: bool,
+    jitter_scale: f32,
+) -> FieldManifest {
     let erosion = effect.noise_amplitude != 0.0;
-    let jitter = erosion && read_env_wave_jitter() > 0.0;
+    let jitter = erosion && !unified && jitter_scale > 0.0;
     FieldManifest {
         influences: vec![
             FieldInfluence {
@@ -130,6 +146,18 @@ pub fn flame_field_manifest(effect: &FlameEffect) -> FieldManifest {
                 target: FieldTargetKind::InteriorErosion,
                 lever: "noise_amplitude",
                 active: erosion,
+            },
+            FieldInfluence {
+                source: FieldSourceKind::ErosionWaveTable,
+                target: FieldTargetKind::SilhouetteHeight,
+                lever: "boundary_amp (low-octave tilt)",
+                active: unified && erosion && effect.boundary_amp != 0.0,
+            },
+            FieldInfluence {
+                source: FieldSourceKind::ErosionWaveTable,
+                target: FieldTargetKind::SilhouetteRadius,
+                lever: "contour_wiggle_amp (mid-octave tilt)",
+                active: unified && erosion && effect.contour_wiggle_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::WarpDisplacementTable,
@@ -141,19 +169,19 @@ pub fn flame_field_manifest(effect: &FlameEffect) -> FieldManifest {
                 source: FieldSourceKind::ContourWiggleTable,
                 target: FieldTargetKind::SilhouetteRadius,
                 lever: "contour_wiggle_amp",
-                active: effect.contour_wiggle_amp != 0.0,
+                active: !unified && effect.contour_wiggle_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::BoundaryFbm,
                 target: FieldTargetKind::SilhouetteHeight,
                 lever: "boundary_amp",
-                active: effect.boundary_amp != 0.0,
+                active: !unified && effect.boundary_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::BoundaryFbm,
                 target: FieldTargetKind::SilhouetteRadius,
                 lever: "boundary_amp",
-                active: effect.boundary_amp != 0.0,
+                active: !unified && effect.boundary_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::PhaseJitterFields,
@@ -174,39 +202,46 @@ mod tests {
     }
 
     #[test]
-    fn manifest_active_sources_follow_the_levers() {
+    fn legacy_manifest_follows_the_levers() {
         let mut e = effect();
         e.noise_amplitude = 1.5;
         e.warp_amp = 1.4;
         e.contour_wiggle_amp = 0.3;
         e.boundary_amp = 0.2;
-        let m = flame_field_manifest(&e);
-        let sources = m.active_sources();
+        let sources = flame_field_manifest_with(&e, false, 1.0).active_sources();
         assert!(sources.contains(&FieldSourceKind::ErosionWaveTable));
         assert!(sources.contains(&FieldSourceKind::WarpDisplacementTable));
         assert!(sources.contains(&FieldSourceKind::ContourWiggleTable));
         assert!(sources.contains(&FieldSourceKind::BoundaryFbm));
+        assert!(sources.contains(&FieldSourceKind::PhaseJitterFields));
 
         e.boundary_amp = 0.0;
         e.contour_wiggle_amp = 0.0;
-        let m = flame_field_manifest(&e);
-        let sources = m.active_sources();
+        let sources = flame_field_manifest_with(&e, false, 0.0).active_sources();
         assert!(!sources.contains(&FieldSourceKind::BoundaryFbm));
         assert!(!sources.contains(&FieldSourceKind::ContourWiggleTable));
+        assert!(!sources.contains(&FieldSourceKind::PhaseJitterFields));
     }
 
     #[test]
-    fn summary_is_stable_and_names_every_active_edge() {
+    fn unified_manifest_has_no_pending_sources_and_absorbs_the_levers() {
         let mut e = effect();
         e.noise_amplitude = 1.5;
-        e.warp_amp = 0.0;
-        e.contour_wiggle_amp = 0.0;
+        e.warp_amp = 1.4;
+        e.contour_wiggle_amp = 0.3;
         e.boundary_amp = 0.2;
-        let m = flame_field_manifest(&e);
+        let m = flame_field_manifest_with(&e, true, 1.0);
+        assert_eq!(
+            m.active_sources(),
+            vec![
+                FieldSourceKind::ErosionWaveTable,
+                FieldSourceKind::WarpDisplacementTable
+            ]
+        );
+        assert!(m.active_unification_pending().is_empty());
         let s = m.summary();
-        assert!(s.contains("erosion-wave-table->interior-erosion"));
-        assert!(s.contains("boundary-fbm->silhouette-height"));
-        assert!(!s.contains("warp-displacement-table"));
+        assert!(s.contains("erosion-wave-table->silhouette-height"));
+        assert!(s.contains("erosion-wave-table->silhouette-radius"));
     }
 
     // Shader audit: every GLSL noise-primitive site must sit inside a declared anchor function.

@@ -138,9 +138,20 @@ fn main() {
         process::exit(1);
     }
 
-    // Build mode table: generate_wave_modes_with_ratio(WAVE_K_RATIO) -> apply_wave_envelope -> sort by |k| ascending
-    let mut modes = generate_wave_modes_with_ratio(WAVE_K_RATIO);
-    apply_wave_envelope(&mut modes, WAVE_ENV_MU);
+    // Build mode table: unified 128-mode table when the unified field is on,
+    // else legacy 96 + envelope; sorted by |k| ascending below.
+    let mut modes: Vec<WaveMode> = if thyllore_render_core::read_env_wave_unified() {
+        build_unified_erosion_modes(
+            WAVE_K_RATIO,
+            WAVE_ENV_MU,
+            effect.boundary_amp * thyllore_render_core::read_env_unified_tilt_gain_b(),
+            effect.contour_wiggle_amp * thyllore_render_core::read_env_unified_tilt_gain_w(),
+        )
+    } else {
+        let mut m = generate_wave_modes_with_ratio(WAVE_K_RATIO).to_vec();
+        apply_wave_envelope(&mut m, WAVE_ENV_MU);
+        m
+    };
     let jitter_scale = read_env_wave_jitter();
     for mode in modes.iter_mut() {
         for c in mode.jitter.iter_mut() {

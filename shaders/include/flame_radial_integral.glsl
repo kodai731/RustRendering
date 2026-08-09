@@ -49,7 +49,7 @@ float flameRadialDensityFactor(vec3 p, float height01) {
 // Contour wiggle: per-band field quantity from fbm at the actual 3D point.
 // Returns 1.0 when contourParams.x == 0 (identity, matches old path).
 float flameContourWiggle(vec3 p, float h) {
-    if (flame.contourParams.x == 0.0) { return 1.0; }
+    if (flame.contourParams.x == 0.0 || flame.unifiedParams.x > 0.5) { return 1.0; }
     vec3 q = vec3(p.x, h - flame.styleParams0.z * flame.time, p.z) * flame.noiseFrequency;
     return 1.0 + flame.contourParams.x * flameDetailNoise(q);
 }
@@ -65,7 +65,7 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
         * flameNearCameraFade(p);
     float erosion = flameNoiseErosionValue(p, h, dSmooth);
     return flameApplyCarveResidual(
-       smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
+       flameResponseOccupancy(dSmooth, erosion, h),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
@@ -86,7 +86,7 @@ float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
     float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle) * flameNearCameraFade(p);
     float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h, dSmooth) : 0.0;
     return flameApplyCarveResidual(
-      smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
+      flameResponseOccupancy(dSmooth, erosion, h),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
@@ -284,8 +284,14 @@ vec2 flameWaveSegmentCarved(
         * flameTipCarveLambda(hMid) * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
         * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd))
         * 0.5 * (nodes.remapStart + nodes.remapEnd);
-    FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
     float slope = (nodes.argumentEnd - nodes.argumentStart) / span;
+    if (flame.unifiedParams.x > 0.5) {
+        float sigmaFloor = flame.unifiedParams.y * flameTipCarveLambda(hMid)
+            * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
+            * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd));
+        sigmaEff = max(sigmaEff, sigmaFloor);
+    }
+    FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
     vec2 carved = flameErosionResponseLinearIntegral(
         response, nodes.argumentStart - slope * segStart, slope, segStart, segEnd);
     if (residual > 0.0) {

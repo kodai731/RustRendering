@@ -100,6 +100,58 @@ pub fn read_env_warp_form_displacement() -> bool {
     })
 }
 
+static WAVE_UNIFIED_ENV: OnceLock<bool> = OnceLock::new();
+
+/// Unified broadband field (20260809_unified_field_redesign.md): one 128-mode
+/// gap-free table replaces boundary fbm / contour wiggle / phase jitter, and
+/// the response window gains a modulation-proportional sigma floor.
+/// THYLLORE_FLAME_UNIFIED = 1 (default) | 0 = legacy path for A/B.
+pub fn read_env_wave_unified() -> bool {
+    *WAVE_UNIFIED_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_UNIFIED")
+            .map(|v| v != "0" && !v.eq_ignore_ascii_case("false"))
+            .unwrap_or(true)
+    })
+}
+
+/// Lever mapping of the unified spectral tilt: old boundary_amp / wiggle_amp
+/// become smooth low- / mid-octave gains of the one table.
+pub const UNIFIED_BOUNDARY_TILT_GAIN: f32 = 10.0;
+pub const UNIFIED_WIGGLE_TILT_GAIN: f32 = 2.0;
+/// Relative response window: sigma floor = beta * local modulation std.
+pub const UNIFIED_WINDOW_BETA: f32 = 0.75;
+
+static UNIFIED_BETA_ENV: OnceLock<f32> = OnceLock::new();
+static UNIFIED_TILT_B_ENV: OnceLock<f32> = OnceLock::new();
+static UNIFIED_TILT_W_ENV: OnceLock<f32> = OnceLock::new();
+
+pub fn read_env_unified_beta() -> f32 {
+    *UNIFIED_BETA_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_UNIFIED_BETA")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(UNIFIED_WINDOW_BETA)
+    })
+}
+
+pub fn read_env_unified_tilt_gain_b() -> f32 {
+    *UNIFIED_TILT_B_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_UNIFIED_TILT_B")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(UNIFIED_BOUNDARY_TILT_GAIN)
+    })
+}
+
+pub fn read_env_unified_tilt_gain_w() -> f32 {
+    *UNIFIED_TILT_W_ENV.get_or_init(|| {
+        std::env::var("THYLLORE_FLAME_UNIFIED_TILT_W")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(UNIFIED_WIGGLE_TILT_GAIN)
+    })
+}
+
 static WAVE_MODE_MASK_ENV: OnceLock<Option<String>> = OnceLock::new();
 
 fn read_env_wave_mode_mask() -> Option<String> {
@@ -744,16 +796,27 @@ pub fn effective_edge_window(effect: &FlameEffect) -> (f32, f32) {
 
 fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     use crate::flame_wave::{
-        generate_wave_cf_shear_layers, generate_wave_detail_modes, generate_wave_modes_with_ratio,
-        generate_wave_warp_modes, wave_cf_chebyshev_tables, wave_cf_depth_scale,
-        wave_shaping_params, WAVE_CF_CHEB_COEFFS, WAVE_CF_SHEAR_SLOT, WAVE_MODE_COUNT,
-        WAVE_MODE_SLOTS, WAVE_WARP_MODE_COUNT,
+        build_unified_erosion_modes, generate_wave_cf_shear_layers, generate_wave_detail_modes,
+        generate_wave_modes_with_ratio, generate_wave_warp_modes, wave_cf_chebyshev_tables,
+        wave_cf_depth_scale, wave_shaping_params, WAVE_CF_CHEB_COEFFS, WAVE_CF_SHEAR_SLOT,
+        WAVE_DETAIL_BASE, WAVE_LOW_MODE_COUNT, WAVE_MODE_COUNT, WAVE_MODE_SLOTS, WAVE_WARP_BASE,
     };
 
     let mut packed = [[0.0f32; 4]; 2 * WAVE_MODE_SLOTS];
     let k_ratio = read_env_wave_k_ratio();
-    let mut erosion_modes = generate_wave_modes_with_ratio(k_ratio);
-    crate::flame_wave::apply_wave_envelope(&mut erosion_modes, read_env_wave_env_mu());
+    let unified = read_env_wave_unified();
+    let mut erosion_modes: Vec<crate::flame_wave::WaveMode> = if unified {
+        build_unified_erosion_modes(
+            k_ratio,
+            read_env_wave_env_mu(),
+            effect.boundary_amp * read_env_unified_tilt_gain_b(),
+            effect.contour_wiggle_amp * read_env_unified_tilt_gain_w(),
+        )
+    } else {
+        let mut modes = generate_wave_modes_with_ratio(k_ratio).to_vec();
+        crate::flame_wave::apply_wave_envelope(&mut modes, read_env_wave_env_mu());
+        modes
+    };
 
     // 5.1 probabilistic reduction: sort by |k| ascending so the tracked prefix
     // is the low-wavenumber part of the spectrum; aggregate the skipped modes'
@@ -775,7 +838,11 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         }
     }
 
-    let tracked = read_env_wave_track();
+    let tracked = if unified {
+        (read_env_wave_track() + WAVE_LOW_MODE_COUNT).min(erosion_modes.len())
+    } else {
+        read_env_wave_track()
+    };
     let env_coeff = erosion_modes
         .iter()
         .map(|m| m.env_coeff)
@@ -788,20 +855,21 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     }
 
     let warp_modes = generate_wave_warp_modes();
-    let cf_active = read_env_wave_cf();
-    let depth_scale = if cf_active {
+    let cf_active = read_env_wave_cf() && !unified;
+    let depth_scale: Vec<f32> = if cf_active {
         wave_cf_depth_scale(&erosion_modes, &warp_modes, effect.noise_frequency, |v| {
             noise_aniso_compress(effect, v)
         })
+        .to_vec()
     } else {
-        [0.0; WAVE_MODE_COUNT]
+        vec![0.0; erosion_modes.len()]
     };
     for (i, mode) in erosion_modes.iter().enumerate() {
         packed[2 * i] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
         packed[2 * i + 1] = [mode.phase, mode.eddy_rate, mode.env_coeff, depth_scale[i]];
     }
     for (i, mode) in warp_modes.iter().enumerate() {
-        let slot = WAVE_MODE_COUNT + i;
+        let slot = WAVE_WARP_BASE + i;
         packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
         packed[2 * slot + 1] = [
             mode.phase,
@@ -811,14 +879,14 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         ];
     }
     for (i, mode) in generate_wave_detail_modes().iter().enumerate() {
-        let slot = WAVE_MODE_COUNT + WAVE_WARP_MODE_COUNT + i;
+        let slot = WAVE_DETAIL_BASE + i;
         packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
         packed[2 * slot + 1] = [mode.phase, mode.eddy_rate, 0.0, 0.0];
     }
     if cf_active {
         let (cheb_sin, cheb_cos) = wave_cf_chebyshev_tables();
         for i in 0..WAVE_CF_CHEB_COEFFS {
-            let slot = WAVE_MODE_COUNT + WAVE_WARP_MODE_COUNT + i;
+            let slot = WAVE_DETAIL_BASE + i;
             packed[2 * slot + 1][2] = cheb_sin[i];
             packed[2 * slot + 1][3] = cheb_cos[i];
         }
@@ -859,6 +927,24 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         skipped_power,
         jitter,
     )
+}
+
+/// unifiedParams: x = unified field active, y = relative-window sigma floor
+/// coefficient (beta * |A| * shaped noise std; the shader multiplies by
+/// lambda * D_mid / 0.30 for the local modulation std).
+pub fn build_unified_field_params(effect: &FlameEffect) -> [f32; 4] {
+    if !read_env_wave_unified() {
+        return [0.0; 4];
+    }
+    let lever = (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
+    let std = crate::flame_wave::unified_noise_std(
+        read_env_wave_k_ratio(),
+        read_env_wave_env_mu(),
+        effect.boundary_amp * read_env_unified_tilt_gain_b(),
+        effect.contour_wiggle_amp * read_env_unified_tilt_gain_w(),
+    );
+    let sigma_floor = read_env_unified_beta() * effect.noise_amplitude.abs() * std * lever;
+    [1.0, sigma_floor, 0.0, 0.0]
 }
 
 fn build_profile_params(effect: &FlameEffect) -> [f32; 4] {
@@ -1146,6 +1232,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
         warp_form_params: build_warp_form_params(),
+        unified_params: build_unified_field_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1435,6 +1522,7 @@ pub fn build_flame_ubo_with_trail(
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
         warp_form_params: build_warp_form_params(),
+        unified_params: build_unified_field_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1489,6 +1577,7 @@ pub struct FlameUBO {
     pub tip_carve_params: [f32; 4],
     pub warp_strain_params: [f32; 4],
     pub warp_form_params: [f32; 4],
+    pub unified_params: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }
@@ -1792,7 +1881,7 @@ mod tests {
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 5696 + 1536
+            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 6720 + 1536
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

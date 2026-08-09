@@ -112,13 +112,13 @@ const float FLAME_WAVE_CF_CAP = 2.0;
 // WAVE_WARP_MODE_COUNT): erosion region first, then warp, then detail.
 // waveParams.x is the TRACKED erosion mode count (5.1 probabilistic
 // reduction), not the region size, so the bases are compile-time constants.
-const int FLAME_WAVE_EROSION_SLOTS = 96;
+const int FLAME_WAVE_EROSION_SLOTS = 128;
 const int FLAME_WAVE_WARP_BASE = FLAME_WAVE_EROSION_SLOTS;
 const int FLAME_WAVE_WARP_COUNT = 16;
 const int FLAME_WAVE_DETAIL_BASE = FLAME_WAVE_WARP_BASE + FLAME_WAVE_WARP_COUNT;
 const float FLAME_WAVE_CF_PSI_BOUND = 11.313708;
 const int FLAME_WAVE_CF_CHEB_COEFFS = 21;
-const int FLAME_WAVE_CF_SHEAR_BASE = 176;
+const int FLAME_WAVE_CF_SHEAR_BASE = 208;
 
 // Rank-M phase jitter of the erosion carriers: M shared low-wavenumber fields
 // Psi_m(w) = sin(kappa_m . w + phi_m) in the warped erosion coordinate; mode n
@@ -256,7 +256,7 @@ float flameDetailNoise(vec3 p) {
 
 vec2 flameBoundaryDisplacement(vec2 xz) {
     float amp = flame.boundaryParams.x;
-    if (amp == 0.0) {
+    if (amp == 0.0 || flame.unifiedParams.x > 0.5) {
         return vec2(1.0);
     }
     vec3 q = vec3(
@@ -580,8 +580,8 @@ FlameWaveModeSumResult flameWaveModeSum(
             continue;
         }
         float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
-            + dot(flame.waveJitter[n].xyz, jitterPsi);
-        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[n].xyz, jitterPsiRate);
+            + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
+        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsiRate);
         float carrier;
         if (cf) {
             float depth = ampDisp * wavePhase.w;
@@ -606,8 +606,8 @@ FlameWaveModeSumResult flameWaveModeSum(
             continue;
         }
         float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
-            + dot(flame.waveJitter[n].xyz, jitterPsi);
-        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[n].xyz, jitterPsiRate);
+            + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
+        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsiRate);
         float carrier;
         if (cf) {
             float depth = ampDisp * wavePhase.w;
@@ -663,6 +663,22 @@ float flameNoiseErosionFromValue(float noise, float h, float density) {
         * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + relative);
 }
 
+// Response through the (optionally relative) window: unified keeps the
+// half-width >= the local modulation sigma so the rectifier never binarizes.
+float flameResponseOccupancy(float dSmooth, float erosion, float h) {
+    float lo = flame.nearFadeParams.z;
+    float hi = flame.nearFadeParams.w;
+    if (flame.unifiedParams.x > 0.5) {
+        float sigmaFloor = flame.unifiedParams.y * flameTipCarveLambda(h)
+            * dSmooth / FLAME_EROSION_SHELL_REF;
+        float c = 0.5 * (lo + hi);
+        float hw = max(0.5 * (hi - lo), 2.24 * sigmaFloor);
+        lo = c - hw;
+        hi = c + hw;
+    }
+    return smoothstep(lo, hi, flameErodedArgument(dSmooth, erosion));
+}
+
 // Internal helper: compute erosion value from a warp frame and height h.
 float flameNoiseErosionAt(FlameWarpFrame frame, float h, float density) {
     float noise = flameWaveNoiseSum(frame.w, frame.pb, h);
@@ -674,7 +690,7 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     dSmooth = flameEmitterSmoothDensityAt(frame.q, h, 1.0);
     float erosion = flameNoiseErosionAt(frame, h, dSmooth);
     return flameApplyCarveResidual(
-      smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
+      flameResponseOccupancy(dSmooth, erosion, h),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 
@@ -708,7 +724,7 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     dSmooth = flameEmitterSmoothDensityAt(frame.q, h, 1.0);
     float erosion = flameNoiseErosionAt(frame, h, dSmooth);
     return flameApplyCarveResidual(
-     smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
+     flameResponseOccupancy(dSmooth, erosion, h),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
@@ -718,7 +734,7 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
     float erosion = flameNoiseErosionAt(frame, h, dSmooth);
     return flameApplyCarveResidual(
-    smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
+    flameResponseOccupancy(dSmooth, erosion, h),
         dSmooth) * flameFieldSupportMask(dSmooth);
 }
 

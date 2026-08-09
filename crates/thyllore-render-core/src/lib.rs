@@ -30,10 +30,11 @@ pub use flame::{
     build_flame_ubo, build_flame_ubo_with_trail, build_warp_strain_params,
     default_height_falloff, default_radial_falloff,
     fit_flame_coefficients, flame_bounding_radius, integrate_emission_segment, profile_from_effect,
-    read_env_warp_form_displacement,
+    read_env_unified_beta, read_env_unified_tilt_gain_b, read_env_unified_tilt_gain_w,
+    read_env_warp_form_displacement, read_env_wave_unified,
     refresh_flame_coefficients, FlameCoefficients, FlameDebugView, FlameEffect, FlameProfile,
     FlameRenderSettings, FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT,
-    RADIAL_COEFFICIENT_COUNT,
+    RADIAL_COEFFICIENT_COUNT, UNIFIED_BOUNDARY_TILT_GAIN, UNIFIED_WIGGLE_TILT_GAIN,
 };
 pub use flame_field_manifest::{
     flame_field_manifest, FieldInfluence, FieldManifest, FieldSourceKind, FieldTargetKind,

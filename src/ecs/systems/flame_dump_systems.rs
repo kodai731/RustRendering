@@ -83,6 +83,12 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
         "seq"
     });
     value["warp_strain_norm"] = json!(if strain[3] > 0.0 { 1.0 / strain[3] } else { 0.0 });
+    value["unified_field"] = json!({
+        "active": thyllore_render_core::read_env_wave_unified(),
+        "window_beta": thyllore_render_core::read_env_unified_beta(),
+        "tilt_gain_b": thyllore_render_core::read_env_unified_tilt_gain_b(),
+        "tilt_gain_w": thyllore_render_core::read_env_unified_tilt_gain_w(),
+    });
     value["baked_blend"] = json!(effect.baked_blend);
     value["baked_envelope"] = json!(effect.baked_envelope.map(|a| a.to_vec()));
     value["baked_radius"] = json!(effect.baked_radius.map(|a| a.to_vec()));
@@ -623,7 +629,7 @@ mod tests {
             .as_array()
             .unwrap()
             .iter()
-            .any(|s| s == "boundary-fbm"));
+            .any(|s| s == "erosion-wave-table"));
         let first = &value["influences"][0];
         assert!(first["source"].is_string());
         assert!(first["target"].is_string());
