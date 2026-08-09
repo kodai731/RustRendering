@@ -348,10 +348,12 @@ pub enum FlameDebugView {
     JitterPsi,
     NoiseCoord,
     SegmentGrid,
+    WarpStrain,
+    WarpStretch,
 }
 
 impl FlameDebugView {
-    pub const ALL: [FlameDebugView; 10] = [
+    pub const ALL: [FlameDebugView; 12] = [
         FlameDebugView::Off,
         FlameDebugView::ShapedNoise,
         FlameDebugView::Erosion,
@@ -362,6 +364,8 @@ impl FlameDebugView {
         FlameDebugView::JitterPsi,
         FlameDebugView::NoiseCoord,
         FlameDebugView::SegmentGrid,
+        FlameDebugView::WarpStrain,
+        FlameDebugView::WarpStretch,
     ];
 
     pub fn label(self) -> &'static str {
@@ -376,6 +380,8 @@ impl FlameDebugView {
             FlameDebugView::JitterPsi => "Jitter Psi",
             FlameDebugView::NoiseCoord => "Noise Coord w",
             FlameDebugView::SegmentGrid => "Segment Grid",
+            FlameDebugView::WarpStrain => "Warp Strain",
+            FlameDebugView::WarpStretch => "Warp Stretch",
         }
     }
 
@@ -391,6 +397,8 @@ impl FlameDebugView {
             FlameDebugView::JitterPsi => 7,
             FlameDebugView::NoiseCoord => 8,
             FlameDebugView::SegmentGrid => 9,
+            FlameDebugView::WarpStrain => 10,
+            FlameDebugView::WarpStretch => 11,
         }
     }
 
@@ -406,6 +414,8 @@ impl FlameDebugView {
             "jitter" => Some(FlameDebugView::JitterPsi),
             "wcoord" | "noise-coord" => Some(FlameDebugView::NoiseCoord),
             "grid" | "segment-grid" => Some(FlameDebugView::SegmentGrid),
+            "strain" | "warp-strain" => Some(FlameDebugView::WarpStrain),
+            "stretch" | "warp-stretch" => Some(FlameDebugView::WarpStretch),
             _ => None,
         }
     }
@@ -510,6 +520,10 @@ pub struct FlameEffect {
     pub tip_carve_depth: f32,
     /// Tip-carve reach mu0 in remaining-luminous-fraction units (scale-free).
     pub tip_carve_reach: f32,
+    /// Warp strain reach mu_w: how deep the tip-asymptotic warp strain
+    /// penetrates, in remaining-luminous-fraction units (same scale as
+    /// tip_carve_reach).
+    pub warp_reach: f32,
     pub baked_envelope: Option<[f32; 33]>,
     pub baked_radius: Option<[f32; 33]>,
     pub baked_color: Option<[[f32; 3]; 8]>,
@@ -575,6 +589,7 @@ impl Default for FlameEffect {
             carve_residual: 0.12,
             tip_carve_depth: 1.0,
             tip_carve_reach: 0.2,
+            warp_reach: crate::flame_wave::WARP_REACH_DEFAULT,
             baked_envelope: None,
             baked_radius: None,
             baked_color: None,
@@ -924,6 +939,24 @@ fn build_color_ramp(effect: &FlameEffect) -> [[f32; 4]; 8] {
     ramp
 }
 
+/// [s_base, s_tip, 1/mu_w, 1/K] for the asymptotic warp-strain profile. K is
+/// taken over the shear table the flow warp actually composes (cf layers when
+/// the closed-form variant is active, the 16 warp modes otherwise).
+pub fn build_warp_strain_params(effect: &FlameEffect) -> [f32; 4] {
+    let warp_modes = crate::flame_wave::generate_wave_warp_modes();
+    let strain_norm = if read_env_wave_cf() {
+        let layers = crate::flame_wave::generate_wave_cf_shear_layers(
+            &warp_modes,
+            read_env_wave_cf_layers(),
+            read_env_wave_cf_shear(),
+        );
+        crate::flame_wave::warp_strain_norm(&layers)
+    } else {
+        crate::flame_wave::warp_strain_norm(&warp_modes)
+    };
+    crate::flame_wave::warp_strain_params(effect.warp_amp, effect.warp_reach, strain_norm)
+}
+
 fn build_tip_carve_params(effect: &FlameEffect) -> [f32; 4] {
     let primitive = thyllore_math_core::ChebyshevSeries::new(
         effect
@@ -1074,6 +1107,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         profile_params: build_profile_params(effect),
         wave_params: wave_fields.0,
         tip_carve_params: build_tip_carve_params(effect),
+        warp_strain_params: build_warp_strain_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1361,6 +1395,7 @@ pub fn build_flame_ubo_with_trail(
         profile_params: build_profile_params(effect),
         wave_params: wave_fields.0,
         tip_carve_params: build_tip_carve_params(effect),
+        warp_strain_params: build_warp_strain_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1413,6 +1448,7 @@ pub struct FlameUBO {
     pub profile_params: [f32; 4],
     pub wave_params: [f32; 4],
     pub tip_carve_params: [f32; 4],
+    pub warp_strain_params: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }
@@ -1716,7 +1752,7 @@ mod tests {
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 5696 + 1536
+            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 5696 + 1536
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

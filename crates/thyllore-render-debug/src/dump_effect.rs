@@ -68,6 +68,7 @@ pub fn effect_from_dump(flame_json: &serde_json::Value) -> FlameEffect {
     apply_scalar!(boundary_radius_ratio, "boundary_radius_ratio");
     apply_scalar!(tip_carve_depth, "tip_carve_depth");
     apply_scalar!(tip_carve_reach, "tip_carve_reach");
+    apply_scalar!(warp_reach, "warp_reach");
     apply_scalar!(baked_blend, "baked_blend");
     apply_scalar!(warp_amp, "warp_amp");
     apply_scalar!(warp_freq, "warp_freq");

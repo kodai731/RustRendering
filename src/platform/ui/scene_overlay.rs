@@ -866,6 +866,9 @@ fn build_flame_section(
                         });
                     }
 
+                    ui.slider_config("Warp Reach", 0.02, 1.0)
+                        .build(&mut effect_copy.warp_reach);
+
                     ui.slider_config("Warp Freq", 0.5, 16.0)
                         .build(&mut effect_copy.warp_freq);
                     ui.same_line();

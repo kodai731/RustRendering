@@ -248,7 +248,7 @@ pub fn flame_debug_view_resolve_from_args(
     };
     let view = thyllore_render_core::FlameDebugView::parse(value).ok_or_else(|| {
         anyhow::anyhow!(
-            "invalid flame debug view '{value}': expected off|shaped|erosion|argument|density|sigma|emission|jitter|wcoord"
+            "invalid flame debug view '{value}': expected off|shaped|erosion|argument|density|sigma|emission|jitter|wcoord|grid|strain|stretch"
         )
     })?;
     Ok(Some(view))
@@ -364,6 +364,7 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "carve_residual",
     "tip_carve_depth",
     "tip_carve_reach",
+    "warp_reach",
     "boundary_freq",
     "boundary_speed",
     "boundary_radius_ratio",
@@ -743,6 +744,7 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "carve_residual" => effect.carve_residual = *value,
             "tip_carve_depth" => effect.tip_carve_depth = *value,
             "tip_carve_reach" => effect.tip_carve_reach = *value,
+            "warp_reach" => effect.warp_reach = *value,
             "boundary_freq" => effect.boundary_freq = *value,
             "boundary_speed" => effect.boundary_speed = *value,
             "boundary_radius_ratio" => effect.boundary_radius_ratio = *value,

@@ -17,10 +17,38 @@ pub struct FieldSample {
 /// Warp parameters for [`flow_warp_with_rate`].
 #[derive(Clone, Copy, Debug)]
 pub struct WarpParams {
-    pub warp_amp: f32,
+    /// FlameUBO.warp_strain_params [s_base, s_tip, 1/mu_w, 1/K].
+    pub strain_params: [f32; 4],
     pub warp_freq: f32,
     pub advect: [f32; 3],
     pub aniso_axis_advect: f32,
+    /// FlameUBO.height_primitive_coefficients, for mu(h).
+    pub height_primitive: [[f32; 4]; 3],
+    /// FlameUBO.tip_carve_params zw: [primitive at h=1, 1 / total envelope mass].
+    pub mu_zw: [f32; 2],
+}
+
+/// Chebyshev-12 evaluation over [0, 1] (mirror of evaluateChebyshev12).
+fn cheb12(c0: [f32; 4], c1: [f32; 4], c2: [f32; 4], x01: f32) -> f32 {
+    let coeffs: [f32; 12] = [
+        c0[0], c0[1], c0[2], c0[3], c1[0], c1[1], c1[2], c1[3], c2[0], c2[1], c2[2], c2[3],
+    ];
+    let t = 2.0 * x01 - 1.0;
+    let mut b0 = 0.0f32;
+    let mut b1 = 0.0f32;
+    for &c in coeffs[1..].iter().rev() {
+        let next = 2.0 * t * b0 - b1 + c;
+        b1 = b0;
+        b0 = next;
+    }
+    t * b0 - b1 + coeffs[0]
+}
+
+/// flameWarpStrength mirror: mu(h) -> strain(h) -> strength = strain / K.
+pub fn warp_strength(p: &WarpParams, h: f32) -> f32 {
+    let primitive = cheb12(p.height_primitive[0], p.height_primitive[1], p.height_primitive[2], h);
+    let mu = ((p.mu_zw[0] - primitive) * p.mu_zw[1]).clamp(0.0, 1.0);
+    warp_strain_at(p.strain_params, mu) * p.strain_params[3]
 }
 
 /// Anisotropic compression along the advection axis (mirror of
@@ -127,8 +155,8 @@ pub fn flow_warp_with_rate(
     dir: [f32; 3],
     h: f32,
 ) -> ([f32; 3], [f32; 3]) {
-    let amp = p.warp_amp * (0.15 + (1.0 - 0.15) * h);
-    if amp == 0.0 || warp_modes.is_empty() {
+    let strength_profile = warp_strength(p, h);
+    if strength_profile == 0.0 || warp_modes.is_empty() {
         return (pb, dir);
     }
 
@@ -150,7 +178,7 @@ pub fn flow_warp_with_rate(
         v_compressed[2] * p.warp_freq as f64,
     ];
 
-    let strength = amp as f64 * WAVE_SHEAR_STRENGTH_SCALE as f64;
+    let strength = strength_profile as f64;
 
     for mode in warp_modes {
         let angle = mode.k[0] as f64 * z[0]

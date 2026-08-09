@@ -232,8 +232,8 @@ impl<'a> UboCtx<'a> {
     /// flameWaveFlowWarpRate: returns (warped point q, rate dq/dt along dir).
     fn flow_warp_rate(&self, pb: [f32; 3], dir: [f32; 3], h: f32) -> ([f32; 3], [f32; 3]) {
         let sp0 = self.u.style_params0;
-        let amp = sp0[0] * mixf(0.15, 1.0, h);
-        if amp == 0.0 {
+        let strength = self.warp_strength(h);
+        if strength == 0.0 {
             return (pb, dir);
         }
         let c = self.aniso_compress(pb, 0.35);
@@ -244,7 +244,6 @@ impl<'a> UboCtx<'a> {
         ];
         let cv = self.aniso_compress(dir, 0.35);
         let mut v = [cv[0] * sp0[1], cv[1] * sp0[1], cv[2] * sp0[1]];
-        let strength = amp * 0.96;
         for m in 0..WARP_COUNT {
             let (kv, dv) = self.wave_mode(WARP_BASE + m);
             let k = [kv[0], kv[1], kv[2]];
@@ -367,7 +366,9 @@ impl<'a> UboCtx<'a> {
         (d_smooth / self.u.style_params1[2].max(1e-3)).min(1.0)
     }
 
-    fn tip_carve_lambda(&self, h: f32) -> f32 {
+    /// flameEnvelopeRemainingMu: the flame's own height scale shared by the
+    /// tip-carve lambda and the warp strain profile.
+    fn envelope_remaining_mu(&self, h: f32) -> f32 {
         let primitive = cheb12(
             self.u.height_primitive_coefficients[0],
             self.u.height_primitive_coefficients[1],
@@ -375,8 +376,23 @@ impl<'a> UboCtx<'a> {
             h,
         );
         let tc = self.u.tip_carve_params;
-        let mu = ((tc[2] - primitive) * tc[3]).clamp(0.0, 1.0);
-        1.0 + tc[0] * (-mu * tc[1]).exp()
+        ((tc[2] - primitive) * tc[3]).clamp(0.0, 1.0)
+    }
+
+    fn tip_carve_lambda(&self, h: f32) -> f32 {
+        let tc = self.u.tip_carve_params;
+        1.0 + tc[0] * (-self.envelope_remaining_mu(h) * tc[1]).exp()
+    }
+
+    /// flameWarpStrain: asymptotic dimensionless strain of the flow warp.
+    fn warp_strain(&self, h: f32) -> f32 {
+        let ws = self.u.warp_strain_params;
+        ws[0] + (ws[1] - ws[0]) * (-self.envelope_remaining_mu(h) * ws[2]).exp()
+    }
+
+    /// flameWarpStrength: strain(h) / K.
+    fn warp_strength(&self, h: f32) -> f32 {
+        self.warp_strain(h) * self.u.warp_strain_params[3]
     }
 
     fn eroded_argument(&self, d_smooth: f32, erosion: f32) -> f32 {
@@ -530,6 +546,8 @@ impl<'a> UboCtx<'a> {
             0.4375 + z
         };
         let lambda = self.tip_carve_lambda(h);
+        let mu = self.envelope_remaining_mu(h);
+        let strain = self.warp_strain(h);
         let erosion = self.u.noise_amplitude
             * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
                 + lambda * (density / EROSION_SHELL_REF) * (shaped - 0.4375));
@@ -546,6 +564,8 @@ impl<'a> UboCtx<'a> {
             shaped,
             sigma_noise,
             lambda,
+            mu,
+            strain,
             erosion,
             envelope_fade: self.envelope_fade(density),
             argument,
@@ -681,6 +701,8 @@ struct NodeArgument {
     shaped: f32,
     sigma_noise: f32,
     lambda: f32,
+    mu: f32,
+    strain: f32,
     erosion: f32,
     envelope_fade: f32,
     argument: f32,
@@ -822,6 +844,7 @@ pub fn trace_flame_field(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "height_axis_scale": round5(ubo.height_axis_scale),
             "noise_amplitude": round5(ubo.noise_amplitude),
             "tip_carve_params": vec_json(&ubo.tip_carve_params),
+            "warp_strain_params": vec_json(&ubo.warp_strain_params),
             "height_primitive_coefficients": Value::Array(
                 ubo.height_primitive_coefficients.iter().map(|s| vec_json(s)).collect()),
             "noise_frequency": round5(ubo.noise_frequency),
@@ -1116,6 +1139,8 @@ fn trace_ray(
                 "shaped_noise": round5(a.shaped),
                 "sigma_noise": round5(a.sigma_noise),
                 "lambda": round5(a.lambda),
+                "mu": round5(a.mu),
+                "strain": round5(a.strain),
                 "erosion": round5(a.erosion),
                 "argument": round5(a.argument),
             })
@@ -1155,6 +1180,8 @@ fn trace_ray(
         "shaped_noise": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.shaped))),
         "sigma_noise": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.sigma_noise))),
         "lambda": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.lambda))),
+        "mu": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.mu))),
+        "strain": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.strain))),
         "erosion": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.erosion))),
         "envelope_fade": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.envelope_fade))),
         "argument": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.argument))),
@@ -1215,6 +1242,8 @@ fn clone_argument(a: &NodeArgument) -> NodeArgument {
         shaped: a.shaped,
         sigma_noise: a.sigma_noise,
         lambda: a.lambda,
+        mu: a.mu,
+        strain: a.strain,
         erosion: a.erosion,
         envelope_fade: a.envelope_fade,
         argument: a.argument,

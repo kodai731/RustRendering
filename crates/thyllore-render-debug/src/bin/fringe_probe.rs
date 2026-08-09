@@ -9,7 +9,7 @@ use std::process;
 
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
 use thyllore_render_core::{
-    build_flame_inverse_model_matrix, flame_bounding_radius,
+    build_flame_inverse_model_matrix, build_flame_ubo, flame_bounding_radius,
 };
 use thyllore_render_core::{
     ring_support_span, FlameRadialTaper,
@@ -158,6 +158,7 @@ fn main() {
     let modes: Vec<WaveMode> = modes.into_iter().take(n_modes).collect();
 
     // Camera setup
+    let ubo = build_flame_ubo(&effect);
     let inverse_model = build_flame_inverse_model_matrix(&effect);
     let camera_world = Vector3::from(cam.position);
     let camera_local = transform_point(&inverse_model, camera_world);
@@ -221,12 +222,14 @@ fn main() {
                     effect.wind_direction.y * effect.time,
                 ];
 
-                // Flow warp with rate
+                // Flow warp with rate (strain params from the exact UBO packing)
                 let warp_params = WarpParams {
-                    warp_amp: effect.warp_amp,
+                    strain_params: ubo.warp_strain_params,
                     warp_freq: effect.warp_freq,
                     advect,
                     aniso_axis_advect: effect.aniso_axis_advect,
+                    height_primitive: ubo.height_primitive_coefficients,
+                    mu_zw: [ubo.tip_carve_params[2], ubo.tip_carve_params[3]],
                 };
                 let (q, rate_raw) = flow_warp_with_rate(&warp_modes, &warp_params, p, [direction_local.x, direction_local.y, direction_local.z], h);
 

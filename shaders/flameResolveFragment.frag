@@ -58,6 +58,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 profileParams;
     vec4 waveParams;
     vec4 tipCarveParams;
+    vec4 warpStrainParams;
     vec4 waveModes[356];
     vec4 waveJitter[96];
 } flame;
@@ -587,6 +588,35 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
             return vec4(flameWaveJitterFields(w) * 0.5 + 0.5, 1.0);
         }
         return vec4(fract(w * 0.15915494), 1.0);
+    }
+    if (push.debugView == 10) {
+        // Warp Strain: the designed profile strain(h) against the fold-free cap.
+        // Green (0) -> yellow (cap/2) -> red (cap); any pixel above the cap is
+        // magenta = fold-free violation (regression detector). Cap mirrors
+        // flame_wave.rs WARP_STRAIN_CAP.
+        float v = flameWarpStrain(h) / 0.9;
+        if (v > 1.0) {
+            return vec4(1.0, 0.0, 1.0, 1.0);
+        }
+        vec3 c = v < 0.5
+            ? mix(vec3(0.0, 0.7, 0.1), vec3(1.0, 0.9, 0.0), v * 2.0)
+            : mix(vec3(1.0, 0.9, 0.0), vec3(0.9, 0.05, 0.0), v * 2.0 - 1.0);
+        return vec4(c, 1.0);
+    }
+    if (push.debugView == 11) {
+        // Warp Stretch: realized local stretch |J . d| / |d| of the composed
+        // shear map along the ray direction, log2-mapped blue (compressed)
+        // -> white (1) -> red (stretched), saturating at +-3 octaves. Fringes
+        // over strong compression = strain-driven lamination.
+        vec3 pb = flameNoiseBendRemoved(p, h);
+        vec3 q;
+        vec3 rate = flameWaveFlowWarpRate(pb, d, h, q);
+        float stretch = length(rate) / max(length(d), 1e-6);
+        float oct = clamp(log2(max(stretch, 1e-6)) / 3.0, -1.0, 1.0);
+        vec3 c = oct >= 0.0
+            ? mix(vec3(1.0), vec3(0.85, 0.1, 0.05), oct)
+            : mix(vec3(1.0), vec3(0.1, 0.25, 0.9), -oct);
+        return vec4(c, 1.0);
     }
     float eddyTime = flame.noiseScrollSpeed * flame.time;
     int count = min(int(flame.waveParams.x), FLAME_WAVE_EROSION_SLOTS);

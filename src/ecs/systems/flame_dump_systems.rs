@@ -73,6 +73,11 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
     value["boundary_radius_ratio"] = json!(effect.boundary_radius_ratio);
     value["tip_carve_depth"] = json!(effect.tip_carve_depth);
     value["tip_carve_reach"] = json!(effect.tip_carve_reach);
+    value["warp_reach"] = json!(effect.warp_reach);
+    let strain = thyllore_render_core::build_warp_strain_params(effect);
+    value["warp_strain_params"] = json!(strain);
+    value["warp_strain_cap"] = json!(thyllore_render_core::flame_wave::WARP_STRAIN_CAP);
+    value["warp_strain_norm"] = json!(if strain[3] > 0.0 { 1.0 / strain[3] } else { 0.0 });
     value["baked_blend"] = json!(effect.baked_blend);
     value["baked_envelope"] = json!(effect.baked_envelope.map(|a| a.to_vec()));
     value["baked_radius"] = json!(effect.baked_radius.map(|a| a.to_vec()));

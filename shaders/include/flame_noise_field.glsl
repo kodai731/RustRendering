@@ -71,6 +71,36 @@ vec2 flameBendOffsetAt(float h) {
     return flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
 }
 
+const float FLAME_WAVE_SHEAR_STRENGTH_SCALE = 0.96;
+
+// Remaining luminous fraction mu(h) of the height envelope — the flame's own
+// height scale (1 at the base, 0 at the luminous tip), shared by the tip-carve
+// lambda and the warp strain profile so both asymptote toward the same "tip".
+float flameEnvelopeRemainingMu(float h) {
+    float primitive = evaluateChebyshev12(
+        flame.heightPrimitiveCoefficients[0],
+        flame.heightPrimitiveCoefficients[1],
+        flame.heightPrimitiveCoefficients[2],
+        h);
+    return clamp((flame.tipCarveParams.z - primitive) * flame.tipCarveParams.w, 0.0, 1.0);
+}
+
+// Asymptotic warp strain (20260809_warp_asymptotic_strain_redesign.md):
+// bounded, C-inf, monotone toward the luminous tip, so the composed shear map
+// never folds and the noise cannot laminate into height-chirped fringes.
+// warpStrainParams: x = s_base, y = s_tip (<= cap), z = 1/mu_w, w = 1/K.
+// Mirrored in flame_wave.rs (warp_strain_at) and flame_field_trace.rs.
+float flameWarpStrain(float h) {
+    return mix(flame.warpStrainParams.x, flame.warpStrainParams.y,
+        exp(-flameEnvelopeRemainingMu(h) * flame.warpStrainParams.z));
+}
+
+// Shear strength strength(h) = strain(h) / K: every mode's dimensionless
+// strain strength * a_m * |k_m| stays <= strain(h) <= cap < 1.
+float flameWarpStrength(float h) {
+    return flameWarpStrain(h) * flame.warpStrainParams.w;
+}
+
 // Closed-form (family-T) wave variant: pseudo-FM carriers + at most two
 // single-frequency shear layers replacing the 16-shear transport
 // (geometric_replacement_plan.md「厳密閉形式化」). waveCfParams.x = active flag,
@@ -140,7 +170,7 @@ bool flameWaveCfActive() {
 // displacement amplitude the per-mode depth (wavePhase.w) is scaled by.
 void flameWaveCfPsiVectors(
     vec3 pb, vec3 dir, float h, out vec3 psiVec, out vec3 rateVec, out float ampDisp) {
-    ampDisp = flame.styleParams0.x * mix(0.15, 1.0, h);
+    ampDisp = flameWarpStrength(h) / FLAME_WAVE_SHEAR_STRENGTH_SCALE;
     vec3 m0 = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
     vec3 dm0 = flameAnisoCompress(dir, 0.35) * flame.styleParams0.y;
     int base = FLAME_WAVE_WARP_BASE;
@@ -319,7 +349,7 @@ float flameErodedArgument(float dSmooth, float erosion) {
 // (bases fixed by the slot-layout constants above).
 // Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_warp).
 vec3 flameWaveWarpOffset(vec3 pb, float h) {
-    float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
+    float amp = flameWarpStrength(h) / FLAME_WAVE_SHEAR_STRENGTH_SCALE;
     int warpCount = FLAME_WAVE_WARP_COUNT;
     if (amp == 0.0 || warpCount == 0) {
         return vec3(0.0);
@@ -337,58 +367,25 @@ vec3 flameWaveWarpOffset(vec3 pb, float h) {
     return amp * displacement;
 }
 
-const float FLAME_WAVE_SHEAR_STRENGTH_SCALE = 0.96;
-
-// Flow-map warp: apply each mode's shear sequentially (z += curl_dir * strength * a * cos(k·z + φ)).
-// Each mode is a pure shear (k·curl_dir = 0), so the flow map at time 1 equals one step of shear.
-// Modes are applied in index order (shear composition is non-commutative).
-vec3 flameWaveFlowWarp(vec3 pb, float h) {
-    float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
-    bool cf = flameWaveCfActive();
-    int warpCount = cf ? int(flame.waveCfParams.y) : FLAME_WAVE_WARP_COUNT;
-    if (amp == 0.0 || warpCount == 0) {
-        return pb;
-    }
-
-    // M: warp space (same chain as flameWaveWarpOffset)
-    vec3 z = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
-    float strength = amp * FLAME_WAVE_SHEAR_STRENGTH_SCALE;
-
-    // Sequential shear: each mode updates z, and the next mode's angle uses the updated z
-    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
+// S1 — the warp map proper, isolated so the evaluation form (sequential shear
+// composition today, a one-shot displacement sum if redesigned) lives in these
+// two functions and nowhere else. Each mode is a pure shear (k·curl_dir = 0):
+// z += curl_dir * strength * a * cos(k·z + φ), applied in index order
+// (shear composition is non-commutative).
+vec3 flameWarpMapZ(vec3 z, int base, int warpCount, float strength) {
     for (int m = 0; m < warpCount; ++m) {
         vec4 waveVector = flame.waveModes[2 * (base + m)];
         vec4 direction = flame.waveModes[2 * (base + m) + 1];
         float angle = dot(waveVector.xyz, z) + direction.x;
         z += direction.yzw * (strength * waveVector.w * cos(angle));
     }
-
-    // M^-1: back to physical space
-    return flameAnisoExpand(z / flame.styleParams0.y + flameNoiseAdvect() / flame.styleParams0.y, 0.35);
+    return z;
 }
 
-// Flow-map warp rate: same shear composition as flameWaveFlowWarp but also
-// accumulates the Jacobian-vector product on v. z is updated identically to
-// flameWaveFlowWarp; v starts as the linear part of M^-1 applied to dir and is
-// updated by v += curlDir * (-strength * a * sin(angle)) * dot(k, v) each step.
-// Returns the final v transformed by the linear part of M^-1 (no translation).
-vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
-    float amp = flame.styleParams0.x * mix(0.15, 1.0, h);
-    bool cf = flameWaveCfActive();
-    int warpCount = cf ? int(flame.waveCfParams.y) : FLAME_WAVE_WARP_COUNT;
-    if (amp == 0.0 || warpCount == 0) {
-        warpedPoint = pb;
-        return dir;
-    }
-
-    // M: warp space (same chain as flameWaveFlowWarp)
-    vec3 z = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
-    // v starts as dir transformed by linear part of M^-1 (no translation for a direction vector)
-    vec3 v = flameAnisoCompress(dir, 0.35) * flame.styleParams0.y;
-    float strength = amp * FLAME_WAVE_SHEAR_STRENGTH_SCALE;
-
-    // Sequential shear: each mode updates both z and v
-    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
+// S1 with the Jacobian-vector product: z is updated exactly like
+// flameWarpMapZ; v accumulates J·v via v += curl_dir * (f' * dot(k, v)) with
+// f' = -strength * a * sin(k·z + φ).
+void flameWarpMapJvp(inout vec3 z, inout vec3 v, int base, int warpCount, float strength) {
     for (int m = 0; m < warpCount; ++m) {
         vec4 waveVector = flame.waveModes[2 * (base + m)];
         vec4 direction = flame.waveModes[2 * (base + m) + 1];
@@ -399,10 +396,45 @@ vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
         z += curlDir * shearValue;
         v += curlDir * (fPrime * dot(waveVector.xyz, v));
     }
+}
+
+// Flow-map warp: M (aniso * warp_freq - advect) -> S1 -> M^-1.
+vec3 flameWaveFlowWarp(vec3 pb, float h) {
+    float strength = flameWarpStrength(h);
+    bool cf = flameWaveCfActive();
+    int warpCount = cf ? int(flame.waveCfParams.y) : FLAME_WAVE_WARP_COUNT;
+    if (strength == 0.0 || warpCount == 0) {
+        return pb;
+    }
+    vec3 z = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
+    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
+    z = flameWarpMapZ(z, base, warpCount, strength);
+    return flameAnisoExpand(z / flame.styleParams0.y + flameNoiseAdvect() / flame.styleParams0.y, 0.35);
+}
+
+// Flow-map warp rate: same shear composition as flameWaveFlowWarp but also
+// accumulates the Jacobian-vector product on v. z is updated identically to
+// flameWaveFlowWarp; v starts as the linear part of M^-1 applied to dir and is
+// updated by v += curlDir * (-strength * a * sin(angle)) * dot(k, v) each step.
+// Returns the final v transformed by the linear part of M^-1 (no translation).
+vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
+    float strength = flameWarpStrength(h);
+    bool cf = flameWaveCfActive();
+    int warpCount = cf ? int(flame.waveCfParams.y) : FLAME_WAVE_WARP_COUNT;
+    if (strength == 0.0 || warpCount == 0) {
+        warpedPoint = pb;
+        return dir;
+    }
+
+    // M: warp space (same chain as flameWaveFlowWarp); v starts as dir
+    // transformed by the linear part (no translation for a direction vector).
+    vec3 z = flameAnisoCompress(pb, 0.35) * flame.styleParams0.y - flameNoiseAdvect();
+    vec3 v = flameAnisoCompress(dir, 0.35) * flame.styleParams0.y;
+    int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
+    flameWarpMapJvp(z, v, base, warpCount, strength);
 
     // M^-1: back to physical space
     warpedPoint = flameAnisoExpand(z / flame.styleParams0.y + flameNoiseAdvect() / flame.styleParams0.y, 0.35);
-    // Return v transformed by linear part of M^-1 (no translation for a direction vector)
     return flameAnisoExpand(v / flame.styleParams0.y, 0.35);
 }
 
@@ -514,13 +546,7 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
 // tipCarveParams: x = kappa (depth), y = 1/mu0 (reach), z = envelope primitive
 // at h=1, w = 1 / total envelope mass.
 float flameTipCarveLambda(float h) {
-    float primitive = evaluateChebyshev12(
-        flame.heightPrimitiveCoefficients[0],
-        flame.heightPrimitiveCoefficients[1],
-        flame.heightPrimitiveCoefficients[2],
-        h);
-    float mu = clamp((flame.tipCarveParams.z - primitive) * flame.tipCarveParams.w, 0.0, 1.0);
-    return 1.0 + flame.tipCarveParams.x * exp(-mu * flame.tipCarveParams.y);
+    return 1.0 + flame.tipCarveParams.x * exp(-flameEnvelopeRemainingMu(h) * flame.tipCarveParams.y);
 }
 
 // Relative (multiplicative) modulation: the stochastic term is zero-mean and

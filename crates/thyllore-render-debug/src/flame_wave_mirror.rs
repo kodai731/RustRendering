@@ -86,6 +86,8 @@ fn wave_flow_map(
 
 /// Evaluate the flow map warp at a warp coordinate: the divergence-free
 /// counterpart of [`evaluate_wave_warp`], volume preserving by construction.
+/// `strength` is the FINAL shear strength (the render path passes
+/// flameWarpStrength(h) = strain(h) / K; no hidden scale is applied here).
 pub fn evaluate_wave_flow_warp(
     modes: &[WaveWarpMode],
     point: [f32; 3],
@@ -98,7 +100,7 @@ pub fn evaluate_wave_flow_warp(
         [point[0] as f64, point[1] as f64, point[2] as f64],
         warp_frequency as f64,
         axial_scale as f64,
-        strength as f64 * WAVE_SHEAR_STRENGTH_SCALE as f64,
+        strength as f64,
     );
     [warped[0] as f32, warped[1] as f32, warped[2] as f32]
 }
@@ -129,7 +131,7 @@ pub fn evaluate_wave_flow_warp_with_rate(
         direction[2] as f64 * warp_frequency as f64,
     ];
 
-    let strength_scaled = strength as f64 * WAVE_SHEAR_STRENGTH_SCALE as f64;
+    let strength_scaled = strength as f64;
 
     for mode in modes {
         let angle = mode.k[0] as f64 * z[0]

@@ -63,22 +63,26 @@ fn test_mode_contrib_sum_matches_z() {
 fn test_flow_warp_with_rate_matches_mirror_zero_advect() {
     let warp_modes = generate_wave_warp_modes();
     let warp_freq = 2.0;
-    let warp_amp = 1.4;
-    let h_values = [0.0, 0.5, 1.0];
+    let strengths = [0.16, 0.45, 0.79];
 
-    for h in &h_values {
-        let strength = warp_amp * (0.15 + (1.0 - 0.15) * h);
+    for strength in &strengths {
+        let strength = *strength;
         let pb = [1.0, 2.0, 3.0];
         let dir = [0.5, -0.3, 0.8];
 
+        // Constant strain profile (s_base = s_tip, 1/K = 1) so the profile
+        // reduces to `strength` for any h and matches the parametric mirror.
         let params = WarpParams {
-            warp_amp,
+            strain_params: [strength, strength, 0.0, 1.0],
             warp_freq,
             advect: [0.0, 0.0, 0.0],
             aniso_axis_advect: 0.0,
+            height_primitive: [[0.0; 4]; 3],
+            mu_zw: [0.0, 0.0],
         };
+        let h = 0.5;
 
-        let (q_new, rate_new) = flow_warp_with_rate(&warp_modes, &params, pb, dir, *h);
+        let (q_new, rate_new) = flow_warp_with_rate(&warp_modes, &params, pb, dir, h);
         let (q_ref, rate_ref) = evaluate_wave_flow_warp_with_rate(
             &warp_modes, pb, dir, warp_freq, 0.35, strength,
         );

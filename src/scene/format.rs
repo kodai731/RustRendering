@@ -340,6 +340,8 @@ pub struct FlameEffectData {
     pub tip_carve_depth: f32,
     #[serde(default = "default_tip_carve_reach")]
     pub tip_carve_reach: f32,
+    #[serde(default = "default_warp_reach")]
+    pub warp_reach: f32,
 }
 
 fn default_tip_carve_depth() -> f32 {
@@ -347,6 +349,9 @@ fn default_tip_carve_depth() -> f32 {
 }
 fn default_tip_carve_reach() -> f32 {
     0.2
+}
+fn default_warp_reach() -> f32 {
+    thyllore_render_core::flame_wave::WARP_REACH_DEFAULT
 }
 
 fn default_rte_bands() -> f32 {
@@ -493,6 +498,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             sigma_dispersion: effect.sigma_dispersion,
             tip_carve_depth: effect.tip_carve_depth,
             tip_carve_reach: effect.tip_carve_reach,
+            warp_reach: effect.warp_reach,
             edge_temperature_blend: effect.edge_temperature_blend,
         },
         channels,
@@ -610,6 +616,7 @@ pub fn apply_flame_state_to_world(
         effect.sigma_dispersion = flame.effect.sigma_dispersion;
         effect.tip_carve_depth = flame.effect.tip_carve_depth;
         effect.tip_carve_reach = flame.effect.tip_carve_reach;
+        effect.warp_reach = flame.effect.warp_reach;
         thyllore_render_core::refresh_flame_coefficients(&mut effect);
     }
 
@@ -789,6 +796,7 @@ mod tests {
                 edge_temperature_blend: 0.0,
                 tip_carve_depth: 1.0,
                 tip_carve_reach: 0.2,
+                warp_reach: default_warp_reach(),
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
@@ -931,6 +939,7 @@ mod tests {
                 edge_temperature_blend: 0.0,
                 tip_carve_depth: 1.0,
                 tip_carve_reach: 0.2,
+                warp_reach: default_warp_reach(),
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),

@@ -393,10 +393,69 @@ pub fn generate_wave_warp_modes() -> [WaveWarpMode; WAVE_WARP_MODE_COUNT] {
     modes
 }
 
-/// Scales `warp_amp * mix(0.15, 1, h)` into the shear strength: at the default
-/// warp_amp of 1.4 the top of the flame matches the displacement warp's
-/// deformation.
+/// Historical shear/displacement calibration factor. The flow warp now takes
+/// its strength directly from the strain profile below; this scale only
+/// converts that strength back to the displacement-amp convention used by the
+/// cf pseudo-FM modulation depth (flameWaveCfPsiVectors ampDisp).
 pub const WAVE_SHEAR_STRENGTH_SCALE: f32 = 0.96;
+
+/// Asymptotic warp-strain profile (20260809_warp_asymptotic_strain_redesign.md).
+/// The flow warp is a composition of volume-preserving shears; once the
+/// per-shear dimensionless strain s_m = strength * a_m * |k_m| exceeds 1 the
+/// composed Jacobian's condition number grows multiplicatively and the noise
+/// laminates into height-chirped fringes. The profile keeps
+///   strain(h) = s_base + (s_tip - s_base) * exp(-mu(h) / mu_w)
+/// with mu(h) the remaining luminous fraction (shared with the tip carve), and
+/// strength(h) = strain(h) / K where K = max_m a_m * |k_m|, so s_m <= strain(h)
+/// <= WARP_STRAIN_CAP < 1 for every height, mode, and lever value.
+pub const WARP_STRAIN_CAP: f32 = 0.9;
+/// Lever scale A0 of the saturating map s_tip = CAP * (1 - exp(-warp_amp / A0)):
+/// the default warp_amp 1.4 lands at s_tip ~= 0.8 and no lever value crosses CAP.
+pub const WARP_STRAIN_LEVER_SCALE: f32 = 0.64;
+/// Base strain as a fraction of s_tip, matching the legacy mix(0.15, 1, h)
+/// base-to-tip deformation ratio.
+pub const WARP_STRAIN_BASE_RATIO: f32 = 0.15;
+/// Default warp reach mu_w in remaining-luminous-fraction units (scale-free,
+/// same units as tip_carve_reach).
+pub const WARP_REACH_DEFAULT: f32 = 0.35;
+
+/// Strain normalization K = max_m a_m * |k_m| over a warp shear mode table.
+pub fn warp_strain_norm(modes: &[WaveWarpMode]) -> f32 {
+    modes
+        .iter()
+        .map(|m| {
+            m.amplitude
+                * (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
+        })
+        .fold(0.0, f32::max)
+}
+
+/// Saturating lever map: any warp_amp stays below WARP_STRAIN_CAP.
+pub fn warp_strain_tip(warp_amp: f32) -> f32 {
+    WARP_STRAIN_CAP * (1.0 - (-warp_amp.max(0.0) / WARP_STRAIN_LEVER_SCALE).exp())
+}
+
+/// UBO packing [s_base, s_tip, 1/mu_w, 1/K] shared by the shader, the CPU
+/// mirrors, and the trace replay.
+pub fn warp_strain_params(warp_amp: f32, warp_reach: f32, strain_norm: f32) -> [f32; 4] {
+    let s_tip = warp_strain_tip(warp_amp);
+    [
+        WARP_STRAIN_BASE_RATIO * s_tip,
+        s_tip,
+        1.0 / warp_reach.max(1e-3),
+        if strain_norm > 0.0 {
+            1.0 / strain_norm
+        } else {
+            0.0
+        },
+    ]
+}
+
+/// Strain profile strain(h) from packed params and the remaining luminous
+/// fraction mu — the single formula behind flameWarpStrain in GLSL.
+pub fn warp_strain_at(params: [f32; 4], mu: f32) -> f32 {
+    params[0] + (params[1] - params[0]) * (-mu * params[2]).exp()
+}
 
 /// Closed-form (family-T) variant: the 16-shear transport is replaced by at
 /// most two single-frequency shear layers, and the erosion carrier phases are
@@ -738,6 +797,63 @@ mod tests {
             "env_coeff {} != mu/sigma_low {}",
             coeff,
             expected
+        );
+    }
+
+    /// Fold-free guarantee: for every lever value, mode, and height, the
+    /// per-shear dimensionless strain strength * a_m * |k_m| stays below
+    /// WARP_STRAIN_CAP (< 1), so the composed shear map cannot laminate the
+    /// noise into height-chirped fringes.
+    #[test]
+    fn test_warp_strain_bounded_for_all_levers_and_heights() {
+        let warp_modes = generate_wave_warp_modes();
+        let norm = warp_strain_norm(&warp_modes);
+        assert!(norm > 0.0);
+        for warp_amp in [0.0f32, 0.1, 0.5, 1.4, 3.0, 10.0, 1e6] {
+            let params = warp_strain_params(warp_amp, WARP_REACH_DEFAULT, norm);
+            let mut previous = -1.0f32;
+            for i in 0..=100 {
+                let mu = 1.0 - i as f32 / 100.0;
+                let strain = warp_strain_at(params, mu);
+                assert!(
+                    strain <= WARP_STRAIN_CAP + 1e-6,
+                    "warp_amp {} mu {}: strain {} exceeds cap",
+                    warp_amp,
+                    mu,
+                    strain
+                );
+                assert!(
+                    strain >= previous,
+                    "strain must be monotone toward the tip (mu decreasing)"
+                );
+                previous = strain;
+                let strength = strain * params[3];
+                for mode in &warp_modes {
+                    let k_mag = (mode.k[0] * mode.k[0]
+                        + mode.k[1] * mode.k[1]
+                        + mode.k[2] * mode.k[2])
+                        .sqrt();
+                    let per_mode = strength * mode.amplitude * k_mag;
+                    assert!(
+                        per_mode <= WARP_STRAIN_CAP + 1e-5,
+                        "warp_amp {} mu {}: per-mode strain {} exceeds cap",
+                        warp_amp,
+                        mu,
+                        per_mode
+                    );
+                }
+            }
+        }
+    }
+
+    /// Default lever (warp_amp 1.4) lands near the designed s_tip ~= 0.8.
+    #[test]
+    fn test_warp_strain_default_lever_calibration() {
+        let s_tip = warp_strain_tip(1.4);
+        assert!(
+            (0.75..=0.85).contains(&s_tip),
+            "default s_tip {} out of design window",
+            s_tip
         );
     }
 }
