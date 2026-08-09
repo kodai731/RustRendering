@@ -51,6 +51,9 @@ fn transform_vector(matrix: &Matrix4<f32>, vector: [f32; 3]) -> [f32; 3] {
     [v.x, v.y, v.z]
 }
 
+const EROSION_MEAN_SHRINK: f32 = 0.0875;
+const EROSION_SHELL_REF: f32 = 0.30;
+
 fn mixf(a: f32, b: f32, t: f32) -> f32 {
     a + (b - a) * t
 }
@@ -364,6 +367,18 @@ impl<'a> UboCtx<'a> {
         (d_smooth / self.u.style_params1[2].max(1e-3)).min(1.0)
     }
 
+    fn tip_carve_lambda(&self, h: f32) -> f32 {
+        let primitive = cheb12(
+            self.u.height_primitive_coefficients[0],
+            self.u.height_primitive_coefficients[1],
+            self.u.height_primitive_coefficients[2],
+            h,
+        );
+        let tc = self.u.tip_carve_params;
+        let mu = ((tc[2] - primitive) * tc[3]).clamp(0.0, 1.0);
+        1.0 + tc[0] * (-mu * tc[1]).exp()
+    }
+
     fn eroded_argument(&self, d_smooth: f32, erosion: f32) -> f32 {
         d_smooth - (erosion.max(0.0) + erosion.min(0.0) * self.envelope_fade(d_smooth))
     }
@@ -514,7 +529,10 @@ impl<'a> UboCtx<'a> {
         } else {
             0.4375 + z
         };
-        let erosion = self.u.noise_amplitude * mixf(0.2, 1.0, h) * (shaped - 0.35);
+        let lambda = self.tip_carve_lambda(h);
+        let erosion = self.u.noise_amplitude
+            * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+                + lambda * (density / EROSION_SHELL_REF) * (shaped - 0.4375));
         let argument = self.eroded_argument(density, erosion);
         NodeArgument {
             pb,
@@ -527,6 +545,7 @@ impl<'a> UboCtx<'a> {
             z,
             shaped,
             sigma_noise,
+            lambda,
             erosion,
             envelope_fade: self.envelope_fade(density),
             argument,
@@ -661,6 +680,7 @@ struct NodeArgument {
     z: f32,
     shaped: f32,
     sigma_noise: f32,
+    lambda: f32,
     erosion: f32,
     envelope_fade: f32,
     argument: f32,
@@ -801,6 +821,9 @@ pub fn trace_flame_field(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "intensity": round5(ubo.intensity),
             "height_axis_scale": round5(ubo.height_axis_scale),
             "noise_amplitude": round5(ubo.noise_amplitude),
+            "tip_carve_params": vec_json(&ubo.tip_carve_params),
+            "height_primitive_coefficients": Value::Array(
+                ubo.height_primitive_coefficients.iter().map(|s| vec_json(s)).collect()),
             "noise_frequency": round5(ubo.noise_frequency),
             "noise_scroll_speed": round5(ubo.noise_scroll_speed),
             "radial_sharpness": round5(ubo.radialSharpness),
@@ -944,7 +967,8 @@ fn trace_ray(
         let sigma_eff = 0.5 * (start_arg.sigma_noise + end_arg.sigma_noise)
             * shaping_deriv_avg
             * ctx.u.noise_amplitude.abs()
-            * mixf(0.2, 1.0, h_mid)
+            * ctx.tip_carve_lambda(h_mid)
+            * (0.5 * (density_start + density_end) / EROSION_SHELL_REF)
             * 0.5
             * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
         let slope = (end_arg.argument - start_arg.argument) / span;
@@ -1091,6 +1115,7 @@ fn trace_ray(
                 "z": round5(a.z),
                 "shaped_noise": round5(a.shaped),
                 "sigma_noise": round5(a.sigma_noise),
+                "lambda": round5(a.lambda),
                 "erosion": round5(a.erosion),
                 "argument": round5(a.argument),
             })
@@ -1129,6 +1154,7 @@ fn trace_ray(
         "z": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.z))),
         "shaped_noise": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.shaped))),
         "sigma_noise": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.sigma_noise))),
+        "lambda": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.lambda))),
         "erosion": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.erosion))),
         "envelope_fade": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.envelope_fade))),
         "argument": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.argument))),
@@ -1188,6 +1214,7 @@ fn clone_argument(a: &NodeArgument) -> NodeArgument {
         z: a.z,
         shaped: a.shaped,
         sigma_noise: a.sigma_noise,
+        lambda: a.lambda,
         erosion: a.erosion,
         envelope_fade: a.envelope_fade,
         argument: a.argument,

@@ -57,6 +57,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 colorRamp[8];
     vec4 profileParams;
     vec4 waveParams;
+    vec4 tipCarveParams;
     vec4 waveModes[356];
     vec4 waveJitter[96];
 } flame;
@@ -599,7 +600,7 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
         return vec4(flameDebugDiverging(v), 1.0);
     }
     if (push.debugView == 2) {
-        return vec4(flameDebugDiverging(flameNoiseErosionFromValue(shapedNoise, h)), 1.0);
+        return vec4(flameDebugDiverging(flameNoiseErosionFromValue(shapedNoise, h, bestDensity)), 1.0);
     }
     if (push.debugView == 3) {
         return vec4(flameDebugDiverging(argument * 2.0), 1.0);

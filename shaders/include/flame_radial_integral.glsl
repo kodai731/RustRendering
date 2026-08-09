@@ -63,7 +63,7 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
     float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x)
         * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb)
         * flameNearCameraFade(p);
-    float erosion = flameNoiseErosionValue(p, h);
+    float erosion = flameNoiseErosionValue(p, h, dSmooth);
     return flameApplyCarveResidual(
        smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
@@ -84,7 +84,7 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
 // the same field the node-based closed form approximates.
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
     float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle) * flameNearCameraFade(p);
-    float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h) : 0.0;
+    float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h, dSmooth) : 0.0;
     return flameApplyCarveResidual(
       smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
@@ -307,8 +307,9 @@ float flameWaveNodeArgumentLocal(
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
     shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
-    remapScale = flameErosionRemapScale(flameNoiseErosionFromValue(shapedNoise, h));
-    return flameErodedArgument(density, flameNoiseErosionFromValue(shapedNoise, h));
+    float erosion = flameNoiseErosionFromValue(shapedNoise, h, density);
+    remapScale = flameErosionRemapScale(erosion);
+    return flameErodedArgument(density, erosion);
 }
 
 // Support-edge crossing between a dead node (density <= 0) and a live node
@@ -437,7 +438,8 @@ FlameWaveIntegral flameWaveOccupancySegments(
         }
 
         float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
-        float sigmaEff = 0.5 * (previousSigma + currentSigma) * shapingDerivAvg * abs(flame.noiseAmplitude) * mix(0.2, 1.0, hMid)
+        float sigmaEff = 0.5 * (previousSigma + currentSigma) * shapingDerivAvg * abs(flame.noiseAmplitude)
+            * flameTipCarveLambda(hMid) * (0.5 * (densityStart + densityEnd) / FLAME_EROSION_SHELL_REF)
             * 0.5 * (flameEnvelopeFade(densityStart) + flameEnvelopeFade(densityEnd))
             * 0.5 * (previousRemapScale + currentRemapScale);
         FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);

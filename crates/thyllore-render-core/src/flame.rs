@@ -505,6 +505,11 @@ pub struct FlameEffect {
     /// emitting soot away — the floor that makes a fully carved ray span
     /// translucent instead of a hard hole. 0 restores the pre-floor field.
     pub carve_residual: f32,
+    /// Tip-carve asymptotic depth kappa: relative carve deepens toward the
+    /// flame's own luminous tip as 1 + kappa * exp(-mu/mu0). 0 = uniform depth.
+    pub tip_carve_depth: f32,
+    /// Tip-carve reach mu0 in remaining-luminous-fraction units (scale-free).
+    pub tip_carve_reach: f32,
     pub baked_envelope: Option<[f32; 33]>,
     pub baked_radius: Option<[f32; 33]>,
     pub baked_color: Option<[[f32; 3]; 8]>,
@@ -568,6 +573,8 @@ impl Default for FlameEffect {
             boundary_radius_ratio: 0.2,
             near_fade_radius: 0.0,
             carve_residual: 0.12,
+            tip_carve_depth: 1.0,
+            tip_carve_reach: 0.2,
             baked_envelope: None,
             baked_radius: None,
             baked_color: None,
@@ -917,6 +924,28 @@ fn build_color_ramp(effect: &FlameEffect) -> [[f32; 4]; 8] {
     ramp
 }
 
+fn build_tip_carve_params(effect: &FlameEffect) -> [f32; 4] {
+    let primitive = thyllore_math_core::ChebyshevSeries::new(
+        effect
+            .coefficients
+            .height_primitive
+            .iter()
+            .flatten()
+            .copied()
+            .collect(),
+        (0.0, 1.0),
+    );
+    let (at_base, at_top) = thyllore_math_core::chebyshev_endpoint_values(&primitive);
+    let total = at_top - at_base;
+    let inv_total = if total.abs() > 1e-6 { 1.0 / total } else { 0.0 };
+    [
+        effect.tip_carve_depth,
+        1.0 / effect.tip_carve_reach.max(1e-3),
+        at_top,
+        inv_total,
+    ]
+}
+
 pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
     let (color_base, color_mid, color_tip) = if effect.use_blackbody {
         let base = blackbody_rgb(effect.temperature_base_k);
@@ -1044,6 +1073,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         color_ramp: build_color_ramp(effect),
         profile_params: build_profile_params(effect),
         wave_params: wave_fields.0,
+        tip_carve_params: build_tip_carve_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1330,6 +1360,7 @@ pub fn build_flame_ubo_with_trail(
         color_ramp: build_color_ramp(effect),
         profile_params: build_profile_params(effect),
         wave_params: wave_fields.0,
+        tip_carve_params: build_tip_carve_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1381,6 +1412,7 @@ pub struct FlameUBO {
     pub color_ramp: [[f32; 4]; 8],
     pub profile_params: [f32; 4],
     pub wave_params: [f32; 4],
+    pub tip_carve_params: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }
@@ -1684,7 +1716,7 @@ mod tests {
     fn test_flame_ubo_layout_is_std140_compatible() {
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 5696 + 1536
+            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 5696 + 1536
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }

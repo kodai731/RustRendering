@@ -430,7 +430,10 @@ pub struct WaveSegmentEmission {
 /// realization), the argument linear between nodes, each segment integrated
 /// with the closed-form erf response. `noise_at(t)` returns `(noise, sigma_noise)`
 /// where sigma is the local unresolved mode power at that node;
-/// `erosion_scale_at(t)` is the `amp * mix(0.2, 1, h)` mapping. Segments whose node
+/// `erosion_at(t, noise, density)` maps a node to its erosion value (the
+/// caller owns the erosion law — production uses the relative modulation of
+/// `flameNoiseErosionFromValue`) and `erosion_sigma_scale_at(t, density_avg)`
+/// is the matching amplitude chain for the unresolved-power blur. Segments whose node
 /// densities all vanish are skipped before any erosion work; segments straddling
 /// the support edge are cut at the actual crossing (fixed-count bisection on the
 /// density, continuous per ray) with the edge argument evaluated at the crossing,
@@ -443,7 +446,8 @@ pub fn evaluate_wave_occupancy_segments(
     t1: f32,
     density_at: impl Fn(f32) -> f32,
     noise_at: impl Fn(f32) -> (f32, f32),
-    erosion_scale_at: impl Fn(f32) -> f32,
+    erosion_at: impl Fn(f32, f32, f32) -> f32,
+    erosion_sigma_scale_at: impl Fn(f32, f32) -> f32,
     flood_fade_scale: f32,
     carve_residual: f32,
 ) -> [WaveSegmentEmission; FLAME_WAVE_SEGMENTS] {
@@ -466,7 +470,7 @@ pub fn evaluate_wave_occupancy_segments(
             let (noise_val, sigma_local) = noise_at(t);
             noise_values[node] = noise_val;
             sigma_values[node] = sigma_local;
-            let erosion = erosion_scale_at(t) * (noise_val - 0.35);
+            let erosion = erosion_at(t, noise_val, density[node]);
             argument[node] = eroded_argument(density[node], erosion, flood_fade_scale);
         }
     }
@@ -485,7 +489,7 @@ pub fn evaluate_wave_occupancy_segments(
     };
     let edge_values = |t: f32| -> (f32, f32, f32) {
         let (noise_val, sigma_local) = noise_at(t);
-        let erosion = erosion_scale_at(t) * (noise_val - 0.35);
+        let erosion = erosion_at(t, noise_val, 0.0);
         (
             eroded_argument(0.0, erosion, flood_fade_scale),
             noise_val,
@@ -543,12 +547,16 @@ pub fn evaluate_wave_occupancy_segments(
             * (wave_shaping_derivative(noise_start, inverse_scale, amplitude)
                 + wave_shaping_derivative(noise_end, inverse_scale, amplitude));
         let sigma_local = 0.5 * (sigma_start + sigma_end);
-        let erosion_start = erosion_scale_at(seg_start) * (noise_start - 0.35);
-        let erosion_end = erosion_scale_at(seg_end) * (noise_end - 0.35);
+        let erosion_start = erosion_at(seg_start, noise_start, density_start);
+        let erosion_end = erosion_at(seg_end, noise_end, density_end);
         let remap_scale_avg = 0.5 * (erosion_remap_scale(erosion_start) + erosion_remap_scale(erosion_end));
         let sigma_eff = sigma_local
             * shaping_deriv_avg
-            * erosion_scale_at(seg_start + 0.5 * span).abs()
+            * erosion_sigma_scale_at(
+                seg_start + 0.5 * span,
+                0.5 * (density_start + density_end),
+            )
+            .abs()
             * 0.5
             * (envelope_fade(density_start, flood_fade_scale)
                 + envelope_fade(density_end, flood_fade_scale))
@@ -803,7 +811,8 @@ mod tests {
                     );
                     evaluate_wave_noise_local_lowpass(&modes, warped_at(t), rate, dt, 0.0)
                 },
-                erosion_scale_at,
+                |t, noise, _density| erosion_scale_at(t) * (noise - 0.35),
+                |t, _density_avg| erosion_scale_at(t),
                 flood_fade_scale,
                 carve_residual,
             );
@@ -884,7 +893,8 @@ mod tests {
                     );
                     evaluate_wave_noise_local_lowpass(&modes, warped_at(t), rate, dt, 0.0)
                 },
-                erosion_scale_at,
+                |t, noise, _density| erosion_scale_at(t) * (noise - 0.35),
+                |t, _density_avg| erosion_scale_at(t),
                 flood_fade_scale,
                 carve_residual,
             );
@@ -998,7 +1008,8 @@ mod tests {
                     );
                     evaluate_wave_noise_local_lowpass(&modes, warped_at(t), rate, dt, 0.0)
                 },
-                |t| 1.5 * (0.2 + 0.8 * height_at(t)),
+                |t, noise, _density| 1.5 * (0.2 + 0.8 * height_at(t)) * (noise - 0.35),
+                |t, _density_avg| 1.5 * (0.2 + 0.8 * height_at(t)),
                 0.33,
                 0.12,
             );

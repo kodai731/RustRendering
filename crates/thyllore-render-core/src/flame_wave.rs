@@ -32,8 +32,9 @@ pub const WAVE_DETAIL_MODE_COUNT: usize = 64;
 /// Uniform segments of the band-free closed form over the support crossing.
 pub const FLAME_WAVE_SEGMENTS: usize = 64;
 
-/// fbm3 statistics the wave field reproduces so the erosion mapping
-/// `amp * mix(0.2, 1, h) * (noise - 0.35)` keeps its calibration:
+/// fbm3 statistics the wave field reproduces so the relative erosion mapping
+/// `amp * (mix(0.2,1,h) * 0.0875 + lambda * (D/0.30) * (noise - 0.4375))`
+/// keeps its calibration:
 /// mean = 0.5 * (0.5 + 0.25 + 0.125), std measured over the lattice.
 pub const WAVE_NOISE_MEAN: f32 = 0.4375;
 pub const WAVE_NOISE_STD: f32 = 0.106;

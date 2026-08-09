@@ -508,24 +508,49 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
     return invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
 }
 
-float flameNoiseErosionFromValue(float noise, float h) {
-    return flame.noiseAmplitude * mix(0.2, 1.0, h) * (noise - 0.35);
+// Asymptotic tip-carve depth profile. mu(h) is the remaining luminous fraction
+// of the height envelope, so "tip" means the flame's own luminous top for any
+// height/envelope — no fixed-h switch exists anywhere in the modulation.
+// tipCarveParams: x = kappa (depth), y = 1/mu0 (reach), z = envelope primitive
+// at h=1, w = 1 / total envelope mass.
+float flameTipCarveLambda(float h) {
+    float primitive = evaluateChebyshev12(
+        flame.heightPrimitiveCoefficients[0],
+        flame.heightPrimitiveCoefficients[1],
+        flame.heightPrimitiveCoefficients[2],
+        h);
+    float mu = clamp((flame.tipCarveParams.z - primitive) * flame.tipCarveParams.w, 0.0, 1.0);
+    return 1.0 + flame.tipCarveParams.x * exp(-mu * flame.tipCarveParams.y);
+}
+
+// Relative (multiplicative) modulation: the stochastic term is zero-mean and
+// scales with the local density, so no mean drift ever crosses the response
+// window and the visibility isolines follow D, not h (no horizontal onset).
+// The deterministic mean shrink that (noise - 0.35) used to carry stays as an
+// explicit smooth term so the average silhouette keeps its calibration.
+const float FLAME_EROSION_MEAN_SHRINK = 0.0875;
+const float FLAME_EROSION_SHELL_REF = 0.30;
+float flameNoiseErosionFromValue(float noise, float h, float density) {
+    float relative = flameTipCarveLambda(h) * (density / FLAME_EROSION_SHELL_REF)
+        * (noise - 0.4375);
+    return flame.noiseAmplitude
+        * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + relative);
 }
 
 // Internal helper: compute erosion value from warped coordinate q and height h.
 // `pb` is the pre-warp (bend-removed) coordinate the closed-form modulators need.
-float flameNoiseErosionAt(vec3 q, vec3 pb, float h) {
+float flameNoiseErosionAt(vec3 q, vec3 pb, float h, float density) {
     float noise = flameWaveNoiseSum(
         flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect(),
         pb, h);
-    return flameNoiseErosionFromValue(noise, h);
+    return flameNoiseErosionFromValue(noise, h, density);
 }
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 pb = flameNoiseBendRemoved(p, h);
     vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
-    float erosion = flameNoiseErosionAt(q, pb, h);
+    float erosion = flameNoiseErosionAt(q, pb, h, dSmooth);
     return flameApplyCarveResidual(
       smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
@@ -533,17 +558,19 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
 
 // Raw erosion value at a point, sampled at the warped coordinate like every
 // erosion consumer (band freeze, legacy factor, occupancy field).
-float flameNoiseErosionValue(vec3 p, float h) {
+float flameNoiseErosionValue(vec3 p, float h, float density) {
     vec3 pb = flameNoiseBendRemoved(p, h);
     vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
-    return flameNoiseErosionAt(q, pb, h);
+    return flameNoiseErosionAt(q, pb, h, density);
 }
 
+// Legacy multiplicative factor (trail domain): no local dSmooth exists there,
+// so the relative term is evaluated at the shell reference density.
 float flameNoiseErosionFactor(vec3 p, float h) {
     if (flame.noiseAmplitude == 0.0) {
         return 1.0;
     }
-    return max(1.0 - flameNoiseErosionValue(p, h), 0.0);
+    return max(1.0 - flameNoiseErosionValue(p, h, FLAME_EROSION_SHELL_REF), 0.0);
 }
 
 // Ring emitter: a flame cross-section swept around a circle of normalized major radius
@@ -559,7 +586,7 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 pb = flameNoiseBendRemoved(pr, h);
     vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
     dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
-    float erosion = flameNoiseErosionAt(q, pb, h);
+    float erosion = flameNoiseErosionAt(q, pb, h, dSmooth);
     return flameApplyCarveResidual(
      smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
@@ -570,7 +597,7 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 pb = flameNoiseBendRemoved(p, h);
     vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
     dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
-    float erosion = flameNoiseErosionAt(q, pb, h);
+    float erosion = flameNoiseErosionAt(q, pb, h, dSmooth);
     return flameApplyCarveResidual(
     smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);

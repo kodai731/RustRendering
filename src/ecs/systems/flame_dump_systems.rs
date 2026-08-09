@@ -71,6 +71,8 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
     value["boundary_freq"] = json!(effect.boundary_freq);
     value["boundary_speed"] = json!(effect.boundary_speed);
     value["boundary_radius_ratio"] = json!(effect.boundary_radius_ratio);
+    value["tip_carve_depth"] = json!(effect.tip_carve_depth);
+    value["tip_carve_reach"] = json!(effect.tip_carve_reach);
     value["baked_blend"] = json!(effect.baked_blend);
     value["baked_envelope"] = json!(effect.baked_envelope.map(|a| a.to_vec()));
     value["baked_radius"] = json!(effect.baked_radius.map(|a| a.to_vec()));

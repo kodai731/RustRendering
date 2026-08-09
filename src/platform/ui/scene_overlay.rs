@@ -829,6 +829,12 @@ fn build_flame_section(
                     ui.slider_config("Noise Frequency", 0.5, 32.0)
                         .build(&mut effect_copy.noise_frequency);
 
+                    ui.slider_config("Tip Carve Depth", 0.0, 4.0)
+                        .build(&mut effect_copy.tip_carve_depth);
+
+                    ui.slider_config("Tip Carve Reach", 0.02, 1.0)
+                        .build(&mut effect_copy.tip_carve_reach);
+
                     ui.slider_config("Noise Scroll Speed", 0.0, 10.0)
                         .build(&mut effect_copy.noise_scroll_speed);
 
