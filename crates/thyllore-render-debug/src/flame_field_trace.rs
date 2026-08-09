@@ -52,6 +52,8 @@ fn transform_vector(matrix: &Matrix4<f32>, vector: [f32; 3]) -> [f32; 3] {
 }
 
 const EROSION_MEAN_SHRINK: f32 = 0.0875;
+/// Mirror of FLAME_SUPPORT_BISECTION_STEPS in flame_radial_integral.glsl.
+const SUPPORT_BISECTION_STEPS: usize = 8;
 const EROSION_SHELL_REF: f32 = 0.30;
 
 fn mixf(a: f32, b: f32, t: f32) -> f32 {
@@ -229,6 +231,24 @@ impl<'a> UboCtx<'a> {
         )
     }
 
+    /// S1 mirror (flameWarpMapJvp): sequential shear composition with the
+    /// Jacobian-vector product on v.
+    fn warp_map_jvp(&self, z: &mut [f32; 3], v: &mut [f32; 3], strength: f32) {
+        for m in 0..WARP_COUNT {
+            let (kv, dv) = self.wave_mode(WARP_BASE + m);
+            let k = [kv[0], kv[1], kv[2]];
+            let curl = [dv[1], dv[2], dv[3]];
+            let angle = dot3(k, *z) + dv[0];
+            let shear = strength * kv[3] * angle.cos();
+            let fp = -strength * kv[3] * angle.sin();
+            let kdv = dot3(k, *v);
+            for axis in 0..3 {
+                z[axis] += curl[axis] * shear;
+                v[axis] += curl[axis] * fp * kdv;
+            }
+        }
+    }
+
     /// flameWaveFlowWarpRate: returns (warped point q, rate dq/dt along dir).
     fn flow_warp_rate(&self, pb: [f32; 3], dir: [f32; 3], h: f32) -> ([f32; 3], [f32; 3]) {
         let sp0 = self.u.style_params0;
@@ -244,19 +264,7 @@ impl<'a> UboCtx<'a> {
         ];
         let cv = self.aniso_compress(dir, 0.35);
         let mut v = [cv[0] * sp0[1], cv[1] * sp0[1], cv[2] * sp0[1]];
-        for m in 0..WARP_COUNT {
-            let (kv, dv) = self.wave_mode(WARP_BASE + m);
-            let k = [kv[0], kv[1], kv[2]];
-            let curl = [dv[1], dv[2], dv[3]];
-            let angle = dot3(k, z) + dv[0];
-            let shear = strength * kv[3] * angle.cos();
-            let fp = -strength * kv[3] * angle.sin();
-            let kdv = dot3(k, v);
-            for axis in 0..3 {
-                z[axis] += curl[axis] * shear;
-                v[axis] += curl[axis] * fp * kdv;
-            }
-        }
+        self.warp_map_jvp(&mut z, &mut v, strength);
         let q_pre = [
             z[0] / sp0[1] + self.advect[0] / sp0[1],
             z[1] / sp0[1] + self.advect[1] / sp0[1],
@@ -911,7 +919,7 @@ fn trace_ray(
     };
     let support_crossing = |t_dead: f32, t_live: f32| -> f32 {
         let (mut t_dead, mut t_live) = (t_dead, t_live);
-        for _ in 0..8 {
+        for _ in 0..SUPPORT_BISECTION_STEPS {
             let t_mid = 0.5 * (t_dead + t_live);
             if density_at(t_mid) > 0.0 {
                 t_live = t_mid;

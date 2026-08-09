@@ -446,12 +446,25 @@ vec3 flameNoiseBendRemoved(vec3 p, float h) {
     return vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
 }
 
-vec3 flameNoiseWarpedCoordinateFromPb(vec3 pb, float h) {
-    return flameWaveFlowWarp(pb, h);
-}
+// The complete coordinate chain bundled once (single source of truth):
+//   p -> pb (bend removed) -> q (flow warp) -> w (aniso * noiseFrequency - advect)
+// plus the ray rate dw/dt for the node low-pass. Build with d = vec3(0.0) for
+// point evaluation (the rate is then exactly zero and unused).
+struct FlameWarpFrame {
+    vec3 pb;    // bend-removed coordinate (cf modulators sample this)
+    vec3 q;     // warped physical coordinate (styled density samples this)
+    vec3 w;     // noise coordinate
+    vec3 rate;  // dw/dt along the ray direction
+};
 
-vec3 flameNoiseWarpedCoordinate(vec3 p, float h) {
-    return flameNoiseWarpedCoordinateFromPb(flameNoiseBendRemoved(p, h), h);
+FlameWarpFrame flameBuildWarpFrame(vec3 p, vec3 d, float h) {
+    FlameWarpFrame frame;
+    frame.pb = flameNoiseBendRemoved(p, h);
+    vec3 rateRaw = flameWaveFlowWarpRate(frame.pb, d, h, frame.q);
+    frame.w = flameAnisoCompress(frame.q, flame.temporalData.z) * flame.noiseFrequency
+        - flameNoiseAdvect();
+    frame.rate = flameAnisoCompress(rateRaw, flame.temporalData.z) * flame.noiseFrequency;
+    return frame;
 }
 // Single source of truth for the smooth (pre-threshold) emitter density.
 // `c` is the prepared density coordinate: the warped q for cylinder/ring in the
@@ -491,23 +504,36 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
 // Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_noise_cf).
 // `pb` is the pre-warp (bend-removed) coordinate the closed-form pseudo-FM
 // modulators sample; it is unused when the cf variant is off.
-float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
-    float eddyTime = flame.noiseScrollSpeed * flame.time;
-    int count = int(flame.waveParams.x);
+// Shared two-pass mode sum (low octave first, then high octaves riding the
+// low-octave envelope 1 + coeff * zLow). `dt = 0` (with rate = vec3(0.0))
+// evaluates the field at a point: every low-pass weight is then exactly 1 and
+// unresolvedPower accumulates exactly 0, so the node quadrature variant and
+// the point variant share this single loop.
+struct FlameWaveModeSumResult {
+    float z;
+    float zLow;
+    float unresolvedPower;
+};
+
+FlameWaveModeSumResult flameWaveModeSum(
+    vec3 w, vec3 rate, vec3 pb, vec3 d, float h, float dt, int count, float eddyTime) {
     bool cf = flameWaveCfActive();
     vec3 psiVec = vec3(0.0);
+    vec3 psiRateVec = vec3(0.0);
     float ampDisp = 0.0;
     float chebSin[FLAME_WAVE_CF_CHEB_COEFFS];
     float chebCos[FLAME_WAVE_CF_CHEB_COEFFS];
     if (cf) {
-        vec3 rateVecUnused;
-        flameWaveCfPsiVectors(pb, vec3(0.0), h, psiVec, rateVecUnused, ampDisp);
+        flameWaveCfPsiVectors(pb, d, h, psiVec, psiRateVec, ampDisp);
         flameWaveCfLoadCheb(chebSin, chebCos);
     }
-    vec3 jitterPsi = flameWaveJitterFields(w);
-    // Low-octave pass first (wavePhase.z == 0): its sum drives the envelope
-    // 1 + coeff * zLow that ties the higher octaves to the coarse structure.
-    float zLow = 0.0;
+    vec3 jitterPsi;
+    vec3 jitterPsiRate;
+    flameWaveJitterState(w, rate, jitterPsi, jitterPsiRate);
+
+    FlameWaveModeSumResult result;
+    result.zLow = 0.0;
+    result.unresolvedPower = 0.0;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
@@ -516,12 +542,24 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
         }
         float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
             + dot(flame.waveJitter[n].xyz, jitterPsi);
-        float carrier = cf
-            ? flameWaveCfCarrier(waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos)
-            : sin(angle);
-        zLow += waveVector.w * carrier;
+        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[n].xyz, jitterPsiRate);
+        float carrier;
+        if (cf) {
+            float depth = ampDisp * wavePhase.w;
+            float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
+            betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
+            carrier = flameWaveCfCarrier(
+                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
+        } else {
+            carrier = sin(angle);
+        }
+        float beta = betaPhase * dt / 3.14159265;
+        float b2 = beta * beta;
+        float weight = exp(-b2 * b2);
+        result.zLow += weight * waveVector.w * carrier;
+        result.unresolvedPower += 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
     }
-    float z = zLow;
+    result.z = result.zLow;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
@@ -530,14 +568,37 @@ float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
         }
         float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
             + dot(flame.waveJitter[n].xyz, jitterPsi);
-        float carrier = cf
-            ? flameWaveCfCarrier(waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos)
-            : sin(angle);
-        z += (1.0 + wavePhase.z * zLow) * waveVector.w * carrier;
+        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[n].xyz, jitterPsiRate);
+        float carrier;
+        if (cf) {
+            float depth = ampDisp * wavePhase.w;
+            float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
+            betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
+            carrier = flameWaveCfCarrier(
+                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
+        } else {
+            carrier = sin(angle);
+        }
+        float beta = betaPhase * dt / 3.14159265;
+        float b2 = beta * beta;
+        float weight = exp(-b2 * b2);
+        float envelope = 1.0 + wavePhase.z * result.zLow;
+        result.z += envelope * weight * waveVector.w * carrier;
+        result.unresolvedPower +=
+            envelope * envelope * 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
     }
+    return result;
+}
+
+// tanh-shaped noise value at a warp frame (point evaluation: dt = 0).
+float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
+    float eddyTime = flame.noiseScrollSpeed * flame.time;
+    int count = int(flame.waveParams.x);
+    FlameWaveModeSumResult sum = flameWaveModeSum(
+        w, vec3(0.0), pb, vec3(0.0), h, 0.0, count, eddyTime);
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
-    return invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
+    return invScale > 0.0 ? 0.4375 + amp * tanh(sum.z * invScale) : 0.4375 + sum.z;
 }
 
 // Asymptotic tip-carve depth profile. mu(h) is the remaining luminous fraction
@@ -563,20 +624,16 @@ float flameNoiseErosionFromValue(float noise, float h, float density) {
         * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + relative);
 }
 
-// Internal helper: compute erosion value from warped coordinate q and height h.
-// `pb` is the pre-warp (bend-removed) coordinate the closed-form modulators need.
-float flameNoiseErosionAt(vec3 q, vec3 pb, float h, float density) {
-    float noise = flameWaveNoiseSum(
-        flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency - flameNoiseAdvect(),
-        pb, h);
+// Internal helper: compute erosion value from a warp frame and height h.
+float flameNoiseErosionAt(FlameWarpFrame frame, float h, float density) {
+    float noise = flameWaveNoiseSum(frame.w, frame.pb, h);
     return flameNoiseErosionFromValue(noise, h, density);
 }
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
-    vec3 pb = flameNoiseBendRemoved(p, h);
-    vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
-    dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
-    float erosion = flameNoiseErosionAt(q, pb, h, dSmooth);
+    FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
+    dSmooth = flameEmitterSmoothDensityAt(frame.q, h, 1.0);
+    float erosion = flameNoiseErosionAt(frame, h, dSmooth);
     return flameApplyCarveResidual(
       smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
@@ -585,9 +642,8 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
 // Raw erosion value at a point, sampled at the warped coordinate like every
 // erosion consumer (band freeze, legacy factor, occupancy field).
 float flameNoiseErosionValue(vec3 p, float h, float density) {
-    vec3 pb = flameNoiseBendRemoved(p, h);
-    vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
-    return flameNoiseErosionAt(q, pb, h, density);
+    FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
+    return flameNoiseErosionAt(frame, h, density);
 }
 
 // Legacy multiplicative factor (trail domain): no local dSmooth exists there,
@@ -609,10 +665,9 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     float c = cos(ang);
     float s = sin(ang);
     vec3 pr = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
-    vec3 pb = flameNoiseBendRemoved(pr, h);
-    vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
-    dSmooth = flameEmitterSmoothDensityAt(q, h, 1.0);
-    float erosion = flameNoiseErosionAt(q, pb, h, dSmooth);
+    FlameWarpFrame frame = flameBuildWarpFrame(pr, vec3(0.0), h);
+    dSmooth = flameEmitterSmoothDensityAt(frame.q, h, 1.0);
+    float erosion = flameNoiseErosionAt(frame, h, dSmooth);
     return flameApplyCarveResidual(
      smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);
@@ -620,10 +675,9 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
 // unit-local XY. Texel encodes d = r - 0.5 (negative inside), normalized by image height.
 float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
-    vec3 pb = flameNoiseBendRemoved(p, h);
-    vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
+    FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
     dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
-    float erosion = flameNoiseErosionAt(q, pb, h, dSmooth);
+    float erosion = flameNoiseErosionAt(frame, h, dSmooth);
     return flameApplyCarveResidual(
     smoothstep(flame.nearFadeParams.z, flame.nearFadeParams.w, flameErodedArgument(dSmooth, erosion)),
         dSmooth) * flameFieldSupportMask(dSmooth);

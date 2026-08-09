@@ -44,6 +44,30 @@ fn cheb12(c0: [f32; 4], c1: [f32; 4], c2: [f32; 4], x01: f32) -> f32 {
     t * b0 - b1 + coeffs[0]
 }
 
+/// S1 mirror (flameWarpMapJvp): sequential shear composition with the
+/// Jacobian-vector product on v.
+fn warp_map_jvp(warp_modes: &[WaveWarpMode], z: &mut [f64; 3], v: &mut [f64; 3], strength: f64) {
+    for mode in warp_modes {
+        let angle = mode.k[0] as f64 * z[0]
+            + mode.k[1] as f64 * z[1]
+            + mode.k[2] as f64 * z[2]
+            + mode.phase as f64;
+        let shear_value = strength * mode.amplitude as f64 * angle.cos();
+        let f_prime = -strength * mode.amplitude as f64 * angle.sin();
+        let k_dot_v = mode.k[0] as f64 * v[0]
+            + mode.k[1] as f64 * v[1]
+            + mode.k[2] as f64 * v[2];
+
+        z[0] += mode.curl_direction[0] as f64 * shear_value;
+        z[1] += mode.curl_direction[1] as f64 * shear_value;
+        z[2] += mode.curl_direction[2] as f64 * shear_value;
+
+        v[0] += mode.curl_direction[0] as f64 * f_prime * k_dot_v;
+        v[1] += mode.curl_direction[1] as f64 * f_prime * k_dot_v;
+        v[2] += mode.curl_direction[2] as f64 * f_prime * k_dot_v;
+    }
+}
+
 /// flameWarpStrength mirror: mu(h) -> strain(h) -> strength = strain / K.
 pub fn warp_strength(p: &WarpParams, h: f32) -> f32 {
     let primitive = cheb12(p.height_primitive[0], p.height_primitive[1], p.height_primitive[2], h);
@@ -178,27 +202,7 @@ pub fn flow_warp_with_rate(
         v_compressed[2] * p.warp_freq as f64,
     ];
 
-    let strength = strength_profile as f64;
-
-    for mode in warp_modes {
-        let angle = mode.k[0] as f64 * z[0]
-            + mode.k[1] as f64 * z[1]
-            + mode.k[2] as f64 * z[2]
-            + mode.phase as f64;
-        let shear_value = strength * mode.amplitude as f64 * angle.cos();
-        let f_prime = -strength * mode.amplitude as f64 * angle.sin();
-        let k_dot_v = mode.k[0] as f64 * v[0]
-            + mode.k[1] as f64 * v[1]
-            + mode.k[2] as f64 * v[2];
-
-        z[0] += mode.curl_direction[0] as f64 * shear_value;
-        z[1] += mode.curl_direction[1] as f64 * shear_value;
-        z[2] += mode.curl_direction[2] as f64 * shear_value;
-
-        v[0] += mode.curl_direction[0] as f64 * f_prime * k_dot_v;
-        v[1] += mode.curl_direction[1] as f64 * f_prime * k_dot_v;
-        v[2] += mode.curl_direction[2] as f64 * f_prime * k_dot_v;
-    }
+    warp_map_jvp(warp_modes, &mut z, &mut v, strength_profile as f64);
 
     // M^-1: back to physical space
     let warp_freq = p.warp_freq as f64;

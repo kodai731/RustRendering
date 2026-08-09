@@ -580,10 +580,7 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
         return vec4(flameDebugHeat(bestDensity), 1.0);
     }
     if (push.debugView == 7 || push.debugView == 8) {
-        vec3 pb = flameNoiseBendRemoved(p, h);
-        vec3 q = flameNoiseWarpedCoordinateFromPb(pb, h);
-        vec3 w = flameAnisoCompress(q, flame.temporalData.z) * flame.noiseFrequency
-            - flameNoiseAdvect();
+        vec3 w = flameBuildWarpFrame(p, vec3(0.0), h).w;
         if (push.debugView == 7) {
             return vec4(flameWaveJitterFields(w) * 0.5 + 0.5, 1.0);
         }
