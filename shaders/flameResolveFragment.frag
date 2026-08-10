@@ -46,7 +46,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 styleParams2;
     mat4 trailUnitInverse;
     vec4 trailMeta;
-    vec4 trailSamples[16];
+    vec4 trail_coefficients[4];
     vec4 emitterParams;
     vec4 contourParams;
     vec4 erosionResponse;
@@ -690,17 +690,44 @@ void main() {
             if (flame.trailMeta.x >= 1.0) {
                 vec3 pWorld = (flame.model * vec4(p, 1.0)).xyz;
                 vec3 baseUnit = (flame.trailUnitInverse * vec4(pWorld, 1.0)).xyz;
-                density = 0.0;
-                dSmooth = 0.0;
-                float hBest = h;
-                for (int s = 0; s < int(flame.trailMeta.x); ++s) {
-                    vec3 pu = baseUnit - flame.trailSamples[s].xyz;
-                    float hu = clamp(pu.y, 0.0, 1.0);
-                    float ds;
-                    float d = flameEmitterDensity(pu, hu, ds) * flame.trailSamples[s].w;
-                    if (d > density) { density = d; dSmooth = ds; hBest = hu; }
+
+                // Cubic curve coefficients: c0, c1, c2, c3 (each vec4, xyz = coefficient)
+                vec3 c0 = flame.trail_coefficients[0].xyz;
+                vec3 c1 = flame.trail_coefficients[1].xyz;
+                vec3 c2 = flame.trail_coefficients[2].xyz;
+                vec3 c3 = flame.trail_coefficients[3].xyz;
+
+                // Chord projection: u_chord = clamp(dot(p - c0, c1 - c0) / dot(c1 - c0, c1 - c0), 0.0, 1.0)
+                vec3 chord = c1 - c0;
+                float chordLenSq = dot(chord, chord);
+                float u = 0.0;
+                if (chordLenSq > 1e-6) {
+                    u = clamp(dot(baseUnit - c0, chord) / chordLenSq, 0.0, 1.0);
                 }
-                h = hBest;
+
+                // 3 Newton steps to refine u on f(u) = |p - C(u)|^2
+                for (int step = 0; step < 3; ++step) {
+                    float u2 = u * u;
+                    float u3 = u2 * u;
+                    vec3 curvePos = c0 + c1 * u + c2 * u2 + c3 * u3;
+                    vec3 curveDeriv = c1 + c2 * 2.0 * u + c3 * 3.0 * u2;
+                    vec3 residual = baseUnit - curvePos;
+                    float fp = 2.0 * dot(residual, -curveDeriv);
+                    float fpp = 2.0 * dot(curveDeriv, curveDeriv);
+                    if (fpp > 1e-8) {
+                        u -= fp / fpp;
+                    }
+                    u = clamp(u, 0.0, 1.0);
+                }
+
+                // Evaluate density at u* with weight (1.0 - u)
+                float u2 = u * u;
+                float u3 = u2 * u;
+                vec3 curvePos = c0 + c1 * u + c2 * u2 + c3 * u3;
+                vec3 pu = baseUnit - curvePos;
+                float hu = clamp(pu.y, 0.0, 1.0);
+                density = flameEmitterDensity(pu, hu, dSmooth) * (1.0 - u);
+                h = hu;
             } else {
                 density = flameEmitterDensity(p, h, dSmooth);
             }

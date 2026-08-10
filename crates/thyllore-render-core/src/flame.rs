@@ -1140,7 +1140,7 @@ pub fn build_flame_ubo(effect: &FlameEffect) -> FlameUBO {
         ],
         trail_unit_inverse: Matrix4::<f32>::from_scale(1.0),
         trail_meta: Vector4::new(0.0, 0.0, 0.0, 0.0),
-        trail_samples: [[0.0; 4]; 16],
+        trail_coefficients: [[0.0; 4]; 4],
         emitter_params: Vector4::new(
             effect.emitter_kind as f32,
             if effect.emitter_kind == 1 {
@@ -1258,14 +1258,14 @@ pub fn build_flame_trail_expanded_matrix(
 pub fn build_flame_trail_ubo_fields(
     effect: &FlameEffect,
     trail: &FlameTrailState,
-) -> (Matrix4<f32>, Vector4<f32>, [[f32; 4]; 16]) {
+) -> (Matrix4<f32>, Vector4<f32>, [[f32; 4]; 4]) {
     let count = trail.samples.len();
 
     if count == 0 {
         return (
             Matrix4::<f32>::from_scale(1.0),
             Vector4::new(0.0, 0.0, 0.0, 0.0),
-            [[0.0; 4]; 16],
+            [[0.0; 4]; 4],
         );
     }
 
@@ -1274,46 +1274,140 @@ pub fn build_flame_trail_ubo_fields(
     let trail_unit_inverse = Matrix4::from_translation(-effect.position)
         * Matrix4::from_nonuniform_scale(1.0 / radius, 1.0 / effect.height, 1.0 / radius);
 
-    // Build trail samples array
-    let mut trail_samples: [[f32; 4]; 16] = [[0.0; 4]; 16];
-    for (i, sample) in trail.samples.iter().enumerate() {
-        if i >= 16 {
-            break;
+    // Build local-space sample offsets and their normalized ages (u = age_seconds / fade_seconds)
+    let linear = Matrix3::<f32>::from_cols(
+        Vector3::new(
+            trail_unit_inverse[0][0],
+            trail_unit_inverse[1][0],
+            trail_unit_inverse[2][0],
+        ),
+        Vector3::new(
+            trail_unit_inverse[0][1],
+            trail_unit_inverse[1][1],
+            trail_unit_inverse[2][1],
+        ),
+        Vector3::new(
+            trail_unit_inverse[0][2],
+            trail_unit_inverse[1][2],
+            trail_unit_inverse[2][2],
+        ),
+    );
+
+    let mut max_u: f32 = 0.0;
+    let mut ata: [[f32; 4]; 4] = [[0.0; 4]; 4]; // A^T * A (Vandermonde normal matrix)
+
+    // Build A^T * A (independent of data, depends only on u values)
+    for i in 0..count {
+        let sample = &trail.samples[i];
+        let u = if trail.fade_seconds > 0.0 {
+            sample.age_seconds / trail.fade_seconds
+        } else {
+            0.0
+        };
+        if u > max_u {
+            max_u = u;
         }
-        // localDelta_i = trailUnitInverse.linear_part * (sample.position - effect.position)
+
+        // Vandermonde row: [1, u, u^2, u^3]
+        let v = [1.0, u, u * u, u * u * u];
+        for r in 0..4 {
+            for c in 0..4 {
+                ata[r][c] += v[r] * v[c];
+            }
+        }
+    }
+
+    // Build A^T * b for each axis (x, y, z) and solve least-squares
+    // The system is the same A^T*A for all axes, only b changes.
+
+    // Create augmented matrix [A^T*A | I] and row-reduce to get inverse
+    let mut aug: [[f32; 8]; 4] = [[0.0; 8]; 4];
+    for r in 0..4 {
+        for c in 0..4 {
+            aug[r][c] = ata[r][c];
+        }
+        aug[r][r + 4] = 1.0;
+    }
+
+    // Gaussian elimination with partial pivoting
+    for col in 0..4 {
+        // Find pivot
+        let mut max_val = aug[col][col].abs();
+        let mut max_row = col;
+        for row in (col + 1)..4 {
+            if aug[row][col].abs() > max_val {
+                max_val = aug[row][col].abs();
+                max_row = row;
+            }
+        }
+        // Swap rows
+        if max_row != col {
+            aug.swap(col, max_row);
+        }
+        // Scale pivot row
+        let pivot = aug[col][col];
+        if pivot.abs() < 1e-12 {
+            continue;
+        }
+        for j in col..8 {
+            aug[col][j] /= pivot;
+        }
+        // Eliminate column
+        for row in 0..4 {
+            if row == col {
+                continue;
+            }
+            let factor = aug[row][col];
+            for j in col..8 {
+                aug[row][j] -= factor * aug[col][j];
+            }
+        }
+    }
+
+    // Now aug[:, 4..8] is the inverse of A^T*A
+    // Compute coefficients for each axis: c = (A^T*A)^{-1} * A^T * b_axis
+    let mut atb_x: [f32; 4] = [0.0; 4];
+    let mut atb_y: [f32; 4] = [0.0; 4];
+    let mut atb_z: [f32; 4] = [0.0; 4];
+    for i in 0..count {
+        let sample = &trail.samples[i];
+        let u = if trail.fade_seconds > 0.0 {
+            sample.age_seconds / trail.fade_seconds
+        } else {
+            0.0
+        };
         let diff = Vector3::new(
             sample.position[0] - effect.position.x,
             sample.position[1] - effect.position.y,
             sample.position[2] - effect.position.z,
         );
-        let linear = Matrix3::<f32>::from_cols(
-            Vector3::new(
-                trail_unit_inverse[0][0],
-                trail_unit_inverse[1][0],
-                trail_unit_inverse[2][0],
-            ),
-            Vector3::new(
-                trail_unit_inverse[0][1],
-                trail_unit_inverse[1][1],
-                trail_unit_inverse[2][1],
-            ),
-            Vector3::new(
-                trail_unit_inverse[0][2],
-                trail_unit_inverse[1][2],
-                trail_unit_inverse[2][2],
-            ),
-        );
         let local_delta = linear * diff;
 
-        // w = flame_trail_fade_weight(sample, trail.fade_seconds)
-        let w = flame_trail_fade_weight(sample, trail.fade_seconds);
-
-        trail_samples[i] = [local_delta.x, local_delta.y, local_delta.z, w];
+        let v = [1.0, u, u * u, u * u * u];
+        for r in 0..4 {
+            atb_x[r] += v[r] * local_delta.x;
+            atb_y[r] += v[r] * local_delta.y;
+            atb_z[r] += v[r] * local_delta.z;
+        }
     }
 
-    let meta = Vector4::new(count as f32, 0.0, 0.0, 0.0);
+    // c = aug_inv * atb for each axis
+    let mut coefficients: [[f32; 4]; 4] = [[0.0; 4]; 4];
+    for r in 0..4 {
+        let mut sum_x = 0.0;
+        let mut sum_y = 0.0;
+        let mut sum_z = 0.0;
+        for c in 0..4 {
+            sum_x += aug[r][c + 4] * atb_x[c];
+            sum_y += aug[r][c + 4] * atb_y[c];
+            sum_z += aug[r][c + 4] * atb_z[c];
+        }
+        coefficients[r] = [sum_x, sum_y, sum_z, 0.0];
+    }
 
-    (trail_unit_inverse, meta, trail_samples)
+    let meta = Vector4::new(count as f32, max_u, 0.0, 0.0);
+
+    (trail_unit_inverse, meta, coefficients)
 }
 
 /// Build FlameUBO with optional trail support.
@@ -1339,7 +1433,7 @@ pub fn build_flame_ubo_with_trail(
             * Matrix4::from_translation(-Vector3::new(model[3][0], model[3][1], model[3][2]));
 
     // Build trail fields
-    let (trail_unit_inverse, trail_meta, trail_samples) =
+    let (trail_unit_inverse, trail_meta, trail_coefficients) =
         build_flame_trail_ubo_fields(effect, trail);
 
     // Color computation same as build_flame_ubo
@@ -1430,7 +1524,7 @@ pub fn build_flame_ubo_with_trail(
         ],
         trail_unit_inverse,
         trail_meta,
-        trail_samples,
+        trail_coefficients,
         emitter_params: Vector4::new(
             effect.emitter_kind as f32,
             if effect.emitter_kind == 1 {
@@ -1515,7 +1609,7 @@ pub struct FlameUBO {
     pub style_params2: [f32; 4],
     pub trail_unit_inverse: Matrix4<f32>,
     pub trail_meta: Vector4<f32>,
-    pub trail_samples: [[f32; 4]; 16],
+    pub trail_coefficients: [[f32; 4]; 4],
     pub emitter_params: Vector4<f32>,
     pub contour_params: [f32; 4],
     pub erosion_response: [f32; 4],
@@ -1829,11 +1923,12 @@ mod tests {
         );
     }
 
-   #[test]
+    #[test]
     fn test_flame_ubo_layout_is_std140_compatible() {
+        // trail_coefficients is [[f32; 4]; 4] (64 bytes) instead of [f32; 4] (16 bytes)
         assert_eq!(
             std::mem::size_of::<FlameUBO>(),
-            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 6720 + 1536
+            784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 6720 + 1536 - 240 + 48
         );
         assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
     }
