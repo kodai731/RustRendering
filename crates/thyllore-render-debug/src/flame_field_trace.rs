@@ -35,9 +35,13 @@ fn env_usize(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
-/// Segment estimator selection. Legacy mirrors the GPU value-sampling path
-/// bit-for-bit; Faddeeva is the continuous-functional estimator under
-/// validation (THYLLORE_FLAME_TRACE_INTEGRATOR=faddeeva).
+/// Segment estimator selection. Legacy mirrors the production GPU
+/// value-sampling path bit-for-bit and is the default. Faddeeva is the
+/// continuous-functional "v5" estimator — **CPU-mirror / fringe-diagnosis
+/// only, never in production**: its GLSL port was rejected for look
+/// (carve detail loss) and removed from shaders/ (reference copy:
+/// reference_glsl/flame_wave_continuous_v5.glsl). Opt in with
+/// THYLLORE_FLAME_TRACE_INTEGRATOR=faddeeva.
 #[derive(Clone, Copy, PartialEq)]
 enum SegmentIntegrator {
     Legacy,
