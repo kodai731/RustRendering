@@ -127,7 +127,8 @@ const int FLAME_WAVE_CF_SHEAR_BASE = 208;
 // bottom octave's difference frequencies cannot align into one fringe family
 // (fringe_beat_analysis.md; a single shared field — M = 1 — cannot break them).
 // Phase-only: |k| and per-mode power are untouched, the erf closed form stays
-// exact; the jitter ray rate joins the node low-pass beta below.
+// exact; the jitter ray rate joins each mode's along-ray frequency omega in
+// the v5 capture cutoff below.
 // Mirrored in flame_wave.rs (WAVE_JITTER_K / wave_jitter_state).
 const int FLAME_WAVE_JITTER_RANK = 3;
 const vec3 FLAME_WAVE_JITTER_K[3] = vec3[3](
@@ -487,8 +488,9 @@ vec3 flameNoiseBendRemoved(vec3 p, float h) {
 
 // The complete coordinate chain bundled once (single source of truth):
 //   p -> pb (bend removed) -> q (flow warp) -> w (aniso * noiseFrequency - advect)
-// plus the ray rate dw/dt for the node low-pass. Build with d = vec3(0.0) for
-// point evaluation (the rate is then exactly zero and unused).
+// plus the ray rate dw/dt for the v5 capture cutoff (per-mode along-ray
+// frequency omega = k . rate). Build with d = vec3(0.0) for point evaluation
+// (the rate is then exactly zero and unused).
 struct FlameWarpFrame {
     vec3 pb;    // bend-removed coordinate (cf modulators sample this)
     vec3 q;     // warped physical coordinate (styled density samples this)
@@ -543,19 +545,12 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
 // Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_noise_cf).
 // `pb` is the pre-warp (bend-removed) coordinate the closed-form pseudo-FM
 // modulators sample; it is unused when the cf variant is off.
-// Shared two-pass mode sum (low octave first, then high octaves riding the
-// low-octave envelope 1 + coeff * zLow). `dt = 0` (with rate = vec3(0.0))
-// evaluates the field at a point: every low-pass weight is then exactly 1 and
-// unresolvedPower accumulates exactly 0, so the node quadrature variant and
-// the point variant share this single loop.
-struct FlameWaveModeSumResult {
-    float z;
-    float zLow;
-    float unresolvedPower;
-};
-
-FlameWaveModeSumResult flameWaveModeSum(
-    vec3 w, vec3 rate, vec3 pb, vec3 d, float h, float dt, int count, float eddyTime) {
+// Two-pass point-evaluation mode sum (low octave first, then high octaves
+// riding the low-octave envelope 1 + coeff * zLow). Every mode enters at full
+// value — resolution handling lives entirely in the v5 integrator's physical
+// capture cutoff (flameCarrierSlowState / flameCapturedPower below), never in
+// a node-spacing low-pass here.
+float flameWaveModeSum(vec3 w, vec3 pb, float h, int count, float eddyTime) {
     bool cf = flameWaveCfActive();
     vec3 psiVec = vec3(0.0);
     vec3 psiRateVec = vec3(0.0);
@@ -563,16 +558,14 @@ FlameWaveModeSumResult flameWaveModeSum(
     float chebSin[FLAME_WAVE_CF_CHEB_COEFFS];
     float chebCos[FLAME_WAVE_CF_CHEB_COEFFS];
     if (cf) {
-        flameWaveCfPsiVectors(pb, d, h, psiVec, psiRateVec, ampDisp);
+        flameWaveCfPsiVectors(pb, vec3(0.0), h, psiVec, psiRateVec, ampDisp);
         flameWaveCfLoadCheb(chebSin, chebCos);
     }
     vec3 jitterPsi;
     vec3 jitterPsiRate;
-    flameWaveJitterState(w, rate, jitterPsi, jitterPsiRate);
+    flameWaveJitterState(w, vec3(0.0), jitterPsi, jitterPsiRate);
 
-    FlameWaveModeSumResult result;
-    result.zLow = 0.0;
-    result.unresolvedPower = 0.0;
+    float zLow = 0.0;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
@@ -581,24 +574,12 @@ FlameWaveModeSumResult flameWaveModeSum(
         }
         float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
             + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
-        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsiRate);
-        float carrier;
-        if (cf) {
-            float depth = ampDisp * wavePhase.w;
-            float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
-            betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
-            carrier = flameWaveCfCarrier(
-                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
-        } else {
-            carrier = sin(angle);
-        }
-        float beta = betaPhase * dt / 3.14159265;
-        float b2 = beta * beta;
-        float weight = exp(-b2 * b2);
-        result.zLow += weight * waveVector.w * carrier;
-        result.unresolvedPower += 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
+        float carrier = cf
+            ? flameWaveCfCarrier(waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos)
+            : sin(angle);
+        zLow += waveVector.w * carrier;
     }
-    result.z = result.zLow;
+    float z = zLow;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
@@ -607,37 +588,22 @@ FlameWaveModeSumResult flameWaveModeSum(
         }
         float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
             + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
-        float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsiRate);
-        float carrier;
-        if (cf) {
-            float depth = ampDisp * wavePhase.w;
-            float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
-            betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
-            carrier = flameWaveCfCarrier(
-                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
-        } else {
-            carrier = sin(angle);
-        }
-        float beta = betaPhase * dt / 3.14159265;
-        float b2 = beta * beta;
-        float weight = exp(-b2 * b2);
-        float envelope = 1.0 + wavePhase.z * result.zLow;
-        result.z += envelope * weight * waveVector.w * carrier;
-        result.unresolvedPower +=
-            envelope * envelope * 0.5 * waveVector.w * waveVector.w * (1.0 - weight * weight);
+        float carrier = cf
+            ? flameWaveCfCarrier(waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos)
+            : sin(angle);
+        z += (1.0 + wavePhase.z * zLow) * waveVector.w * carrier;
     }
-    return result;
+    return z;
 }
 
-// tanh-shaped noise value at a warp frame (point evaluation: dt = 0).
+// tanh-shaped noise value at a warp frame.
 float flameWaveNoiseSum(vec3 w, vec3 pb, float h) {
     float eddyTime = flame.noiseScrollSpeed * flame.time;
     int count = int(flame.waveParams.x);
-    FlameWaveModeSumResult sum = flameWaveModeSum(
-        w, vec3(0.0), pb, vec3(0.0), h, 0.0, count, eddyTime);
+    float z = flameWaveModeSum(w, pb, h, count, eddyTime);
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
-    return invScale > 0.0 ? 0.4375 + amp * tanh(sum.z * invScale) : 0.4375 + sum.z;
+    return invScale > 0.0 ? 0.4375 + amp * tanh(z * invScale) : 0.4375 + z;
 }
 
 // Asymptotic tip-carve depth profile. mu(h) is the remaining luminous fraction
@@ -663,7 +629,6 @@ float flameNoiseErosionFromValue(float noise, float h, float density) {
         * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + relative);
 }
 
-#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
 // ---- Continuous ray integrator (v5) carrier statistics ----
 // Modes below a ray-fixed reference cutoff are resolved as exact values; the
 // uncaptured share folds into the response sigma through the tanh conditional
@@ -826,7 +791,6 @@ float flameFoldedSigmaArgument(
     return sqrt(geometry * geometry
         * (cc.gain * cc.gain * baseZ + cc.distortion * cc.distortion));
 }
-#endif
 
 // Response through the (optionally relative) window: unified keeps the
 // half-width >= the local modulation sigma so the rectifier never binarizes.

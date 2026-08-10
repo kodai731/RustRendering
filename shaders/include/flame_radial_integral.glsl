@@ -168,12 +168,15 @@ bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
 // the ray — no per-ray integer switches), density AND erosion exact at every
 // node (both analytic, nothing sampled from a lattice realization), the
 // argument linear between nodes, each segment closed-form erf response.
-// Modes the node spacing cannot resolve are attenuated by a smooth low-pass in
-// beta = k . d and their power routed into the response sigma — the smooth
-// analogue of the fbm path's FLAME_EROSION_NOISE_SIGMA, with no h-quantized
-// band structure anywhere (band-boundary-coherence.md, E1).
-// Mirrored in thyllore-render-core/src/flame_wave.rs
-// (evaluate_wave_occupancy_segments / wave_ray_attenuation).
+// Modes are split by a ray-fixed physical cutoff g_n = exp(-(omega_n
+// alpha_ref)^2 / 2) on the transition-shell crossing time alpha_ref: captured
+// (slow) modes enter the argument as exact values (their frequency is far
+// below the segment Nyquist, so value sampling cannot alias — the lattice
+// fringe source is structurally absent), while the uncaptured share and the
+// tanh distortion fold into the response sigma through conditional statistics,
+// adapted per segment via log2|omega| band powers.
+// Mirrored in thyllore-render-debug/src/flame_field_trace.rs
+// (faddeeva_segment_estimate / carrier_slow_state / solve_reference_cutoff).
 
 #ifdef FLAME_WAVE_SEGMENTS_OVERRIDE
 const int FLAME_WAVE_SEGMENTS = FLAME_WAVE_SEGMENTS_OVERRIDE;
@@ -199,32 +202,6 @@ float flameWaveNodeDensity(vec3 p, float h) {
     }
     return dens * flameNearCameraFade(p);
 }
-// Node-local low-pass: weights come from the warped rate at this node, so a
-// locally stretched node does not smooth the whole ray.
-float flameWaveNodeArgumentLocal(
-    vec3 p, vec3 d, float h, float density, float dt,
-    int count, float eddyTime, out float shapedNoise, out float sigmaNoise, out float remapScale) {
-    FlameWarpFrame warpFrame = flameBuildWarpFrame(p, d, h);
-    FlameWaveModeSumResult sum = flameWaveModeSum(
-        warpFrame.w, warpFrame.rate, warpFrame.pb, d, h, dt, count, eddyTime);
-
-    // 5.1 probabilistic reduction: erosion modes past waveParams.x (sorted by
-    // |k| ascending on the CPU) are not tracked; their full variance enters the
-    // response as blur. The skipped high-octave power rides the same low-octave
-    // envelope as the tracked high modes (uniform coefficient in waveParams.y).
-    float unresolvedPower = sum.unresolvedPower + flame.waveCfParams.z;
-    float envSkip = 1.0 + flame.waveParams.y * sum.zLow;
-    unresolvedPower += flame.waveCfParams.w * envSkip * envSkip;
-
-    sigmaNoise = sqrt(unresolvedPower);
-    float invScale = flame.waveParams.z;
-    float amp = flame.waveParams.w;
-    shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(sum.z * invScale) : 0.4375 + sum.z;
-    float erosion = flameNoiseErosionFromValue(shapedNoise, h, density);
-    remapScale = flameErosionRemapScale(erosion);
-    return flameErodedArgument(density, erosion);
-}
-
 // S3 — support-edge crossing between a dead node (density <= 0) and a live
 // node (density > 0): fixed-count bisection on support membership. The count
 // is constant, so there is no per-ray integer switch; the returned point moves
@@ -244,7 +221,6 @@ float flameWaveSupportCrossing(vec3 o, vec3 d, float tDead, float tLive) {
     return 0.5 * (tDead + tLive);
 }
 
-#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
 // ---- Continuous ray integrator (v5) walk pieces ----
 // Mirrored in thyllore-render-debug/src/flame_field_trace.rs
 // (mean_argument_at / solve_reference_cutoff / faddeeva_segment_estimate).
@@ -378,67 +354,6 @@ vec2 flameWaveSegmentCarvedV5(
     }
     return carved;
 }
-#endif
-
-// Node endpoint state of one segment, filled by the walk and consumed by the
-// pure per-segment math below (start = the walk's carried previous node or the
-// entering-edge crossing, end = the current node or the exiting-edge crossing).
-struct FlameSegmentNodes {
-    float argumentStart;
-    float argumentEnd;
-    float shapedStart;
-    float shapedEnd;
-    float sigmaStart;
-    float sigmaEnd;
-    float remapStart;
-    float remapEnd;
-    float densityStart;
-    float densityEnd;
-};
-
-// Pure per-segment math (no walk state): sigmaEff composition from the node
-// endpoints, the erf closed-form integral of the piecewise-linear argument,
-// and the carve-residual floor. Returns carved = (emission, first moment).
-vec2 flameWaveSegmentCarved(
-    FlameSegmentNodes nodes, vec3 o, vec3 d,
-    float segStart, float segEnd, float span,
-    float residual, float invScale, float amp) {
-    // Shaping derivative average: g'(z) = amp * invScale * (1 - t^2) where
-    // t = (shapedNoise - 0.4375) / amp; if invScale <= 0 then gPrime = 1.0.
-    float shapingDerivAvg;
-    if (invScale > 0.0) {
-        float tPrevVal = (nodes.shapedStart - 0.4375) / amp;
-        float tCurrVal = (nodes.shapedEnd - 0.4375) / amp;
-        shapingDerivAvg = 0.5 * amp * invScale
-            * ((1.0 - tPrevVal * tPrevVal) + (1.0 - tCurrVal * tCurrVal));
-    } else {
-        shapingDerivAvg = 1.0;
-    }
-
-    float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
-    float sigmaEff = 0.5 * (nodes.sigmaStart + nodes.sigmaEnd) * shapingDerivAvg * abs(flame.noiseAmplitude)
-        * flameTipCarveLambda(hMid) * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
-        * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd))
-        * 0.5 * (nodes.remapStart + nodes.remapEnd);
-    float slope = (nodes.argumentEnd - nodes.argumentStart) / span;
-    if (flame.unifiedParams.x > 0.5) {
-        float sigmaFloor = flame.unifiedParams.y * flameTipCarveLambda(hMid)
-            * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
-            * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd));
-        sigmaEff = max(sigmaEff, sigmaFloor);
-    }
-    FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
-    vec2 carved = flameErosionResponseLinearIntegral(
-        response, nodes.argumentStart - slope * segStart, slope, segStart, segEnd);
-    if (residual > 0.0) {
-        float plainSlope = (nodes.densityEnd - nodes.densityStart) / span;
-        vec2 plain = flameErosionResponseLinearIntegral(
-            flameSmoothErosionResponse(0.0),
-            nodes.densityStart - plainSlope * segStart, plainSlope, segStart, segEnd);
-        carved = mix(carved, plain, residual);
-    }
-    return carved;
-}
 
 // Streaming reduction of the segment walk. No per-segment arrays: the walk
 // below feeds each segment's (emission, tMean) straight into these
@@ -480,7 +395,6 @@ FlameWaveIntegral flameWaveOccupancySegments(
     // edge resolves independently of the segment count and nothing is emitted
     // outside the support the raymarch pair masks to zero.
     float residual = flameCarveResidualStrength();
-#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
     FlameCarrierConstants carrierConstants = flameCarrierConstants(count);
     bool hasCutoff;
     float alphaRef = flameSolveReferenceCutoff(
@@ -488,16 +402,6 @@ FlameWaveIntegral flameWaveOccupancySegments(
     float previousDensity = flameWaveNodeDensity(o + t0 * d, clamp(o.y + t0 * d.y, 0.0, 1.0));
     FlameCarrierState previousState;
     bool previousStateValid = false;
-#else
-    float invScale = flame.waveParams.z;
-    float amp = flame.waveParams.w;
-    float previousDensity = flameWaveNodeDensity(o + t0 * d, clamp(o.y + t0 * d.y, 0.0, 1.0));
-    float previousArgument = 0.0;
-    float previousShapedNoise = 0.4375;
-    float previousSigma = 0.0;
-    float previousRemapScale = 1.0;
-    bool previousArgumentValid = false;
-#endif
     for (int segment = 0; segment < FLAME_WAVE_SEGMENTS; ++segment) {
         float tPrev = t0 + float(segment) * dt;
         float t = tPrev + dt;
@@ -506,11 +410,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
         float density = flameWaveNodeDensity(p, h);
         if (previousDensity <= 0.0 && density <= 0.0) {
             previousDensity = density;
-#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
             previousStateValid = false;
-#else
-            previousArgumentValid = false;
-#endif
             continue;
         }
         bool entering = previousDensity <= 0.0;
@@ -520,16 +420,11 @@ FlameWaveIntegral flameWaveOccupancySegments(
         float span = segEnd - segStart;
         if (span < 1e-4 * dt) {
             previousDensity = density;
-#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
             previousStateValid = false;
-#else
-            previousArgumentValid = false;
-#endif
             continue;
         }
         float densityStart = entering ? 0.0 : previousDensity;
         float densityEnd = exiting ? 0.0 : density;
-#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
         if (entering || !previousStateValid) {
             float tEval = entering ? segStart : tPrev;
             vec3 pEval = o + tEval * d;
@@ -548,47 +443,6 @@ FlameWaveIntegral flameWaveOccupancySegments(
         vec2 carved = flameWaveSegmentCarvedV5(
             o, d, segStart, segEnd, span, densityStart, densityEnd,
             carrierConstants, hasCutoff, alphaRef, previousState, currentState, residual);
-#else
-        if (entering) {
-            vec3 pStart = o + segStart * d;
-            previousArgument = flameWaveNodeArgumentLocal(
-                pStart, d, clamp(pStart.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
-                previousShapedNoise, previousSigma, previousRemapScale);
-        } else if (!previousArgumentValid) {
-            vec3 pPrev = o + tPrev * d;
-            float hPrev = clamp(pPrev.y, 0.0, 1.0);
-            previousArgument = flameWaveNodeArgumentLocal(
-                pPrev, d, hPrev, previousDensity, dt, count, eddyTime,
-                previousShapedNoise, previousSigma, previousRemapScale);
-        }
-        float currentShapedNoise;
-        float currentSigma;
-        float currentRemapScale;
-        float argument;
-        if (exiting) {
-            vec3 pEnd = o + segEnd * d;
-            argument = flameWaveNodeArgumentLocal(
-                pEnd, d, clamp(pEnd.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
-                currentShapedNoise, currentSigma, currentRemapScale);
-        } else {
-            argument = flameWaveNodeArgumentLocal(p, d, h, density, dt, count, eddyTime,
-                currentShapedNoise, currentSigma, currentRemapScale);
-        }
-
-        FlameSegmentNodes nodes;
-        nodes.argumentStart = previousArgument;
-        nodes.argumentEnd = argument;
-        nodes.shapedStart = previousShapedNoise;
-        nodes.shapedEnd = currentShapedNoise;
-        nodes.sigmaStart = previousSigma;
-        nodes.sigmaEnd = currentSigma;
-        nodes.remapStart = previousRemapScale;
-        nodes.remapEnd = currentRemapScale;
-        nodes.densityStart = densityStart;
-        nodes.densityEnd = densityEnd;
-        vec2 carved = flameWaveSegmentCarved(
-            nodes, o, d, segStart, segEnd, span, residual, invScale, amp);
-#endif
         float emission = max(carved.x, 0.0);
         float tMean = carved.x > 1e-6
             ? clamp(carved.y / carved.x, segStart, segEnd)
@@ -615,16 +469,8 @@ FlameWaveIntegral flameWaveOccupancySegments(
         }
 
         previousDensity = density;
-#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
         previousState = currentState;
         previousStateValid = !exiting;
-#else
-        previousArgument = argument;
-        previousShapedNoise = currentShapedNoise;
-        previousSigma = currentSigma;
-        previousRemapScale = currentRemapScale;
-        previousArgumentValid = !exiting;
-#endif
     }
     return acc;
 }

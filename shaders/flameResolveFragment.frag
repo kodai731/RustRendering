@@ -617,13 +617,20 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
             : mix(vec3(1.0), vec3(0.1, 0.25, 0.9), -oct);
         return vec4(c, 1.0);
     }
+    // v5 node quantities at the densest node: resolved slow carrier through the
+    // tanh conditional mean, and the folded (uncaptured) sigma the response sees.
     float eddyTime = flame.noiseScrollSpeed * flame.time;
     int count = min(int(flame.waveParams.x), FLAME_WAVE_EROSION_SLOTS);
-    float shapedNoise;
-    float sigmaNoise;
-    float remapScale;
-    float argument = flameWaveNodeArgumentLocal(
-        p, d, h, bestDensity, dt, count, eddyTime, shapedNoise, sigmaNoise, remapScale);
+    FlameCarrierConstants cc = flameCarrierConstants(count);
+    bool hasCutoff;
+    float alphaRef = flameSolveReferenceCutoff(o, d, tNear, tFar - tNear, cc, hasCutoff);
+    FlameCarrierState state = flameCarrierSlowState(
+        flameBuildWarpFrame(p, d, h), count, eddyTime, cc, hasCutoff, alphaRef);
+    float captured = flameCapturedPower(state, hasCutoff, alphaRef);
+    float sigmaNoise = sqrt(cc.sigmaBase * cc.sigmaBase + max(cc.modalPower - captured, 0.0));
+    float shapedNoise = 0.4375 + flameShapedDeltaMean(state.zSlow, sigmaNoise);
+    float argument = flameErodedArgument(
+        bestDensity, flameNoiseErosionFromValue(shapedNoise, h, bestDensity));
     if (push.debugView == 1) {
         float v = (shapedNoise - 0.4375) / max(flame.waveParams.w, 1e-4);
         return vec4(flameDebugDiverging(v), 1.0);
