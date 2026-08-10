@@ -35,6 +35,31 @@ fn env_usize(name: &str, default: usize) -> usize {
         .unwrap_or(default)
 }
 
+/// Segment estimator selection. Legacy mirrors the GPU value-sampling path
+/// bit-for-bit; Faddeeva is the continuous-functional estimator under
+/// validation (THYLLORE_FLAME_TRACE_INTEGRATOR=faddeeva).
+#[derive(Clone, Copy, PartialEq)]
+enum SegmentIntegrator {
+    Legacy,
+    Faddeeva,
+}
+
+impl SegmentIntegrator {
+    fn from_env() -> Self {
+        match std::env::var("THYLLORE_FLAME_TRACE_INTEGRATOR").as_deref() {
+            Ok("faddeeva") => SegmentIntegrator::Faddeeva,
+            _ => SegmentIntegrator::Legacy,
+        }
+    }
+
+    fn name(&self) -> &'static str {
+        match self {
+            SegmentIntegrator::Legacy => "legacy",
+            SegmentIntegrator::Faddeeva => "faddeeva",
+        }
+    }
+}
+
 fn glsl_fract(x: f32) -> f32 {
     x - x.floor()
 }
@@ -480,6 +505,19 @@ impl<'a> UboCtx<'a> {
         d_smooth - (erosion.max(0.0) + erosion.min(0.0) * self.envelope_fade(d_smooth))
     }
 
+    /// d(shaped)/dz of the tanh noise shaping, expressed through the shaped
+    /// value itself (the chain-rule scale from z units to argument units).
+    fn shaping_deriv(&self, shaped: f32) -> f32 {
+        let inv_scale = self.u.wave_params[2];
+        let amp = self.u.wave_params[3];
+        if inv_scale > 0.0 {
+            let tval = (shaped - 0.4375) / amp;
+            amp * inv_scale * (1.0 - tval * tval)
+        } else {
+            1.0
+        }
+    }
+
     /// Statistical linearization of the tanh shaping for Gaussian carrier z
     /// of std `sigma_z`: least-squares gain (= E[d shaped/dz] by Stein's
     /// lemma) and the distortion std left outside the linear part. The gain
@@ -586,11 +624,15 @@ impl<'a> UboCtx<'a> {
         }
     }
 
-    /// Point evaluation of the shaped erosion at a node (mirror of
-    /// flameWaveModeSum / flameWaveNoiseSum), with every intermediate
-    /// recorded. Every mode enters at full value — resolution handling lives
-    /// in the v5 capture cutoff, not in a node-spacing low-pass.
-    fn node_argument(&self, p: [f32; 3], d: [f32; 3], h: f32, density: f32) -> NodeArgument {
+    /// flameWaveNodeArgumentLocal with every intermediate recorded.
+    fn node_argument(
+        &self,
+        p: [f32; 3],
+        d: [f32; 3],
+        h: f32,
+        density: f32,
+        dt: f32,
+    ) -> NodeArgument {
         let WaveFrame {
             pb,
             q,
@@ -603,9 +645,12 @@ impl<'a> UboCtx<'a> {
         let eddy_time = self.u.noise_scroll_speed * self.u.time;
         let count = (self.u.wave_params[0] as usize).min(EROSION_SLOTS);
         let mut z_low = 0.0f32;
-        let mut z = 0.0f32;
+        let mut unresolved = 0.0f32;
         let mut mode_values = Vec::new();
+        let mut mode_weights = Vec::new();
+        let record_modes = dt > 0.0;
         for pass in 0..2 {
+            let mut z_acc = 0.0f32;
             for n in 0..count {
                 let (kv, ph) = self.wave_mode(n);
                 let is_high = ph[2] != 0.0;
@@ -620,17 +665,58 @@ impl<'a> UboCtx<'a> {
                     self.u.wave_jitter[jn][2],
                 ];
                 let angle = dot3(k, w) + ph[0] + ph[1] * eddy_time + dot3(jit, jitter_psi);
+                let beta_phase = dot3(k, rate) + dot3(jit, jitter_psi_rate);
+                let beta = beta_phase * dt / std::f32::consts::PI;
+                let b2 = beta * beta;
+                let weight = (-b2 * b2).exp();
                 let carrier = angle.sin();
                 if pass == 0 {
-                    z_low += kv[3] * carrier;
-                    z += kv[3] * carrier;
+                    z_acc += weight * kv[3] * carrier;
+                    unresolved += 0.5 * kv[3] * kv[3] * (1.0 - weight * weight);
                 } else {
-                    z += (1.0 + ph[2] * z_low) * kv[3] * carrier;
+                    let envelope = 1.0 + ph[2] * z_low;
+                    z_acc += envelope * weight * kv[3] * carrier;
+                    unresolved +=
+                        envelope * envelope * 0.5 * kv[3] * kv[3] * (1.0 - weight * weight);
                 }
-                mode_values.push(kv[3] * carrier);
+                if record_modes {
+                    mode_values.push(kv[3] * carrier);
+                    mode_weights.push(weight);
+                }
+            }
+            if pass == 0 {
+                z_low = z_acc;
+            } else {
+                z_low += z_acc; // z = z_low + high sum; reuse variable below
             }
         }
+        let z = z_low; // after both passes z_low holds the full sum
+                       // Recompute the true z_low (first pass only) for the record.
+        let mut z_low_only = 0.0f32;
+        for n in 0..count {
+            let (kv, ph) = self.wave_mode(n);
+            if ph[2] != 0.0 {
+                continue;
+            }
+            let k = [kv[0], kv[1], kv[2]];
+            let jit = [
+                self.u.wave_jitter[n][0],
+                self.u.wave_jitter[n][1],
+                self.u.wave_jitter[n][2],
+            ];
+            let angle = dot3(k, w) + ph[0] + ph[1] * eddy_time + dot3(jit, jitter_psi);
+            let beta_phase = dot3(k, rate) + dot3(jit, jitter_psi_rate);
+            let beta = beta_phase * dt / std::f32::consts::PI;
+            let b2 = beta * beta;
+            let weight = (-b2 * b2).exp();
+            z_low_only += weight * kv[3] * angle.sin();
+        }
 
+        let mut unresolved_total = unresolved + self.u.wave_cf_params[2];
+        let env_skip = 1.0 + self.u.wave_params[1] * z_low_only;
+        unresolved_total += self.u.wave_cf_params[3] * env_skip * env_skip;
+
+        let sigma_noise = unresolved_total.sqrt();
         let inv_scale = self.u.wave_params[2];
         let amp = self.u.wave_params[3];
         let shaped = if inv_scale > 0.0 {
@@ -652,9 +738,10 @@ impl<'a> UboCtx<'a> {
             rate,
             jitter_psi,
             jitter_psi_rate,
-            z_low,
+            z_low: z_low_only,
             z,
             shaped,
+            sigma_noise,
             lambda,
             mu,
             strain,
@@ -662,6 +749,7 @@ impl<'a> UboCtx<'a> {
             envelope_fade: self.envelope_fade(density),
             argument,
             mode_values,
+            mode_weights,
         }
     }
 
@@ -969,7 +1057,8 @@ struct SegmentEstimate {
     integral: f32,
     first_moment: f32,
     sigma: f32,
-    shaping_gain: f32,
+    shaping_deriv: f32,
+    linear_correction: f32,
 }
 
 /// Faddeeva estimator v3 (continuous ray integrator P1b, deep-modulation
@@ -1173,7 +1262,8 @@ fn faddeeva_segment_estimate(
         integral,
         first_moment,
         sigma: sigma_smooth,
-        shaping_gain: gain,
+        shaping_deriv: gain,
+        linear_correction: 0.0,
     }
 }
 
@@ -1187,6 +1277,7 @@ struct NodeArgument {
     z_low: f32,
     z: f32,
     shaped: f32,
+    sigma_noise: f32,
     lambda: f32,
     mu: f32,
     strain: f32,
@@ -1194,6 +1285,7 @@ struct NodeArgument {
     envelope_fade: f32,
     argument: f32,
     mode_values: Vec<f32>,
+    mode_weights: Vec<f32>,
 }
 
 fn slab_interval(origin_y: f32, dir_y: f32, t_max: f32) -> Option<(f32, f32)> {
@@ -1251,6 +1343,7 @@ pub fn trace_flame_field(ubo: &FlameUBO, view: &WallProbeView) -> Value {
     let cols = env_usize("THYLLORE_FLAME_TRACE_COLS", 13);
     let rows = env_usize("THYLLORE_FLAME_TRACE_ROWS", 49);
     let segments = env_usize("THYLLORE_FLAME_TRACE_SEGMENTS", SEGMENTS);
+    let integrator = SegmentIntegrator::from_env();
     let apply_jitter = env_usize("THYLLORE_FLAME_TRACE_JITTER", 1) != 0;
     let inverse_model = ubo.inverse_model;
     let ctx = UboCtx::new(ubo, view.position);
@@ -1316,6 +1409,7 @@ pub fn trace_flame_field(ubo: &FlameUBO, view: &WallProbeView) -> Value {
                 row as f32,
                 apply_jitter,
                 segments,
+                integrator,
             );
             let mut obj = ray;
             obj["ndc"] = json!([round5(ndc[0]), round5(ndc[1])]);
@@ -1327,7 +1421,7 @@ pub fn trace_flame_field(ubo: &FlameUBO, view: &WallProbeView) -> Value {
     json!({
         "schema": "flame-field-trace-v1",
         "segments": segments,
-        "integrator": "v5",
+        "integrator": integrator.name(),
         "grid": {"cols": cols, "rows": rows},
         "mode_trace_ray": {"col": mode_trace_ray.0, "row": mode_trace_ray.1},
         "view": {
@@ -1393,6 +1487,7 @@ fn trace_ray(
     row: f32,
     apply_jitter: bool,
     segments: usize,
+    integrator: SegmentIntegrator,
 ) -> Value {
     let mut t0 = t0;
     let dt = (t1 - t0) / segments as f32;
@@ -1410,7 +1505,7 @@ fn trace_ray(
         let h = p[1].clamp(0.0, 1.0);
         let nd = ctx.node_density(p, h);
         let arg = if nd.density > 0.0 {
-            Some(ctx.node_argument(p, d, h, nd.density))
+            Some(ctx.node_argument(p, d, h, nd.density, dt))
         } else {
             None
         };
@@ -1435,30 +1530,48 @@ fn trace_ray(
     };
     let argument_at = |t: f32, density: f32| -> NodeArgument {
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
-        ctx.node_argument(p, d, p[1].clamp(0.0, 1.0), density)
+        ctx.node_argument(p, d, p[1].clamp(0.0, 1.0), density, dt)
     };
 
     // Segment walk (mirror of flameWaveOccupancySegments, rte = true).
-    let carrier = ctx.carrier_amplitudes();
-    let carrier_chain = ctx.shaping_statistical_gain(carrier.sigma_z);
-    let alpha_ref = solve_reference_cutoff(
-        ctx,
-        o,
-        d,
-        t0,
-        dt * segments as f32,
-        &carrier,
-        carrier_chain.0,
-        carrier_chain.1,
-    );
+    let carrier = match integrator {
+        SegmentIntegrator::Faddeeva => Some(ctx.carrier_amplitudes()),
+        SegmentIntegrator::Legacy => None,
+    };
+    let carrier_chain = carrier
+        .as_ref()
+        .map(|c| ctx.shaping_statistical_gain(c.sigma_z))
+        .unwrap_or((1.0, 0.0));
+    let alpha_ref = match (&integrator, &carrier) {
+        (SegmentIntegrator::Faddeeva, Some(c)) => solve_reference_cutoff(
+            ctx,
+            o,
+            d,
+            t0,
+            dt * segments as f32,
+            c,
+            carrier_chain.0,
+            carrier_chain.1,
+        ),
+        _ => f32::INFINITY,
+    };
     let state_at = |t: f32| -> CarrierSlowState {
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
-        ctx.carrier_slow_state(p, d, p[1].clamp(0.0, 1.0), &carrier, alpha_ref)
+        ctx.carrier_slow_state(
+            p,
+            d,
+            p[1].clamp(0.0, 1.0),
+            carrier.as_ref().expect("carrier"),
+            alpha_ref,
+        )
     };
-    let node_states: Vec<Option<CarrierSlowState>> = nodes
-        .iter()
-        .map(|(t, nd, _)| (nd.density > 0.0).then(|| state_at(*t)))
-        .collect();
+    let node_states: Vec<Option<CarrierSlowState>> = match integrator {
+        SegmentIntegrator::Faddeeva => nodes
+            .iter()
+            .map(|(t, nd, _)| (nd.density > 0.0).then(|| state_at(*t)))
+            .collect(),
+        SegmentIntegrator::Legacy => Vec::new(),
+    };
     let residual = ctx.u.near_fade_params[1].clamp(0.0, 1.0);
     let mut total = 0.0f32;
     let mut height_mean_num = 0.0f32;
@@ -1513,39 +1626,74 @@ fn trace_ray(
 
         let h_mid = (o[1] + (seg_start + 0.5 * span) * d[1]).clamp(0.0, 1.0);
         let fade_avg = 0.5 * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
-        let start_state = if entering {
-            state_at(seg_start)
-        } else {
-            match &node_states[segment] {
-                Some(state) => *state,
-                None => state_at(seg_start),
+        let estimate = match integrator {
+            SegmentIntegrator::Legacy => {
+                let shaping_deriv_avg =
+                    0.5 * (ctx.shaping_deriv(start_arg.shaped) + ctx.shaping_deriv(end_arg.shaped));
+                let mut sigma_eff = 0.5
+                    * (start_arg.sigma_noise + end_arg.sigma_noise)
+                    * shaping_deriv_avg
+                    * ctx.u.noise_amplitude.abs()
+                    * ctx.tip_carve_lambda(h_mid)
+                    * (0.5 * (density_start + density_end) / EROSION_SHELL_REF)
+                    * 0.5
+                    * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
+                let slope = (end_arg.argument - start_arg.argument) / span;
+                sigma_eff = sigma_eff.max(
+                    ctx.unified_sigma_floor(h_mid, 0.5 * (density_start + density_end)) * fade_avg,
+                );
+                let (integral, first_moment) = integrate_erf_response_linear(
+                    &ctx.erf,
+                    sigma_eff,
+                    start_arg.argument - slope * seg_start,
+                    slope,
+                    seg_start,
+                    seg_end,
+                );
+                SegmentEstimate {
+                    integral,
+                    first_moment,
+                    sigma: sigma_eff,
+                    shaping_deriv: shaping_deriv_avg,
+                    linear_correction: 0.0,
+                }
+            }
+            SegmentIntegrator::Faddeeva => {
+                let start_state = if entering {
+                    state_at(seg_start)
+                } else {
+                    match &node_states[segment] {
+                        Some(state) => *state,
+                        None => state_at(seg_start),
+                    }
+                };
+                let end_state = if exiting {
+                    state_at(seg_end)
+                } else {
+                    match &node_states[segment + 1] {
+                        Some(state) => *state,
+                        None => state_at(seg_end),
+                    }
+                };
+                faddeeva_segment_estimate(
+                    ctx,
+                    o,
+                    d,
+                    seg_start,
+                    seg_end,
+                    density_start,
+                    density_end,
+                    h_mid,
+                    fade_avg,
+                    carrier.as_ref().expect("carrier amplitudes"),
+                    carrier_chain.0,
+                    carrier_chain.1,
+                    alpha_ref,
+                    &start_state,
+                    &end_state,
+                )
             }
         };
-        let end_state = if exiting {
-            state_at(seg_end)
-        } else {
-            match &node_states[segment + 1] {
-                Some(state) => *state,
-                None => state_at(seg_end),
-            }
-        };
-        let estimate = faddeeva_segment_estimate(
-            ctx,
-            o,
-            d,
-            seg_start,
-            seg_end,
-            density_start,
-            density_end,
-            h_mid,
-            fade_avg,
-            &carrier,
-            carrier_chain.0,
-            carrier_chain.1,
-            alpha_ref,
-            &start_state,
-            &end_state,
-        );
         let (mut integral, mut first_moment) = (estimate.integral, estimate.first_moment);
         if residual > 0.0 {
             let plain_slope = (density_end - density_start) / span;
@@ -1624,7 +1772,8 @@ fn trace_ray(
             "arg_start": round5(start_arg.argument),
             "arg_end": round5(end_arg.argument),
             "sigma_eff": round5(estimate.sigma),
-            "shaping_gain": round5(estimate.shaping_gain),
+            "shaping_deriv_avg": round5(estimate.shaping_deriv),
+            "linear_correction": round5(estimate.linear_correction),
             "emission": round5(emission),
             "t_mean": round5(t_mean),
             "h_mean": round5(h_mean),
@@ -1686,7 +1835,7 @@ fn trace_ray(
             let p = [o[0] + tf * d[0], o[1] + tf * d[1], o[2] + tf * d[2]];
             let h = p[1].clamp(0.0, 1.0);
             let nd = ctx.node_density(p, h);
-            let a = ctx.node_argument(p, d, h, nd.density);
+            let a = ctx.node_argument(p, d, h, nd.density, dt);
             json!({
                 "t": round5(tf),
                 "h": round5(h),
@@ -1699,6 +1848,7 @@ fn trace_ray(
                 "z_low": round5(a.z_low),
                 "z": round5(a.z),
                 "shaped_noise": round5(a.shaped),
+                "sigma_noise": round5(a.sigma_noise),
                 "lambda": round5(a.lambda),
                 "mu": round5(a.mu),
                 "strain": round5(a.strain),
@@ -1739,6 +1889,7 @@ fn trace_ray(
         "z_low": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.z_low))),
         "z": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.z))),
         "shaped_noise": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.shaped))),
+        "sigma_noise": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.sigma_noise))),
         "lambda": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.lambda))),
         "mu": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.mu))),
         "strain": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.strain))),
@@ -1753,6 +1904,12 @@ fn trace_ray(
                 nodes
                     .iter()
                     .map(|(_, _, a)| a.as_ref().map_or(json!(null), |a| vec_json(&a.mode_values)))
+                    .collect(),
+            ),
+            "per_node_mode_weights": Value::Array(
+                nodes
+                    .iter()
+                    .map(|(_, _, a)| a.as_ref().map_or(json!(null), |a| vec_json(&a.mode_weights)))
                     .collect(),
             ),
         })
@@ -1794,6 +1951,7 @@ fn clone_argument(a: &NodeArgument) -> NodeArgument {
         z_low: a.z_low,
         z: a.z,
         shaped: a.shaped,
+        sigma_noise: a.sigma_noise,
         lambda: a.lambda,
         mu: a.mu,
         strain: a.strain,
@@ -1801,6 +1959,7 @@ fn clone_argument(a: &NodeArgument) -> NodeArgument {
         envelope_fade: a.envelope_fade,
         argument: a.argument,
         mode_values: a.mode_values.clone(),
+        mode_weights: a.mode_weights.clone(),
     }
 }
 
@@ -1846,8 +2005,8 @@ mod tests {
         }
     }
 
-    /// The v5 estimator must produce finite, non-trivial emission on the
-    /// default effect (direct trace_ray call — no env, race-free).
+    /// The Faddeeva estimator must produce finite, non-trivial emission on
+    /// the default effect (direct trace_ray call — no env, race-free).
     #[test]
     fn test_faddeeva_ray_produces_finite_emission() {
         let effect = FlameEffect::default();
@@ -1856,12 +2015,16 @@ mod tests {
         let o = [0.0, 0.5, 3.0];
         let d = [0.0, 0.0, -1.0];
         let sigma_rgb = [ubo.sigma_t; 3];
-        let ray = trace_ray(&ctx, o, d, 2.0, 4.0, sigma_rgb, false, 0.0, 0.0, false, 64);
-        let total = ray["final"]["emission_total"].as_f64().unwrap();
-        assert!(total.is_finite(), "emission not finite");
-        assert!(total > 0.0, "no emission through the flame center");
-        for value in ray["final"]["radiance"].as_array().unwrap() {
-            assert!(value.as_f64().unwrap().is_finite());
+        for integrator in [SegmentIntegrator::Legacy, SegmentIntegrator::Faddeeva] {
+            let ray = trace_ray(
+                &ctx, o, d, 2.0, 4.0, sigma_rgb, false, 0.0, 0.0, false, 64, integrator,
+            );
+            let total = ray["final"]["emission_total"].as_f64().unwrap();
+            assert!(total.is_finite(), "emission not finite");
+            assert!(total > 0.0, "no emission through the flame center");
+            for value in ray["final"]["radiance"].as_array().unwrap() {
+                assert!(value.as_f64().unwrap().is_finite());
+            }
         }
     }
 }

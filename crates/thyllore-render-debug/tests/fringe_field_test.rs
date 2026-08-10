@@ -2,6 +2,7 @@ use thyllore_render_core::flame_wave::*;
 use thyllore_render_debug::fringe_field::{flow_warp_with_rate, sample_wave_field, WarpParams};
 use thyllore_render_debug::flame_wave_mirror::{
     evaluate_wave_displacement_warp_with_rate, evaluate_wave_flow_warp_with_rate,
+    evaluate_wave_noise_local_lowpass_reduced,
 };
 
 /// 5 deterministic (w, rate) pairs for testing.
@@ -13,6 +14,32 @@ const TEST_CASES: &[[f32; 6]] = &[
     [3.14, 0.0, 0.0, 0.0, 0.0, 0.0],
 ];
 
+#[test]
+fn test_sample_wave_field_matches_mirror() {
+    let modes = generate_wave_modes();
+    let node_spacing = 0.05;
+    let eddy_time = 1.234;
+
+    for case in TEST_CASES {
+        let w = [case[0], case[1], case[2]];
+        let rate = [case[3], case[4], case[5]];
+
+        let sample = sample_wave_field(&modes, w, rate, node_spacing, eddy_time, [0.0, 0.0], 0.0);
+        let (noise_ref, sigma_ref) =
+            evaluate_wave_noise_local_lowpass_reduced(&modes, w, rate, node_spacing, eddy_time, None, [0.0, 0.0], 0.0);
+
+        assert!(
+            sample.noise == noise_ref,
+            "w={:?} rate={:?}: noise mismatch: got {:?}, expected {:?}",
+            w, rate, sample.noise, noise_ref
+        );
+        assert!(
+            sample.sigma == sigma_ref,
+            "w={:?} rate={:?}: sigma mismatch: got {:?}, expected {:?}",
+            w, rate, sample.sigma, sigma_ref
+        );
+    }
+}
 
 #[test]
 fn test_mode_contrib_sum_matches_z() {

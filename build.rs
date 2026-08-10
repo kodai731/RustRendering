@@ -99,6 +99,9 @@ fn compile_shaders() {
             if let Ok(val) = std::env::var("THYLLORE_FLAME_WAVE_SEGMENTS") {
                 cmd.arg(format!("-DFLAME_WAVE_SEGMENTS_OVERRIDE={}", val));
             }
+            if std::env::var("THYLLORE_FLAME_WAVE_INTEGRATOR").as_deref() == Ok("continuous") {
+                cmd.arg("-DFLAME_WAVE_CONTINUOUS_INTEGRATOR");
+            }
             cmd.arg("-o").arg(out_path.to_str().unwrap());
             let output = cmd.output();
 
