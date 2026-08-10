@@ -5,6 +5,8 @@ mod compact_support;
 pub mod coordinate_system;
 mod faddeeva;
 pub use faddeeva::*;
+mod height_falloff;
+pub use height_falloff::*;
 mod erf_moments;
 mod erf_response;
 mod oscillatory_response;
@@ -13,11 +15,13 @@ mod matrix;
 mod quaternion;
 mod vector;
 mod winding;
+mod smooth_step;
 
 pub use billboard::*;
 pub use bridge_fit::*;
 pub use chebyshev::*;
 pub use compact_support::*;
+pub use smooth_step::*;
 pub use coordinate_system::{
     blender_to_world, fbx_to_world, fix_coord, get_camera_axes_from_view, gltf_to_world,
     perspective, ray_plane_intersection, ray_to_line_segment_distance, ray_to_point_distance,

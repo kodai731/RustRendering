@@ -1,28 +1,12 @@
-// ============================================================================
-// Continuous ray integrator "v5" — REFERENCE ONLY, NOT COMPILED ANYWHERE.
+// Continuous ray integrator — REFERENCE ONLY, NOT COMPILED ANYWHERE.
 //
-// Status: 不採用 (2026-08-10)。数値ゲートは全 PASS (縞源④消滅 = fine 帯が
-// raymarch512 真値と一致、flame pass 2 倍高速) だったが、速いモードを統計
-// (σ 折込) に置き換える設計の帰結として彫りの実現値細部が失われ、実機の
-// 見た目で棄却された (commit cd7fa5c8 -> revert fe9c4cdc)。
-//
-// 本番シェーダ (shaders/) からは撤去済み。動く実装はこの crate の CPU mirror
-// (src/flame_field_trace.rs, THYLLORE_FLAME_TRACE_INTEGRATOR=faddeeva) が
-// 唯一で、縞診断のリファレンスとして温存する。GLSL 版を復元する場合は
-// git 履歴 (3f62c3e5 の #ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR ブロック +
-// build.rs の THYLLORE_FLAME_WAVE_INTEGRATOR 分岐) を参照。
-// 設計 SSoT: SharedData .../field_only_noise_20260806/
-//            20260809_continuous_ray_integrator_redesign.md
-// ============================================================================
-
-// ---- v5 carrier statistics (from flame_noise_field.glsl) ----
-
-// ---- Continuous ray integrator (v5) carrier statistics ----
 // Modes below a ray-fixed reference cutoff are resolved as exact values; the
-// uncaptured share folds into the response sigma through the tanh conditional
-// statistics, with the fold adapting per segment through log2(|omega|) band
-// powers. Mirrored in thyllore-render-debug/src/flame_field_trace.rs
-// (carrier_amplitudes / carrier_slow_state / shaped_delta_mean).
+// uncaptured share folds into response sigma through tanh conditional statistics.
+
+// Carrier statistics: non-modal unresolved std, total std, total modal power,
+// the smallest wave number (band grid scale), the low-band power feeding the
+// statistical envelope, and the tanh statistical-linearization gain and
+// distortion residual.
 const int FLAME_CAPTURE_BANDS = 8;
 const float FLAME_INV_SQRT2 = 0.70710678;
 
@@ -180,11 +164,8 @@ float flameFoldedSigmaArgument(
         * (cc.gain * cc.gain * baseZ + cc.distortion * cc.distortion));
 }
 
-// ---- v5 walk pieces / walk branches (from flame_radial_integral.glsl) ----
-
-// ---- Continuous ray integrator (v5) walk pieces ----
-// Mirrored in thyllore-render-debug/src/flame_field_trace.rs
-// (mean_argument_at / solve_reference_cutoff / faddeeva_segment_estimate).
+// Walk pieces: mean argument computation, reference cutoff determination via
+// shell crossing detection, and per-segment erf closed-form integration.
 const int FLAME_CROSSING_SCAN_INTERVALS = 256;
 const int FLAME_CROSSING_BISECTION_STEPS = 20;
 

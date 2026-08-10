@@ -1,5 +1,6 @@
 use crate::flame::FlameEffect;
 use thyllore_math_core::{evaluate_chebyshev, ChebyshevSeries};
+use thyllore_texture_fit_core::FlameTexturePrep;
 
 /// Abel projection of a biweight density row.
 ///
@@ -46,58 +47,6 @@ pub fn project_profile(effect: &FlameEffect, heights: &[f32], columns: &[f32]) -
                 .collect()
         })
         .collect()
-}
-
-/// RMS residual between two projection matrices after normalizing each by its maximum value.
-///
-/// If a matrix's max ≤ 0, it is treated as a zero matrix.
-pub fn projection_residual(model: &[Vec<f32>], target: &[Vec<f32>]) -> f32 {
-    let model_max = model
-        .iter()
-        .flatten()
-        .fold(f32::NEG_INFINITY, |acc, &v| acc.max(v));
-    let target_max = target
-        .iter()
-        .flatten()
-        .fold(f32::NEG_INFINITY, |acc, &v| acc.max(v));
-
-    let model_scale = if model_max <= 0.0 {
-        1.0
-    } else {
-        1.0 / model_max
-    };
-    let target_scale = if target_max <= 0.0 {
-        1.0
-    } else {
-        1.0 / target_max
-    };
-
-    let mut sum_sq = 0.0;
-    let mut count = 0usize;
-
-    for (row_m, row_t) in model.iter().zip(target.iter()) {
-        for (&v_m, &v_t) in row_m.iter().zip(row_t.iter()) {
-            let diff = v_m * model_scale - v_t * target_scale;
-            sum_sq += diff * diff;
-            count += 1;
-        }
-    }
-
-    if count == 0 {
-        return 0.0;
-    }
-    (sum_sq / count as f32).sqrt()
-}
-
-pub struct FlameTexturePrep {
-    pub sym: Vec<Vec<f32>>,
-    pub residual_rms: f32,
-    pub axis_slope: f32,
-    pub boundary_wiggle_amp: f32,
-    pub residual_corr: f32,
-    pub branch_count: usize,
-    pub aspect_ratio: f32,
-    pub row_chroma: Vec<[f32; 3]>,
 }
 
 pub struct FlameTextureFit {

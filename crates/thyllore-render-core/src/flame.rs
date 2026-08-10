@@ -2,9 +2,10 @@ use std::sync::OnceLock;
 
 use crate::flame_trail::{flame_trail_fade_weight, FlameTrailSample, FlameTrailState};
 use cgmath::{Deg, InnerSpace, Matrix3, Matrix4, Quaternion, Vector2, Vector3, Vector4};
+use thyllore_color_core::blackbody_rgb;
 use thyllore_math_core::{
     evaluate_chebyshev, fit_chebyshev, fit_erf_response, integrate_chebyshev,
-    pack_coefficients_vec4,
+    pack_coefficients_vec4, parametric_height_falloff, smooth_step,
 };
 
 static WAVE_K_RATIO_ENV: OnceLock<f32> = OnceLock::new();
@@ -249,55 +250,6 @@ fn biweight_radial_falloff(radius01: f64, radial_sharpness: f32) -> f64 {
     let support = crate::flame_radial::flame_radial_support_radius(radial_sharpness) as f64;
     let inside = (1.0 - (radius01 / support) * (radius01 / support)).max(0.0);
     inside * inside
-}
-
-/// Smooth step function S(x) = x*x*(3-2x).
-fn smooth_step(x: f64) -> f64 {
-    let x = x.clamp(0.0, 1.0);
-    x * x * (3.0 - 2.0 * x)
-}
-
-/// Parametric height falloff using envelope parameters.
-///
-/// p = peak.clamp(0.05, 0.8), v0 = base.clamp(0.0, 0.95), q = tail.clamp(0.5, 4.0)
-/// if h < p: v0 + (1.0 - v0) * S(h/p)
-/// else: (1.0 - S((h-p)/(1.0-p))).powf(q)
-/// Guard: when p >= 1-epsilon and h >= p, return 0 (denominator tiny).
-pub fn parametric_height_falloff(h: f64, peak: f64, base: f64, tail: f64) -> f64 {
-    let p = peak.clamp(0.05, 0.8);
-    let v0 = base.clamp(0.0, 0.95);
-    let q = tail.clamp(0.5, 4.0);
-
-    let result = if h < p {
-        v0 + (1.0 - v0) * smooth_step(h / p)
-    } else {
-        let denom = 1.0 - p;
-        if denom < 1e-9 {
-            0.0
-        } else {
-            (1.0 - smooth_step((h - p) / denom)).powf(q)
-        }
-    };
-
-    result.clamp(0.0, 1.0)
-}
-
-/// Approximate blackbody (Planckian locus) color for a given temperature in Kelvin.
-/// Uses a polynomial approximation valid for 800K-3000K, returning clamped linear RGB [0,1].
-pub fn blackbody_rgb(kelvin: f32) -> [f32; 3] {
-    let t = (kelvin - 800.0) / (3000.0 - 800.0); // normalize to [0, 1]
-    let t2 = t * t;
-    let t3 = t2 * t;
-
-    // Polynomial approximation of Planckian locus for 800K-3000K
-    // R: starts near 1.0 (hot), stays high
-    // G: increases from ~0.1 to ~0.7
-    // B: increases from ~0.0 to ~0.4
-    let r = 1.0 - 0.3 * t + 0.2 * t2;
-    let g = 0.1 + 0.6 * t - 0.15 * t2 + 0.1 * t3;
-    let b = 0.0 + 0.4 * t - 0.2 * t2 + 0.15 * t3;
-
-    [r.clamp(0.0, 1.0), g.clamp(0.0, 1.0), b.clamp(0.0, 1.0)]
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

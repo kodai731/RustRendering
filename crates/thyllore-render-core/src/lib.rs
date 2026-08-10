@@ -3,7 +3,7 @@ mod billboard;
 mod buffer_handle;
 mod flame;
 pub mod flame_field_manifest;
-pub mod flame_fit;
+pub use thyllore_texture_fit_core as flame_fit;
 mod flame_pick;
 pub mod flame_plume;
 mod flame_presets;
@@ -12,7 +12,7 @@ pub mod flame_sdf;
 mod flame_shell;
 mod flame_texture_fit;
 pub mod flame_trail;
-mod flame_wall_probe;
+pub mod debug;
 pub mod flame_wave;
 mod gizmo;
 mod gizmo_data;
@@ -46,7 +46,7 @@ pub use flame_pick::{
 pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
 pub use flame_radial::{
     build_height_series, eroded_argument, envelope_fade, erosion_remap_scale,
-    evaluate_gaussian_moments, evaluate_radial_density_factor, flame_radial_radius_scale,
+    evaluate_gaussian_moments, flame_radial_radius_scale,
     flame_radial_support_radius, ring_support_span, FlameRadialTaper,
 };
 pub use flame_shell::{
@@ -55,7 +55,7 @@ pub use flame_shell::{
 };
 pub use flame_texture_fit::*;
 pub use flame_trail::*;
-pub use flame_wall_probe::{
+pub use debug::flame_wall_probe::{
     probe_flame_wall, WallProbeRay, WallProbeReport, WallProbeView, WALL_PROBE_GRID_COLS,
     WALL_PROBE_GRID_ROWS,
 };

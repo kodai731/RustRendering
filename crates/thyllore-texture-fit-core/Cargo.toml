@@ -1,0 +1,12 @@
+[package]
+name = "thyllore-texture-fit-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Pure texture profile analysis and curve fitting for ThylloreAnimation (luminance, mask, envelope fit, taper fit)"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+thyllore-math-core = { path = "../thyllore-math-core" }
+thyllore-color-core = { path = "../thyllore-color-core" }

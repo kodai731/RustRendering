@@ -1,4 +1,4 @@
-//! Additive erf-bridge model of the erosion threshold response (P4).
+//! Additive erf-bridge model of the erosion threshold response.
 //!
 //! The styled flame field applies `smoothstep(edge_low, edge_high, x)` to the
 //! argument `x = dSmooth - erosion`. The closed-form integrator replaces that
@@ -20,7 +20,7 @@
 //! Mirrored in shaders/include/flame_erosion_response.glsl.
 
 use crate::erf_moments::{erf64, integrate_erf_and_gaussian_powers};
-
+use crate::smooth_step::smooth_step;
 const FIT_SAMPLE_COUNT: usize = 257;
 const FIT_XI_RANGE: f64 = 6.0;
 const KAPPA_WIDTH_FACTOR: f64 = 3.6;
@@ -45,11 +45,6 @@ impl ErfResponseModel {
     }
 }
 
-fn smooth_step01(t: f64) -> f64 {
-    let t = t.clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
 fn psi(t: f64) -> f64 {
     t * (-t * t).exp()
 }
@@ -68,7 +63,7 @@ pub fn fit_erf_response(edge_low: f32, edge_high: f32) -> ErfResponseModel {
     for sample in 0..FIT_SAMPLE_COUNT {
         let xi = -FIT_XI_RANGE + 2.0 * FIT_XI_RANGE * sample as f64 / (FIT_SAMPLE_COUNT - 1) as f64;
         let x = center + xi / kappa;
-        let residual = smooth_step01((x - low) / width) - 0.5 * (1.0 + erf64(xi));
+        let residual = smooth_step((x - low) / width) - 0.5 * (1.0 + erf64(xi));
         let basis = [psi(xi), psi(0.5 * xi)];
         for row in 0..2 {
             rhs[row] += basis[row] * residual;
@@ -178,12 +173,13 @@ pub fn integrate_erf_response_linear(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::smooth_step::smooth_step;
 
     const EDGE_LOW: f32 = 0.27;
     const EDGE_HIGH: f32 = 0.33;
 
     fn smoothstep(low: f64, high: f64, x: f64) -> f64 {
-        smooth_step01((x - low) / (high - low))
+        smooth_step((x - low) / (high - low))
     }
 
     #[test]

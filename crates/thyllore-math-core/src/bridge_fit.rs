@@ -1,7 +1,7 @@
 //! C0 domain-split fit: bounded Chebyshev intervals joined by an erf bridge.
 //!
 //! The bake-side single source of truth for the sharpness-preserving integration
-//! design (P3): a target with one sharp transition at `center` is approximated as
+//! design: a target with one sharp transition at `center` is approximated as
 //!   [domain.0, window.0]  outer Chebyshev (Gauss-Lobatto nodes, exact endpoint values)
 //!   [window.0, window.1]  augmented erf bridge
 //!   [window.1, domain.1]  outer Chebyshev
@@ -271,14 +271,8 @@ fn normalize(vector: &mut [f64; BRIDGE_BASIS_COUNT], norm: f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::smooth_step::smooth_step;
 
-    fn smooth_step(x: f64) -> f64 {
-        let x = x.clamp(0.0, 1.0);
-        x * x * (3.0 - 2.0 * x)
-    }
-
-    /// Sharp smoothstep transition at `center` of width `w` over a smooth background —
-    /// the target family of the scratchpad piecewise_c0 experiments.
     fn sharp_target(x: f64, center: f64, width: f64) -> f64 {
         smooth_step((x - center) / width + 0.5) + 0.25 * (4.0 * x).sin()
     }
@@ -286,7 +280,6 @@ mod tests {
     const CENTER: f64 = 0.42;
     const WIDTH: f64 = 0.03;
     /// One-term erf fit of a smoothstep of width w: erf(k u) with k ~ 3.6 / w
-    /// (experiment A: max err 0.0205 independent of w).
     const SHARPNESS: f64 = 3.6 / WIDTH;
 
     fn fitted_model() -> C0BridgeModel {
@@ -342,8 +335,6 @@ mod tests {
         assert!(max_error < 1e-4, "outer max error {max_error}");
     }
 
-    /// Augmented bridge (erf + Gaussian corrections) target from the scratchpad
-    /// experiments: interior error under 1e-2 across the window.
     #[test]
     fn test_bridge_interior_error_is_small() {
         let model = fitted_model();

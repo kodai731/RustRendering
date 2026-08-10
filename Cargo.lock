@@ -3716,6 +3716,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "thyllore-color-core"
+version = "0.0.1"
+
+[[package]]
 name = "thyllore-exporter-core"
 version = "0.0.1"
 dependencies = [
@@ -3832,8 +3836,10 @@ dependencies = [
  "anyhow",
  "cgmath",
  "thyllore-anim-core",
+ "thyllore-color-core",
  "thyllore-math-core",
  "thyllore-model-core",
+ "thyllore-texture-fit-core",
 ]
 
 [[package]]
@@ -3844,6 +3850,14 @@ dependencies = [
  "serde_json",
  "thyllore-math-core",
  "thyllore-render-core",
+]
+
+[[package]]
+name = "thyllore-texture-fit-core"
+version = "0.0.1"
+dependencies = [
+ "thyllore-color-core",
+ "thyllore-math-core",
 ]
 
 [[package]]

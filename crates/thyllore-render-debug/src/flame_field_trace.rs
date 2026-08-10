@@ -37,10 +37,9 @@ fn env_usize(name: &str, default: usize) -> usize {
 
 /// Segment estimator selection. Legacy mirrors the production GPU
 /// value-sampling path bit-for-bit and is the default. Faddeeva is the
-/// continuous-functional "v5" estimator — **CPU-mirror / fringe-diagnosis
-/// only, never in production**: its GLSL port was rejected for look
-/// (carve detail loss) and removed from shaders/ (reference copy:
-/// reference_glsl/flame_wave_continuous_v5.glsl). Opt in with
+/// continuous-functional estimator — **CPU-mirror / fringe-diagnosis only,
+/// never in production** (reference copy:
+/// reference_glsl/flame_wave_continuous.glsl). Opt in with
 /// THYLLORE_FLAME_TRACE_INTEGRATOR=faddeeva.
 #[derive(Clone, Copy, PartialEq)]
 enum SegmentIntegrator {
@@ -1031,7 +1030,7 @@ struct CarrierAmplitudes {
     k_min: f32,
 }
 
-/// Per-node carrier state (v5): the resolved slow value is exact at the
+/// Per-node carrier state: the resolved slow value is exact at the
 /// ray-fixed reference cutoff; the band powers let a segment evaluate the
 /// sigma-side folded power at any local cutoff without per-mode state.
 #[derive(Clone, Copy)]
@@ -1178,7 +1177,7 @@ fn solve_reference_cutoff(
     alpha_ref
 }
 
-/// Faddeeva estimator v5 (continuous ray integrator, deep-modulation form):
+/// Faddeeva estimator (continuous ray integrator, deep-modulation form):
 /// modes below the ray's reference cutoff are tracked as exact values inside
 /// the argument (their cutoff sits far below any segment Nyquist, so value
 /// sampling cannot alias); the sigma fold adapts per segment to the realized

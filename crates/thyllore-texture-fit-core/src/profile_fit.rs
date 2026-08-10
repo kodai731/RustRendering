@@ -1,51 +1,4 @@
-/// Standard sRGB component to linear light conversion (piecewise).
-pub fn srgb_to_linear(c: f32) -> f32 {
-    if c <= 0.04045 {
-        c / 12.92
-    } else {
-        ((c + 0.055) / 1.055).powf(2.4)
-    }
-}
-
-/// Relative luminance from linear RGB (Rec. 709 weights).
-pub fn luminance(rgb: [f32; 3]) -> f32 {
-    0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-}
-
-/// True if any sRGB8 channel is >= 250 (near-clipped to white).
-pub fn is_saturated(srgb8: [u8; 3]) -> bool {
-    srgb8[0] >= 250 || srgb8[1] >= 250 || srgb8[2] >= 250
-}
-
-/// Convert linear RGB to CIE xy chromaticity coordinates via the sRGB D65 matrix.
-/// Returns None if X + Y + Z < 1e-6 (near-black).
-pub fn chromaticity_xy(rgb_linear: [f32; 3]) -> Option<[f32; 2]> {
-    let x = 0.4124 * rgb_linear[0] + 0.3576 * rgb_linear[1] + 0.1805 * rgb_linear[2];
-    let y = 0.2126 * rgb_linear[0] + 0.7152 * rgb_linear[1] + 0.0722 * rgb_linear[2];
-    let z = 0.0193 * rgb_linear[0] + 0.1192 * rgb_linear[1] + 0.9505 * rgb_linear[2];
-    let sum = x + y + z;
-    if sum < 1e-6 {
-        None
-    } else {
-        Some([x / sum, y / sum])
-    }
-}
-
-/// McCamy's approximation of Correlated Color Temperature from xy chromaticity.
-/// Returns None if the denominator is ~0 or the result falls outside 500..=10000 K.
-pub fn mccamy_cct(xy: [f32; 2]) -> Option<f32> {
-    let denom = 0.1858 - xy[1];
-    if denom.abs() < 1e-6 {
-        return None;
-    }
-    let n = (xy[0] - 0.3320) / denom;
-    let cct = 449.0 * n.powi(3) + 3525.0 * n.powi(2) + 6823.3 * n + 5520.33;
-    if cct >= 500.0 && cct <= 10000.0 {
-        Some(cct)
-    } else {
-        None
-    }
-}
+pub use thyllore_color_core::{chromaticity_xy, is_saturated, luminance, mccamy_cct, srgb_to_linear};
 
 /// Percentile by linear interpolation over a sorted slice. Returns None on empty input.
 pub fn percentile(sorted_values: &[f32], p: f32) -> Option<f32> {
@@ -151,11 +104,10 @@ pub fn fit_envelope_from_profile(
                 for i in 0..n {
                     let h = i as f64 / (n - 1) as f64;
                     let envelope =
-                        crate::flame::parametric_height_falloff(h, p as f64, v0 as f64, q as f64);
+                        thyllore_math_core::parametric_height_falloff(h, p as f64, v0 as f64, q as f64);
                     let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
                     model.push(envelope * taper);
                 }
-
                 let model_max = model.iter().cloned().fold(0.0f64, f64::max);
                 if model_max < 1e-9 {
                     continue;
@@ -212,7 +164,7 @@ pub fn fit_envelope_from_profile_saturated(
                     let mut model: Vec<f64> = Vec::with_capacity(n);
                     for i in 0..n {
                         let h = i as f64 / (n - 1) as f64;
-                        let envelope = crate::flame::parametric_height_falloff(
+                        let envelope = thyllore_math_core::parametric_height_falloff(
                             h, p as f64, v0 as f64, q as f64,
                         );
                         let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
@@ -783,7 +735,7 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = crate::flame::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }
@@ -871,7 +823,7 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = crate::flame::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }
@@ -930,7 +882,7 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = crate::flame::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }
@@ -986,7 +938,7 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = crate::flame::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }
