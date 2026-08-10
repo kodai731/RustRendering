@@ -4,6 +4,7 @@ mod buffer_handle;
 mod flame;
 pub mod flame_field_manifest;
 pub use thyllore_texture_fit_core as flame_fit;
+pub mod debug;
 mod flame_pick;
 pub mod flame_plume;
 mod flame_presets;
@@ -12,7 +13,6 @@ pub mod flame_sdf;
 mod flame_shell;
 mod flame_texture_fit;
 pub mod flame_trail;
-pub mod debug;
 pub mod flame_wave;
 mod gizmo;
 mod gizmo_data;
@@ -25,16 +25,20 @@ mod ubo;
 pub use backend::RenderBackend;
 pub use billboard::{BillboardMesh, BillboardTransform, BillboardVertex};
 pub use buffer_handle::{BufferHandle, IndexBufferHandle, VertexBufferHandle};
+pub use debug::flame_wall_probe::{
+    probe_flame_wall, WallProbeRay, WallProbeReport, WallProbeView, WALL_PROBE_GRID_COLS,
+    WALL_PROBE_GRID_ROWS,
+};
 pub use flame::{
     advance_flame_time, build_flame_inverse_model_matrix, build_flame_model_matrix,
-    build_flame_ubo, build_flame_ubo_with_trail, build_warp_strain_params,
-    default_height_falloff, default_radial_falloff,
-    fit_flame_coefficients, flame_bounding_radius, integrate_emission_segment, profile_from_effect,
-    read_env_unified_beta, read_env_unified_tilt_gain_b, read_env_unified_tilt_gain_w,
-    read_env_warp_form_displacement, read_env_wave_unified,
-    refresh_flame_coefficients, FlameCoefficients, FlameDebugView, FlameEffect, FlameProfile,
-    FlameRenderSettings, FlameShadingMode, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT,
-    RADIAL_COEFFICIENT_COUNT, UNIFIED_BOUNDARY_TILT_GAIN, UNIFIED_WIGGLE_TILT_GAIN,
+    build_flame_ubo, build_flame_ubo_with_trail, build_warp_strain_params, default_height_falloff,
+    default_radial_falloff, fit_flame_coefficients, flame_bounding_radius,
+    integrate_emission_segment, profile_from_effect, read_env_unified_beta,
+    read_env_unified_tilt_gain_b, read_env_unified_tilt_gain_w, read_env_warp_form_displacement,
+    read_env_wave_unified, refresh_flame_coefficients, FlameBaked, FlameCoefficients,
+    FlameDebugView, FlameEffect, FlameProfile, FlameRenderSettings, FlameShadingMode,
+    FlameTemporalAccum, FlameUBO, HEIGHT_PRIMITIVE_COEFFICIENT_COUNT, RADIAL_COEFFICIENT_COUNT,
+    UNIFIED_BOUNDARY_TILT_GAIN, UNIFIED_WIGGLE_TILT_GAIN,
 };
 pub use flame_field_manifest::{
     flame_field_manifest, FieldInfluence, FieldManifest, FieldSourceKind, FieldTargetKind,
@@ -45,9 +49,9 @@ pub use flame_pick::{
 };
 pub use flame_presets::{apply_flame_preset, FLAME_PRESET_NAMES};
 pub use flame_radial::{
-    build_height_series, eroded_argument, envelope_fade, erosion_remap_scale,
-    evaluate_gaussian_moments, flame_radial_radius_scale,
-    flame_radial_support_radius, ring_support_span, FlameRadialTaper,
+    build_height_series, envelope_fade, eroded_argument, erosion_remap_scale,
+    evaluate_gaussian_moments, flame_radial_radius_scale, flame_radial_support_radius,
+    ring_support_span, FlameRadialTaper,
 };
 pub use flame_shell::{
     flame_shell_outer_radius, flame_shell_radius_scale, flame_shell_support_scale,
@@ -55,10 +59,6 @@ pub use flame_shell::{
 };
 pub use flame_texture_fit::*;
 pub use flame_trail::*;
-pub use debug::flame_wall_probe::{
-    probe_flame_wall, WallProbeRay, WallProbeReport, WallProbeView, WALL_PROBE_GRID_COLS,
-    WALL_PROBE_GRID_ROWS,
-};
 pub use gizmo::{
     BoneDisplayStyle, ColorVertex, GizmoAxis, GizmoDraggable, GizmoPosition, GizmoSelectable,
     TransformGizmoHandle,

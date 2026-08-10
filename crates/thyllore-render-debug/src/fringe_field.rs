@@ -68,9 +68,8 @@ fn warp_map_jvp(
                 + mode.phase as f64;
             let shear_value = strength * mode.amplitude as f64 * angle.cos();
             let f_prime = -strength * mode.amplitude as f64 * angle.sin();
-            let k_dot_v = mode.k[0] as f64 * v0[0]
-                + mode.k[1] as f64 * v0[1]
-                + mode.k[2] as f64 * v0[2];
+            let k_dot_v =
+                mode.k[0] as f64 * v0[0] + mode.k[1] as f64 * v0[1] + mode.k[2] as f64 * v0[2];
             for axis in 0..3 {
                 displacement[axis] += mode.curl_direction[axis] as f64 * shear_value;
                 rate[axis] += mode.curl_direction[axis] as f64 * f_prime * k_dot_v;
@@ -89,9 +88,7 @@ fn warp_map_jvp(
             + mode.phase as f64;
         let shear_value = strength * mode.amplitude as f64 * angle.cos();
         let f_prime = -strength * mode.amplitude as f64 * angle.sin();
-        let k_dot_v = mode.k[0] as f64 * v[0]
-            + mode.k[1] as f64 * v[1]
-            + mode.k[2] as f64 * v[2];
+        let k_dot_v = mode.k[0] as f64 * v[0] + mode.k[1] as f64 * v[1] + mode.k[2] as f64 * v[2];
 
         z[0] += mode.curl_direction[0] as f64 * shear_value;
         z[1] += mode.curl_direction[1] as f64 * shear_value;
@@ -105,7 +102,12 @@ fn warp_map_jvp(
 
 /// flameWarpStrength mirror: mu(h) -> strain(h) -> strength = strain / K.
 pub fn warp_strength(p: &WarpParams, h: f32) -> f32 {
-    let primitive = cheb12(p.height_primitive[0], p.height_primitive[1], p.height_primitive[2], h);
+    let primitive = cheb12(
+        p.height_primitive[0],
+        p.height_primitive[1],
+        p.height_primitive[2],
+        h,
+    );
     let mu = ((p.mu_zw[0] - primitive) * p.mu_zw[1]).clamp(0.0, 1.0);
     warp_strain_at(p.strain_params, mu) * p.strain_params[3]
 }
@@ -118,7 +120,11 @@ fn compute_axis(advect: [f32; 3], aniso_axis_advect: f32) -> [f32; 3] {
     let advect_sq = advect[0] * advect[0] + advect[1] * advect[1] + advect[2] * advect[2];
     if aniso_axis_advect > 0.0 && advect_sq > 1e-8 {
         let inv_len = 1.0 / advect_sq.sqrt();
-        let norm_advect = [advect[0] * inv_len, advect[1] * inv_len, advect[2] * inv_len];
+        let norm_advect = [
+            advect[0] * inv_len,
+            advect[1] * inv_len,
+            advect[2] * inv_len,
+        ];
         let t = aniso_axis_advect.min(1.0).max(0.0);
         [
             default_axis[0] + (norm_advect[0] - default_axis[0]) * t,
@@ -273,7 +279,11 @@ fn aniso_compress_f64(v: [f32; 3], axial_scale: f32, axis: [f32; 3]) -> [f64; 3]
     let a2 = axis[2] as f64;
     let dot = v0 * a0 + v1 * a1 + v2 * a2;
     let factor = 1.0 - axial_scale as f64;
-    [v0 - dot * a0 * factor, v1 - dot * a1 * factor, v2 - dot * a2 * factor]
+    [
+        v0 - dot * a0 * factor,
+        v1 - dot * a1 * factor,
+        v2 - dot * a2 * factor,
+    ]
 }
 
 /// Inverse of aniso_compress_f64 — anisotropic expansion along the advection axis.
@@ -283,5 +293,9 @@ fn aniso_expand_f64(v: [f64; 3], axial_scale: f32, axis: [f32; 3]) -> [f64; 3] {
     let a2 = axis[2] as f64;
     let dot = v[0] * a0 + v[1] * a1 + v[2] * a2;
     let factor = 1.0 / axial_scale as f64 - 1.0;
-    [v[0] + dot * a0 * factor, v[1] + dot * a1 * factor, v[2] + dot * a2 * factor]
+    [
+        v[0] + dot * a0 * factor,
+        v[1] + dot * a1 * factor,
+        v[2] + dot * a2 * factor,
+    ]
 }

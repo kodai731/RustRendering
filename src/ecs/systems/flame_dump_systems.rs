@@ -4,11 +4,18 @@ use serde_json::{json, Value};
 
 use crate::ecs::resource::{Camera, FlameDumpSink, FlameRenderSettings, FlameTemporalState};
 use crate::ecs::World;
-use thyllore_render_core::{build_flame_ubo, probe_flame_wall, FlameEffect, FlameUBO, WallProbeView};
+use thyllore_render_core::{
+    build_flame_ubo, probe_flame_wall, FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO,
+    WallProbeView,
+};
 
-pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
+pub fn build_effect_json(
+    effect: &FlameEffect,
+    baked: &FlameBaked,
+    temporal: &FlameTemporalAccum,
+) -> serde_json::Value {
     let mut value = json!({
-        "frame_index": effect.frame_index,
+        "frame_index": temporal.frame_index,
         "time": effect.time,
         "position": [effect.position.x, effect.position.y, effect.position.z],
         "height": effect.height,
@@ -31,7 +38,7 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
             "height": effect.coefficients.height,
             "radius_scale": effect.coefficients.radius_scale
         },
-        "temporal_weight": effect.temporal_weight,
+        "temporal_weight": temporal.weight,
         "light_position_world": [effect.light_position_world.x, effect.light_position_world.y, effect.light_position_world.z],
         "self_shadow_strength": effect.self_shadow_strength,
         "warp_amp": effect.warp_amp,
@@ -82,18 +89,22 @@ pub fn build_effect_json(effect: &FlameEffect) -> serde_json::Value {
     } else {
         "seq"
     });
-    value["warp_strain_norm"] = json!(if strain[3] > 0.0 { 1.0 / strain[3] } else { 0.0 });
+    value["warp_strain_norm"] = json!(if strain[3] > 0.0 {
+        1.0 / strain[3]
+    } else {
+        0.0
+    });
     value["unified_field"] = json!({
         "active": thyllore_render_core::read_env_wave_unified(),
         "window_beta": thyllore_render_core::read_env_unified_beta(),
         "tilt_gain_b": thyllore_render_core::read_env_unified_tilt_gain_b(),
         "tilt_gain_w": thyllore_render_core::read_env_unified_tilt_gain_w(),
     });
-    value["baked_blend"] = json!(effect.baked_blend);
-    value["baked_envelope"] = json!(effect.baked_envelope.map(|a| a.to_vec()));
-    value["baked_radius"] = json!(effect.baked_radius.map(|a| a.to_vec()));
-    value["baked_color"] = json!(effect
-        .baked_color
+    value["baked_blend"] = json!(baked.blend);
+    value["baked_envelope"] = json!(baked.envelope.map(|a| a.to_vec()));
+    value["baked_radius"] = json!(baked.radius.map(|a| a.to_vec()));
+    value["baked_color"] = json!(baked
+        .color
         .map(|a| a.iter().map(|c| c.to_vec()).collect::<Vec<_>>()));
     value
 }
@@ -130,7 +141,11 @@ pub fn build_temporal_json(state: &FlameTemporalState) -> serde_json::Value {
     let previous = state.previous.as_ref().map(|snap| {
         json!({
             "view": matrix4_to_array(&snap.view),
-            "appearance": build_effect_json(&snap.appearance),
+            "appearance": build_effect_json(
+                &snap.appearance,
+                &snap.baked,
+                &FlameTemporalAccum::default(),
+            ),
             "settings": {
                 "mode": snap.settings.shading_mode.as_shader_value(),
                 "reference_step_count": snap.settings.reference_step_count,
@@ -146,6 +161,8 @@ pub fn build_temporal_json(state: &FlameTemporalState) -> serde_json::Value {
 
 pub fn build_flame_dump_record(
     effect: &FlameEffect,
+    baked: &FlameBaked,
+    temporal_accum: &FlameTemporalAccum,
     temporal: &FlameTemporalState,
     instance_index: usize,
     trail_enabled: bool,
@@ -153,8 +170,11 @@ pub fn build_flame_dump_record(
     trail_fade_seconds: f32,
     trail_oldest_age: f32,
 ) -> Value {
-    let ubo = build_flame_ubo(effect);
-    let mut record = build_effect_json(effect).as_object().unwrap().clone();
+    let ubo = build_flame_ubo(effect, baked, temporal_accum);
+    let mut record = build_effect_json(effect, baked, temporal_accum)
+        .as_object()
+        .unwrap()
+        .clone();
     for (k, v) in build_ubo_json(&ubo).as_object().unwrap() {
         record.insert(k.clone(), v.clone());
     }
@@ -179,10 +199,10 @@ pub fn build_flame_dump_record(
 pub fn flame_dump_system(
     sink: &mut FlameDumpSink,
     temporal: &FlameTemporalState,
-    effects: &[FlameEffect],
+    flames: &[(FlameEffect, FlameBaked, FlameTemporalAccum)],
     trails: &[Option<crate::ecs::component::flame_trail::FlameTrail>],
 ) {
-    for (i, effect) in effects.iter().enumerate() {
+    for (i, (effect, baked, temporal_accum)) in flames.iter().enumerate() {
         let trail = &trails[i];
         let (trail_enabled, trail_len, trail_fade_seconds, trail_oldest_age) = match trail {
             Some(t) => {
@@ -198,6 +218,8 @@ pub fn flame_dump_system(
         };
         let record = build_flame_dump_record(
             effect,
+            baked,
+            temporal_accum,
             temporal,
             i,
             trail_enabled,
@@ -313,7 +335,11 @@ pub fn build_wall_probe_dump_record(
     camera: &crate::ecs::resource::Camera,
     settings: &crate::ecs::resource::FlameRenderSettings,
     viewport_size: [f32; 2],
-    flames: &[(FlameEffect, thyllore_render_core::WallProbeReport)],
+    flames: &[(
+        FlameEffect,
+        FlameBaked,
+        thyllore_render_core::WallProbeReport,
+    )],
     unix_time: u64,
 ) -> Value {
     json!({
@@ -326,8 +352,11 @@ pub fn build_wall_probe_dump_record(
             "reference_step_count": settings.reference_step_count,
             "noise_step_count": settings.noise_step_count
         },
-        "flames": flames.iter().map(|(effect, report)| {
-            let mut entry = build_effect_json(effect).as_object().unwrap().clone();
+        "flames": flames.iter().map(|(effect, baked, report)| {
+            let mut entry = build_effect_json(effect, baked, &FlameTemporalAccum::default())
+                .as_object()
+                .unwrap()
+                .clone();
             entry.insert("wall_probe".to_string(), build_wall_probe_json(report));
             entry.insert(
                 "field_manifest".to_string(),
@@ -342,7 +371,11 @@ pub fn write_flame_wall_probe_dump(
     camera: &crate::ecs::resource::Camera,
     settings: &crate::ecs::resource::FlameRenderSettings,
     viewport_size: [f32; 2],
-    flames: &[(FlameEffect, thyllore_render_core::WallProbeReport)],
+    flames: &[(
+        FlameEffect,
+        FlameBaked,
+        thyllore_render_core::WallProbeReport,
+    )],
 ) -> std::io::Result<std::path::PathBuf> {
     let unix_time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -382,10 +415,14 @@ pub fn perform_flame_wall_probe_dump(world: &World, viewport_size: [f32; 2]) {
     let flames: Vec<_> = world
         .query_flames()
         .into_iter()
-        .filter_map(|entity| world.get_component::<FlameEffect>(entity))
-        .map(|effect| {
-            let report = probe_flame_wall(&effect, &view);
-            (effect.clone(), report)
+        .filter_map(|entity| {
+            let effect = world.get_component::<FlameEffect>(entity)?;
+            let baked = world
+                .get_component::<FlameBaked>(entity)
+                .cloned()
+                .unwrap_or_default();
+            let report = probe_flame_wall(&effect, &baked, &view);
+            Some((effect.clone(), baked, report))
         })
         .collect();
     if flames.is_empty() {
@@ -414,7 +451,11 @@ pub fn perform_flame_wall_probe_dump(world: &World, viewport_size: [f32; 2]) {
 /// THYLLORE_FLAME_TRACE_COLS / THYLLORE_FLAME_TRACE_ROWS.
 pub fn write_flame_field_traces(
     view: &WallProbeView,
-    flames: &[(FlameEffect, thyllore_render_core::WallProbeReport)],
+    flames: &[(
+        FlameEffect,
+        FlameBaked,
+        thyllore_render_core::WallProbeReport,
+    )],
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
     let unix_time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -423,8 +464,9 @@ pub fn write_flame_field_traces(
     let directory = std::path::Path::new("log/flame");
     std::fs::create_dir_all(directory)?;
     let mut paths = Vec::new();
-    for (index, (effect, _)) in flames.iter().enumerate() {
-        let ubo = thyllore_render_core::build_flame_ubo(effect);
+    for (index, (effect, baked, _)) in flames.iter().enumerate() {
+        let ubo =
+            thyllore_render_core::build_flame_ubo(effect, baked, &FlameTemporalAccum::default());
         let trace = thyllore_render_debug::flame_field_trace::trace_flame_field(&ubo, view);
         let name = if flames.len() > 1 {
             format!("flame_trace_{}_{}.json", unix_time, index)
@@ -452,8 +494,8 @@ pub fn write_texture_fit_provenance(
     source_bytes: Option<&[u8]>,
     request: Value,
     result: Value,
-    effect_before: &FlameEffect,
-    effect_after: &FlameEffect,
+    effect_before: (&FlameEffect, &FlameBaked),
+    effect_after: (&FlameEffect, &FlameBaked),
 ) {
     const MAX_COPY_BYTES: usize = 32 * 1024 * 1024;
     let unix_time = std::time::SystemTime::now()
@@ -480,8 +522,9 @@ pub fn write_texture_fit_provenance(
         }
     }
 
-    let before = build_effect_json(effect_before);
-    let after = build_effect_json(effect_after);
+    let temporal = FlameTemporalAccum::default();
+    let before = build_effect_json(effect_before.0, effect_before.1, &temporal);
+    let after = build_effect_json(effect_after.0, effect_after.1, &temporal);
     let changed: Vec<&String> = match (&before, &after) {
         (Value::Object(before), Value::Object(after)) => before
             .iter()
@@ -544,8 +587,6 @@ mod tests {
             coefficients: thyllore_render_core::fit_flame_coefficients(
                 &thyllore_render_core::FlameProfile::default(),
             ),
-            temporal_weight: 0.5,
-            frame_index: 42,
             light_position_world: Vector3::new(2.0, 3.0, 2.0),
             self_shadow_strength: 0.5,
             warp_amp: 0.25,
@@ -592,12 +633,12 @@ mod tests {
             fov_y_radians: 45.0f32.to_radians(),
             viewport_size_px: [1680.0, 840.0],
         };
-        let report = thyllore_render_core::probe_flame_wall(&effect, &view);
+        let report = thyllore_render_core::probe_flame_wall(&effect, &Default::default(), &view);
         let record = build_wall_probe_dump_record(
             &camera,
             &settings,
             [1680.0, 840.0],
-            &[(effect, report)],
+            &[(effect, Default::default(), report)],
             123,
         );
 
@@ -624,7 +665,10 @@ mod tests {
         effect.boundary_amp = 0.2;
         let manifest = thyllore_render_core::flame_field_manifest(&effect);
         let value = build_field_manifest_json(&manifest);
-        assert!(value["summary"].as_str().unwrap().contains("erosion-wave-table"));
+        assert!(value["summary"]
+            .as_str()
+            .unwrap()
+            .contains("erosion-wave-table"));
         assert!(value["active_sources"]
             .as_array()
             .unwrap()
@@ -641,7 +685,20 @@ mod tests {
     fn build_flame_dump_record_produces_valid_json() {
         let effect = sample_effect();
         let temporal = sample_temporal();
-        let record = build_flame_dump_record(&effect, &temporal, 0, false, 0, 0.8, 0.0);
+        let record = build_flame_dump_record(
+            &effect,
+            &Default::default(),
+            &FlameTemporalAccum {
+                weight: 0.5,
+                frame_index: 42,
+            },
+            &temporal,
+            0,
+            false,
+            0,
+            0.8,
+            0.0,
+        );
         assert_eq!(record["frame_index"], 42);
         assert_eq!(record["time"], 0.0);
         assert_eq!(record["position"], json!([1.0, 2.0, 3.0]));

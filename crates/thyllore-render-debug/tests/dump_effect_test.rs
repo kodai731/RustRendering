@@ -1,8 +1,11 @@
 use thyllore_render_debug::dump_effect::{camera_from_dump, effect_from_dump};
 
 fn load_sample() -> serde_json::Value {
-    let bytes = std::fs::read(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/data/wall_probe_sample.json"))
-        .expect("read wall_probe_sample.json");
+    let bytes = std::fs::read(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/data/wall_probe_sample.json"
+    ))
+    .expect("read wall_probe_sample.json");
     serde_json::from_slice(&bytes).expect("parse JSON")
 }
 
@@ -13,19 +16,63 @@ fn test_effect_from_dump_values() {
     let effect = effect_from_dump(flame);
 
     // Verify key values from the sample dump
-    assert!((effect.noise_amplitude - 1.6).abs() < 1e-4, "noise_amplitude={}", effect.noise_amplitude);
-    assert!((effect.noise_frequency - 6.0).abs() < 1e-4, "noise_frequency={}", effect.noise_frequency);
-    assert_eq!(effect.emitter_kind, 1, "emitter_kind={}", effect.emitter_kind);
-    assert!((effect.edge_low - 0.27).abs() < 1e-4, "edge_low={}", effect.edge_low);
-    assert!((effect.time - 2.1973181).abs() < 1e-5, "time={}", effect.time);
+    assert!(
+        (effect.noise_amplitude - 1.6).abs() < 1e-4,
+        "noise_amplitude={}",
+        effect.noise_amplitude
+    );
+    assert!(
+        (effect.noise_frequency - 6.0).abs() < 1e-4,
+        "noise_frequency={}",
+        effect.noise_frequency
+    );
+    assert_eq!(
+        effect.emitter_kind, 1,
+        "emitter_kind={}",
+        effect.emitter_kind
+    );
+    assert!(
+        (effect.edge_low - 0.27).abs() < 1e-4,
+        "edge_low={}",
+        effect.edge_low
+    );
+    assert!(
+        (effect.time - 2.1973181).abs() < 1e-5,
+        "time={}",
+        effect.time
+    );
 
     // Verify restored effect matches specific scalar values from the dump
-    assert!((effect.warp_amp - 1.4).abs() < 1e-4, "warp_amp={}", effect.warp_amp);
-    assert!((effect.noise_scroll_speed - 1.0).abs() < 1e-4, "noise_scroll_speed={}", effect.noise_scroll_speed);
-    assert!((effect.rise_speed - 1.5).abs() < 1e-4, "rise_speed={}", effect.rise_speed);
-    assert!((effect.taper_power - 1.4).abs() < 1e-4, "taper_power={}", effect.taper_power);
-    assert!((effect.radial_sharpness - 4.0).abs() < 1e-4, "radial_sharpness={}", effect.radial_sharpness);
-    assert!((effect.ring_major_radius - 1.5).abs() < 1e-4, "ring_major_radius={}", effect.ring_major_radius);
+    assert!(
+        (effect.warp_amp - 1.4).abs() < 1e-4,
+        "warp_amp={}",
+        effect.warp_amp
+    );
+    assert!(
+        (effect.noise_scroll_speed - 1.0).abs() < 1e-4,
+        "noise_scroll_speed={}",
+        effect.noise_scroll_speed
+    );
+    assert!(
+        (effect.rise_speed - 1.5).abs() < 1e-4,
+        "rise_speed={}",
+        effect.rise_speed
+    );
+    assert!(
+        (effect.taper_power - 1.4).abs() < 1e-4,
+        "taper_power={}",
+        effect.taper_power
+    );
+    assert!(
+        (effect.radial_sharpness - 4.0).abs() < 1e-4,
+        "radial_sharpness={}",
+        effect.radial_sharpness
+    );
+    assert!(
+        (effect.ring_major_radius - 1.5).abs() < 1e-4,
+        "ring_major_radius={}",
+        effect.ring_major_radius
+    );
 }
 
 #[test]

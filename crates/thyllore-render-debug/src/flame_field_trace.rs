@@ -1976,7 +1976,11 @@ mod tests {
         std::env::set_var("THYLLORE_FLAME_TRACE_COLS", "5");
         std::env::set_var("THYLLORE_FLAME_TRACE_ROWS", "5");
         let effect = FlameEffect::default();
-        let ubo = thyllore_render_core::build_flame_ubo(&effect);
+        let ubo = thyllore_render_core::build_flame_ubo(
+            &effect,
+            &Default::default(),
+            &Default::default(),
+        );
         let view = WallProbeView {
             position: [0.0, 0.5, 3.0],
             forward: [0.0, 0.0, -1.0],
@@ -2013,7 +2017,11 @@ mod tests {
     #[test]
     fn test_faddeeva_ray_produces_finite_emission() {
         let effect = FlameEffect::default();
-        let ubo = thyllore_render_core::build_flame_ubo(&effect);
+        let ubo = thyllore_render_core::build_flame_ubo(
+            &effect,
+            &Default::default(),
+            &Default::default(),
+        );
         let ctx = UboCtx::new(&ubo, [0.0, 0.5, 3.0]);
         let o = [0.0, 0.5, 3.0];
         let d = [0.0, 0.0, -1.0];

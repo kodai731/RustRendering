@@ -4,8 +4,6 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde_json::json;
 
-use cgmath::Vector2;
-
 use thyllore_anim_core::editable::PropertyType;
 
 use crate::asset::AssetStorage;
@@ -107,11 +105,21 @@ pub enum BatchDebugAction {
     AddFlame,
     OpenFlameCurves,
     ViewMode(DebugViewMode),
-    FlameClipPreview { end_seconds: f32 },
+    FlameClipPreview {
+        end_seconds: f32,
+    },
     TimelineSelectFlameClip,
     WallProbeDump,
-    ApplyTextureFit { path: String, blend: f32, profile: bool },
-    ApplyTextureFitRoundtrip { path: String, blend: f32, profile: bool },
+    ApplyTextureFit {
+        path: String,
+        blend: f32,
+        profile: bool,
+    },
+    ApplyTextureFitRoundtrip {
+        path: String,
+        blend: f32,
+        profile: bool,
+    },
 }
 
 pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverrides> {
@@ -240,7 +248,10 @@ pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadi
 pub fn flame_debug_view_resolve_from_args(
     args: &[String],
 ) -> Result<Option<thyllore_render_core::FlameDebugView>> {
-    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_DEBUG_VIEW_FLAG) else {
+    let Some(position) = args
+        .iter()
+        .position(|arg| arg == BATCH_FLAME_DEBUG_VIEW_FLAG)
+    else {
         return Ok(None);
     };
     let Some(value) = args.get(position + 1) else {
@@ -831,6 +842,7 @@ pub fn batch_run_report(batch: &BatchRun) -> (bool, String) {
 
 pub fn apply_texture_fit_from_path(
     effect: &mut FlameEffect,
+    baked: &mut thyllore_render_core::FlameBaked,
     path: &str,
     blend: f32,
     groups: thyllore_render_core::TextureFitGroups,
@@ -838,6 +850,7 @@ pub fn apply_texture_fit_from_path(
     route: &str,
 ) {
     let effect_before = effect.clone();
+    let baked_before = *baked;
     let request = json!({
         "blend": blend,
         "profile": profile,
@@ -848,15 +861,18 @@ pub fn apply_texture_fit_from_path(
             "tilt": groups.tilt,
         },
     });
-    let dump = |source_bytes: Option<&[u8]>, result: serde_json::Value, effect_after: &FlameEffect| {
+    let dump = |source_bytes: Option<&[u8]>,
+                result: serde_json::Value,
+                effect_after: &FlameEffect,
+                baked_after: &thyllore_render_core::FlameBaked| {
         crate::ecs::systems::write_texture_fit_provenance(
             route,
             path,
             source_bytes,
             request.clone(),
             result,
-            &effect_before,
-            effect_after,
+            (&effect_before, &baked_before),
+            (effect_after, baked_after),
         );
     };
 
@@ -871,6 +887,7 @@ pub fn apply_texture_fit_from_path(
                 None,
                 json!({"ok": false, "error": "not_found", "detail": e.to_string()}),
                 effect,
+                baked,
             );
             return;
         }
@@ -888,6 +905,7 @@ pub fn apply_texture_fit_from_path(
                 Some(&bytes),
                 json!({"ok": false, "error": "decode_failed", "detail": e.to_string()}),
                 effect,
+                baked,
             );
             return;
         }
@@ -905,6 +923,7 @@ pub fn apply_texture_fit_from_path(
                 Some(&bytes),
                 json!({"ok": false, "error": "decode_failed", "detail": e.to_string()}),
                 effect,
+                baked,
             );
             return;
         }
@@ -930,6 +949,7 @@ pub fn apply_texture_fit_from_path(
                 Some(&bytes),
                 json!({"ok": false, "error": "unsupported_color_type", "png": png_json}),
                 effect,
+                baked,
             );
             return;
         }
@@ -960,7 +980,7 @@ pub fn apply_texture_fit_from_path(
         "mean_luminance": luminance_sum / total_pixels.max(1) as f64,
     });
 
-    let fit = match thyllore_render_core::fit_flame_texture(&pixels, width, height, effect) {
+    let fit = match thyllore_render_core::fit_flame_texture(&pixels, width, height, effect, baked) {
         Some(f) => f,
         None => {
             eprintln!("warning: texture fit failed for image '{}'", path);
@@ -973,12 +993,13 @@ pub fn apply_texture_fit_from_path(
                     "decode": decode_json,
                 }),
                 effect,
+                baked,
             );
             return;
         }
     };
 
-    thyllore_render_core::apply_texture_fit(effect, &fit, groups, blend, profile);
+    thyllore_render_core::apply_texture_fit(effect, baked, &fit, groups, blend, profile);
     dump(
         Some(&bytes),
         json!({
@@ -1000,6 +1021,7 @@ pub fn apply_texture_fit_from_path(
             },
         }),
         effect,
+        baked,
     );
 }
 
@@ -1288,9 +1310,9 @@ fn parse_texture_fit_args(rest: &str) -> Result<(String, f32, bool)> {
     let blend_str = parts[1];
     let path = parts[2].to_string();
 
-    let blend: f32 = blend_str.parse().map_err(|_| {
-        anyhow::anyhow!("invalid blend value '{}'", blend_str)
-    })?;
+    let blend: f32 = blend_str
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid blend value '{}'", blend_str))?;
     if !blend.is_finite() || !(0.0..=1.0).contains(&blend) {
         bail!("blend must be in [0.0, 1.0], got {}", blend);
     }
@@ -1356,15 +1378,23 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                         .send(UIEvent::TimelineSelectClip(clip_id));
                 }
             }
-            BatchDebugAction::ApplyTextureFit { path, blend, profile } => {
-                let original = match world.query_flames().first() {
-                    Some(&flame) => world.get_component::<FlameEffect>(flame),
-                    None => None,
-                };
-                if let Some(effect) = original {
-                    let mut copy = effect.clone();
+            BatchDebugAction::ApplyTextureFit {
+                path,
+                blend,
+                profile,
+            } => {
+                let original = world.query_flames().first().and_then(|&flame| {
+                    let effect = world.get_component::<FlameEffect>(flame)?.clone();
+                    let baked = world
+                        .get_component::<crate::ecs::component::FlameBaked>(flame)
+                        .cloned()
+                        .unwrap_or_default();
+                    Some((effect, baked))
+                });
+                if let Some((mut copy, mut baked)) = original {
                     apply_texture_fit_from_path(
                         &mut copy,
+                        &mut baked,
                         path,
                         *blend,
                         thyllore_render_core::TextureFitGroups::default(),
@@ -1374,18 +1404,30 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                     world
                         .resource_mut::<UIEventQueue>()
                         .send(UIEvent::UpdateFlameEffect(Box::new(copy)));
+                    world
+                        .resource_mut::<UIEventQueue>()
+                        .send(UIEvent::UpdateFlameBaked(Box::new(baked)));
                 }
             }
-            BatchDebugAction::ApplyTextureFitRoundtrip { path, blend, profile } => {
-                let original = match world.query_flames().first() {
-                    Some(&flame) => world.get_component::<FlameEffect>(flame),
-                    None => None,
-                };
-                if let Some(effect) = original {
-                    let original_clone = effect.clone();
-                    let mut copy = effect.clone();
+            BatchDebugAction::ApplyTextureFitRoundtrip {
+                path,
+                blend,
+                profile,
+            } => {
+                let original = world.query_flames().first().and_then(|&flame| {
+                    let effect = world.get_component::<FlameEffect>(flame)?.clone();
+                    let baked = world
+                        .get_component::<crate::ecs::component::FlameBaked>(flame)
+                        .cloned()
+                        .unwrap_or_default();
+                    Some((effect, baked))
+                });
+                if let Some((original_effect, original_baked)) = original {
+                    let mut copy = original_effect.clone();
+                    let mut baked = original_baked;
                     apply_texture_fit_from_path(
                         &mut copy,
+                        &mut baked,
                         path,
                         *blend,
                         thyllore_render_core::TextureFitGroups::default(),
@@ -1397,7 +1439,13 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                         .send(UIEvent::UpdateFlameEffect(Box::new(copy)));
                     world
                         .resource_mut::<UIEventQueue>()
-                        .send(UIEvent::UpdateFlameEffect(Box::new(original_clone)));
+                        .send(UIEvent::UpdateFlameBaked(Box::new(baked)));
+                    world
+                        .resource_mut::<UIEventQueue>()
+                        .send(UIEvent::UpdateFlameEffect(Box::new(original_effect)));
+                    world
+                        .resource_mut::<UIEventQueue>()
+                        .send(UIEvent::UpdateFlameBaked(Box::new(original_baked)));
                 }
             }
         }

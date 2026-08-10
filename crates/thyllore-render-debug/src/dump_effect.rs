@@ -1,5 +1,7 @@
 use cgmath::{Vector2, Vector3};
-use thyllore_render_core::{refresh_flame_coefficients, FlameCoefficients, FlameEffect};
+use thyllore_render_core::{
+    refresh_flame_coefficients, FlameBaked, FlameCoefficients, FlameEffect, FlameTemporalAccum,
+};
 
 /// Camera description reconstructed from a flame dump JSON.
 #[derive(Debug)]
@@ -24,13 +26,18 @@ fn read_array3(v: &serde_json::Value) -> Option<[f32; 3]> {
     ])
 }
 
-/// Reconstruct a [`FlameEffect`] from the `flames[0]` entry of a flame dump JSON.
+/// Reconstruct a [`FlameEffect`] plus its baked/temporal state from the
+/// `flames[0]` entry of a flame dump JSON.
 ///
-/// Starts from `FlameEffect::default()` and overwrites every field whose key appears
-/// in the JSON. Fields missing from the dump (e.g. `near_fade_radius`, `carve_residual`)
-/// keep their default values.
-pub fn effect_from_dump(flame_json: &serde_json::Value) -> FlameEffect {
+/// Starts from defaults and overwrites every field whose key appears in the
+/// JSON. Fields missing from the dump (e.g. `near_fade_radius`,
+/// `carve_residual`) keep their default values.
+pub fn flame_from_dump(
+    flame_json: &serde_json::Value,
+) -> (FlameEffect, FlameBaked, FlameTemporalAccum) {
     let mut effect = FlameEffect::default();
+    let mut baked = FlameBaked::default();
+    let mut temporal = FlameTemporalAccum::default();
 
     // position
     if let Some(pos) = read_array3(flame_json.get("position").unwrap()) {
@@ -69,7 +76,9 @@ pub fn effect_from_dump(flame_json: &serde_json::Value) -> FlameEffect {
     apply_scalar!(tip_carve_depth, "tip_carve_depth");
     apply_scalar!(tip_carve_reach, "tip_carve_reach");
     apply_scalar!(warp_reach, "warp_reach");
-    apply_scalar!(baked_blend, "baked_blend");
+    if let Some(v) = flame_json.get("baked_blend").and_then(|f| f.as_f64()) {
+        baked.blend = v as f32;
+    }
     apply_scalar!(warp_amp, "warp_amp");
     apply_scalar!(warp_freq, "warp_freq");
     apply_scalar!(warp_y_scale, "warp_y_scale");
@@ -88,11 +97,11 @@ pub fn effect_from_dump(flame_json: &serde_json::Value) -> FlameEffect {
     apply_scalar!(ring_major_radius, "ring_major_radius");
     apply_scalar!(time_scale, "time_scale");
     apply_scalar!(time_offset, "time_offset");
-    apply_scalar!(temporal_weight, "temporal_weight");
-
-    // frame_index (u64)
+    if let Some(v) = flame_json.get("temporal_weight").and_then(|f| f.as_f64()) {
+        temporal.weight = v as f32;
+    }
     if let Some(v) = flame_json.get("frame_index").and_then(|f| f.as_u64()) {
-        effect.frame_index = v;
+        temporal.frame_index = v;
     }
 
     // rotation [w, x, y, z] (4-element array)
@@ -150,7 +159,10 @@ pub fn effect_from_dump(flame_json: &serde_json::Value) -> FlameEffect {
     // coefficients from JSON (if present)
     if let Some(coeffs_json) = flame_json.get("coefficients") {
         let mut coeffs = FlameCoefficients::default();
-        if let Some(arr) = coeffs_json.get("height_primitive").and_then(|a| a.as_array()) {
+        if let Some(arr) = coeffs_json
+            .get("height_primitive")
+            .and_then(|a| a.as_array())
+        {
             for (i, row) in arr.iter().enumerate().take(3) {
                 if let Some(inner) = row.as_array() {
                     for (j, val) in inner.iter().enumerate().take(4) {
@@ -197,8 +209,12 @@ pub fn effect_from_dump(flame_json: &serde_json::Value) -> FlameEffect {
         effect.coefficients = coeffs;
     }
 
-    refresh_flame_coefficients(&mut effect);
-    effect
+    refresh_flame_coefficients(&mut effect, &baked);
+    (effect, baked, temporal)
+}
+
+pub fn effect_from_dump(flame_json: &serde_json::Value) -> FlameEffect {
+    flame_from_dump(flame_json).0
 }
 
 /// Reconstruct a [`DumpCamera`] from the top-level `camera` and `viewport_size_px` of a dump.
@@ -214,7 +230,9 @@ pub fn camera_from_dump(dump: &serde_json::Value) -> DumpCamera {
     let up: [f32; 3] = read_array3(cam.get("up").unwrap()).unwrap();
     let fov_y_degrees = cam.get("fov_y_degrees").unwrap().as_f64().unwrap() as f32;
 
-    let vp = viewport.as_array().expect("viewport_size_px is not an array");
+    let vp = viewport
+        .as_array()
+        .expect("viewport_size_px is not an array");
     let viewport_size_px: [f32; 2] = [
         vp[0].as_f64().unwrap() as f32,
         vp[1].as_f64().unwrap() as f32,

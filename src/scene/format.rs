@@ -617,7 +617,7 @@ pub fn apply_flame_state_to_world(
         effect.tip_carve_depth = flame.effect.tip_carve_depth;
         effect.tip_carve_reach = flame.effect.tip_carve_reach;
         effect.warp_reach = flame.effect.warp_reach;
-        thyllore_render_core::refresh_flame_coefficients(&mut effect);
+        thyllore_render_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
     crate::ecs::systems::write_flame_transform(

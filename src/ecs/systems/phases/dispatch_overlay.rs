@@ -67,15 +67,44 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     continue;
                 };
                 write_flame_transform(world, target, effect.position, effect.rotation);
-                if let Some(mut current) = world.get_component_mut::<FlameEffect>(target) {
+                if let Some(current) = world.get_component_mut::<FlameEffect>(target) {
                     *current = effect.as_ref().clone();
                 }
+            }
+            UIEvent::UpdateFlameBaked(baked) => {
+                let Some(target) = resolve_selected_flame(world) else {
+                    continue;
+                };
+                world.insert_component(target, *baked.as_ref());
+            }
+            UIEvent::ApplyFlamePreset(name) => {
+                crate::ecs::systems::apply_flame_preset_to_selected(world, name);
+            }
+            UIEvent::ApplyFlameTextureFit {
+                path,
+                blend,
+                groups,
+                profile,
+            } => {
+                crate::ecs::systems::apply_flame_texture_fit_to_selected(
+                    world,
+                    path,
+                    *blend,
+                    thyllore_render_core::TextureFitGroups {
+                        silhouette: groups[0],
+                        color: groups[1],
+                        turbulence: groups[2],
+                        tilt: groups[3],
+                    },
+                    *profile,
+                    "ui",
+                );
             }
             UIEvent::UpdateFlameTrailEnabled(enabled) => {
                 let Some(target) = resolve_selected_flame(world) else {
                     continue;
                 };
-                if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
+                if let Some(trail) = world.get_component_mut::<FlameTrail>(target) {
                     trail.state.enabled = *enabled;
                 } else {
                     world.insert_component(
@@ -94,7 +123,7 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 let Some(target) = resolve_selected_flame(world) else {
                     continue;
                 };
-                if let Some(mut trail) = world.get_component_mut::<FlameTrail>(target) {
+                if let Some(trail) = world.get_component_mut::<FlameTrail>(target) {
                     trail.state.fade_seconds = *fade;
                 } else {
                     world.insert_component(
@@ -119,7 +148,7 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     hierarchy.selected_entity = Some(flames[clamped]);
                 }
             }
-        UIEvent::DumpFlameWallProbe { viewport_size } => {
+            UIEvent::DumpFlameWallProbe { viewport_size } => {
                 crate::ecs::systems::flame_dump_systems::perform_flame_wall_probe_dump(
                     world,
                     *viewport_size,

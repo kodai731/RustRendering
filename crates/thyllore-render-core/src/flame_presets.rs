@@ -1,23 +1,17 @@
-use crate::flame::{refresh_flame_coefficients, FlameEffect};
+use crate::flame::{refresh_flame_coefficients, FlameBaked, FlameEffect};
 use cgmath::{Quaternion, Vector2, Vector3};
 
 pub const FLAME_PRESET_NAMES: &[&str] = &["campfire", "candle", "torch", "inferno", "blue", "ring"];
 
-fn runtime_state(effect: &FlameEffect) -> (Vector3<f32>, Quaternion<f32>, f32, u64) {
-    (
-        effect.position,
-        effect.rotation,
-        effect.time,
-        effect.frame_index,
-    )
+fn runtime_state(effect: &FlameEffect) -> (Vector3<f32>, Quaternion<f32>, f32) {
+    (effect.position, effect.rotation, effect.time)
 }
 
-fn apply_runtime_state(effect: &mut FlameEffect, state: (Vector3<f32>, Quaternion<f32>, f32, u64)) {
-    let (position, rotation, time, frame_index) = state;
+fn apply_runtime_state(effect: &mut FlameEffect, state: (Vector3<f32>, Quaternion<f32>, f32)) {
+    let (position, rotation, time) = state;
     effect.position = position;
     effect.rotation = rotation;
     effect.time = time;
-    effect.frame_index = frame_index;
 }
 
 pub fn apply_flame_preset(effect: &mut FlameEffect, name: &str) -> bool {
@@ -105,7 +99,7 @@ pub fn apply_flame_preset(effect: &mut FlameEffect, name: &str) -> bool {
         }
     }
 
-    refresh_flame_coefficients(&mut preset);
+    refresh_flame_coefficients(&mut preset, &FlameBaked::default());
 
     // Copy all fields except runtime state
     effect.height = preset.height;
@@ -123,7 +117,6 @@ pub fn apply_flame_preset(effect: &mut FlameEffect, name: &str) -> bool {
     effect.time_scale = preset.time_scale;
     effect.time_offset = preset.time_offset;
     effect.coefficients = preset.coefficients;
-    effect.temporal_weight = preset.temporal_weight;
     effect.light_position_world = preset.light_position_world;
     effect.self_shadow_strength = preset.self_shadow_strength;
     effect.warp_amp = preset.warp_amp;
@@ -223,7 +216,6 @@ mod tests {
         assert_eq!(effect.time_scale, default_effect.time_scale);
         assert_eq!(effect.time_offset, default_effect.time_offset);
         assert_eq!(effect.coefficients, default_effect.coefficients);
-        assert_eq!(effect.temporal_weight, default_effect.temporal_weight);
         assert_eq!(
             effect.light_position_world,
             default_effect.light_position_world

@@ -7,7 +7,7 @@ use std::sync::OnceLock;
 
 use thyllore_math_core::{integrate_erf_response_linear, ErfResponseModel};
 use thyllore_render_core::flame_wave::*;
-use thyllore_render_core::{eroded_argument, envelope_fade, erosion_remap_scale};
+use thyllore_render_core::{envelope_fade, eroded_argument, erosion_remap_scale};
 
 /// Cached shaping parameters for the default `WAVE_TANH_SCALE`.
 /// Computed once via `wave_shaping_params` and stored in a `OnceLock`.
@@ -30,8 +30,7 @@ pub fn wave_shaping_derivative(shaped_noise: f32, inverse_scale: f32, amplitude:
 pub fn evaluate_wave_warp(modes: &[WaveWarpMode], wp: [f32; 3]) -> [f32; 3] {
     let mut displacement = [0.0f32; 3];
     for mode in modes {
-        let angle =
-            mode.k[0] * wp[0] + mode.k[1] * wp[1] + mode.k[2] * wp[2] + mode.phase;
+        let angle = mode.k[0] * wp[0] + mode.k[1] * wp[1] + mode.k[2] * wp[2] + mode.phase;
         let value = mode.amplitude * angle.sin();
         displacement[0] += mode.curl_direction[0] * value;
         displacement[1] += mode.curl_direction[1] * value;
@@ -146,9 +145,7 @@ pub fn evaluate_wave_flow_warp_with_rate(
         // Update v: Jacobian-vector product
         // f_i' = -strength * a_i * sin(k_i·z + φ_i)
         let fp = -strength_scaled * mode.amplitude as f64 * angle.sin();
-        let k_dot_v = mode.k[0] as f64 * v[0]
-            + mode.k[1] as f64 * v[1]
-            + mode.k[2] as f64 * v[2];
+        let k_dot_v = mode.k[0] as f64 * v[0] + mode.k[1] as f64 * v[1] + mode.k[2] as f64 * v[2];
         for axis in 0..3 {
             v[axis] += mode.curl_direction[axis] as f64 * fp * k_dot_v;
         }
@@ -163,7 +160,11 @@ pub fn evaluate_wave_flow_warp_with_rate(
     ];
 
     (
-        [warped_point[0] as f32, warped_point[1] as f32, warped_point[2] as f32],
+        [
+            warped_point[0] as f32,
+            warped_point[1] as f32,
+            warped_point[2] as f32,
+        ],
         [rate[0] as f32, rate[1] as f32, rate[2] as f32],
     )
 }
@@ -199,9 +200,8 @@ pub fn evaluate_wave_displacement_warp_with_rate(
             + mode.phase as f64;
         let value = strength * mode.amplitude as f64 * angle.cos();
         let fp = -strength * mode.amplitude as f64 * angle.sin();
-        let k_dot_v = mode.k[0] as f64 * v0[0]
-            + mode.k[1] as f64 * v0[1]
-            + mode.k[2] as f64 * v0[2];
+        let k_dot_v =
+            mode.k[0] as f64 * v0[0] + mode.k[1] as f64 * v0[1] + mode.k[2] as f64 * v0[2];
         for axis in 0..3 {
             displacement[axis] += mode.curl_direction[axis] as f64 * value;
             rate_sum[axis] += mode.curl_direction[axis] as f64 * fp * k_dot_v;
@@ -212,7 +212,11 @@ pub fn evaluate_wave_displacement_warp_with_rate(
         z0[1] + displacement[1],
         z0[2] + displacement[2],
     ];
-    let v = [v0[0] + rate_sum[0], v0[1] + rate_sum[1], v0[2] + rate_sum[2]];
+    let v = [
+        v0[0] + rate_sum[0],
+        v0[1] + rate_sum[1],
+        v0[2] + rate_sum[2],
+    ];
     let warped_point = wave_linear_map_inverse(z, warp_frequency as f64, axial_scale as f64);
     let rate = [
         v[0] / warp_frequency as f64,
@@ -220,7 +224,11 @@ pub fn evaluate_wave_displacement_warp_with_rate(
         v[2] / warp_frequency as f64,
     ];
     (
-        [warped_point[0] as f32, warped_point[1] as f32, warped_point[2] as f32],
+        [
+            warped_point[0] as f32,
+            warped_point[1] as f32,
+            warped_point[2] as f32,
+        ],
         [rate[0] as f32, rate[1] as f32, rate[2] as f32],
     )
 }
@@ -291,10 +299,12 @@ impl WaveCfSample<'_> {
         } else {
             1.0
         };
-        let psi =
-            scale * (k[0] * self.psi_vector[0] + k[1] * self.psi_vector[1] + k[2] * self.psi_vector[2]);
+        let psi = scale
+            * (k[0] * self.psi_vector[0] + k[1] * self.psi_vector[1] + k[2] * self.psi_vector[2]);
         let rate = scale
-            * (k[0] * self.rate_vector[0] + k[1] * self.rate_vector[1] + k[2] * self.rate_vector[2]);
+            * (k[0] * self.rate_vector[0]
+                + k[1] * self.rate_vector[1]
+                + k[2] * self.rate_vector[2]);
         (psi, rate)
     }
 
@@ -608,14 +618,12 @@ pub fn evaluate_wave_occupancy_segments(
         let sigma_local = 0.5 * (sigma_start + sigma_end);
         let erosion_start = erosion_at(seg_start, noise_start, density_start);
         let erosion_end = erosion_at(seg_end, noise_end, density_end);
-        let remap_scale_avg = 0.5 * (erosion_remap_scale(erosion_start) + erosion_remap_scale(erosion_end));
+        let remap_scale_avg =
+            0.5 * (erosion_remap_scale(erosion_start) + erosion_remap_scale(erosion_end));
         let sigma_eff = sigma_local
             * shaping_deriv_avg
-            * erosion_sigma_scale_at(
-                seg_start + 0.5 * span,
-                0.5 * (density_start + density_end),
-            )
-            .abs()
+            * erosion_sigma_scale_at(seg_start + 0.5 * span, 0.5 * (density_start + density_end))
+                .abs()
             * 0.5
             * (envelope_fade(density_start, flood_fade_scale)
                 + envelope_fade(density_end, flood_fade_scale))
@@ -649,7 +657,6 @@ pub fn evaluate_wave_occupancy_segments(
     }
     segments
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -770,7 +777,11 @@ mod tests {
                 axial_scale,
                 strength,
             );
-            let mid_origin = [origin[0] + 0.05 * dir[0], origin[1] + 0.05 * dir[1], origin[2] + 0.05 * dir[2]];
+            let mid_origin = [
+                origin[0] + 0.05 * dir[0],
+                origin[1] + 0.05 * dir[1],
+                origin[2] + 0.05 * dir[2],
+            ];
             let (_warp_point_mid, warp_rate_mid) = evaluate_wave_flow_warp_with_rate(
                 &warp_modes,
                 mid_origin,
@@ -779,7 +790,11 @@ mod tests {
                 axial_scale,
                 strength,
             );
-            let end_origin = [origin[0] + 0.1 * dir[0], origin[1] + 0.1 * dir[1], origin[2] + 0.1 * dir[2]];
+            let end_origin = [
+                origin[0] + 0.1 * dir[0],
+                origin[1] + 0.1 * dir[1],
+                origin[2] + 0.1 * dir[2],
+            ];
             let (_warp_point_t1, warp_rate_t1) = evaluate_wave_flow_warp_with_rate(
                 &warp_modes,
                 end_origin,
@@ -789,8 +804,7 @@ mod tests {
                 strength,
             );
             let warped_rates: [[f32; 3]; 3] = [warp_rate_t0, warp_rate_mid, warp_rate_t1];
-            let (_weights_warped, sigma_warped) =
-                wave_ray_attenuation(&modes, &warped_rates, 0.1);
+            let (_weights_warped, sigma_warped) = wave_ray_attenuation(&modes, &warped_rates, 0.1);
 
             sum_sigma_unwarped += sigma_unwrapped;
             sum_sigma_warped += sigma_warped;
@@ -1116,14 +1130,26 @@ mod tests {
         noise_frequency: f32,
         noise_aniso_y: f32,
     ) -> WaveCfSample<'a> {
-        let m0 = [pb[0] * warp_frequency, pb[1] * 0.35 * warp_frequency, pb[2] * warp_frequency];
-        let dm0 = [dir[0] * warp_frequency, dir[1] * 0.35 * warp_frequency, dir[2] * warp_frequency];
+        let m0 = [
+            pb[0] * warp_frequency,
+            pb[1] * 0.35 * warp_frequency,
+            pb[2] * warp_frequency,
+        ];
+        let dm0 = [
+            dir[0] * warp_frequency,
+            dir[1] * 0.35 * warp_frequency,
+            dir[2] * warp_frequency,
+        ];
         let (v, vdot) = wave_cf_modulator_state(modulators, m0, dm0);
         let scale = noise_frequency * amp_disp;
         WaveCfSample {
             ctx,
             psi_vector: [v[0] * scale, v[1] * noise_aniso_y * scale, v[2] * scale],
-            rate_vector: [vdot[0] * scale, vdot[1] * noise_aniso_y * scale, vdot[2] * scale],
+            rate_vector: [
+                vdot[0] * scale,
+                vdot[1] * noise_aniso_y * scale,
+                vdot[2] * scale,
+            ],
             amp_disp,
         }
     }
@@ -1251,14 +1277,8 @@ mod tests {
             pb[2] * noise_frequency,
         ];
         let pointwise = evaluate_wave_noise_cf(&modes, w, 0.3, Some(&sample));
-        let (lowpassed, sigma) = evaluate_wave_noise_local_lowpass_cf(
-            &modes,
-            w,
-            [0.001; 3],
-            0.01,
-            0.3,
-            Some(&sample),
-        );
+        let (lowpassed, sigma) =
+            evaluate_wave_noise_local_lowpass_cf(&modes, w, [0.001; 3], 0.01, 0.3, Some(&sample));
         assert!((pointwise - lowpassed).abs() < 1e-4);
         assert!(sigma < 1e-3);
     }
@@ -1318,11 +1338,7 @@ mod tests {
         for point in &points {
             // Initialize z = M * p and J as 3x3 identity
             let mut z = wave_linear_map(*point, warp_frequency, axial_scale);
-            let mut j: [[f64; 3]; 3] = [
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ];
+            let mut j: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
             // Apply each shear S_i and accumulate Jacobian: J = J_i * J
             for mode in &modes {
@@ -1417,11 +1433,7 @@ mod tests {
         for point in &points {
             // Initialize z = M * p and J as 3x3 identity
             let mut z = wave_linear_map(*point, warp_frequency, axial_scale);
-            let mut j: [[f64; 3]; 3] = [
-                [1.0, 0.0, 0.0],
-                [0.0, 1.0, 0.0],
-                [0.0, 0.0, 1.0],
-            ];
+            let mut j: [[f64; 3]; 3] = [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]];
 
             // Apply each shear S_i and accumulate Jacobian: J = J_i * J
             for mode in &modes {
@@ -1493,7 +1505,8 @@ mod tests {
         // that same rate (within 1e-5).
         let w = [0.3f32, 0.5, 0.7];
         let rate = [0.1f32, 0.8, 0.05];
-        let (noise_local, sigma_local) = evaluate_wave_noise_local_lowpass(&modes, w, rate, dt, 0.0);
+        let (noise_local, sigma_local) =
+            evaluate_wave_noise_local_lowpass(&modes, w, rate, dt, 0.0);
         let rates: [[f32; 3]; 3] = [rate, rate, rate];
         let (weights, sigma_ray) = wave_ray_attenuation(&modes, &rates, dt);
         let noise_attenuated = evaluate_wave_noise_attenuated(&modes, &weights, w, 0.0);
@@ -1556,7 +1569,6 @@ mod tests {
         );
     }
 
-
     #[test]
     fn test_reduced_lowpass_sigma_accounting() {
         // The skipped-mode variance must enter sigma^2 additively: exactly
@@ -1565,9 +1577,7 @@ mod tests {
         let mut modes = generate_wave_modes();
         apply_wave_envelope(&mut modes, 0.6);
         modes.sort_by(|a, b| {
-            let mag = |m: &WaveMode| {
-                (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
-            };
+            let mag = |m: &WaveMode| (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt();
             mag(a).total_cmp(&mag(b))
         });
         let env_coeff = modes
@@ -1581,12 +1591,26 @@ mod tests {
         let rate = [3.0, -2.0, 4.0];
         let dt = 0.02;
         let base = evaluate_wave_noise_local_lowpass_reduced(
-            &modes[..tracked], w, rate, dt, 0.0, None, [0.0; 2], 0.0,
+            &modes[..tracked],
+            w,
+            rate,
+            dt,
+            0.0,
+            None,
+            [0.0; 2],
+            0.0,
         );
 
         let p_low = 0.013f32;
         let with_low = evaluate_wave_noise_local_lowpass_reduced(
-            &modes[..tracked], w, rate, dt, 0.0, None, [p_low, 0.0], env_coeff,
+            &modes[..tracked],
+            w,
+            rate,
+            dt,
+            0.0,
+            None,
+            [p_low, 0.0],
+            env_coeff,
         );
         assert!(
             (with_low.1 * with_low.1 - base.1 * base.1 - p_low).abs() < 1e-6,
@@ -1596,7 +1620,14 @@ mod tests {
 
         let p_high = 0.021f32;
         let with_high = evaluate_wave_noise_local_lowpass_reduced(
-            &modes[..tracked], w, rate, dt, 0.0, None, [0.0, p_high], env_coeff,
+            &modes[..tracked],
+            w,
+            rate,
+            dt,
+            0.0,
+            None,
+            [0.0, p_high],
+            env_coeff,
         );
         let delta = with_high.1 * with_high.1 - base.1 * base.1;
         let z_low_bound: f32 = modes[..tracked]

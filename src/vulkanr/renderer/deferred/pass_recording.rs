@@ -1,5 +1,5 @@
 use anyhow::Result;
-use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
+use cgmath::{SquareMatrix, Vector3};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
@@ -632,12 +632,12 @@ pub unsafe fn record_flame_passes(
 
     // Calculate history_index from the first flame's frame_index (shared by all instances)
     let history_index = if let Some(first) = flames.first() {
-        if let Some(effect) = app
+        if let Some(temporal) = app
             .data
             .ecs_world
-            .get_component::<crate::ecs::component::FlameEffect>(*first)
+            .get_component::<crate::ecs::component::FlameTemporalAccum>(*first)
         {
-            (effect.frame_index as usize) & 1
+            (temporal.frame_index as usize) & 1
         } else {
             0
         }
@@ -665,8 +665,22 @@ pub unsafe fn record_flame_passes(
             .get_resource::<crate::ecs::resource::FlameRenderSettings>()
             .map(|s| s.shading_mode == thyllore_render_core::FlameShadingMode::NoiseRaymarch)
             .unwrap_or(false);
+        let baked = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::FlameBaked>(flame)
+            .cloned()
+            .unwrap_or_default();
+        let temporal_accum = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::FlameTemporalAccum>(flame)
+            .cloned()
+            .unwrap_or_default();
         let ubo = thyllore_render_core::build_flame_ubo_with_trail(
             effect,
+            &baked,
+            &temporal_accum,
             trail.map(|t| &t.state),
             is_noise_mode,
         );

@@ -11,7 +11,7 @@ use std::process;
 
 use thyllore_render_core::{build_flame_ubo, WallProbeView};
 
-use thyllore_render_debug::dump_effect::effect_from_dump;
+use thyllore_render_debug::dump_effect::flame_from_dump;
 use thyllore_render_debug::flame_field_trace::trace_flame_field;
 
 struct Args {
@@ -86,7 +86,7 @@ fn main() {
     let args = parse_args();
 
     let dump = read_json(&args.dump);
-    let effect = effect_from_dump(&dump["flames"][0]);
+    let (effect, baked, temporal) = flame_from_dump(&dump["flames"][0]);
 
     let view_source = read_json(&args.view);
     let v = &view_source["view"];
@@ -106,7 +106,7 @@ fn main() {
         process::exit(1);
     }
 
-    let ubo = build_flame_ubo(&effect);
+    let ubo = build_flame_ubo(&effect, &baked, &temporal);
     let trace = trace_flame_field(&ubo, &view);
 
     let text = serde_json::to_string(&trace).unwrap();

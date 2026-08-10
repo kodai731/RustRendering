@@ -138,17 +138,18 @@ pub fn wave_jitter_state(
     let mut psi_rate = [0.0f32; WAVE_JITTER_RANK];
     for m in 0..WAVE_JITTER_RANK {
         let k = WAVE_JITTER_K[m];
-        let angle =
-            scale * (k[0] * w[0] + k[1] * w[1] + k[2] * w[2]) + WAVE_JITTER_PHASE[m];
+        let angle = scale * (k[0] * w[0] + k[1] * w[1] + k[2] * w[2]) + WAVE_JITTER_PHASE[m];
         psi[m] = angle.sin();
-        psi_rate[m] =
-            angle.cos() * scale * (k[0] * rate[0] + k[1] * rate[1] + k[2] * rate[2]);
+        psi_rate[m] = angle.cos() * scale * (k[0] * rate[0] + k[1] * rate[1] + k[2] * rate[2]);
     }
     (psi, psi_rate)
 }
 
 /// Per-mode jitter phase `sum_m c_{n,m} * Psi_m` from a precomputed field state.
-pub fn wave_mode_jitter_phase(jitter: &[f32; WAVE_JITTER_RANK], psi: &[f32; WAVE_JITTER_RANK]) -> f32 {
+pub fn wave_mode_jitter_phase(
+    jitter: &[f32; WAVE_JITTER_RANK],
+    psi: &[f32; WAVE_JITTER_RANK],
+) -> f32 {
     jitter[0] * psi[0] + jitter[1] * psi[1] + jitter[2] * psi[2]
 }
 
@@ -266,8 +267,7 @@ fn fill_wave_modes(modes: &mut [WaveMode], k_ratio: f32) {
         let ring = (1.0 - vertical * vertical).max(0.0).sqrt();
         let azimuth = std::f64::consts::TAU * ((n as f64 / GOLDEN_RATIO).fract());
         let magnitude_u = (0.5 / count as f64 + n as f64 * PLASTIC_INV).fract();
-        let magnitude =
-            std::f64::consts::TAU * ((k_ratio as f64).ln() * magnitude_u).exp();
+        let magnitude = std::f64::consts::TAU * ((k_ratio as f64).ln() * magnitude_u).exp();
         mode.k = [
             (ring * azimuth.cos() * magnitude) as f32,
             (vertical * magnitude) as f32,
@@ -320,9 +320,7 @@ pub fn generate_wave_low_modes() -> [WaveMode; WAVE_LOW_MODE_COUNT] {
         let ring = (1.0 - vertical * vertical).max(0.0).sqrt();
         let azimuth = std::f64::consts::TAU * ((stream_index / GOLDEN_RATIO).fract());
         let magnitude_u = (0.5 / count as f64 + stream_index * PLASTIC_INV).fract();
-        let magnitude = std::f64::consts::TAU
-            * (k_min as f64)
-            * (span * magnitude_u).exp();
+        let magnitude = std::f64::consts::TAU * (k_min as f64) * (span * magnitude_u).exp();
         let aniso_y = wave_low_aniso_y((magnitude / std::f64::consts::TAU) as f32) as f64;
         mode.k = [
             (ring * azimuth.cos() * magnitude) as f32,
@@ -345,8 +343,7 @@ pub fn generate_wave_low_modes() -> [WaveMode; WAVE_LOW_MODE_COUNT] {
 /// Smooth y-compression profile over normalized |k|/2pi: WAVE_LOW_ANISO_Y_MIN
 /// at WAVE_LOW_K_MIN rising linearly in ln k to 1.0 at the legacy band floor.
 pub fn wave_low_aniso_y(k_norm: f32) -> f32 {
-    let u = (k_norm.max(WAVE_LOW_K_MIN) / WAVE_LOW_K_MIN).ln()
-        / (1.0f32 / WAVE_LOW_K_MIN).ln();
+    let u = (k_norm.max(WAVE_LOW_K_MIN) / WAVE_LOW_K_MIN).ln() / (1.0f32 / WAVE_LOW_K_MIN).ln();
     WAVE_LOW_ANISO_Y_MIN + (1.0 - WAVE_LOW_ANISO_Y_MIN) * u.clamp(0.0, 1.0)
 }
 
@@ -386,11 +383,10 @@ pub fn build_unified_erosion_modes(
     modes.extend_from_slice(&generate_wave_modes_with_ratio(k_ratio));
     modes.extend_from_slice(&generate_wave_low_modes());
     for mode in modes.iter_mut() {
-        let k_norm = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2])
-            .sqrt()
+        let k_norm = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2]).sqrt()
             / std::f32::consts::TAU;
-        mode.amplitude = k_norm.max(1e-4).powf(-5.0 / 6.0)
-            * wave_spectral_tilt(k_norm, kappa_b, kappa_w);
+        mode.amplitude =
+            k_norm.max(1e-4).powf(-5.0 / 6.0) * wave_spectral_tilt(k_norm, kappa_b, kappa_w);
         mode.jitter = [0.0; WAVE_JITTER_RANK];
     }
     apply_wave_envelope(&mut modes, env_mu.max(1e-6));
@@ -400,8 +396,7 @@ pub fn build_unified_erosion_modes(
     // low octaves add their silhouette-scale variance on top.
     let mut band_power = 0.0f64;
     for mode in &modes {
-        let k_norm = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2])
-            .sqrt()
+        let k_norm = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2]).sqrt()
             / std::f32::consts::TAU;
         if k_norm >= 1.0 {
             band_power += 0.5 * (mode.amplitude as f64) * (mode.amplitude as f64);
@@ -514,9 +509,8 @@ pub fn generate_wave_warp_modes() -> [WaveWarpMode; WAVE_WARP_MODE_COUNT] {
         let amplitude = (magnitude / std::f64::consts::TAU).powf(-5.0 / 6.0);
         mode.amplitude = amplitude as f32;
         power_sum += 0.5 * amplitude * amplitude;
-        mode.phase =
-            (std::f64::consts::TAU * (n as f64 * PLASTIC_INV + 0.75 * PLASTIC_INV_SQ).fract())
-                as f32;
+        mode.phase = (std::f64::consts::TAU
+            * (n as f64 * PLASTIC_INV + 0.75 * PLASTIC_INV_SQ).fract()) as f32;
         let displacement = fibonacci_direction(
             ((n as f64 + 0.5) * PLASTIC_INV).fract(),
             ((n as f64 + 2.0) * PLASTIC_INV_SQ + 0.5).fract(),
@@ -574,10 +568,7 @@ pub const WARP_REACH_DEFAULT: f32 = 0.35;
 pub fn warp_strain_norm(modes: &[WaveWarpMode]) -> f32 {
     modes
         .iter()
-        .map(|m| {
-            m.amplitude
-                * (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
-        })
+        .map(|m| m.amplitude * (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt())
         .fold(0.0, f32::max)
 }
 
@@ -589,8 +580,7 @@ pub fn warp_strain_norm_rms(modes: &[WaveWarpMode]) -> f32 {
     modes
         .iter()
         .map(|m| {
-            let s = m.amplitude
-                * (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt();
+            let s = m.amplitude * (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt();
             s * s
         })
         .sum::<f32>()
@@ -666,10 +656,7 @@ fn chebyshev_fit(f: impl Fn(f64) -> f64) -> [f32; WAVE_CF_CHEB_COEFFS] {
 }
 
 /// `(T_s, T_c)`: Chebyshev tables of sin and cos over the psi bound.
-pub fn wave_cf_chebyshev_tables() -> (
-    [f32; WAVE_CF_CHEB_COEFFS],
-    [f32; WAVE_CF_CHEB_COEFFS],
-) {
+pub fn wave_cf_chebyshev_tables() -> ([f32; WAVE_CF_CHEB_COEFFS], [f32; WAVE_CF_CHEB_COEFFS]) {
     static CACHED: OnceLock<([f32; WAVE_CF_CHEB_COEFFS], [f32; WAVE_CF_CHEB_COEFFS])> =
         OnceLock::new();
     *CACHED.get_or_init(|| (chebyshev_fit(f64::sin), chebyshev_fit(f64::cos)))
@@ -685,7 +672,11 @@ pub fn generate_wave_cf_shear_layers(
     layers: usize,
     gain: f32,
 ) -> Vec<WaveWarpMode> {
-    let half = (warp_modes.iter().map(|m| (m.amplitude as f64).powi(2)).sum::<f64>() / 2.0)
+    let half = (warp_modes
+        .iter()
+        .map(|m| (m.amplitude as f64).powi(2))
+        .sum::<f64>()
+        / 2.0)
         .sqrt() as f32;
     let mut order: Vec<usize> = (0..warp_modes.len()).collect();
     order.sort_by(|&a, &b| {
@@ -814,11 +805,7 @@ mod tests {
         assert!(sigma < 1e-3);
         // Fast ray: the top of the spectrum is unresolved, sigma bounded by the
         // total field std.
-        let rates_fast: [[f32; 3]; 3] = [
-            [1.0, 0.4, 0.2],
-            [1.0, 0.4, 0.2],
-            [1.0, 0.4, 0.2],
-        ];
+        let rates_fast: [[f32; 3]; 3] = [[1.0, 0.4, 0.2], [1.0, 0.4, 0.2], [1.0, 0.4, 0.2]];
         let (weights_fast, sigma_fast) = wave_ray_attenuation(&modes, &rates_fast, 0.5);
         assert!(weights_fast.iter().any(|w| *w < 0.5));
         assert!(sigma_fast > 0.01 && sigma_fast < WAVE_NOISE_STD * 1.01);
@@ -829,7 +816,11 @@ mod tests {
         let warp_modes = generate_wave_warp_modes();
         let layers = generate_wave_cf_shear_layers(&warp_modes, 2, WAVE_CF_SHEAR_GAIN);
         assert_eq!(layers.len(), 2);
-        let half = (warp_modes.iter().map(|m| (m.amplitude as f64).powi(2)).sum::<f64>() / 2.0)
+        let half = (warp_modes
+            .iter()
+            .map(|m| (m.amplitude as f64).powi(2))
+            .sum::<f64>()
+            / 2.0)
             .sqrt() as f32;
         let mut sorted: Vec<f32> = warp_modes.iter().map(|m| m.amplitude).collect();
         sorted.sort_by(|a, b| b.partial_cmp(a).unwrap());
@@ -867,7 +858,7 @@ mod tests {
             );
         }
 
-    // Sample 8000 random points and check statistics
+        // Sample 8000 random points and check statistics
         let sample_count = 8000;
         let mut sum_val: f64 = 0.0;
         for i in 0..sample_count {
@@ -996,10 +987,9 @@ mod tests {
                 previous = strain;
                 let strength = strain * params[3];
                 for mode in &warp_modes {
-                    let k_mag = (mode.k[0] * mode.k[0]
-                        + mode.k[1] * mode.k[1]
-                        + mode.k[2] * mode.k[2])
-                        .sqrt();
+                    let k_mag =
+                        (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2])
+                            .sqrt();
                     let per_mode = strength * mode.amplitude * k_mag;
                     assert!(
                         per_mode <= WARP_STRAIN_CAP + 1e-5,
@@ -1082,13 +1072,19 @@ mod tests {
         let mut mags: Vec<f32> = modes
             .iter()
             .map(|m| {
-                (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt()
-                    / std::f32::consts::TAU
+                (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt() / std::f32::consts::TAU
             })
             .collect();
         mags.sort_by(f32::total_cmp);
-        assert!(mags[0] < 0.3, "low octave starts near WAVE_LOW_K_MIN: {}", mags[0]);
-        assert!(*mags.last().unwrap() > 6.0, "top of the legacy band present");
+        assert!(
+            mags[0] < 0.3,
+            "low octave starts near WAVE_LOW_K_MIN: {}",
+            mags[0]
+        );
+        assert!(
+            *mags.last().unwrap() > 6.0,
+            "top of the legacy band present"
+        );
         let max_gap_octaves = mags
             .windows(2)
             .map(|w| (w[1] / w[0]).log2())
@@ -1104,14 +1100,20 @@ mod tests {
             total_power.sqrt()
         );
         for m in &modes {
-            assert_eq!(m.jitter, [0.0; WAVE_JITTER_RANK], "unified table carries no jitter");
+            assert_eq!(
+                m.jitter, [0.0; WAVE_JITTER_RANK],
+                "unified table carries no jitter"
+            );
         }
     }
 
     #[test]
     fn spectral_tilt_and_low_aniso_are_smooth_and_continuous() {
         let a_edge = wave_low_aniso_y(1.0);
-        assert!((a_edge - 1.0).abs() < 1e-6, "aniso profile reaches 1 at the band floor");
+        assert!(
+            (a_edge - 1.0).abs() < 1e-6,
+            "aniso profile reaches 1 at the band floor"
+        );
         let mut prev_t = wave_spectral_tilt(0.25, 2.0, 0.6);
         let mut prev_a = wave_low_aniso_y(0.25);
         let mut k = 0.25f32;

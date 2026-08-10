@@ -279,9 +279,7 @@ mod tests {
                     if is_type {
                         if let Some(paren) = rest.find('(') {
                             let name = &rest[..paren];
-                            if paren > 0
-                                && name.chars().all(|c| c.is_alphanumeric() || c == '_')
-                            {
+                            if paren > 0 && name.chars().all(|c| c.is_alphanumeric() || c == '_') {
                                 current = Some((name.to_string(), String::new(), false));
                             }
                         }
@@ -317,13 +315,7 @@ mod tests {
     fn every_stochastic_evaluation_site_belongs_to_a_declared_source() {
         // primitive pattern -> allowed functions; extending this map is a design change.
         let mut allowed: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
-        allowed.insert(
-            "fbm3(",
-            vec![
-                "fbm3",
-                "flameBoundaryDisplacement",
-            ],
-        );
+        allowed.insert("fbm3(", vec!["fbm3", "flameBoundaryDisplacement"]);
         allowed.insert(
             "waveModes[",
             vec![

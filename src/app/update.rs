@@ -7,7 +7,9 @@ use anyhow::Result;
 
 impl App {
     pub unsafe fn update(&mut self, image_index: usize) -> Result<()> {
-        let (time, delta_time) = if self.get_resource::<crate::ecs::resource::BatchRun>().is_some()
+        let (time, delta_time) = if self
+            .get_resource::<crate::ecs::resource::BatchRun>()
+            .is_some()
         {
             let time = self.last_update_time + 1.0 / 60.0;
             let delta_time = 1.0 / 60.0;

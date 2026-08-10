@@ -8,15 +8,13 @@ use std::fs;
 use std::process;
 
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
+use thyllore_render_core::flame_wave::*;
 use thyllore_render_core::{
     build_flame_inverse_model_matrix, build_flame_ubo, flame_bounding_radius,
 };
-use thyllore_render_core::{
-    ring_support_span, FlameRadialTaper,
-};
-use thyllore_render_core::flame_wave::*;
+use thyllore_render_core::{ring_support_span, FlameRadialTaper};
 
-use thyllore_render_debug::dump_effect::{camera_from_dump, effect_from_dump};
+use thyllore_render_debug::dump_effect::{camera_from_dump, flame_from_dump};
 use thyllore_render_debug::fringe_field::{flow_warp_with_rate, sample_wave_field, WarpParams};
 
 #[derive(Clone, Debug)]
@@ -58,10 +56,12 @@ fn parse_args() -> Args {
                 i += 1;
                 let parts: Vec<f32> = args[i]
                     .split(',')
-                    .map(|s| s.parse().unwrap_or_else(|_| {
-                        eprintln!("invalid --rect value");
-                        process::exit(1);
-                    }))
+                    .map(|s| {
+                        s.parse().unwrap_or_else(|_| {
+                            eprintln!("invalid --rect value");
+                            process::exit(1);
+                        })
+                    })
                     .collect();
                 if parts.len() != 4 {
                     eprintln!("--rect must have 4 comma-separated values");
@@ -93,7 +93,13 @@ fn parse_args() -> Args {
         process::exit(1);
     });
 
-    Args { dump, out, res, rect, top_modes }
+    Args {
+        dump,
+        out,
+        res,
+        rect,
+        top_modes,
+    }
 }
 
 fn transform_point(matrix: &Matrix4<f32>, point: Vector3<f32>) -> Vector3<f32> {
@@ -129,7 +135,7 @@ fn main() {
     });
 
     // Reconstruct effect and camera from dump
-    let effect = effect_from_dump(&dump["flames"][0]);
+    let (effect, baked, temporal) = flame_from_dump(&dump["flames"][0]);
     let cam = camera_from_dump(&dump);
 
     // Check bend_amount is zero (non-zero means not mirrored)
@@ -169,7 +175,7 @@ fn main() {
     let modes: Vec<WaveMode> = modes.into_iter().take(n_modes).collect();
 
     // Camera setup
-    let ubo = build_flame_ubo(&effect);
+    let ubo = build_flame_ubo(&effect, &baked, &temporal);
     let inverse_model = build_flame_inverse_model_matrix(&effect);
     let camera_world = Vector3::from(cam.position);
     let camera_local = transform_point(&inverse_model, camera_world);
@@ -180,8 +186,8 @@ fn main() {
     let up = Vector3::from(cam.up);
     let t_max = camera_local.magnitude() + 4.0;
 
-   // Ring support parameters
-    let taper = FlameRadialTaper::from_effect(&effect);
+    // Ring support parameters
+    let taper = FlameRadialTaper::from_effect(&effect, &baked);
     let ring_major = if effect.emitter_kind == 1 {
         effect.ring_major_radius / flame_bounding_radius(&effect).max(1e-3)
     } else {
@@ -193,8 +199,10 @@ fn main() {
     let mut rays = Vec::new();
     for row in 0..args.res {
         for col in 0..args.res {
-            let ndc_x = args.rect[0] + (col as f32 + 0.5) / args.res as f32 * (args.rect[2] - args.rect[0]);
-            let ndc_y = args.rect[1] + (row as f32 + 0.5) / args.res as f32 * (args.rect[3] - args.rect[1]);
+            let ndc_x =
+                args.rect[0] + (col as f32 + 0.5) / args.res as f32 * (args.rect[2] - args.rect[0]);
+            let ndc_y =
+                args.rect[1] + (row as f32 + 0.5) / args.res as f32 * (args.rect[3] - args.rect[1]);
             let ndc = [ndc_x, ndc_y];
 
             let direction_world =
@@ -243,7 +251,13 @@ fn main() {
                     mu_zw: [ubo.tip_carve_params[2], ubo.tip_carve_params[3]],
                     displacement_form: ubo.warp_form_params[0] > 0.5,
                 };
-                let (q, rate_raw) = flow_warp_with_rate(&warp_modes, &warp_params, p, [direction_local.x, direction_local.y, direction_local.z], h);
+                let (q, rate_raw) = flow_warp_with_rate(
+                    &warp_modes,
+                    &warp_params,
+                    p,
+                    [direction_local.x, direction_local.y, direction_local.z],
+                    h,
+                );
 
                 // w = anisoCompress(q, noise_aniso_y) * noise_frequency - advect
                 // rate = anisoCompress(rate_raw, noise_aniso_y) * noise_frequency

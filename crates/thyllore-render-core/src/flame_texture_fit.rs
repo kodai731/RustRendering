@@ -1,6 +1,9 @@
 use crate::flame::FlameEffect;
 use thyllore_math_core::{evaluate_chebyshev, ChebyshevSeries};
-use thyllore_texture_fit_core::{adjacent_correlation, fit_color, fit_color_ramp, fit_envelope_profile, fit_radius_profile, fit_turbulence_and_tilt, preprocess, projection_residual, FlameTexturePrep};
+use thyllore_texture_fit_core::{
+    fit_color, fit_color_ramp, fit_envelope_profile, fit_radius_profile, fit_turbulence_and_tilt,
+    preprocess, projection_residual, FlameTexturePrep,
+};
 
 /// Abel projection of a biweight density row.
 ///
@@ -22,7 +25,12 @@ pub fn project_row(amplitude: f32, profile_radius: f32, sharpness: f32, y: f32) 
 /// R(h) from the radial Gaussian scale, then evaluate `project_row` for each column `y`.
 ///
 /// Base subtraction is omitted for simplicity — only the relative shape of the projection matrix is used.
-pub fn project_profile(effect: &FlameEffect, heights: &[f32], columns: &[f32]) -> Vec<Vec<f32>> {
+pub fn project_profile(
+    effect: &FlameEffect,
+    baked: &crate::flame::FlameBaked,
+    heights: &[f32],
+    columns: &[f32],
+) -> Vec<Vec<f32>> {
     let height = ChebyshevSeries::new(
         effect
             .coefficients
@@ -33,7 +41,7 @@ pub fn project_profile(effect: &FlameEffect, heights: &[f32], columns: &[f32]) -
             .collect(),
         (0.0, 1.0),
     );
-    let taper = crate::flame_radial::FlameRadialTaper::from_effect(effect);
+    let taper = crate::flame_radial::FlameRadialTaper::from_effect(effect, baked);
     let sharpness = effect.radial_sharpness;
 
     heights
@@ -73,9 +81,19 @@ pub struct FlameTextureFit {
 }
 
 /// Fit silhouette parameters by minimizing projection residual via coordinate descent.
-pub fn fit_silhouette(prep: &FlameTexturePrep, initial: &FlameEffect) -> [f32; 6] {
+pub fn fit_silhouette(
+    prep: &FlameTexturePrep,
+    initial: &FlameEffect,
+    baked: &crate::flame::FlameBaked,
+) -> [f32; 6] {
     let heights: Vec<f32> = (0..64).map(|i| 1.0 - i as f32 / 63.0).collect();
-    let columns: Vec<f32> = (0..33).map(|j| (j as f32 / 32.0) * 3.0 * crate::flame_radial::flame_radial_support_radius(initial.radial_sharpness)).collect();
+    let columns: Vec<f32> = (0..33)
+        .map(|j| {
+            (j as f32 / 32.0)
+                * 3.0
+                * crate::flame_radial::flame_radial_support_radius(initial.radial_sharpness)
+        })
+        .collect();
 
     let mut params: [f32; 6] = [
         initial.envelope_peak,
@@ -88,8 +106,8 @@ pub fn fit_silhouette(prep: &FlameTexturePrep, initial: &FlameEffect) -> [f32; 6
 
     let mut best_residual = {
         let mut eff = initial.clone();
-        apply_params(&mut eff, &params);
-        projection_residual(&project_profile(&eff, &heights, &columns), &prep.sym)
+        apply_params(&mut eff, baked, &params);
+        projection_residual(&project_profile(&eff, baked, &heights, &columns), &prep.sym)
     };
 
     // Coordinate descent: optimize each parameter by golden-section search
@@ -112,15 +130,16 @@ pub fn fit_silhouette(prep: &FlameTexturePrep, initial: &FlameEffect) -> [f32; 6
                 continue;
             }
             let (lo, hi) = param_ranges[i];
-            let best_val =
-                golden_section_search(&params, i, lo, hi, initial, &heights, &columns, &prep.sym);
+            let best_val = golden_section_search(
+                &params, i, lo, hi, initial, baked, &heights, &columns, &prep.sym,
+            );
             // Only accept if it improves the residual
             let mut p = params;
             p[i] = best_val;
             let mut eff = initial.clone();
-            apply_params(&mut eff, &p);
+            apply_params(&mut eff, baked, &p);
             let new_residual =
-                projection_residual(&project_profile(&eff, &heights, &columns), &prep.sym);
+                projection_residual(&project_profile(&eff, baked, &heights, &columns), &prep.sym);
             if new_residual < best_residual {
                 params[i] = best_val;
                 best_residual = new_residual;
@@ -131,14 +150,14 @@ pub fn fit_silhouette(prep: &FlameTexturePrep, initial: &FlameEffect) -> [f32; 6
     params
 }
 
-fn apply_params(effect: &mut FlameEffect, params: &[f32; 6]) {
+fn apply_params(effect: &mut FlameEffect, baked: &crate::flame::FlameBaked, params: &[f32; 6]) {
     effect.envelope_peak = params[0];
     effect.envelope_base = params[1];
     effect.envelope_tail = params[2];
     effect.radius = params[3];
     effect.radius_tip_ratio = params[4];
     effect.taper_power = params[5];
-    crate::flame::refresh_flame_coefficients(effect);
+    crate::flame::refresh_flame_coefficients(effect, baked);
 }
 
 fn golden_section_search(
@@ -147,6 +166,7 @@ fn golden_section_search(
     lo: f32,
     hi: f32,
     initial: &FlameEffect,
+    baked: &crate::flame::FlameBaked,
     heights: &[f32],
     columns: &[f32],
     target: &[Vec<f32>],
@@ -164,8 +184,8 @@ fn golden_section_search(
             break;
         }
 
-        let fc = eval_residual(params, dim, c, initial, heights, columns, target);
-        let fd = eval_residual(params, dim, d, initial, heights, columns, target);
+        let fc = eval_residual(params, dim, c, initial, baked, heights, columns, target);
+        let fd = eval_residual(params, dim, d, initial, baked, heights, columns, target);
 
         if fc < fd {
             b = d;
@@ -187,6 +207,7 @@ fn eval_residual(
     dim: usize,
     value: f32,
     initial: &FlameEffect,
+    baked: &crate::flame::FlameBaked,
     heights: &[f32],
     columns: &[f32],
     target: &[Vec<f32>],
@@ -194,8 +215,8 @@ fn eval_residual(
     let mut p = *params;
     p[dim] = value;
     let mut eff = initial.clone();
-    apply_params(&mut eff, &p);
-    projection_residual(&project_profile(&eff, heights, columns), target)
+    apply_params(&mut eff, baked, &p);
+    projection_residual(&project_profile(&eff, baked, heights, columns), target)
 }
 
 /// Compute the aspect ratio of an effect's projected profile.
@@ -205,11 +226,11 @@ fn eval_residual(
 /// the value is >= 15% of the maximum value in the entire projected profile. The maximum such
 /// width across all rows is taken. The width is measured in world units (number of columns * column spacing).
 /// Returns `max_row_width / height` where height = 1.0.
-fn projected_aspect(effect: &FlameEffect) -> f32 {
+fn projected_aspect(effect: &FlameEffect, baked: &crate::flame::FlameBaked) -> f32 {
     let heights: Vec<f32> = (0..64).map(|i| i as f32 / 63.0).collect();
     let columns: Vec<f32> = (0..33).map(|i| -1.5 + i as f32 * 3.0 / 32.0).collect();
 
-    let profile = project_profile(effect, &heights, &columns);
+    let profile = project_profile(effect, baked, &heights, &columns);
 
     // Find the maximum value in the projected profile
     let max_val = profile
@@ -253,16 +274,17 @@ pub fn fit_flame_texture(
     width: usize,
     height: usize,
     initial: &FlameEffect,
+    baked: &crate::flame::FlameBaked,
 ) -> Option<FlameTextureFit> {
     let prep = preprocess(pixels, width, height)?;
 
-    let silhouette = fit_silhouette(&prep, initial);
+    let silhouette = fit_silhouette(&prep, initial, baked);
     let turbulence = fit_turbulence_and_tilt(&prep);
     let (use_blackbody, temperature_base_k, temperature_tip_k, color_bands) =
         fit_color(pixels, width, height);
 
     // Compute radius from aspect ratio: initial.radius * (prep.aspect_ratio / model_aspect).clamp(0.2, 3.0)
-    let model_aspect = projected_aspect(initial);
+    let model_aspect = projected_aspect(initial, baked);
     let radius = initial.radius * (prep.aspect_ratio / model_aspect).clamp(0.2, 3.0);
 
     // Compute envelope and radius profiles
@@ -293,12 +315,10 @@ pub fn fit_flame_texture(
     })
 }
 
-
 /// Compute the radius profile from silhouette data.
 /// For each sample i (0..=32), h = i/32, row r = round((1.0-h)*63.0) in symmetry matrix.
 /// Half-width w = max column j where sym[r][j] >= 0.15 * (max of all sym).
 /// Normalize by radius[0] (if radius[0] < 5% of total max, use total max). Clamp to [0.05, 4.0].
-
 
 #[derive(Clone, Copy)]
 pub struct TextureFitGroups {
@@ -332,8 +352,11 @@ const ENVELOPE_MAX_DROP_SLOPE: f32 = 1.2 / 32.0;
 ///    ENVELOPE_MAX_DROP_SLOPE.
 /// 3. Clamp and write back: clamp all entries to [0,1] and write to baked_envelope only if
 ///    the change exceeds 1e-3.
-pub fn finalize_fit_envelope(effect: &mut crate::flame::FlameEffect) {
-    let profile = crate::flame::profile_from_effect(effect);
+pub fn finalize_fit_envelope(
+    effect: &mut crate::flame::FlameEffect,
+    baked: &mut crate::flame::FlameBaked,
+) {
+    let profile = crate::flame::profile_from_effect(effect, baked);
     let height_falloff = &profile.height_falloff;
 
     // Evaluate F[i] for i=0..=32 with h = i/32
@@ -375,13 +398,14 @@ pub fn finalize_fit_envelope(effect: &mut crate::flame::FlameEffect) {
 
     // Write back only if change exceeds 1e-3
     if max_change > 1e-3 {
-        effect.baked_envelope = Some(f);
-        effect.baked_blend = 1.0;
+        baked.envelope = Some(f);
+        baked.blend = 1.0;
     }
 }
 
 pub fn apply_texture_fit(
     effect: &mut crate::flame::FlameEffect,
+    baked: &mut crate::flame::FlameBaked,
     fit: &FlameTextureFit,
     groups: TextureFitGroups,
     blend: f32,
@@ -406,28 +430,28 @@ pub fn apply_texture_fit(
 
         // Baked envelope and radius: set based on profile flag
         if profile {
-            effect.baked_envelope = Some(fit.envelope_profile);
+            baked.envelope = Some(fit.envelope_profile);
             let max_radius = (1.5
                 / crate::flame_radial::flame_radial_support_radius(effect.radial_sharpness))
             .min(2.0);
-            effect.baked_radius = Some(fit.radius_profile.map(|v| v.clamp(0.05, max_radius)));
-            effect.baked_blend = blend;
+            baked.radius = Some(fit.radius_profile.map(|v| v.clamp(0.05, max_radius)));
+            baked.blend = blend;
         } else {
-            effect.baked_envelope = None;
-            effect.baked_radius = None;
-            effect.baked_blend = 0.0;
-            }
+            baked.envelope = None;
+            baked.radius = None;
+            baked.blend = 0.0;
+        }
 
-        finalize_fit_envelope(effect);
+        finalize_fit_envelope(effect, baked);
     }
 
     // Color
     if groups.color {
         // Baked color ramp: set based on profile flag
         if profile {
-            effect.baked_color = Some(fit.color_ramp);
+            baked.color = Some(fit.color_ramp);
         } else {
-            effect.baked_color = None;
+            baked.color = None;
         }
 
         if fit.use_blackbody {
@@ -476,12 +500,12 @@ pub fn apply_texture_fit(
         effect.bend_amount = effect.bend_amount + (fit.bend_amount - effect.bend_amount) * blend;
     }
 
-    crate::flame::refresh_flame_coefficients(effect);
+    crate::flame::refresh_flame_coefficients(effect, baked);
 }
 
 #[cfg(test)]
 mod tests {
-  use super::*;
+    use super::*;
 
     /// Build a FlameTexturePrep from a boolean mask (64x64).
     /// sym[r][j] = 1.0 if column j is within the mask width at row r, else 0.0.
@@ -560,7 +584,14 @@ mod tests {
             radius_profile: [0.0; 33],
             color_ramp: [[0.0; 3]; 8],
         };
-        apply_texture_fit(&mut effect, &fit, TextureFitGroups::default(), 0.0, false);
+        apply_texture_fit(
+            &mut effect,
+            &mut Default::default(),
+            &fit,
+            TextureFitGroups::default(),
+            0.0,
+            false,
+        );
         assert_eq!(effect, original);
     }
 
@@ -599,6 +630,7 @@ mod tests {
         };
         apply_texture_fit(
             &mut effect,
+            &mut Default::default(),
             &fit,
             TextureFitGroups {
                 silhouette: true,
@@ -660,6 +692,7 @@ mod tests {
         };
         apply_texture_fit(
             &mut effect,
+            &mut Default::default(),
             &fit,
             TextureFitGroups {
                 silhouette: true,
@@ -725,7 +758,7 @@ mod tests {
         let heights: [f32; 5] = [0.0, 0.25, 0.5, 0.75, 1.0];
         let columns: [f32; 7] = [-3.0, -2.0, -1.0, 0.0, 1.0, 2.0, 3.0];
 
-        let profile = project_profile(&effect, &heights, &columns);
+        let profile = project_profile(&effect, &Default::default(), &heights, &columns);
 
         // Check dimensions
         assert_eq!(profile.len(), heights.len());
@@ -812,12 +845,20 @@ mod tests {
         let mut target_effect = FlameEffect::default();
         target_effect.envelope_peak = 0.45;
         target_effect.radius_tip_ratio = 0.60;
-        crate::flame::refresh_flame_coefficients(&mut target_effect);
+        crate::flame::refresh_flame_coefficients(&mut target_effect, &Default::default());
 
         let heights: Vec<f32> = (0..64).map(|i| 1.0 - i as f32 / 63.0).collect();
-        let columns: Vec<f32> = (0..33).map(|j| (j as f32 / 32.0) * 3.0 * crate::flame_radial::flame_radial_support_radius(target_effect.radial_sharpness)).collect();
+        let columns: Vec<f32> = (0..33)
+            .map(|j| {
+                (j as f32 / 32.0)
+                    * 3.0
+                    * crate::flame_radial::flame_radial_support_radius(
+                        target_effect.radial_sharpness,
+                    )
+            })
+            .collect();
 
-        let profile = project_profile(&target_effect, &heights, &columns);
+        let profile = project_profile(&target_effect, &Default::default(), &heights, &columns);
 
         // Build a fake prep from the profile (sym = profile, residual_rms = 0, etc.)
         let prep = FlameTexturePrep {
@@ -832,10 +873,12 @@ mod tests {
         };
 
         let initial = FlameEffect::default();
-        let initial_residual =
-            projection_residual(&project_profile(&initial, &heights, &columns), &prep.sym);
+        let initial_residual = projection_residual(
+            &project_profile(&initial, &Default::default(), &heights, &columns),
+            &prep.sym,
+        );
 
-        let fitted = fit_silhouette(&prep, &initial);
+        let fitted = fit_silhouette(&prep, &initial, &Default::default());
 
         // Build effect with fitted parameters
         let mut fitted_effect = initial.clone();
@@ -845,10 +888,10 @@ mod tests {
         fitted_effect.radius = fitted[3];
         fitted_effect.radius_tip_ratio = fitted[4];
         fitted_effect.taper_power = fitted[5];
-        crate::flame::refresh_flame_coefficients(&mut fitted_effect);
+        crate::flame::refresh_flame_coefficients(&mut fitted_effect, &Default::default());
 
         let fitted_residual = projection_residual(
-            &project_profile(&fitted_effect, &heights, &columns),
+            &project_profile(&fitted_effect, &Default::default(), &heights, &columns),
             &prep.sym,
         );
 
@@ -868,12 +911,12 @@ mod tests {
         let width = 64;
         let height = 64;
         let black_pixels: Vec<[f32; 3]> = vec![[0.0, 0.0, 0.0]; width * height];
-        let result = fit_flame_texture(&black_pixels, width, height, &initial);
+        let result = fit_flame_texture(&black_pixels, width, height, &initial, &Default::default());
         assert!(result.is_none(), "All-black image should return None");
 
         // All white image (no flame structure)
         let white_pixels: Vec<[f32; 3]> = vec![[1.0, 1.0, 1.0]; width * height];
-        let result = fit_flame_texture(&white_pixels, width, height, &initial);
+        let result = fit_flame_texture(&white_pixels, width, height, &initial, &Default::default());
         // Should be None (mask covers everything, no flame structure) or finite values
 
         // Uniform noise image
@@ -885,7 +928,7 @@ mod tests {
                 [v, v, v]
             })
             .collect();
-        let result = fit_flame_texture(&noise_pixels, width, height, &initial);
+        let result = fit_flame_texture(&noise_pixels, width, height, &initial, &Default::default());
         // Should be None or finite values (no NaN)
         if let Some(ref fit) = result {
             assert!(fit.envelope_peak.is_finite());
@@ -1021,12 +1064,18 @@ mod tests {
         // Create an effect with envelope_peak = 0.45
         let mut effect = FlameEffect::default();
         effect.envelope_peak = 0.45;
-        crate::flame::refresh_flame_coefficients(&mut effect);
+        crate::flame::refresh_flame_coefficients(&mut effect, &Default::default());
 
         // Project this effect using project_profile to create a synthetic brightness matrix
         let heights: Vec<f32> = (0..64).map(|i| 1.0 - i as f32 / 63.0).collect();
-        let columns: Vec<f32> = (0..33).map(|j| (j as f32 / 32.0) * 3.0 * crate::flame_radial::flame_radial_support_radius(effect.radial_sharpness)).collect();
-        let profile = project_profile(&effect, &heights, &columns);
+        let columns: Vec<f32> = (0..33)
+            .map(|j| {
+                (j as f32 / 32.0)
+                    * 3.0
+                    * crate::flame_radial::flame_radial_support_radius(effect.radial_sharpness)
+            })
+            .collect();
+        let profile = project_profile(&effect, &Default::default(), &heights, &columns);
 
         // (a) Axis Profile Method: Take the brightness column at y=0, and pass it to fit_envelope_from_profile
         let center_col_idx = columns
@@ -1056,7 +1105,7 @@ mod tests {
             row_chroma: vec![[1.0, 1.0, 1.0]; 64],
         };
         let initial = FlameEffect::default();
-        let fitted = fit_silhouette(&prep, &initial);
+        let fitted = fit_silhouette(&prep, &initial, &Default::default());
         let forward_peak = fitted[0];
 
         // Assert that |forward_peak - 0.45| <= |axis_peak - 0.45|
@@ -1069,7 +1118,7 @@ mod tests {
             forward_error,
             axis_error
         );
-   }
+    }
 
     #[test]
     fn test_envelope_profile_body_values_ge_05_for_tip_thin_mask() {
@@ -1084,10 +1133,10 @@ mod tests {
         // Tip row: only 2 columns wide (very thin)
         mask[0 * 64 + 15] = true;
         mask[0 * 64 + 16] = true;
-      let prep = build_prep_from_mask(mask);
+        let prep = build_prep_from_mask(mask);
         let radius_profile = fit_radius_profile(&prep);
 
-       // The tip's radius_profile should be small (< 0.15), so the old code would
+        // The tip's radius_profile should be small (< 0.15), so the old code would
         // compute a huge envelope value there, making max_val huge and crushing
         // all body values below 0.5. After the fix, max_val is computed only from
         // entries where radius_profile[i] >= 0.15, so body values should be >= 0.5.
@@ -1133,10 +1182,10 @@ mod tests {
         }
         // Row 63 (base) is empty
 
-      let prep = build_prep_from_mask(mask);
+        let prep = build_prep_from_mask(mask);
         let radius_profile = fit_radius_profile(&prep);
 
-      // radius[0] corresponds to the base row (row 63), which is empty -> width 0.
+        // radius[0] corresponds to the base row (row 63), which is empty -> width 0.
         // radius_max should be ~16 (the width of filled rows).
         // norm = radius_max (since radius[0] = 0 < 0.05 * radius_max).
         // So radius[0] / norm = 0/radius_max = 0, clamped to 0.05 (minimum).
@@ -1154,7 +1203,7 @@ mod tests {
                 i,
                 radius_profile[i]
             );
-       }
+        }
     }
 
     #[test]
@@ -1166,14 +1215,17 @@ mod tests {
         for i in 0..=32 {
             crushed[i] = 0.2;
         }
-        effect.baked_envelope = Some(crushed);
-        effect.baked_blend = 1.0;
+        let mut baked = crate::flame::FlameBaked {
+            envelope: Some(crushed),
+            blend: 1.0,
+            ..Default::default()
+        };
         // Default edge_high is 0.33, so target = 0.33 + 0.12 = 0.45
 
-        finalize_fit_envelope(&mut effect);
+        finalize_fit_envelope(&mut effect, &mut baked);
 
         // After finalize, compute vis_max from the resulting baked envelope
-        let profile = crate::flame::profile_from_effect(&effect);
+        let profile = crate::flame::profile_from_effect(&effect, &baked);
         let height_falloff = &profile.height_falloff;
         let mut vis_max = 0.0f32;
         for i in 0..=32 {
@@ -1194,12 +1246,13 @@ mod tests {
         let mut effect = crate::flame::FlameEffect::default();
         // Default values: envelope_peak=0.25, envelope_base=0.05, envelope_tail=1.25
         // No baked envelope, so it uses the parametric form
-        assert!(effect.baked_envelope.is_none(), "expected no baked envelope");
+        let mut baked = crate::flame::FlameBaked::default();
+        assert!(baked.envelope.is_none(), "expected no baked envelope");
 
-        finalize_fit_envelope(&mut effect);
+        finalize_fit_envelope(&mut effect, &mut baked);
 
         // After finalize, check that the max drop between adjacent entries is <= 1.25/32
-        let profile = crate::flame::profile_from_effect(&effect);
+        let profile = crate::flame::profile_from_effect(&effect, &baked);
         let height_falloff = &profile.height_falloff;
         let mut max_drop = 0.0f32;
         for i in 1..=32 {
@@ -1232,16 +1285,19 @@ mod tests {
             // A steep envelope that will be softened
             envelope[i] = (1.0 - h * h).max(0.0);
         }
-        effect.baked_envelope = Some(envelope);
-        effect.baked_blend = 1.0;
+        let mut baked = crate::flame::FlameBaked {
+            envelope: Some(envelope),
+            blend: 1.0,
+            ..Default::default()
+        };
 
         // First call
-        finalize_fit_envelope(&mut effect);
-        let first = effect.baked_envelope.unwrap();
+        finalize_fit_envelope(&mut effect, &mut baked);
+        let first = baked.envelope.unwrap();
 
         // Second call
-        finalize_fit_envelope(&mut effect);
-        let second = effect.baked_envelope.unwrap();
+        finalize_fit_envelope(&mut effect, &mut baked);
+        let second = baked.envelope.unwrap();
 
         // Compute max change between first and second
         let mut max_change = 0.0f32;
@@ -1273,7 +1329,7 @@ mod tests {
         }
         let prep = build_prep_from_mask(mask);
         let initial = FlameEffect::default();
-        let fit = fit_silhouette(&prep, &initial);
+        let fit = fit_silhouette(&prep, &initial, &Default::default());
         let radius_tip_ratio = fit[3];
         let taper_power = fit[5];
         assert!(

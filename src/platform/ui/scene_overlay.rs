@@ -480,8 +480,7 @@ fn build_flame_section(
 
             {
                 use crate::ecs::resource::FlameDebugView;
-                if let Some(_token) =
-                    ui.begin_combo("Debug View", settings_copy.debug_view.label())
+                if let Some(_token) = ui.begin_combo("Debug View", settings_copy.debug_view.label())
                 {
                     for view in FlameDebugView::ALL {
                         let selected = view == settings_copy.debug_view;
@@ -576,18 +575,13 @@ fn build_flame_section(
                 ui.combo_simple_string("Flame Preset", &mut preset_index, &presets);
             overlay_state.flame_preset_index = preset_index;
             if preset_changed {
-                if let Some(selected_flame) = selected_flame_entity {
-                    if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
-                        let mut effect_copy = effect.clone();
-                        let preset_name = presets[preset_index].as_str();
-                        thyllore_render_core::apply_flame_preset(&mut effect_copy, preset_name);
-                        // Keyed scalar curves re-stamp their channels every
-                        // frame and would silently pin the old look, so a
-                        // preset stamp also clears them (undo restores).
-                        ui_events.send(UIEvent::ClearScalarKeys);
-                        ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
-                        effect_applied_this_frame = true;
-                    }
+                if selected_flame_entity.is_some() {
+                    // Keyed scalar curves re-stamp their channels every
+                    // frame and would silently pin the old look, so a
+                    // preset stamp also clears them (undo restores).
+                    ui_events.send(UIEvent::ClearScalarKeys);
+                    ui_events.send(UIEvent::ApplyFlamePreset(presets[preset_index].clone()));
+                    effect_applied_this_frame = true;
                 }
             }
 
@@ -653,15 +647,9 @@ fn build_flame_section(
             if overlay_state.texture_fit_path.is_empty() {
                 ui.text_disabled("enter a texture path");
             } else if overlay_state.texture_fit_path_info.starts_with("ok:") {
-                ui.text_colored(
-                    [0.3, 0.9, 0.3, 1.0],
-                    &overlay_state.texture_fit_path_info,
-                );
+                ui.text_colored([0.3, 0.9, 0.3, 1.0], &overlay_state.texture_fit_path_info);
             } else {
-                ui.text_colored(
-                    [0.9, 0.3, 0.3, 1.0],
-                    &overlay_state.texture_fit_path_info,
-                );
+                ui.text_colored([0.9, 0.3, 0.3, 1.0], &overlay_state.texture_fit_path_info);
             }
 
             build_texture_fit_browser(ui, overlay_state);
@@ -695,20 +683,19 @@ fn build_flame_section(
                     turbulence: overlay_state.texture_fit_groups[2],
                     tilt: overlay_state.texture_fit_groups[3],
                 };
-                if let Some(selected_flame) = selected_flame_entity {
-                    if let Some(effect) = ecs_world.get_component::<FlameEffect>(selected_flame) {
-                        let mut effect_copy = effect.clone();
-                        crate::ecs::systems::apply_texture_fit_from_path(
-                            &mut effect_copy,
-                            &path,
-                            blend,
-                            groups,
-                            overlay_state.texture_fit_profile,
-                            "ui",
-                        );
-                        ui_events.send(UIEvent::UpdateFlameEffect(Box::new(effect_copy)));
-                        effect_applied_this_frame = true;
-                    }
+                if selected_flame_entity.is_some() {
+                    ui_events.send(UIEvent::ApplyFlameTextureFit {
+                        path: path.clone(),
+                        blend,
+                        groups: [
+                            groups.silhouette,
+                            groups.color,
+                            groups.turbulence,
+                            groups.tilt,
+                        ],
+                        profile: overlay_state.texture_fit_profile,
+                    });
+                    effect_applied_this_frame = true;
                 }
             }
 
@@ -1068,8 +1055,11 @@ fn validate_texture_fit_path(path: &str) -> String {
     }
     match std::fs::File::open(path)
         .map_err(|e| e.to_string())
-        .and_then(|file| png::Decoder::new(file).read_info().map_err(|e| e.to_string()))
-    {
+        .and_then(|file| {
+            png::Decoder::new(file)
+                .read_info()
+                .map_err(|e| e.to_string())
+        }) {
         Ok(reader) => {
             let info = reader.info();
             format!("ok: {}x{} {:?}", info.width, info.height, info.color_type)
@@ -1111,8 +1101,11 @@ fn build_texture_fit_browser(ui: &imgui::Ui, overlay_state: &mut SceneOverlaySta
                 }
             }
 
-            ui.input_text("##fit_browser_dir", &mut overlay_state.texture_fit_browser_dir)
-                .build();
+            ui.input_text(
+                "##fit_browser_dir",
+                &mut overlay_state.texture_fit_browser_dir,
+            )
+            .build();
             ui.same_line();
             if ui.small_button("Go") {
                 jump = Some(overlay_state.texture_fit_browser_dir.clone());
@@ -1177,28 +1170,22 @@ fn build_texture_fit_browser(ui: &imgui::Ui, overlay_state: &mut SceneOverlaySta
                             ui.text_disabled(label);
                             continue;
                         }
-                        let selected = !is_dir && *name == overlay_state.texture_fit_browser_selected;
+                        let selected =
+                            !is_dir && *name == overlay_state.texture_fit_browser_selected;
                         let clicked = ui.selectable_config(&label).selected(selected).build();
                         let double_clicked = ui.is_item_hovered()
                             && ui.is_mouse_double_clicked(imgui::MouseButton::Left);
                         if *is_dir {
                             if double_clicked {
-                                jump = Some(format!(
-                                    "{}/{}",
-                                    dir_now.trim_end_matches('/'),
-                                    name
-                                ));
+                                jump = Some(format!("{}/{}", dir_now.trim_end_matches('/'), name));
                             }
                         } else {
                             if clicked {
                                 overlay_state.texture_fit_browser_selected = name.clone();
                             }
                             if double_clicked {
-                                confirmed = Some(format!(
-                                    "{}/{}",
-                                    dir_now.trim_end_matches('/'),
-                                    name
-                                ));
+                                confirmed =
+                                    Some(format!("{}/{}", dir_now.trim_end_matches('/'), name));
                             }
                         }
                     }

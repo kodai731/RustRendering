@@ -13,15 +13,14 @@ mod oscillatory_response;
 pub use oscillatory_response::*;
 mod matrix;
 mod quaternion;
+mod smooth_step;
 mod vector;
 mod winding;
-mod smooth_step;
 
 pub use billboard::*;
 pub use bridge_fit::*;
 pub use chebyshev::*;
 pub use compact_support::*;
-pub use smooth_step::*;
 pub use coordinate_system::{
     blender_to_world, fbx_to_world, fix_coord, get_camera_axes_from_view, gltf_to_world,
     perspective, ray_plane_intersection, ray_to_line_segment_distance, ray_to_point_distance,
@@ -32,6 +31,7 @@ pub use erf_moments::*;
 pub use erf_response::*;
 pub use matrix::*;
 pub use quaternion::*;
+pub use smooth_step::*;
 pub use vector::*;
 pub use winding::*;
 

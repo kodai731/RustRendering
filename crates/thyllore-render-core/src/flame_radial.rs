@@ -1,7 +1,5 @@
 use crate::flame_shell::FLAME_SHELL_BASE_RADIUS;
-use thyllore_math_core::{
-    approximate_erf, biweight_profile, evaluate_chebyshev, ChebyshevSeries,
-};
+use thyllore_math_core::{approximate_erf, biweight_profile, evaluate_chebyshev, ChebyshevSeries};
 
 // Mirror of shaders/include/flame_radial_integral.glsl; the accuracy tests below cover both.
 //
@@ -24,11 +22,14 @@ pub struct FlameRadialTaper {
 }
 
 impl FlameRadialTaper {
-    pub fn from_effect(effect: &crate::flame::FlameEffect) -> Self {
+    pub fn from_effect(
+        effect: &crate::flame::FlameEffect,
+        baked: &crate::flame::FlameBaked,
+    ) -> Self {
         Self {
             tip_ratio: effect.radius_tip_ratio,
             power: effect.taper_power,
-            baked_series: if effect.baked_radius.is_some() && effect.baked_blend > 0.0 {
+            baked_series: if baked.radius.is_some() && baked.blend > 0.0 {
                 Some(effect.coefficients.radius_scale)
             } else {
                 None
@@ -117,7 +118,8 @@ pub fn envelope_fade(d_smooth: f32, flood_fade_scale: f32) -> f32 {
 /// so the field stays continuous across the support boundary (mirror of
 /// `flameErodedArgument`).
 pub fn eroded_argument(d_smooth: f32, erosion: f32, flood_fade_scale: f32) -> f32 {
-    let base = d_smooth - (erosion.max(0.0) + erosion.min(0.0) * envelope_fade(d_smooth, flood_fade_scale));
+    let base = d_smooth
+        - (erosion.max(0.0) + erosion.min(0.0) * envelope_fade(d_smooth, flood_fade_scale));
     base * erosion_remap_scale(erosion)
 }
 
@@ -223,7 +225,7 @@ mod tests {
     const SHARPNESS: f32 = 4.0;
 
     fn default_taper() -> FlameRadialTaper {
-        FlameRadialTaper::from_effect(&FlameEffect::default())
+        FlameRadialTaper::from_effect(&FlameEffect::default(), &Default::default())
     }
 
     fn reference_integral(
@@ -499,7 +501,5 @@ mod tests {
                 );
             }
         }
-
     }
-
 }

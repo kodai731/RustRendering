@@ -5,7 +5,7 @@ use anyhow::Result;
 use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
 
 use crate::app::FrameContext;
-use crate::ecs::component::{ConstraintSet, LineMesh};
+use crate::ecs::component::LineMesh;
 use crate::ecs::resource::gizmo::BoneSelectionState;
 use crate::ecs::resource::gizmo::TransformGizmoData;
 use crate::ecs::resource::gizmo::{
@@ -58,7 +58,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
         t.elapsed().as_secs_f32() * 1000.0,
     );
 
-    let t = Instant::now();
+    let _t = Instant::now();
     crate::ecs::systems::flame_bone_attach_sync(ctx);
 
     let t = Instant::now();
@@ -88,12 +88,28 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     ) {
         let t = Instant::now();
         let flame_entities: Vec<_> = ctx.world.query_flames();
-        let effects: Vec<crate::ecs::component::FlameEffect> = flame_entities
+        let effects: Vec<(
+            crate::ecs::component::FlameEffect,
+            crate::ecs::component::FlameBaked,
+            crate::ecs::component::FlameTemporalAccum,
+        )> = flame_entities
             .iter()
             .filter_map(|e| {
-                ctx.world
+                let effect = ctx
+                    .world
                     .get_component::<crate::ecs::component::FlameEffect>(*e)
+                    .cloned()?;
+                let baked = ctx
+                    .world
+                    .get_component::<crate::ecs::component::FlameBaked>(*e)
                     .cloned()
+                    .unwrap_or_default();
+                let temporal_accum = ctx
+                    .world
+                    .get_component::<crate::ecs::component::FlameTemporalAccum>(*e)
+                    .cloned()
+                    .unwrap_or_default();
+                Some((effect, baked, temporal_accum))
             })
             .collect();
         let trails: Vec<Option<crate::ecs::component::flame_trail::FlameTrail>> = flame_entities
@@ -448,8 +464,8 @@ unsafe fn update_transform_gizmo_mesh(ctx: &mut FrameContext) -> Result<()> {
 
     let (mut line_mesh_clone, mut solid_mesh_clone) = {
         let tg = ctx.world.resource::<TransformGizmoData>();
-        let mut line_mesh_clone = tg.line_mesh.clone();
-        let mut solid_mesh_clone = tg.solid_mesh.clone();
+        let line_mesh_clone = tg.line_mesh.clone();
+        let solid_mesh_clone = tg.solid_mesh.clone();
         drop(tg);
         (line_mesh_clone, solid_mesh_clone)
     };
@@ -666,8 +682,8 @@ unsafe fn update_octahedral_bone_mesh(
 
     let (mut solid_mesh, mut wire_mesh) = {
         let bg = ctx.world.resource::<BoneGizmoData>();
-        let mut solid_mesh = bg.solid_mesh.clone();
-        let mut wire_mesh = bg.wire_mesh.clone();
+        let solid_mesh = bg.solid_mesh.clone();
+        let wire_mesh = bg.wire_mesh.clone();
         drop(bg);
         (solid_mesh, wire_mesh)
     };
@@ -715,8 +731,8 @@ unsafe fn update_box_bone_mesh(
 
     let (mut solid_mesh, mut wire_mesh) = {
         let bg = ctx.world.resource::<BoneGizmoData>();
-        let mut solid_mesh = bg.solid_mesh.clone();
-        let mut wire_mesh = bg.wire_mesh.clone();
+        let solid_mesh = bg.solid_mesh.clone();
+        let wire_mesh = bg.wire_mesh.clone();
         drop(bg);
         (solid_mesh, wire_mesh)
     };

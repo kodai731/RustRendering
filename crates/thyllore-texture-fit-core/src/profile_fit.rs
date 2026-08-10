@@ -1,4 +1,6 @@
-pub use thyllore_color_core::{chromaticity_xy, is_saturated, luminance, mccamy_cct, srgb_to_linear};
+pub use thyllore_color_core::{
+    chromaticity_xy, is_saturated, luminance, mccamy_cct, srgb_to_linear,
+};
 
 /// Percentile by linear interpolation over a sorted slice. Returns None on empty input.
 pub fn percentile(sorted_values: &[f32], p: f32) -> Option<f32> {
@@ -103,8 +105,9 @@ pub fn fit_envelope_from_profile(
                 let mut model: Vec<f64> = Vec::with_capacity(n);
                 for i in 0..n {
                     let h = i as f64 / (n - 1) as f64;
-                    let envelope =
-                        thyllore_math_core::parametric_height_falloff(h, p as f64, v0 as f64, q as f64);
+                    let envelope = thyllore_math_core::parametric_height_falloff(
+                        h, p as f64, v0 as f64, q as f64,
+                    );
                     let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
                     model.push(envelope * taper);
                 }
@@ -735,7 +738,8 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope =
+                thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }
@@ -823,7 +827,8 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope =
+                thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }
@@ -882,7 +887,8 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope =
+                thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }
@@ -938,7 +944,8 @@ mod tests {
         let mut model: Vec<f64> = Vec::with_capacity(samples);
         for i in 0..samples {
             let h = i as f64 / (samples - 1) as f64;
-            let envelope = thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
+            let envelope =
+                thyllore_math_core::parametric_height_falloff(h, true_p, true_v0, true_q);
             let taper = 1.0 + (taper_tip as f64 - 1.0) * h.powf(taper_power as f64);
             model.push(envelope * taper);
         }

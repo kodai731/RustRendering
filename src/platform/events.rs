@@ -846,7 +846,11 @@ unsafe fn render_frame(
 
         // Batch run screenshot: after render (which calls queue_present_khr),
         // check if we need to save a screenshot for the batch run.
-        if app.data.ecs_world.contains_resource::<crate::ecs::resource::BatchRun>() {
+        if app
+            .data
+            .ecs_world
+            .contains_resource::<crate::ecs::resource::BatchRun>()
+        {
             let state = app
                 .data
                 .ecs_world

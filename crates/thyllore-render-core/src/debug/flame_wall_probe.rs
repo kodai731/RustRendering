@@ -112,11 +112,15 @@ fn median(values: &mut Vec<f32>) -> f32 {
     values[values.len() / 2]
 }
 
-pub fn probe_flame_wall(effect: &FlameEffect, view: &WallProbeView) -> WallProbeReport {
+pub fn probe_flame_wall(
+    effect: &FlameEffect,
+    baked: &crate::flame::FlameBaked,
+    view: &WallProbeView,
+) -> WallProbeReport {
     let inverse_model = build_flame_inverse_model_matrix(effect);
     let model = build_flame_model_matrix(effect);
     let height_series = build_height_series(&effect.coefficients.height);
-    let taper = FlameRadialTaper::from_effect(effect);
+    let taper = FlameRadialTaper::from_effect(effect, baked);
     let ring_major = if effect.emitter_kind == 1 {
         effect.ring_major_radius / flame_bounding_radius(effect).max(1e-3)
     } else {
@@ -236,7 +240,8 @@ pub fn probe_flame_wall(effect: &FlameEffect, view: &WallProbeView) -> WallProbe
                 // unresolved_fraction: wave_ray_attenuation sigma / WAVE_NOISE_STD
                 let mut modes = crate::flame_wave::generate_wave_modes();
                 crate::flame_wave::apply_wave_envelope(&mut modes, crate::flame_wave::WAVE_ENV_MU);
-                let rates: [[f32; 3]; 3] = [[dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z]];
+                let rates: [[f32; 3]; 3] =
+                    [[dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z], [dW.x, dW.y, dW.z]];
                 let (_weights, sigma) =
                     crate::flame_wave::wave_ray_attenuation(&modes, &rates, segment_dt);
                 let unresolved_fraction = sigma / crate::flame_wave::WAVE_NOISE_STD;
@@ -367,7 +372,11 @@ mod tests {
     #[test]
     fn transversal_ray_crosses_wall_with_short_chord() {
         let effect = ring_effect();
-        let report = probe_flame_wall(&effect, &view_at([0.0, 0.4, 0.0], [1.0, 0.0, 0.0]));
+        let report = probe_flame_wall(
+            &effect,
+            &Default::default(),
+            &view_at([0.0, 0.4, 0.0], [1.0, 0.0, 0.0]),
+        );
         let ray = center_ray(&report);
         assert!(ray.hit);
         assert!((ray.noise_cells - ray.chord * effect.noise_frequency).abs() < 1e-4);
@@ -383,10 +392,12 @@ mod tests {
         let effect = ring_effect();
         let transversal = center_ray(&probe_flame_wall(
             &effect,
+            &Default::default(),
             &view_at([0.0, 0.4, 0.0], [1.0, 0.0, 0.0]),
         ));
         let tangential = center_ray(&probe_flame_wall(
             &effect,
+            &Default::default(),
             &view_at([1.5, 0.4, -1.2], [0.0, 0.0, 1.0]),
         ));
         assert!(transversal.hit && tangential.hit);
@@ -398,7 +409,11 @@ mod tests {
     #[test]
     fn camera_inside_wall_reports_inside_support() {
         let effect = ring_effect();
-        let report = probe_flame_wall(&effect, &view_at([1.5, 0.3, 0.0], [0.0, 0.0, 1.0]));
+        let report = probe_flame_wall(
+            &effect,
+            &Default::default(),
+            &view_at([1.5, 0.3, 0.0], [0.0, 0.0, 1.0]),
+        );
         assert!(report.camera_inside_support);
         assert!(report.camera_density > 0.0);
     }
@@ -406,7 +421,11 @@ mod tests {
     #[test]
     fn rays_away_from_flame_miss() {
         let effect = ring_effect();
-        let report = probe_flame_wall(&effect, &view_at([0.0, 5.0, 0.0], [0.05, 1.0, 0.0]));
+        let report = probe_flame_wall(
+            &effect,
+            &Default::default(),
+            &view_at([0.0, 5.0, 0.0], [0.05, 1.0, 0.0]),
+        );
         assert_eq!(report.hit_fraction, 0.0);
         assert!(!report.rays.iter().any(|ray| ray.hit));
     }
@@ -417,7 +436,11 @@ mod tests {
             contour_wiggle_amp: 0.0,
             ..FlameEffect::default()
         };
-        let report = probe_flame_wall(&effect, &view_at([2.0, 0.5, 0.0], [-1.0, 0.0, 0.0]));
+        let report = probe_flame_wall(
+            &effect,
+            &Default::default(),
+            &view_at([2.0, 0.5, 0.0], [-1.0, 0.0, 0.0]),
+        );
         assert!(report.emitter_approximated);
         assert!(report.hit_fraction > 0.0);
     }

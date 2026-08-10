@@ -417,9 +417,13 @@ unsafe fn pick_ranked_physical_device(
             }
         }
 
-        let name_matches_env = preferred_name
-            .as_ref()
-            .is_some_and(|p| properties.device_name.to_string().to_lowercase().contains(p));
+        let name_matches_env = preferred_name.as_ref().is_some_and(|p| {
+            properties
+                .device_name
+                .to_string()
+                .to_lowercase()
+                .contains(p)
+        });
         let vram = device_local_memory_bytes(instance, physical_device);
         let rank = device_rank(name_matches_env, vram, properties.vendor_id);
         log!(
