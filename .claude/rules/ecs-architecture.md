@@ -1,3 +1,9 @@
+---
+paths:
+  - "src/**"
+  - "crates/**"
+---
+
 # ECS Architecture
 
 **IMPORTANT:** MUST follow these architecture rules when adding files, code, or planning new features.

@@ -663,6 +663,171 @@ float flameNoiseErosionFromValue(float noise, float h, float density) {
         * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + relative);
 }
 
+#ifdef FLAME_WAVE_CONTINUOUS_INTEGRATOR
+// ---- Continuous ray integrator (v5) carrier statistics ----
+// Modes below a ray-fixed reference cutoff are resolved as exact values; the
+// uncaptured share folds into the response sigma through the tanh conditional
+// statistics, with the fold adapting per segment through log2(|omega|) band
+// powers. Mirrored in thyllore-render-debug/src/flame_field_trace.rs
+// (carrier_amplitudes / carrier_slow_state / shaped_delta_mean).
+const int FLAME_CAPTURE_BANDS = 8;
+const float FLAME_INV_SQRT2 = 0.70710678;
+
+// Positive nodes / doubled weights of the 8-point Gauss-Hermite rule,
+// prescaled so E[f(z)] = sum w * f(sqrt(2) sigma x), z ~ N(0, sigma^2).
+const vec2 FLAME_GAUSS_HERMITE_8[4] = vec2[4](
+    vec2(0.3811870, 0.7460245),
+    vec2(1.1571937, 0.2344810),
+    vec2(1.9816568, 0.0192712),
+    vec2(2.9306374, 0.0002246));
+
+// Ray-constant carrier data (z units): non-modal unresolved std, total std,
+// total modal power, the smallest wave number (band grid scale; the mode
+// table is sorted by |k| ascending), the low-band power feeding the
+// statistical envelope, and the tanh statistical-linearization gain and
+// distortion residual.
+struct FlameCarrierConstants {
+    float sigmaBase;
+    float sigmaZ;
+    float modalPower;
+    float kMin;
+    float lowPower;
+    float gain;
+    float distortion;
+};
+
+float flameCarrierEnvelopeRms(vec4 wavePhase, float lowPower) {
+    return wavePhase.z != 0.0 ? sqrt(1.0 + wavePhase.z * wavePhase.z * lowPower) : 1.0;
+}
+
+FlameCarrierConstants flameCarrierConstants(int count) {
+    FlameCarrierConstants cc;
+    cc.lowPower = 0.0;
+    for (int n = 0; n < count; ++n) {
+        vec4 waveVector = flame.waveModes[2 * n];
+        if (flame.waveModes[2 * n + 1].z == 0.0) {
+            cc.lowPower += 0.5 * waveVector.w * waveVector.w;
+        }
+    }
+    cc.modalPower = 0.0;
+    for (int n = 0; n < count; ++n) {
+        float amplitude = flameCarrierEnvelopeRms(flame.waveModes[2 * n + 1], cc.lowPower)
+            * flame.waveModes[2 * n].w;
+        cc.modalPower += 0.5 * amplitude * amplitude;
+    }
+    cc.kMin = length(flame.waveModes[0].xyz);
+    float envSkipPower = 1.0 + flame.waveParams.y * flame.waveParams.y * cc.lowPower;
+    cc.sigmaBase = sqrt(max(flame.waveCfParams.z + flame.waveCfParams.w * envSkipPower, 0.0));
+    cc.sigmaZ = sqrt(cc.modalPower + cc.sigmaBase * cc.sigmaBase);
+
+    float invScale = flame.waveParams.z;
+    float amp = flame.waveParams.w;
+    if (invScale > 0.0) {
+        float eSech2 = 0.0;
+        float eTanh2 = 0.0;
+        for (int i = 0; i < 4; ++i) {
+            float t = tanh(invScale * 1.41421356 * cc.sigmaZ * FLAME_GAUSS_HERMITE_8[i].x);
+            eSech2 += FLAME_GAUSS_HERMITE_8[i].y * (1.0 - t * t);
+            eTanh2 += FLAME_GAUSS_HERMITE_8[i].y * t * t;
+        }
+        cc.gain = amp * invScale * eSech2;
+        cc.distortion = sqrt(max(amp * amp * eTanh2 - cc.gain * cc.gain * cc.sigmaZ * cc.sigmaZ, 0.0));
+    } else {
+        cc.gain = 1.0;
+        cc.distortion = 0.0;
+    }
+    return cc;
+}
+
+// Per-node carrier state: the resolved slow value (exact per-mode capture sum
+// at the reference cutoff — any lossy per-node reconstruction turns into
+// argument noise at the shell) plus band powers for the segment-local fold.
+struct FlameCarrierState {
+    float zSlow;
+    float powerBand[FLAME_CAPTURE_BANDS];
+    float omega0;
+};
+
+FlameCarrierState flameCarrierSlowState(
+    FlameWarpFrame frame, int count, float eddyTime,
+    FlameCarrierConstants cc, bool hasCutoff, float alphaRef) {
+    vec3 jitterPsi;
+    vec3 jitterPsiRate;
+    flameWaveJitterState(frame.w, frame.rate, jitterPsi, jitterPsiRate);
+
+    FlameCarrierState state;
+    state.zSlow = 0.0;
+    for (int band = 0; band < FLAME_CAPTURE_BANDS; ++band) {
+        state.powerBand[band] = 0.0;
+    }
+    state.omega0 = max(cc.kMin * length(frame.rate), 1e-3) * 0.5;
+
+    for (int n = 0; n < count; ++n) {
+        vec4 waveVector = flame.waveModes[2 * n];
+        vec4 wavePhase = flame.waveModes[2 * n + 1];
+        float angle = dot(waveVector.xyz, frame.w) + wavePhase.x + wavePhase.y * eddyTime
+            + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
+        float omega = dot(waveVector.xyz, frame.rate)
+            + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsiRate);
+        float amplitude = flameCarrierEnvelopeRms(wavePhase, cc.lowPower) * waveVector.w;
+        float power = 0.5 * amplitude * amplitude;
+
+        if (hasCutoff) {
+            float kappa = omega * alphaRef * FLAME_INV_SQRT2;
+            state.zSlow += exp(-kappa * kappa) * amplitude * sin(angle);
+        }
+
+        float u = clamp(log2(max(abs(omega) / state.omega0, 1e-6)),
+            0.0, float(FLAME_CAPTURE_BANDS - 1));
+        for (int band = 0; band < FLAME_CAPTURE_BANDS; ++band) {
+            float hat = max(1.0 - abs(u - float(band)), 0.0);
+            state.powerBand[band] += hat * power;
+        }
+    }
+    return state;
+}
+
+float flameCapturedPower(FlameCarrierState state, bool hasCutoff, float alpha) {
+    if (!hasCutoff) {
+        return 0.0;
+    }
+    float sum = 0.0;
+    for (int band = 0; band < FLAME_CAPTURE_BANDS; ++band) {
+        float omegaBand = state.omega0 * float(1 << band);
+        float k = omegaBand * alpha * FLAME_INV_SQRT2;
+        float g = exp(-k * k);
+        sum += state.powerBand[band] * g * g;
+    }
+    return sum;
+}
+
+// Conditional mean of `shaped - 0.4375` given the resolved slow carrier `u`,
+// averaging the tanh over the unresolved Gaussian residual of std sigmaFast.
+float flameShapedDeltaMean(float u, float sigmaFast) {
+    float invScale = flame.waveParams.z;
+    float amp = flame.waveParams.w;
+    if (invScale <= 0.0) {
+        return u;
+    }
+    float mean = 0.0;
+    for (int i = 0; i < 4; ++i) {
+        float offset = 1.41421356 * sigmaFast * FLAME_GAUSS_HERMITE_8[i].x;
+        mean += FLAME_GAUSS_HERMITE_8[i].y * 0.5
+            * (tanh(invScale * (u + offset)) + tanh(invScale * (u - offset)));
+    }
+    return amp * mean;
+}
+
+// Argument-unit sigma of the folded carrier share at the given geometry
+// chain: gain-passed base + folded modal power, plus the tanh distortion.
+float flameFoldedSigmaArgument(
+    float geometry, FlameCarrierConstants cc, float foldedPower) {
+    float baseZ = cc.sigmaBase * cc.sigmaBase + foldedPower;
+    return sqrt(geometry * geometry
+        * (cc.gain * cc.gain * baseZ + cc.distortion * cc.distortion));
+}
+#endif
+
 // Response through the (optionally relative) window: unified keeps the
 // half-width >= the local modulation sigma so the rectifier never binarizes.
 float flameResponseOccupancy(float dSmooth, float erosion, float h) {
