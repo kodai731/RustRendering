@@ -28,12 +28,13 @@ pub fn default_height_falloff(height01: f64) -> f64 {
 }
 
 pub fn default_radial_falloff(radius01: f64) -> f64 {
-    biweight_radial_falloff(radius01, 4.0)
+    biweight_radial_falloff(radius01, 4.0, 1.0)
 }
 
 /// Compact-support biweight radial falloff with the support radius derived from sharpness.
-fn biweight_radial_falloff(radius01: f64, radial_sharpness: f32) -> f64 {
-    let support = crate::flame_radial::flame_radial_support_radius(radial_sharpness) as f64;
+fn biweight_radial_falloff(radius01: f64, radial_sharpness: f32, support_margin: f32) -> f64 {
+    let support =
+        crate::flame_radial::flame_radial_support_radius(radial_sharpness, support_margin) as f64;
     let inside = (1.0 - (radius01 / support) * (radius01 / support)).max(0.0);
     inside * inside
 }
@@ -89,6 +90,7 @@ pub fn profile_from_effect(effect: &FlameEffect, baked: &FlameBaked) -> FlamePro
     let base = effect.envelope_base as f64;
     let tail = effect.envelope_tail as f64;
     let radial_sharpness = effect.radial_sharpness;
+    let support_margin = effect.support_margin;
     let baked_envelope = baked.envelope;
     let baked_blend = baked.blend;
     FlameProfile {
@@ -104,7 +106,9 @@ pub fn profile_from_effect(effect: &FlameEffect, baked: &FlameBaked) -> FlamePro
             }
             parametric_height_falloff(h, peak, base, tail)
         }),
-        radial_falloff: Box::new(move |r: f64| biweight_radial_falloff(r, radial_sharpness)),
+        radial_falloff: Box::new(move |r: f64| {
+            biweight_radial_falloff(r, radial_sharpness, support_margin)
+        }),
     }
 }
 

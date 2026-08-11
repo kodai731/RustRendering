@@ -794,6 +794,13 @@ fn build_flame_section(
                         );
                     }
 
+                    ui.slider_config("Meander", 0.0, 2.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.meander_amp);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text("Horizontal meandering motion of the flame (0 = off)");
+                    }
+
                     ui.slider_config("Swirl Speed", 0.0, 4.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.swirl_speed);
@@ -803,7 +810,6 @@ fn build_flame_section(
                              (time-only: costs no strain budget)",
                         );
                     }
-
                     ui.slider_config("Spread", 0.0, 3.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.spread_gain);
@@ -811,6 +817,18 @@ fn build_flame_section(
                         ui.tooltip_text(
                             "Medium spread toward the tip: noise features enlarge, drift \
                              outward and dissolve as they rise (0 = rigid scroll)",
+                        );
+                    }
+
+                    ui.slider_config("Support", 1.0, 2.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.support_margin);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Flame density support radius: multiplier for the biweight support \
+                             radius (how much extra space is allowed for carving). 1.0 is \
+                             default; higher values result in larger support and may leave \
+                             chunks at the outer edges.",
                         );
                     }
 

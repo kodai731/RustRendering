@@ -12,7 +12,6 @@
 #include "include/chebyshev.glsl"
 #include "include/flame_ray.glsl"
 #include "include/flame_noise.glsl"
-#include "include/flame_shell_profile.glsl"
 
 layout(set = 0, binding = 0) uniform FrameUBO {
     mat4 view;
@@ -61,11 +60,13 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 warpStrainParams;
     vec4 warpFormParams;
     vec4 unifiedParams;
-    vec4 spreadParams;
+  vec4 spreadParams;
+    vec4 supportParams;
     vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;
 
+#include "include/flame_shell_profile.glsl"
 #include "include/flame_shell_support.glsl"
 
 layout(set = 1, binding = 4) uniform sampler2D flameHistorySampler;
@@ -233,7 +234,7 @@ struct FlameRaySegment {
 
 // The closed form and the shell clamp both assume the plain cylinder domain.
 // Cylinder emitter without a trail: the radial band integral applies wind
-// bend per band (flameBendOffsetAt), so bent flames stay on this path instead
+// bend per band (flameCenterlineOffsetAt), so bent flames stay on this path instead
 // of falling back to the boundary integral, which cuts flat from above.
 bool isCylinderDomain() {
     return flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0;
@@ -349,9 +350,9 @@ FlameRaySegment buildRaySegment() {
     // Wind bend shifts the density sideways by at most |wind| * bendAmount (h^p <= 1);
     // the trail proxy must not cut it, so its cone is padded by that bound. Non-trail
     // emitters keep the unpadded cone (their integrators bend per evaluation).
-    float radiusPad = flame.trailMeta.x >= 1.0
-        ? length(flame.styleParams2.xy) * flame.styleParams2.z
-        : 0.0;
+   float radiusPad = flame.trailMeta.x >= 1.0
+        ? length(flame.styleParams2.xy) * flame.styleParams2.z + 2.0 * flame.supportParams.y
+        : 2.0 * flame.supportParams.y;
     if (!clampToShellCone(segment.localOrigin, segment.localDir, radiusPad, segment.tNear, segment.tFar)) {
         segment.tNear = 1.0;
         segment.tFar = 0.0;
@@ -553,8 +554,23 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
         float v = (shapedNoise - 0.4375) / max(flame.waveParams.w, 1e-4);
         return vec4(flameDebugDiverging(v), 1.0);
     }
-    if (push.debugView == 2) {
-        return vec4(flameDebugDiverging(flameNoiseErosionFromValue(shapedNoise, h, bestDensity)), 1.0);
+  if (push.debugView == 2) {
+        float uSquared;
+        if (flame.emitterParams.x >= 1.5) {
+            uSquared = 0.0;
+        } else {
+            float wiggle = flameContourWiggle(p, h);
+            vec2 boundary = flameBoundaryDisplacement(p.xz);
+            float hb = clamp(h / boundary.x, 0.0, 1.0);
+            float taperR = mix(1.0, flame.styleParams1.x, pow(hb, flame.styleParams0.w));
+            float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
+            float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+            float rho = (length(p.xz) - rm) / minorScale;
+            float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
+            float u = rn / flameRadialSupportRadius();
+            uSquared = u * u;
+        }
+        return vec4(flameDebugDiverging(flameNoiseErosionFromValue(shapedNoise, h, bestDensity, uSquared)), 1.0);
     }
     if (push.debugView == 3) {
         return vec4(flameDebugDiverging(argument * 2.0), 1.0);

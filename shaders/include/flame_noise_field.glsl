@@ -31,12 +31,25 @@ float flameBiweight(float uSquared) {
     return inside * inside;
 }
 
+// S1 plateaued radial factor: max(biweight(u^2 * margin^2), plateau(u^2, margin)).
+// margin comes from flame.supportParams.x (support_margin).
+// For margin == 1.0, plateau is zero and biweight(u^2 * 1) = biweight(u^2), so bit-identical.
+float flamePlateauRadialFactor(float uSquared) {
+    float margin = flame.supportParams.x;
+    float core = flameBiweight(uSquared * margin * margin);
+    if (margin <= 1.0) { return core; }
+    const float PLATEAU_LEVEL = 0.35;
+    const float PLATEAU_EDGE_DELTA = 0.1;
+    float plateau = PLATEAU_LEVEL * (1.0 - smoothstep(1.0 - PLATEAU_EDGE_DELTA, 1.0, uSquared));
+    return max(core, plateau);
+}
+
 // Support radius S of the biweight profile in R(h) units. The curvature at the axis
 // matches the former Gaussian exp(-radialSharpness * u^2), so the sharpness lever
 // keeps its direction; the shell headroom bounds the support so the proxy never cuts.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (flame_radial_support_radius).
 float flameRadialSupportRadius() {
-    return min(sqrt(2.0 / max(flame.radialSharpness, 1e-3)), FLAME_SHELL_SUPPORT_HEADROOM);
+  return flame.supportParams.x * min(sqrt(2.0 / max(flame.radialSharpness, 1e-3)), FLAME_SHELL_SUPPORT_HEADROOM);
 }
 
 // Internal helper: compute the advect vector from style params and time.
@@ -69,6 +82,43 @@ vec3 flameAnisoExpand(vec3 v, float axialScale) {
 // analytic path bends exactly like the sampled field.
 vec2 flameBendOffsetAt(float h) {
     return flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
+}
+
+// Animated meander: time-varying horizontal displacement of the centerline at height h.
+// Two-mode sinusoidal sum with amplitude meander_amp (flame.supportParams.y),
+// frequencies derived from swirl_speed, and g(h) = h (base fixed, tip moves more).
+vec2 flameMeanderOffsetAt(float h) {
+    float meander_amp = flame.supportParams.y;
+    float swirl_speed = flame.supportParams.z;
+    float omega1 = swirl_speed * 0.75;
+    float omega2 = swirl_speed * 1.15;
+    vec2 dir1 = vec2(1.0, 0.0);
+    vec2 dir2 = vec2(0.6, 0.8);
+    float kappa1 = 1.2;
+    float kappa2 = 2.1;
+    float phi1 = 0.0;
+    float phi2 = 2.4;
+    return meander_amp * h * (
+        sin(kappa1 * h - omega1 * flame.time + phi1) * dir1 +
+        sin(kappa2 * h - omega2 * flame.time + phi2) * dir2
+    );
+}
+
+// Meander-only shifted position for density/support evaluation.
+// Total centerline offset = static bend + animated meander, so
+// p - total_offset = p - bend - meander = noise_bend_removed_position - meander.
+// This is the position where density/support should be evaluated:
+// the noise sees the bend-removed position (p - bend), but density/support
+// must also account for meander displacement.
+vec3 flameMeanderShifted(vec3 p, float h) {
+    vec2 off = flameMeanderOffsetAt(h);
+    return vec3(p.x - off.x, p.y, p.z - off.y);
+}
+
+// Total centerline offset = static bend + animated meander.
+// Single source of truth for all density/support centerline displacement.
+vec2 flameCenterlineOffsetAt(float h) {
+    return flameBendOffsetAt(h) + flameMeanderOffsetAt(h);
 }
 
 const float FLAME_WAVE_SHEAR_STRENGTH_SCALE = 0.96;
@@ -311,18 +361,32 @@ float flameEnvelopeFade(float dSmooth) {
 //     noise-free look is preserved exactly for any beta.
 //   * D > edgeHigh with any erosion: occ >= beta > 0, so a hole is impossible.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (carve_residual_mix).
-float flameCarveResidualStrength() {
-    return clamp(flame.nearFadeParams.y, 0.0, 1.0);
+float flameCarveResidualOuterGate(float uSquared) {
+    float margin = flame.supportParams.x;
+    if (margin <= 1.0) { return 0.0; }
+    float w = uSquared * margin * margin;
+    return smoothstep(1.0, 1.5, w);
 }
 
-float flameApplyCarveResidual(float carvedOccupancy, float dSmooth) {
-    float beta = flameCarveResidualStrength();
+float flamePlateauCarveReach(float uSquared) {
+    float margin = flame.supportParams.x;
+    float w = uSquared * margin * margin;
+    return max(w - 1.0, 0.0);
+}
+
+float flameCarveResidualStrength(float uSquared) {
+    return clamp(flame.nearFadeParams.y, 0.0, 1.0) * (1.0 - flameCarveResidualOuterGate(uSquared));
+}
+
+float flameApplyCarveResidual(float carvedOccupancy, float dSmooth, float uSquared) {
+    float beta = flameCarveResidualStrength(uSquared);
     if (beta <= 0.0) {
         return carvedOccupancy;
     }
     float plain = smoothstep(flame.styleParams1.y, flame.styleParams1.z, dSmooth);
     return mix(carvedOccupancy, plain, beta);
 }
+
 
 // Threshold argument with the flooded (negative) erosion faded by the envelope.
 // Turbulence may only add density where the envelope still has support, so the
@@ -526,8 +590,8 @@ vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
 // This is the single source of truth for the domain-warp chain:
 //   bendOffset -> pb -> advect -> aniso -> wp -> w -> q
 vec3 flameNoiseBendRemoved(vec3 p, float h) {
-    vec2 bendOffset = flameBendOffsetAt(h);
-    return vec3(p.x - bendOffset.x, p.y, p.z - bendOffset.y);
+    vec2 centerlineOffset = flameCenterlineOffsetAt(h);
+    return vec3(p.x - centerlineOffset.x, p.y, p.z - centerlineOffset.y);
 }
 
 // The complete coordinate chain bundled once (single source of truth):
@@ -575,7 +639,7 @@ FlameWarpFrame flameBuildWarpFrame(vec3 p, vec3 d, float h) {
 // styled field, the plain local p for the mode 0/1 parity pair (which stays
 // unwarped) and for the SDF billboard (whose dSmooth never warps). The styled
 // field passes wiggle = 1.0; the closed-form pair folds the contour wiggle in.
-float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 boundary) {
+float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 boundary, out float uSquared) {
     if (flame.emitterParams.x >= 1.5) {
         float hSdf = clamp(clamp(c.y, 0.0, 1.0) / boundary.x, 0.0, 1.0);
         vec2 uv = vec2(c.x + 0.5, 1.0 - hSdf);
@@ -583,6 +647,7 @@ float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 b
         float shell = 0.06;
         float zn = c.z / max(flame.emitterParams.w, 1e-3);
         float thickness = exp(-zn * zn);
+        uSquared = 0.0;
         return clamp(1.0 - max(d, 0.0) / shell, 0.0, 1.0) * thickness;
     }
     float hb = clamp(h / boundary.x, 0.0, 1.0);
@@ -592,7 +657,13 @@ float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 b
     float rho = (length(c.xz) - rm) / minorScale;
     float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
     float u = rn / flameRadialSupportRadius();
-    return evaluateHeightFalloff(hb) * flameBiweight(u * u) * flameCapFade(h, boundary.x);
+    uSquared = u * u;
+   return evaluateHeightFalloff(hb) * flamePlateauRadialFactor(uSquared) * flameCapFade(h, boundary.x);
+}
+
+float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 boundary) {
+    float uSquared;
+    return flameEmitterSmoothDensityDisplacedAt(c, h, wiggle, boundary, uSquared);
 }
 
 float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
@@ -720,14 +791,14 @@ float flameTipCarveLambda(float h) {
 // The deterministic mean shrink that (noise - 0.35) used to carry stays as an
 // explicit smooth term so the average silhouette keeps its calibration.
 const float FLAME_EROSION_MEAN_SHRINK = 0.0875;
+const float FLAME_PLATEAU_CARVE_BOOST = 1.0;
 const float FLAME_EROSION_SHELL_REF = 0.30;
-float flameNoiseErosionFromValue(float noise, float h, float density) {
+float flameNoiseErosionFromValue(float noise, float h, float density, float uSquared) {
     float relative = flameTipCarveLambda(h) * (density / FLAME_EROSION_SHELL_REF)
         * (noise - 0.4375);
     return flame.noiseAmplitude
-        * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + relative);
+        * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + FLAME_PLATEAU_CARVE_BOOST * flamePlateauCarveReach(uSquared) + relative);
 }
-
 
 // Response through the (optionally relative) window: unified keeps the
 // half-width >= the local modulation sigma so the rectifier never binarizes.
@@ -746,25 +817,26 @@ float flameResponseOccupancy(float dSmooth, float erosion, float h) {
 }
 
 // Internal helper: compute erosion value from a warp frame and height h.
-float flameNoiseErosionAt(FlameWarpFrame frame, float h, float density) {
+float flameNoiseErosionAt(FlameWarpFrame frame, float h, float density, float uSquared) {
     float noise = flameWaveNoiseSum(frame.w, frame.pb, h);
-    return flameNoiseErosionFromValue(noise, h, density);
+    return flameNoiseErosionFromValue(noise, h, density, uSquared);
 }
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
-    dSmooth = flameEmitterSmoothDensityAt(frame.q, h, 1.0);
-    float erosion = flameNoiseErosionAt(frame, h, dSmooth);
+    float uSquared;
+   dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
+   float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
       flameResponseOccupancy(dSmooth, erosion, h),
-        dSmooth) * flameFieldSupportMask(dSmooth);
+        dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
 // Raw erosion value at a point, sampled at the warped coordinate like every
 // erosion consumer (band freeze, legacy factor, occupancy field).
-float flameNoiseErosionValue(vec3 p, float h, float density) {
+float flameNoiseErosionValue(vec3 p, float h, float density, float uSquared) {
     FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
-    return flameNoiseErosionAt(frame, h, density);
+    return flameNoiseErosionAt(frame, h, density, uSquared);
 }
 
 // Legacy multiplicative factor (trail domain): no local dSmooth exists there,
@@ -773,7 +845,7 @@ float flameNoiseErosionFactor(vec3 p, float h) {
     if (flame.noiseAmplitude == 0.0) {
         return 1.0;
     }
-    return max(1.0 - flameNoiseErosionValue(p, h, FLAME_EROSION_SHELL_REF), 0.0);
+   return max(1.0 - flameNoiseErosionValue(p, h, FLAME_EROSION_SHELL_REF, 0.0), 0.0);
 }
 
 // Ring emitter: a flame cross-section swept around a circle of normalized major radius
@@ -787,21 +859,24 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     float s = sin(ang);
     vec3 pr = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
     FlameWarpFrame frame = flameBuildWarpFrame(pr, vec3(0.0), h);
-    dSmooth = flameEmitterSmoothDensityAt(frame.q, h, 1.0);
-    float erosion = flameNoiseErosionAt(frame, h, dSmooth);
+    float uSquared;
+   dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
+  float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
      flameResponseOccupancy(dSmooth, erosion, h),
-        dSmooth) * flameFieldSupportMask(dSmooth);
+        dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
+
 // MeshSdf emitter: density from a baked 2D silhouette SDF sampled as a billboard in
 // unit-local XY. Texel encodes d = r - 0.5 (negative inside), normalized by image height.
 float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
-    dSmooth = flameEmitterSmoothDensityAt(p, h, 1.0);
-    float erosion = flameNoiseErosionAt(frame, h, dSmooth);
+    float uSquared;
+  dSmooth = flameEmitterSmoothDensityDisplacedAt(p, h, 1.0, flameBoundaryDisplacement(p.xz), uSquared);
+  float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
     flameResponseOccupancy(dSmooth, erosion, h),
-        dSmooth) * flameFieldSupportMask(dSmooth);
+        dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
 float flameEmitterDensity(vec3 p, float h, out float dSmooth) {

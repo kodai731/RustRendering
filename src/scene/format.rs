@@ -350,9 +350,17 @@ pub struct FlameEffectData {
     pub swirl_speed: f32,
     #[serde(default)]
     pub spread_gain: f32,
+    #[serde(default = "default_support_margin")]
+    pub support_margin: f32,
+    #[serde(default)]
+    pub meander_amp: f32,
 }
 
 fn default_swirl_speed() -> f32 {
+    1.0
+}
+
+fn default_support_margin() -> f32 {
     1.0
 }
 
@@ -518,6 +526,8 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             swirl_gain: effect.swirl_gain,
             swirl_speed: effect.swirl_speed,
             spread_gain: effect.spread_gain,
+            support_margin: effect.support_margin,
+            meander_amp: effect.meander_amp,
             edge_temperature_blend: effect.edge_temperature_blend,
         },
         channels,
@@ -639,7 +649,8 @@ pub fn apply_flame_state_to_world(
         effect.warp_reach = flame.effect.warp_reach;
         effect.swirl_gain = flame.effect.swirl_gain;
         effect.swirl_speed = flame.effect.swirl_speed;
-        effect.spread_gain = flame.effect.spread_gain;
+        effect.support_margin = flame.effect.support_margin;
+        effect.meander_amp = flame.effect.meander_amp;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
@@ -824,6 +835,8 @@ mod tests {
                 swirl_gain: 0.0,
                 swirl_speed: 1.0,
                 spread_gain: 0.0,
+                support_margin: 1.0,
+                meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
@@ -971,6 +984,8 @@ mod tests {
                 swirl_gain: 0.0,
                 swirl_speed: 1.0,
                 spread_gain: 0.0,
+                support_margin: 1.0,
+                meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),

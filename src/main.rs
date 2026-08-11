@@ -16,7 +16,8 @@ use thyllore_animation::ecs::resource::{
 use thyllore_animation::ecs::systems::{
     apply_flame_overrides, apply_texture_fit_from_path, batch_anim_dump_write,
     batch_apply_anim_edits, batch_apply_debug_actions, batch_run_report, debug_actions_json,
-    resolve_engine_cli_overrides, BatchDebugAction, BATCH_LIST_DEBUG_ACTIONS_FLAG,
+    resolve_engine_cli_overrides, run_sequence_analyze_from_args, BatchDebugAction,
+    BATCH_LIST_DEBUG_ACTIONS_FLAG,
 };
 use thyllore_animation::platform;
 
@@ -32,6 +33,10 @@ fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
     if args.iter().any(|a| a == BATCH_LIST_DEBUG_ACTIONS_FLAG) {
         println!("{}", debug_actions_json());
+        return Ok(());
+    }
+    if let Some(result) = run_sequence_analyze_from_args(args.clone()) {
+        result?;
         return Ok(());
     }
     let overrides = match resolve_engine_cli_overrides(&args) {

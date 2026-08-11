@@ -14,10 +14,15 @@ pub const FLAME_SHELL_SUPPORT_HEADROOM: f32 = 1.5;
 /// major radius rm, minor support 1.5 * (1 - rm)) reaches past the cylinder support
 /// 0.75, and a proxy that stops there slices the torus flat. Mirrors
 /// shaders/include/flame_shell_support.glsl.
-pub fn flame_shell_support_scale(emitter_kind: u32, ring_major_norm: f32) -> f32 {
+pub fn flame_shell_support_scale(
+    emitter_kind: u32,
+    ring_major_norm: f32,
+    support_margin: f32,
+) -> f32 {
     if emitter_kind == 1 {
         let rm = ring_major_norm;
-        ((rm + 1.5 * (1.0 - rm)) / (FLAME_SHELL_BASE_RADIUS * FLAME_SHELL_SUPPORT_HEADROOM))
+        ((rm + FLAME_SHELL_SUPPORT_HEADROOM * support_margin * (1.0 - rm))
+            / (FLAME_SHELL_BASE_RADIUS * FLAME_SHELL_SUPPORT_HEADROOM * support_margin))
             .max(1.0)
     } else {
         1.0
@@ -25,15 +30,16 @@ pub fn flame_shell_support_scale(emitter_kind: u32, ring_major_norm: f32) -> f32
 }
 
 /// Multiplier on the shell's base half-extent at a normalized height.
-pub fn flame_shell_radius_scale(height01: f32, support_scale: f32) -> f32 {
+pub fn flame_shell_radius_scale(height01: f32, support_scale: f32, support_margin: f32) -> f32 {
     support_scale
         * FLAME_SHELL_SUPPORT_HEADROOM
+        * support_margin
         * FLAME_SHELL_CIRCUMSCRIBE
         * (1.0 + (FLAME_SHELL_TAPER_TIP_SCALE - 1.0) * height01)
 }
 
 /// Outer radius of the shell in flame-local units. Linear in height, so callers that
 /// need a bound over the whole shell take the maximum of the two endpoints.
-pub fn flame_shell_outer_radius(height01: f32, support_scale: f32) -> f32 {
-    FLAME_SHELL_BASE_RADIUS * flame_shell_radius_scale(height01, support_scale)
+pub fn flame_shell_outer_radius(height01: f32, support_scale: f32, support_margin: f32) -> f32 {
+    FLAME_SHELL_BASE_RADIUS * flame_shell_radius_scale(height01, support_scale, support_margin)
 }

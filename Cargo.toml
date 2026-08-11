@@ -36,6 +36,7 @@ thyllore-ml-core = { path = "crates/thyllore-ml-core", optional = true }
 thyllore-importer-core = { path = "crates/thyllore-importer-core" }
 thyllore-exporter-core = { path = "crates/thyllore-exporter-core" }
 thyllore-effect-core = { path = "crates/thyllore-effect-core" }
+thyllore-texture-fit-core = { path = "crates/thyllore-texture-fit-core" }
 thyllore-render-core = { path = "crates/thyllore-render-core" }
 thyllore-render-debug = { path = "crates/thyllore-render-debug" }
 thyllore-vulkan-core = { path = "crates/thyllore-vulkan-core" }
@@ -76,6 +77,7 @@ features = ["extras", "names", "extensions"]
 
 [dev-dependencies]
 rand = "0.8"
+tempfile = "3"
 
 [profile.release]
 opt-level = 3

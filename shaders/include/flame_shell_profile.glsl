@@ -21,7 +21,7 @@ const float FLAME_SHELL_SUPPORT_HEADROOM = 1.5; // density support r̂max until 
 // Multiplier on the base half-extent.
 // supportScale is the emitter-dependent widening (flame_shell_support.glsl).
 float flameShellRadiusScale(float height01, float supportScale) {
-    return supportScale * FLAME_SHELL_SUPPORT_HEADROOM * FLAME_SHELL_CIRCUMSCRIBE
+   return supportScale * FLAME_SHELL_SUPPORT_HEADROOM * flame.supportParams.x * FLAME_SHELL_CIRCUMSCRIBE
         * mix(1.0, FLAME_SHELL_TAPER_TIP_SCALE, height01);
 }
 

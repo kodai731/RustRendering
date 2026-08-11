@@ -80,6 +80,7 @@ pub fn flame_from_dump(
     apply_scalar!(swirl_gain, "swirl_gain");
     apply_scalar!(swirl_speed, "swirl_speed");
     apply_scalar!(spread_gain, "spread_gain");
+    apply_scalar!(support_margin, "support_margin");
     if let Some(v) = flame_json.get("baked_blend").and_then(|f| f.as_f64()) {
         baked.blend = v as f32;
     }

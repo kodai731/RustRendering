@@ -14,6 +14,10 @@ pub struct BatchRun {
     pub state: BatchRunState,
     pub flame_set: Vec<(String, f32)>,
     pub dump_wall_probe: bool,
+    pub captures_remaining: u32,
+    pub stride: u32,
+    pub sequence_dir: Option<PathBuf>,
+    pub total_count: u32,
 }
 
 impl BatchRun {
@@ -25,6 +29,10 @@ impl BatchRun {
             state: BatchRunState::WaitingForFrame,
             flame_set,
             dump_wall_probe: false,
+            captures_remaining: 0,
+            stride: 1,
+            sequence_dir: None,
+            total_count: 0,
         }
     }
 

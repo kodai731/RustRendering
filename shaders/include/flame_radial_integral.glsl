@@ -41,9 +41,14 @@ float flameRadialSupportInvSq(float height01) {
     return 1.0 / (scale * scale);
 }
 
+float flameRadialDensityFactor(vec3 p, float height01, out float uSquared) {
+    uSquared = flameRadialSupportInvSq(height01) * dot(p.xz, p.xz);
+   return flamePlateauRadialFactor(uSquared);
+}
+
 float flameRadialDensityFactor(vec3 p, float height01) {
-    float radiusSquared = dot(p.xz, p.xz);
-    return flameBiweight(flameRadialSupportInvSq(height01) * radiusSquared);
+    float _unused;
+    return flameRadialDensityFactor(p, height01, _unused);
 }
 
 // Contour wiggle: per-band field quantity from fbm at the actual 3D point.
@@ -57,16 +62,17 @@ float flameContourWiggle(vec3 p, float h) {
 // Pointwise field for the reference raymarch (mode 1): the same eroded threshold
 // field the closed form approximates — true smoothstep, exact support membership.
 float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
-    vec2 boundary = flameBoundaryDisplacement(p.xz);
+    vec3 ps = flameMeanderShifted(p, h);
+    vec2 boundary = flameBoundaryDisplacement(ps.xz);
     float hb = clamp(h / boundary.x, 0.0, 1.0);
     float wb = wiggle * boundary.y;
-    float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x)
-        * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb)
-        * flameNearCameraFade(p);
-    float erosion = flameNoiseErosionValue(p, h, dSmooth);
+    float uSquared;
+    float radial = flameRadialDensityFactor(vec3(ps.x / wb, ps.y, ps.z / wb), hb, uSquared);
+    float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x) * radial * flameNearCameraFade(p);
+   float erosion = flameNoiseErosionValue(p, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
        flameResponseOccupancy(dSmooth, erosion, h),
-        dSmooth) * flameFieldSupportMask(dSmooth);
+        dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
 // ---- Emitter-generic occupancy (ring / SDF analytic path) ----
@@ -83,11 +89,13 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
 // Pointwise field for the reference raymarch (mode 1) on ring/SDF emitters:
 // the same field the node-based closed form approximates.
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
-    float dSmooth = flameEmitterSmoothDensityAt(p, h, wiggle) * flameNearCameraFade(p);
-    float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h, dSmooth) : 0.0;
+    vec3 ps = flameMeanderShifted(p, h);
+    float uSquared;
+  float dSmooth = flameEmitterSmoothDensityDisplacedAt(ps, h, wiggle, flameBoundaryDisplacement(ps.xz), uSquared) * flameNearCameraFade(p);
+   float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h, dSmooth, uSquared) : 0.0;
     return flameApplyCarveResidual(
       flameResponseOccupancy(dSmooth, erosion, h),
-        dSmooth) * flameFieldSupportMask(dSmooth);
+        dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
 float integrateEmitterOccupancy(vec3 o, vec3 d, float tNear, float tFar);
@@ -143,7 +151,7 @@ bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
         * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
     float taperMax = max(1.0, flame.styleParams1.x);
-    float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim;
+   float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim + 2.0 * flame.supportParams.y;
 
     float a = dot(d.xz, d.xz);
     float b = 2.0 * dot(o.xz, d.xz);
@@ -186,16 +194,17 @@ const int FLAME_WAVE_SEGMENTS = 64;
 // noise basis never changes the flame silhouette; ring and SDF use the shared
 // emitter density like their raymarch pair.
 float flameWaveNodeDensity(vec3 p, float h) {
-    float wiggle = flameContourWiggle(p, h);
-    vec2 boundary = flameBoundaryDisplacement(p.xz);
+    vec3 ps = flameMeanderShifted(p, h);
+    float wiggle = flameContourWiggle(ps, h);
+    vec2 boundary = flameBoundaryDisplacement(ps.xz);
     float dens;
     if (flame.emitterParams.x < 0.5) {
         float hb = clamp(h / boundary.x, 0.0, 1.0);
         float wb = max(wiggle * boundary.y, 1e-4);
         dens = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x)
-            * flameRadialDensityFactor(vec3(p.x / wb, p.y, p.z / wb), hb);
+            * flameRadialDensityFactor(vec3(ps.x / wb, ps.y, ps.z / wb), hb);
     } else {
-        dens = flameEmitterSmoothDensityDisplacedAt(p, h, wiggle, boundary);
+        dens = flameEmitterSmoothDensityDisplacedAt(ps, h, wiggle, boundary);
     }
     return dens * flameNearCameraFade(p);
 }
@@ -217,10 +226,27 @@ float flameWaveNodeArgumentLocal(
     unresolvedPower += flame.waveCfParams.w * envSkip * envSkip;
 
     sigmaNoise = sqrt(unresolvedPower);
-    float invScale = flame.waveParams.z;
+     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
     shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(sum.z * invScale) : 0.4375 + sum.z;
-    float erosion = flameNoiseErosionFromValue(shapedNoise, h, density);
+   // Compute uSquared from normalized support radius for erosion boost
+    float uSquared;
+    if (flame.emitterParams.x >= 1.5) {
+        uSquared = 0.0;
+    } else {
+        vec3 ps = flameMeanderShifted(p, h);
+        float wiggle = flameContourWiggle(ps, h);
+        vec2 boundary = flameBoundaryDisplacement(ps.xz);
+        float hb = clamp(h / boundary.x, 0.0, 1.0);
+        float taperR = mix(1.0, flame.styleParams1.x, pow(hb, flame.styleParams0.w));
+        float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
+        float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+        float rho = (length(ps.xz) - rm) / minorScale;
+        float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
+        float u = rn / flameRadialSupportRadius();
+        uSquared = u * u;
+    }
+    float erosion = flameNoiseErosionFromValue(shapedNoise, h, density, uSquared);
     remapScale = flameErosionRemapScale(erosion);
     return flameErodedArgument(density, erosion);
 }
@@ -267,7 +293,7 @@ struct FlameSegmentNodes {
 vec2 flameWaveSegmentCarved(
     FlameSegmentNodes nodes, vec3 o, vec3 d,
     float segStart, float segEnd, float span,
-    float residual, float invScale, float amp) {
+    float uSquared, float invScale, float amp) {
     // Shaping derivative average: g'(z) = amp * invScale * (1 - t^2) where
     // t = (shapedNoise - 0.4375) / amp; if invScale <= 0 then gPrime = 1.0.
     float shapingDerivAvg;
@@ -295,6 +321,7 @@ vec2 flameWaveSegmentCarved(
     FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
     vec2 carved = flameErosionResponseLinearIntegral(
         response, nodes.argumentStart - slope * segStart, slope, segStart, segEnd);
+    float residual = flameCarveResidualStrength(uSquared);
     if (residual > 0.0) {
         float plainSlope = (nodes.densityEnd - nodes.densityStart) / span;
         vec2 plain = flameErosionResponseLinearIntegral(
@@ -344,7 +371,6 @@ FlameWaveIntegral flameWaveOccupancySegments(
     // crossing instead of extrapolated from the dead node, so the silhouette
     // edge resolves independently of the segment count and nothing is emitted
     // outside the support the raymarch pair masks to zero.
-    float residual = flameCarveResidualStrength();
     float invScale = flame.waveParams.z;
     float amp = flame.waveParams.w;
     float previousDensity = flameWaveNodeDensity(o + t0 * d, clamp(o.y + t0 * d.y, 0.0, 1.0));
@@ -413,8 +439,19 @@ FlameWaveIntegral flameWaveOccupancySegments(
         nodes.remapEnd = currentRemapScale;
         nodes.densityStart = densityStart;
         nodes.densityEnd = densityEnd;
+        float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
+        vec3 pMid = o + (segStart + 0.5 * span) * d;
+        float uSquared;
+        if (flame.emitterParams.x < 0.5) {
+            float wb = max(flameContourWiggle(pMid, hMid) * flameBoundaryDisplacement(pMid.xz).y, 1e-4);
+            flameRadialDensityFactor(pMid / wb, hMid, uSquared);
+        } else {
+            vec2 boundary = flameBoundaryDisplacement(pMid.xz);
+            float wiggle = flameContourWiggle(pMid, hMid);
+            flameEmitterSmoothDensityDisplacedAt(pMid, hMid, wiggle, boundary, uSquared);
+        }
         vec2 carved = flameWaveSegmentCarved(
-            nodes, o, d, segStart, segEnd, span, residual, invScale, amp);
+            nodes, o, d, segStart, segEnd, span, uSquared, invScale, amp);
         float emission = max(carved.x, 0.0);
         float tMean = carved.x > 1e-6
             ? clamp(carved.y / carved.x, segStart, segEnd)

@@ -20,7 +20,7 @@ pub fn flame_support_scale(effect: &FlameEffect) -> f32 {
     } else {
         0.0
     };
-    flame_shell_support_scale(effect.emitter_kind, ring_major_norm)
+    flame_shell_support_scale(effect.emitter_kind, ring_major_norm, effect.support_margin)
 }
 
 pub fn flame_bend_offset(effect: &FlameEffect) -> [f32; 2] {
@@ -30,9 +30,13 @@ pub fn flame_bend_offset(effect: &FlameEffect) -> [f32; 2] {
     ]
 }
 
-pub fn flame_local_bounds(bend_offset: [f32; 2], support_scale: f32) -> FlameLocalBounds {
-    let radius = flame_shell_outer_radius(0.0, support_scale)
-        .max(flame_shell_outer_radius(1.0, support_scale));
+pub fn flame_local_bounds(
+    bend_offset: [f32; 2],
+    support_scale: f32,
+    support_margin: f32,
+) -> FlameLocalBounds {
+    let radius = flame_shell_outer_radius(0.0, support_scale, support_margin)
+        .max(flame_shell_outer_radius(1.0, support_scale, support_margin));
 
     FlameLocalBounds {
         min: Vector3::new(
@@ -118,7 +122,11 @@ pub fn intersect_flame_proxy(
         inverse_model * Vector4::new(ray_direction.x, ray_direction.y, ray_direction.z, 0.0);
 
     intersect_flame_bounds(
-        &flame_local_bounds(flame_bend_offset(effect), flame_support_scale(effect)),
+        &flame_local_bounds(
+            flame_bend_offset(effect),
+            flame_support_scale(effect),
+            effect.support_margin,
+        ),
         local_origin.truncate(),
         local_direction.truncate(),
     )
@@ -130,7 +138,7 @@ mod tests {
     use cgmath::SquareMatrix;
 
     fn unit_bounds() -> FlameLocalBounds {
-        flame_local_bounds([0.0, 0.0], 1.0)
+        flame_local_bounds([0.0, 0.0], 1.0, 1.0)
     }
 
     #[test]
@@ -187,7 +195,7 @@ mod tests {
     #[test]
     fn bend_widens_the_bounds_only_towards_the_lean() {
         let straight = unit_bounds();
-        let bent = flame_local_bounds([0.4, 0.0], 1.0);
+        let bent = flame_local_bounds([0.4, 0.0], 1.0, 1.0);
 
         assert!(bent.max.x > straight.max.x);
         assert_eq!(bent.min.x, straight.min.x);

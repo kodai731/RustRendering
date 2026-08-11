@@ -3698,6 +3698,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 1.0.69",
  "thyllore-anim-core",
  "thyllore-effect-core",
@@ -3710,6 +3711,7 @@ dependencies = [
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-render-debug",
+ "thyllore-texture-fit-core",
  "thyllore-vulkan-core",
  "ufbx",
  "vulkanalia",
@@ -3865,6 +3867,7 @@ dependencies = [
 name = "thyllore-texture-fit-core"
 version = "0.0.1"
 dependencies = [
+ "serde",
  "thyllore-color-core",
  "thyllore-math-core",
 ]

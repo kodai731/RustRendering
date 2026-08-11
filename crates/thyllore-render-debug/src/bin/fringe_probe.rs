@@ -232,6 +232,7 @@ fn main() {
                         taper,
                         effect.radial_sharpness,
                         wiggle_trim,
+                        effect.support_margin,
                     )
                 },
             );

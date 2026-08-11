@@ -19,6 +19,7 @@ use crate::ecs::resource::{
 use crate::ecs::world::World;
 
 const BATCH_SCREENSHOT_FLAG: &str = "--batch-screenshot";
+const BATCH_SCREENSHOT_SEQUENCE_FLAG: &str = "--batch-screenshot-sequence";
 const BATCH_FRAMES_FLAG: &str = "--batch-frames";
 const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const BATCH_FLAME_DEBUG_VIEW_FLAG: &str = "--batch-flame-debug-view";
@@ -193,41 +194,99 @@ pub fn camera_pose_resolve_from_args(args: &[String]) -> Result<Option<BatchCame
 }
 
 pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> {
-    let Some(position) = args.iter().position(|arg| arg == BATCH_SCREENSHOT_FLAG) else {
-        if args.iter().any(|arg| arg == BATCH_FRAMES_FLAG) {
-            bail!("{BATCH_FRAMES_FLAG} requires {BATCH_SCREENSHOT_FLAG} <output.png>");
+    // Check for sequence mode first
+    if let Some(sequence_position) = args
+        .iter()
+        .position(|arg| arg == BATCH_SCREENSHOT_SEQUENCE_FLAG)
+    {
+        let Some(value) = args
+            .get(sequence_position + 1)
+            .filter(|v| !v.starts_with("--"))
+        else {
+            bail!("{BATCH_SCREENSHOT_SEQUENCE_FLAG} requires <dir>,<count>,<stride>");
+        };
+        let parts: Vec<&str> = value.split(',').collect();
+        if parts.len() != 3 {
+            bail!("{BATCH_SCREENSHOT_SEQUENCE_FLAG} expects <dir>,<count>,<stride>, got '{value}'");
         }
-        return Ok(None);
-    };
+        let dir = parts[0].trim();
+        let count: u32 = parts[1].trim().parse().map_err(|_| {
+            anyhow::anyhow!("invalid count '{}': expected positive integer", parts[1])
+        })?;
+        let stride: u32 = parts[2].trim().parse().map_err(|_| {
+            anyhow::anyhow!("invalid stride '{}': expected positive integer", parts[2])
+        })?;
+        if count == 0 {
+            bail!("{BATCH_SCREENSHOT_SEQUENCE_FLAG} count must be >= 1");
+        }
+        if stride == 0 {
+            bail!("{BATCH_SCREENSHOT_SEQUENCE_FLAG} stride must be >= 1");
+        }
 
-    let Some(output) = args.get(position + 1).filter(|v| !v.starts_with("--")) else {
-        bail!("{BATCH_SCREENSHOT_FLAG} requires an output path");
-    };
-    let output = resolve_absolute_output(Path::new(output))?;
-
-    let screenshot_frame = match args.iter().position(|arg| arg == BATCH_FRAMES_FLAG) {
-        Some(frames_position) => {
-            let Some(value) = args.get(frames_position + 1) else {
-                bail!("{BATCH_FRAMES_FLAG} requires a frame count");
-            };
-            let frames: u64 = value
-                .parse()
-                .map_err(|_| anyhow::anyhow!("invalid frame count '{value}': expected integer"))?;
-            if frames == 0 {
-                bail!("{BATCH_FRAMES_FLAG} must be >= 1");
+        let screenshot_frame = match args.iter().position(|arg| arg == BATCH_FRAMES_FLAG) {
+            Some(frames_position) => {
+                let Some(value) = args.get(frames_position + 1) else {
+                    bail!("{BATCH_FRAMES_FLAG} requires a frame count");
+                };
+                let frames: u64 = value.parse().map_err(|_| {
+                    anyhow::anyhow!("invalid frame count '{value}': expected integer")
+                })?;
+                if frames == 0 {
+                    bail!("{BATCH_FRAMES_FLAG} must be >= 1");
+                }
+                frames
             }
-            frames
-        }
-        None => DEFAULT_SCREENSHOT_FRAME,
-    };
+            None => DEFAULT_SCREENSHOT_FRAME,
+        };
 
-    let flame_set = flame_set_resolve_from_args(args)?;
+        let flame_set = flame_set_resolve_from_args(args)?;
+        let dump_wall_probe = debug_actions_has_wall_probe_dump(args);
 
-    let dump_wall_probe = debug_actions_has_wall_probe_dump(args);
+        let mut batch = BatchRun::new(PathBuf::from(dir), screenshot_frame, flame_set);
+        batch.dump_wall_probe = dump_wall_probe;
+        batch.captures_remaining = count;
+        batch.stride = stride;
+        batch.sequence_dir = Some(PathBuf::from(dir));
+        batch.total_count = count;
+        Ok(Some(batch))
+    } else {
+        // Single-shot mode (existing behavior)
+        let Some(position) = args.iter().position(|arg| arg == BATCH_SCREENSHOT_FLAG) else {
+            if args.iter().any(|arg| arg == BATCH_FRAMES_FLAG) {
+                bail!("{BATCH_FRAMES_FLAG} requires {BATCH_SCREENSHOT_FLAG} <output.png>");
+            }
+            return Ok(None);
+        };
 
-    let mut batch = BatchRun::new(output, screenshot_frame, flame_set);
-    batch.dump_wall_probe = dump_wall_probe;
-    Ok(Some(batch))
+        let Some(output) = args.get(position + 1).filter(|v| !v.starts_with("--")) else {
+            bail!("{BATCH_SCREENSHOT_FLAG} requires an output path");
+        };
+        let output = resolve_absolute_output(Path::new(output))?;
+
+        let screenshot_frame = match args.iter().position(|arg| arg == BATCH_FRAMES_FLAG) {
+            Some(frames_position) => {
+                let Some(value) = args.get(frames_position + 1) else {
+                    bail!("{BATCH_FRAMES_FLAG} requires a frame count");
+                };
+                let frames: u64 = value.parse().map_err(|_| {
+                    anyhow::anyhow!("invalid frame count '{value}': expected integer")
+                })?;
+                if frames == 0 {
+                    bail!("{BATCH_FRAMES_FLAG} must be >= 1");
+                }
+                frames
+            }
+            None => DEFAULT_SCREENSHOT_FRAME,
+        };
+
+        let flame_set = flame_set_resolve_from_args(args)?;
+
+        let dump_wall_probe = debug_actions_has_wall_probe_dump(args);
+
+        let mut batch = BatchRun::new(output, screenshot_frame, flame_set);
+        batch.dump_wall_probe = dump_wall_probe;
+        Ok(Some(batch))
+    }
 }
 
 pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadingMode>> {
@@ -380,6 +439,8 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "swirl_gain",
     "swirl_speed",
     "spread_gain",
+    "support_margin",
+    "meander_amp",
     "boundary_freq",
     "boundary_speed",
     "boundary_radius_ratio",
@@ -763,7 +824,9 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "warp_reach" => effect.warp_reach = *value,
             "swirl_gain" => effect.swirl_gain = *value,
             "swirl_speed" => effect.swirl_speed = *value,
+            "support_margin" => effect.support_margin = *value,
             "spread_gain" => effect.spread_gain = *value,
+            "meander_amp" => effect.meander_amp = *value,
             "boundary_freq" => effect.boundary_freq = *value,
             "boundary_speed" => effect.boundary_speed = *value,
             "boundary_radius_ratio" => effect.boundary_radius_ratio = *value,
@@ -799,6 +862,19 @@ pub fn batch_run_tick(world: &World) {
     }
 }
 
+fn format_camera_string(world: &World) -> String {
+    if let Some(camera) = world.get_resource::<crate::ecs::resource::Camera>() {
+        format!(
+            "{:.1},{:.1},{:.2}",
+            camera.yaw.to_degrees(),
+            camera.pitch.to_degrees(),
+            camera.distance
+        )
+    } else {
+        "default".to_string()
+    }
+}
+
 pub fn batch_run_record_screenshot(world: &World, save_result: Result<String, String>) {
     let Some(mut batch) = world.get_resource_mut::<BatchRun>() else {
         return;
@@ -807,6 +883,81 @@ pub fn batch_run_record_screenshot(world: &World, save_result: Result<String, St
         return;
     }
 
+    // Sequence mode: write frame file and continue or finish
+    let sequence_dir = batch.sequence_dir.clone();
+    if let Some(sequence_dir) = sequence_dir {
+        let saved = match save_result {
+            Ok(path) => path,
+            Err(e) => {
+                batch.state = BatchRunState::Completed { result: Err(e) };
+                return;
+            }
+        };
+
+        let frame_index = batch.total_count - batch.captures_remaining; // 0-based index of this capture
+        let frame_path = sequence_dir.join(format!("frame_{:02}.png", frame_index));
+
+        if let Some(parent) = frame_path.parent() {
+            if let Err(e) = std::fs::create_dir_all(parent) {
+                batch.state = BatchRunState::Completed {
+                    result: Err(format!("failed to create {}: {e}", parent.display())),
+                };
+                return;
+            }
+        }
+
+        let copy_result = std::fs::copy(&saved, &frame_path)
+            .map_err(|e| format!("failed to copy {} to {}: {e}", saved, frame_path.display()));
+
+        // Remove intermediate file
+        if let Err(e) = std::fs::remove_file(&saved) {
+            log_warn!("failed to remove intermediate screenshot {saved}: {e}");
+        }
+
+        batch.captures_remaining -= 1;
+
+        if batch.captures_remaining > 0 {
+            // More captures to do: advance screenshot_frame by stride and wait
+            batch.screenshot_frame += batch.stride as u64;
+            batch.state = BatchRunState::WaitingForFrame;
+        } else {
+            // Last capture: write meta.json and complete
+            let camera_str = format_camera_string(world);
+            let meta = json!({
+                "fps": 60.0 / batch.stride as f64,
+                "count": batch.stride,
+                "stride": batch.stride,
+                "camera": camera_str,
+                "flame_set": batch.flame_set.iter().map(|(k, v)| json!({"key": k, "value": v})).collect::<Vec<_>>(),
+                "engine_args": std::env::args().collect::<Vec<_>>(),
+            });
+
+            let meta_path = sequence_dir.join("meta.json");
+            if let Err(e) = std::fs::write(
+                &meta_path,
+                serde_json::to_string_pretty(&meta).unwrap_or_default(),
+            ) {
+                batch.state = BatchRunState::Completed {
+                    result: Err(format!("failed to write {}: {e}", meta_path.display())),
+                };
+                return;
+            }
+
+            match copy_result {
+                Ok(_) => {
+                    batch.state = BatchRunState::Completed {
+                        result: Ok(frame_path.to_string_lossy().to_string()),
+                    };
+                }
+                Err(e) => {
+                    batch.state = BatchRunState::Completed { result: Err(e) };
+                }
+            }
+        }
+        return;
+    }
+
+    // Single-shot mode (existing behavior)
     let result = save_result.and_then(|saved| move_screenshot_to_output(&saved, &batch.output));
     batch.state = BatchRunState::Completed { result };
 }
@@ -1621,10 +1772,248 @@ pub fn batch_anim_dump_write(world: &World, path: &str) -> Result<()> {
     Ok(())
 }
 
+const BATCH_SEQUENCE_ANALYZE_FLAG: &str = "--batch-sequence-analyze";
+const BATCH_SEQUENCE_DUMP_FLAG: &str = "--batch-sequence-dump";
+
+#[derive(Clone, Debug)]
+pub struct SequenceAnalyzeArgs {
+    pub directories: Vec<(String, Option<u64>, Option<u64>)>,
+    pub dump_path: String,
+}
+
+fn batch_sequence_analyze_resolve_from_args(
+    args: &[String],
+) -> Result<Option<SequenceAnalyzeArgs>> {
+    let directories: Vec<String> = args
+        .windows(2)
+        .enumerate()
+        .filter(|(_, window)| window[0] == BATCH_SEQUENCE_ANALYZE_FLAG)
+        .map(|(_, window)| window[1].clone())
+        .collect();
+
+    if directories.is_empty() {
+        return Ok(None);
+    }
+
+    let dump_path = flag_value_resolve_from_args(args, BATCH_SEQUENCE_DUMP_FLAG)?
+        .ok_or_else(|| anyhow::anyhow!("{BATCH_SEQUENCE_DUMP_FLAG} is required when {BATCH_SEQUENCE_ANALYZE_FLAG} is specified"))?;
+
+    let parsed: Vec<(String, Option<u64>, Option<u64>)> = directories
+        .iter()
+        .map(|spec| {
+            let parts: Vec<&str> = spec.split(',').collect();
+            match parts.len() {
+                1 => {
+                    let dir = parts[0].trim().to_string();
+                    Ok((dir, None, None))
+                }
+                2 | 3 => {
+                    let dir = parts[0].trim().to_string();
+                    let from: Option<u64> = if parts.len() >= 2 && !parts[1].is_empty() {
+                        Some(parts[1].trim().parse::<u64>().map_err(|_| {
+                            anyhow::anyhow!("invalid range in {BATCH_SEQUENCE_ANALYZE_FLAG} value '{spec}': from must be a number")
+                        })?)
+                    } else {
+                        None
+                    };
+                    let to: Option<u64> = if parts.len() == 3 && !parts[2].is_empty() {
+                        Some(parts[2].trim().parse::<u64>().map_err(|_| {
+                            anyhow::anyhow!("invalid range in {BATCH_SEQUENCE_ANALYZE_FLAG} value '{spec}': to must be a number")
+                        })?)
+                    } else {
+                        None
+                    };
+                    Ok((dir, from, to))
+                }
+                _ => bail!("invalid {BATCH_SEQUENCE_ANALYZE_FLAG} value '{spec}': expected <dir>[,<from>,<to>]"),
+            }
+        })
+        .collect::<Result<_>>()?;
+
+    Ok(Some(SequenceAnalyzeArgs {
+        directories: parsed,
+        dump_path,
+    }))
+}
+
+/// Headless sequence analysis: find frame_*.png files in each directory, compute luminance,
+/// extract descriptors, and write JSON to the dump path.
+pub fn run_sequence_analyze_from_args(args: Vec<String>) -> Option<Result<()>> {
+    let args_slice: Vec<String> = args;
+    if !args_slice.iter().any(|a| a == BATCH_SEQUENCE_ANALYZE_FLAG) {
+        return None;
+    }
+
+    Some(run_sequence_analyze(&args_slice))
+}
+
+fn run_sequence_analyze(args: &[String]) -> Result<()> {
+    let analyze_args = batch_sequence_analyze_resolve_from_args(args)?.ok_or_else(|| {
+        anyhow::anyhow!("{BATCH_SEQUENCE_ANALYZE_FLAG} requires at least one directory argument")
+    })?;
+
+    let mut sequences = Vec::new();
+
+    for (dir, from, to) in &analyze_args.directories {
+        let entries =
+            std::fs::read_dir(dir).with_context(|| format!("failed to read directory {dir}"))?;
+
+        let mut frame_files: Vec<(u64, PathBuf)> = Vec::new();
+        for entry in entries {
+            let entry = entry.with_context(|| format!("failed to read entry in {dir}"))?;
+            let path = entry.path();
+            let Some(filename) = path.file_name().and_then(|n| n.to_str()) else {
+                continue;
+            };
+            if filename.starts_with("frame_") && filename.ends_with(".png") {
+                // Extract number from frame_NNNN.png
+                let stem = &filename[6..filename.len() - 4];
+                if let Ok(num) = stem.parse::<u64>() {
+                    frame_files.push((num, path));
+                }
+            } else if filename.starts_with("frame_")
+                && (filename.ends_with(".jpg") || filename.ends_with(".jpeg"))
+            {
+                bail!(
+                    "found JPG file in directory {dir}: {filename} — only PNG files are supported"
+                );
+            }
+        }
+
+        frame_files.sort_by_key(|(num, _)| *num);
+
+        // Apply range filter
+        let filtered: Vec<(u64, PathBuf)> = if let (Some(f), Some(t)) = (from, to) {
+            frame_files
+                .into_iter()
+                .filter(|(num, _)| *num >= *f && *num <= *t)
+                .collect()
+        } else if let Some(f) = from {
+            frame_files
+                .into_iter()
+                .filter(|(num, _)| *num >= *f)
+                .collect()
+        } else if let Some(t) = to {
+            frame_files
+                .into_iter()
+                .filter(|(num, _)| *num <= *t)
+                .collect()
+        } else {
+            frame_files
+        };
+
+        if filtered.is_empty() {
+            eprintln!("warning: no frame_*.png files found in {dir}");
+            continue;
+        }
+
+        // Read FPS from meta.json
+        let fps = read_fps_from_meta(dir);
+
+        // Read each PNG and compute average luminance
+        let mut frames: Vec<Vec<f32>> = Vec::new();
+        let mut width: usize = 0;
+        let mut height: usize = 0;
+
+        for (num, path) in &filtered {
+            let (w, h, luminance) = read_png_luminance(path).with_context(|| {
+                format!("failed to read PNG at {} (frame #{num})", path.display())
+            })?;
+            if frames.is_empty() {
+                width = w;
+                height = h;
+            } else if w != width || h != height {
+                bail!(
+                    "inconsistent frame size: expected {}x{}, got {}x{} at {}",
+                    width,
+                    height,
+                    w,
+                    h,
+                    path.display()
+                );
+            }
+            frames.push(luminance);
+        }
+
+        // Extract descriptors
+        let descriptors =
+            thyllore_texture_fit_core::sequence_descriptors::extract_sequence_descriptors(
+                &frames, width, height, fps,
+            )
+            .with_context(|| format!("failed to extract descriptors for {dir}"))?;
+
+        let descriptors_json = serde_json::to_value(&descriptors)?;
+        sequences.push(json!({
+            "dir": dir,
+            "descriptors": descriptors_json,
+        }));
+    }
+
+    let output = json!({"sequences": sequences});
+    let dump_path = PathBuf::from(&analyze_args.dump_path);
+    if let Some(parent) = dump_path.parent() {
+        std::fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create {}", parent.display()))?;
+    }
+    std::fs::write(&dump_path, serde_json::to_string_pretty(&output)?).with_context(|| {
+        format!(
+            "failed to write sequence analysis dump to {}",
+            dump_path.display()
+        )
+    })?;
+
+    Ok(())
+}
+
+fn read_fps_from_meta(dir: &str) -> f32 {
+    let meta_path = PathBuf::from(dir).join("meta.json");
+    if let Ok(content) = std::fs::read_to_string(&meta_path) {
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+            if let Some(fps) = value.get("fps").and_then(|v| v.as_f64()) {
+                return fps as f32;
+            }
+        }
+    }
+    10.0
+}
+
+fn read_png_luminance(path: &Path) -> Result<(usize, usize, Vec<f32>)> {
+    let file = std::fs::File::open(path)?;
+    let reader = std::io::BufReader::new(file);
+    let decoder = png::Decoder::new(reader);
+    let mut reader = decoder.read_info()?;
+    let mut buf = vec![0u8; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buf)?;
+
+    let (width, height) = (info.width as usize, info.height as usize);
+
+    let bytes_per_pixel = match info.color_type {
+        png::ColorType::Rgb => 3,
+        png::ColorType::Rgba => 4,
+        png::ColorType::Grayscale => 1,
+        png::ColorType::GrayscaleAlpha => 2,
+        _ => bail!("unsupported PNG color type: {:?}", info.color_type),
+    };
+
+    let buf = &buf[..info.buffer_size()];
+    let mut luminance = Vec::with_capacity(width * height);
+    for chunk in buf.chunks(bytes_per_pixel) {
+        let lum = match bytes_per_pixel {
+            3 => (chunk[0] as f32 + chunk[1] as f32 + chunk[2] as f32) / 3.0,
+            4 => (chunk[0] as f32 + chunk[1] as f32 + chunk[2] as f32) / 3.0,
+            1 => chunk[0] as f32,
+            2 => chunk[0] as f32,
+            _ => unreachable!(),
+        };
+        luminance.push(lum);
+    }
+
+    Ok((width, height, luminance))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
     }
@@ -2293,5 +2682,228 @@ mod tests {
         );
         let events: Vec<UIEvent> = world.resource_mut::<UIEventQueue>().drain().collect();
         assert!(matches!(events[0], UIEvent::ResetCamera));
+    }
+
+    #[test]
+    fn sequence_analyze_resolve_dir_only() {
+        let args = args(&[
+            "bin",
+            "--batch-sequence-analyze",
+            "data/flames",
+            "--batch-sequence-dump",
+            "out.json",
+        ]);
+        let result = batch_sequence_analyze_resolve_from_args(&args)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.directories.len(), 1);
+        assert_eq!(result.directories[0].0, "data/flames");
+        assert_eq!(result.directories[0].1, None);
+        assert_eq!(result.directories[0].2, None);
+        assert_eq!(result.dump_path, "out.json");
+    }
+
+    #[test]
+    fn sequence_analyze_resolve_dir_with_range() {
+        let args = args(&[
+            "bin",
+            "--batch-sequence-analyze",
+            "data/flames,5,10",
+            "--batch-sequence-dump",
+            "out.json",
+        ]);
+        let result = batch_sequence_analyze_resolve_from_args(&args)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.directories.len(), 1);
+        assert_eq!(result.directories[0].0, "data/flames");
+        assert_eq!(result.directories[0].1, Some(5));
+        assert_eq!(result.directories[0].2, Some(10));
+    }
+
+    #[test]
+    fn sequence_analyze_resolve_multiple_dirs() {
+        let args = args(&[
+            "bin",
+            "--batch-sequence-analyze",
+            "data/a",
+            "--batch-sequence-analyze",
+            "data/b,1,5",
+            "--batch-sequence-dump",
+            "out.json",
+        ]);
+        let result = batch_sequence_analyze_resolve_from_args(&args)
+            .unwrap()
+            .unwrap();
+        assert_eq!(result.directories.len(), 2);
+        assert_eq!(result.directories[0].0, "data/a");
+        assert_eq!(result.directories[1].0, "data/b");
+        assert_eq!(result.directories[1].1, Some(1));
+        assert_eq!(result.directories[1].2, Some(5));
+    }
+
+    #[test]
+    fn sequence_analyze_resolve_missing_dump() {
+        let args = args(&["bin", "--batch-sequence-analyze", "data/flames"]);
+        let result = batch_sequence_analyze_resolve_from_args(&args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn sequence_analyze_resolve_invalid_range() {
+        let args = args(&[
+            "bin",
+            "--batch-sequence-analyze",
+            "data/flames,abc,10",
+            "--batch-sequence-dump",
+            "out.json",
+        ]);
+        let result = batch_sequence_analyze_resolve_from_args(&args);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn sequence_analyze_resolve_none_without_flag() {
+        let args = args(&["bin", "--batch-screenshot", "data/flames"]);
+        let result = batch_sequence_analyze_resolve_from_args(&args).unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn sequence_analyze_run_returns_none_without_flag() {
+        let args: Vec<String> = vec![
+            "bin".to_string(),
+            "--batch-screenshot".to_string(),
+            "data/flames".to_string(),
+        ];
+        let result = run_sequence_analyze_from_args(args);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn sequence_analyze_end_to_end() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Write meta.json with custom fps
+        let meta_path = dir_path.join("meta.json");
+        std::fs::write(&meta_path, r#"{"fps": 30.0}"#).unwrap();
+
+        // Write 3 dummy 2x2 RGB PNGs with distinct colors
+        for i in 0..3 {
+            let value = (i + 1) as u8 * 50; // 50, 100, 150
+            let png_path = dir_path.join(format!("frame_{:04}.png", i));
+            write_test_png(&png_path, 2, 2, value);
+        }
+
+        let dump_path = temp_dir.path().join("output.json");
+        let args = vec![
+            "bin".to_string(),
+            "--batch-sequence-analyze".to_string(),
+            dir_path.to_string_lossy().to_string(),
+            "--batch-sequence-dump".to_string(),
+            dump_path.to_string_lossy().to_string(),
+        ];
+
+        let result = run_sequence_analyze_from_args(args);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(result.is_ok(), "sequence analysis failed: {:?}", result);
+
+        // Verify output JSON
+        let content = std::fs::read_to_string(&dump_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        assert!(json.get("sequences").is_some());
+        let sequences = json["sequences"].as_array().unwrap();
+        assert_eq!(sequences.len(), 1);
+
+        let entry = &sequences[0];
+        assert!(entry.get("dir").is_some());
+        assert!(entry.get("descriptors").is_some());
+        let descriptors = &entry["descriptors"];
+        assert!(descriptors.get("f1_width").is_some());
+        assert!(descriptors.get("f2_rough").is_some());
+        assert!(descriptors.get("meta").is_some());
+
+        // Verify fps from meta.json is used
+        let meta = &descriptors["meta"];
+        assert!((meta["fps"].as_f64().unwrap() - 30.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sequence_analyze_range_filter() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Write meta.json
+        std::fs::write(dir_path.join("meta.json"), r#"{"fps": 10.0}"#).unwrap();
+
+        // Write 5 dummy 2x2 RGB PNGs
+        for i in 0..5 {
+            let value = (i + 1) as u8 * 30;
+            let png_path = dir_path.join(format!("frame_{:04}.png", i));
+            write_test_png(&png_path, 2, 2, value);
+        }
+
+        let dump_path = temp_dir.path().join("output.json");
+        let args = vec![
+            "bin".to_string(),
+            "--batch-sequence-analyze".to_string(),
+            format!("{},1,3", dir_path.to_string_lossy()),
+            "--batch-sequence-dump".to_string(),
+            dump_path.to_string_lossy().to_string(),
+        ];
+
+        let result = run_sequence_analyze_from_args(args);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(result.is_ok(), "sequence analysis failed: {:?}", result);
+
+        let content = std::fs::read_to_string(&dump_path).unwrap();
+        let json: serde_json::Value = serde_json::from_str(&content).unwrap();
+        let sequences = json["sequences"].as_array().unwrap();
+        assert_eq!(sequences.len(), 1);
+
+        // Verify frame count in meta (should be 3 frames: 1, 2, 3)
+        let meta = &sequences[0]["descriptors"]["meta"];
+        assert_eq!(meta["frame_count"].as_u64().unwrap(), 3);
+    }
+
+    #[test]
+    fn sequence_analyze_jpg_error() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let dir_path = temp_dir.path();
+
+        // Write a fake JPG file
+        std::fs::write(dir_path.join("frame_0001.jpg"), b"fake jpg").unwrap();
+
+        let dump_path = temp_dir.path().join("output.json");
+        let args = vec![
+            "bin".to_string(),
+            "--batch-sequence-analyze".to_string(),
+            dir_path.to_string_lossy().to_string(),
+            "--batch-sequence-dump".to_string(),
+            dump_path.to_string_lossy().to_string(),
+        ];
+
+        let result = run_sequence_analyze_from_args(args);
+        assert!(result.is_some());
+        let result = result.unwrap();
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("JPG") || err_msg.contains("jpg"));
+    }
+
+    /// Write a simple 2x2 RGB PNG with all pixels having the same color value.
+    fn write_test_png(path: &Path, width: u32, height: u32, value: u8) {
+        let file = std::fs::File::create(path).unwrap();
+        let writer = std::io::BufWriter::new(file);
+        let mut encoder = png::Encoder::new(writer, width, height);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        let mut pixels = vec![value; (width * height * 3) as usize];
+        writer.write_image_data(&pixels).unwrap();
+        writer.finish().unwrap();
     }
 }

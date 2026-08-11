@@ -602,6 +602,12 @@ pub fn build_flame_ubo(
         warp_form_params: build_warp_form_params(),
         unified_params: build_unified_field_params(effect),
         spread_params: build_medium_spread_params(effect),
+        support_margin: [
+            effect.support_margin,
+            effect.meander_amp,
+            effect.swirl_speed,
+            0.0,
+        ],
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -992,6 +998,12 @@ pub fn build_flame_ubo_with_trail(
         warp_form_params: build_warp_form_params(),
         unified_params: build_unified_field_params(effect),
         spread_params: build_medium_spread_params(effect),
+        support_margin: [
+            effect.support_margin,
+            effect.meander_amp,
+            effect.swirl_speed,
+            0.0,
+        ],
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1039,6 +1051,7 @@ pub struct FlameUBO {
     pub warp_form_params: [f32; 4],
     pub unified_params: [f32; 4],
     pub spread_params: [f32; 4],
+    pub support_margin: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }

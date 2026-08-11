@@ -10,7 +10,7 @@ float flameShellSupportScale() {
     if (flame.emitterParams.x >= 0.5 && flame.emitterParams.x < 1.5) {
         float rm = flame.emitterParams.y;
         return max(
-            (rm + 1.5 * (1.0 - rm)) / (FLAME_SHELL_BASE_RADIUS * FLAME_SHELL_SUPPORT_HEADROOM),
+          (rm + FLAME_SHELL_SUPPORT_HEADROOM * flame.supportParams.x * (1.0 - rm)) / (FLAME_SHELL_BASE_RADIUS * FLAME_SHELL_SUPPORT_HEADROOM * flame.supportParams.x),
             1.0);
     }
     return 1.0;

@@ -11,6 +11,25 @@ pub fn biweight_profile(u_squared: f32) -> f32 {
     inside * inside
 }
 
+/// S1 plateaued radial factor: `max(biweight(u^2 * margin^2), plateau(u^2, margin))`.
+///
+/// For `margin <= 1.0`, returns `biweight(u^2 * margin^2)` (bit-identical to margin=1).
+/// For `margin > 1.0`, the plateau is:
+///   `PLATEAU_LEVEL * (1.0 - smoothstep(1.0 - PLATEAU_EDGE_DELTA, 1.0, u^2))`
+/// where `PLATEAU_LEVEL = 0.35` and `PLATEAU_EDGE_DELTA = 0.1`.
+pub fn plateau_radial_factor(u_squared: f32, margin: f32) -> f32 {
+    let core = biweight_profile(u_squared * margin * margin);
+    if margin <= 1.0 {
+        return core;
+    }
+    const PLATEAU_LEVEL: f32 = 0.35;
+    const PLATEAU_EDGE_DELTA: f32 = 0.1;
+    let t = ((u_squared - (1.0 - PLATEAU_EDGE_DELTA)) / PLATEAU_EDGE_DELTA).clamp(0.0, 1.0);
+    let smooth = t * t * (3.0 - 2.0 * t);
+    let plateau = PLATEAU_LEVEL * (1.0 - smooth);
+    core.max(plateau)
+}
+
 const LINEAR_COEFFICIENT_EPSILON: f32 = 1e-12;
 
 /// Interval where `a s^2 + b s + c <= 1` clipped to `[s_min, s_max]`, or `None` when empty.
@@ -193,5 +212,24 @@ mod tests {
                 "moment {n}: got {moment}, expected {reference}"
             );
         }
+    }
+
+    #[test]
+    fn test_plateau_radial_factor() {
+        // margin=1.0: must be bit-identical to biweight_profile (plateau is off)
+        assert_eq!(plateau_radial_factor(0.0, 1.0), biweight_profile(0.0));
+        assert_eq!(plateau_radial_factor(0.5, 1.0), biweight_profile(0.5));
+        assert_eq!(plateau_radial_factor(0.99, 1.0), biweight_profile(0.99));
+        assert_eq!(plateau_radial_factor(1.5, 1.0), biweight_profile(1.5));
+
+        // margin=2.0: plateau is active
+        // u^2 = 0.5: core = biweight(0.5*4) = biweight(2.0) = 0.0;
+        //   t = (0.5 - 0.9)/0.1 = -4.0 -> clamped to 0.0, smooth = 0.0;
+        //   plateau = 0.35 * (1.0 - 0.0) = 0.35; result = max(0.0, 0.35) = 0.35
+        assert_eq!(plateau_radial_factor(0.5, 2.0), 0.35);
+        // u^2 = 1.0: core = biweight(4.0) = 0.0;
+        //   t = (1.0 - 0.9)/0.1 = 1.0 -> clamped to 1.0, smooth = 1.0;
+        //   plateau = 0.35 * (1.0 - 1.0) = 0.0; result = max(0.0, 0.0) = 0.0
+        assert_eq!(plateau_radial_factor(1.0, 2.0), 0.0);
     }
 }

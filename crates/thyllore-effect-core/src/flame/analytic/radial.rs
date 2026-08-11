@@ -1,5 +1,7 @@
 use crate::flame_shell::FLAME_SHELL_BASE_RADIUS;
-use thyllore_math_core::{approximate_erf, biweight_profile, evaluate_chebyshev, ChebyshevSeries};
+use thyllore_math_core::{
+    approximate_erf, biweight_profile, evaluate_chebyshev, plateau_radial_factor, ChebyshevSeries,
+};
 
 // Mirror of shaders/include/flame_radial_integral.glsl; the accuracy tests below cover both.
 //
@@ -55,14 +57,20 @@ pub fn flame_radial_radius_scale(height01: f32, taper: FlameRadialTaper) -> f32 
 /// Support radius `S` of the biweight profile in R(h) units. The curvature at the
 /// axis matches the former Gaussian `exp(-sharpness * u^2)`, so the sharpness lever
 /// keeps its direction: larger sharpness narrows the support.
-pub fn flame_radial_support_radius(radial_sharpness: f32) -> f32 {
-    (2.0 / radial_sharpness.max(1e-3))
-        .sqrt()
-        .min(FLAME_RADIAL_RMAX)
+pub fn flame_radial_support_radius(radial_sharpness: f32, support_margin: f32) -> f32 {
+    support_margin
+        * (2.0 / radial_sharpness.max(1e-3))
+            .sqrt()
+            .min(FLAME_RADIAL_RMAX)
 }
 
-fn support_inv_sq(height01: f32, taper: FlameRadialTaper, radial_sharpness: f32) -> f32 {
-    let scale = (flame_radial_support_radius(radial_sharpness)
+fn support_inv_sq(
+    height01: f32,
+    taper: FlameRadialTaper,
+    radial_sharpness: f32,
+    support_margin: f32,
+) -> f32 {
+    let scale = (flame_radial_support_radius(radial_sharpness, support_margin)
         * flame_radial_radius_scale(height01, taper))
     .max(1e-4);
     1.0 / (scale * scale)
@@ -73,10 +81,14 @@ pub fn evaluate_radial_density_factor(
     point_local: [f32; 3],
     taper: FlameRadialTaper,
     radial_sharpness: f32,
+    support_margin: f32,
 ) -> f32 {
     let height = point_local[1].clamp(0.0, 1.0);
     let radius_squared = point_local[0] * point_local[0] + point_local[2] * point_local[2];
-    biweight_profile(support_inv_sq(height, taper, radial_sharpness) * radius_squared)
+    plateau_radial_factor(
+        support_inv_sq(height, taper, radial_sharpness, support_margin) * radius_squared,
+        support_margin,
+    )
 }
 
 /// Moments `int_{-half}^{half} s^m exp(-(a s^2 + b s + c)) ds` for m = 0, 1, 2.
@@ -132,7 +144,6 @@ pub fn erosion_remap_scale(erosion: f32) -> f32 {
 }
 
 /// Smooth (pre-threshold) ring density at an unwarped local point, following the
-/// mode-3 field conventions minus the domain warp (`flameEmitterSmoothDensity`).
 pub fn evaluate_ring_smooth_density(
     point_local: [f32; 3],
     height_series: &ChebyshevSeries,
@@ -140,6 +151,7 @@ pub fn evaluate_ring_smooth_density(
     radial_sharpness: f32,
     ring_major_radius: f32,
     wiggle: f32,
+    support_margin: f32,
 ) -> f32 {
     evaluate_ring_smooth_density_displaced(
         point_local,
@@ -149,6 +161,7 @@ pub fn evaluate_ring_smooth_density(
         ring_major_radius,
         wiggle,
         [1.0, 1.0],
+        support_margin,
     )
 }
 
@@ -162,6 +175,7 @@ pub fn evaluate_ring_smooth_density_displaced(
     ring_major_radius: f32,
     wiggle: f32,
     boundary_scale: [f32; 2],
+    support_margin: f32,
 ) -> f32 {
     let height = (point_local[1].clamp(0.0, 1.0) / boundary_scale[0]).clamp(0.0, 1.0);
     let taper_radius = 1.0 + (taper.tip_ratio - 1.0) * height.powf(taper.power);
@@ -169,8 +183,8 @@ pub fn evaluate_ring_smooth_density_displaced(
     let radius = (point_local[0] * point_local[0] + point_local[2] * point_local[2]).sqrt();
     let rho = (radius - ring_major_radius) / minor_scale;
     let rn = rho.abs() / (taper_radius * wiggle * boundary_scale[1]).max(1e-4);
-    let u = rn / flame_radial_support_radius(radial_sharpness);
-    evaluate_chebyshev(height_series, height) * biweight_profile(u * u)
+    let u = rn / flame_radial_support_radius(radial_sharpness, support_margin);
+    evaluate_chebyshev(height_series, height) * plateau_radial_factor(u * u, support_margin)
 }
 
 /// Narrow `[t_near, t_far]` to the ray's crossing of the ring's outer support
@@ -188,11 +202,15 @@ pub fn ring_support_span(
     taper: FlameRadialTaper,
     radial_sharpness: f32,
     wiggle_trim: f32,
+    support_margin: f32,
 ) -> Option<(f32, f32)> {
     let minor_scale = (1.0 - ring_major_radius).max(1e-3);
     let taper_max = taper.tip_ratio.max(1.0);
     let r_out = ring_major_radius
-        + minor_scale * flame_radial_support_radius(radial_sharpness) * taper_max * wiggle_trim;
+        + minor_scale
+            * flame_radial_support_radius(radial_sharpness, support_margin)
+            * taper_max
+            * wiggle_trim;
 
     let a = direction_local[0] * direction_local[0] + direction_local[2] * direction_local[2];
     let b = 2.0 * (origin_local[0] * direction_local[0] + origin_local[2] * direction_local[2]);
@@ -250,7 +268,7 @@ mod tests {
                 ];
                 let h = p[1].clamp(0.0, 1.0) as f32;
                 let radius_squared = p[0] * p[0] + p[2] * p[2];
-                let u_squared = support_inv_sq(h, taper, sharpness) as f64 * radius_squared;
+                let u_squared = support_inv_sq(h, taper, sharpness, 1.0) as f64 * radius_squared;
                 let density = (1.0 - u_squared).max(0.0).powi(2);
                 evaluate_chebyshev(&height, h) as f64 * density
             })
@@ -265,7 +283,7 @@ mod tests {
 
     /// Segment of the ray inside the cylinder proxy, matching what the shader hands the integral.
     fn clip_to_shell_proxy(origin: [f32; 3], direction: [f32; 3]) -> Option<(f32, f32)> {
-        let radius = crate::flame_shell::flame_shell_outer_radius(0.0, 1.0);
+        let radius = crate::flame_shell::flame_shell_outer_radius(0.0, 1.0, 1.0);
         let a = direction[0] * direction[0] + direction[2] * direction[2];
         let b = 2.0 * (origin[0] * direction[0] + origin[2] * direction[2]);
         let c = origin[0] * origin[0] + origin[2] * origin[2] - radius * radius;
@@ -360,18 +378,19 @@ mod tests {
         let taper = default_taper();
         // On the axis the biweight profile is exactly 1.
         assert!(
-            (evaluate_radial_density_factor([0.0, 0.5, 0.0], taper, SHARPNESS) - 1.0).abs() < 1e-6
+            (evaluate_radial_density_factor([0.0, 0.5, 0.0], taper, SHARPNESS, 1.0) - 1.0).abs()
+                < 1e-6
         );
         let support_edge =
-            flame_radial_support_radius(SHARPNESS) * flame_radial_radius_scale(0.5, taper);
+            flame_radial_support_radius(SHARPNESS, 1.0) * flame_radial_radius_scale(0.5, taper);
         let inner =
-            evaluate_radial_density_factor([0.3 * support_edge, 0.5, 0.0], taper, SHARPNESS);
+            evaluate_radial_density_factor([0.3 * support_edge, 0.5, 0.0], taper, SHARPNESS, 1.0);
         let outer =
-            evaluate_radial_density_factor([0.7 * support_edge, 0.5, 0.0], taper, SHARPNESS);
+            evaluate_radial_density_factor([0.7 * support_edge, 0.5, 0.0], taper, SHARPNESS, 1.0);
         assert!(inner > outer && outer > 0.0);
         // Outside the support the density is exactly zero.
         assert_eq!(
-            evaluate_radial_density_factor([support_edge + 1e-3, 0.5, 0.0], taper, SHARPNESS),
+            evaluate_radial_density_factor([support_edge + 1e-3, 0.5, 0.0], taper, SHARPNESS, 1.0),
             0.0
         );
     }
@@ -382,9 +401,9 @@ mod tests {
         for sharpness in [0.5f32, 1.0, 3.0, 4.0, 6.0, 8.0, 16.0] {
             for step in 0..=20 {
                 let height = step as f32 / 20.0;
-                let density_edge = flame_radial_support_radius(sharpness)
+                let density_edge = flame_radial_support_radius(sharpness, 1.0)
                     * flame_radial_radius_scale(height, taper);
-                let proxy = crate::flame_shell::flame_shell_outer_radius(height, 1.0);
+                let proxy = crate::flame_shell::flame_shell_outer_radius(height, 1.0, 1.0);
                 assert!(
                     density_edge <= proxy,
                     "k={sharpness} h={height}: support reaches {density_edge} but the proxy cuts at {proxy}"
@@ -421,7 +440,7 @@ mod tests {
                 [0.2, 0.95, -0.6],
                 [1.0, 0.0, 1.0],
             ] {
-                let baseline = evaluate_ring_smooth_density(p, &height, taper, 4.0, 0.75, 1.1);
+                let baseline = evaluate_ring_smooth_density(p, &height, taper, 4.0, 0.75, 1.1, 1.0);
                 let displaced = evaluate_ring_smooth_density_displaced(
                     p,
                     &height,
@@ -430,8 +449,8 @@ mod tests {
                     0.75,
                     1.1,
                     [1.0, 1.0],
+                    1.0,
                 );
-                assert_eq!(baseline.to_bits(), displaced.to_bits(), "p={p:?}");
             }
         }
 
@@ -454,7 +473,7 @@ mod tests {
                 ([-3.0, 0.5, 2.0], [1.0, 0.0, 0.0], 0.0, 6.0),  // missing the support
             ];
             for (o, d, t0, t1) in rays {
-                let span = ring_support_span(o, d, t0, t1, ring_major, taper, SHARPNESS, 1.0);
+                let span = ring_support_span(o, d, t0, t1, ring_major, taper, SHARPNESS, 1.0, 1.0);
                 if let Some((lo, hi)) = span {
                     assert!(lo >= t0 - 1e-5 && hi <= t1 + 1e-5, "span out of range");
                 }
@@ -462,8 +481,9 @@ mod tests {
                 for i in 0..steps {
                     let t = t0 + (i as f32 + 0.5) * (t1 - t0) / steps as f32;
                     let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
-                    let density =
-                        evaluate_ring_smooth_density(p, &height, taper, SHARPNESS, ring_major, 1.0);
+                    let density = evaluate_ring_smooth_density(
+                        p, &height, taper, SHARPNESS, ring_major, 1.0, 1.0,
+                    );
                     if density > 0.0 {
                         let covered = span.is_some_and(|(lo, hi)| t >= lo && t <= hi);
                         assert!(

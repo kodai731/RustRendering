@@ -85,6 +85,8 @@ pub fn build_effect_json(
     value["swirl_gain"] = json!(effect.swirl_gain);
     value["swirl_speed"] = json!(effect.swirl_speed);
     value["spread_gain"] = json!(effect.spread_gain);
+    value["support_margin"] = json!(effect.support_margin);
+    value["meander_amp"] = json!(effect.meander_amp);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!(strain);
     value["warp_strain_cap"] = json!(thyllore_effect_core::flame_wave::WARP_STRAIN_CAP);
@@ -516,7 +518,6 @@ pub fn write_texture_fit_provenance(
 mod tests {
     use super::*;
     use cgmath::{Vector3, Vector4};
-    use thyllore_effect_core::FlameCoefficients;
 
     fn sample_effect() -> FlameEffect {
         FlameEffect {

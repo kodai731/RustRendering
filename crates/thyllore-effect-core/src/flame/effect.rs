@@ -92,6 +92,14 @@ pub struct FlameEffect {
     /// outward and dissolve instead of scrolling up unchanged. 0 = off,
     /// bit-identical to the unspread field. Reach shares tip_carve_reach.
     pub spread_gain: f32,
+    /// Multiplier on the support radius (FLAME_SHELL_SUPPORT_HEADROOM = 1.5): how wide the
+    /// flame's density support extends relative to the shell proxy. Scales the support radius
+    /// across all three systems (density support, proxy shape, and analytic integration) so
+    /// they stay matched. 1.0 = default (unchanged behavior).
+    pub support_margin: f32,
+    /// Animated meander amplitude: time-varying horizontal displacement of the centerline.
+    /// 0 = off (bit-identical to pre-meander field).
+    pub meander_amp: f32,
 }
 
 impl Default for FlameEffect {
@@ -156,6 +164,8 @@ impl Default for FlameEffect {
             swirl_gain: 0.0,
             swirl_speed: 1.0,
             spread_gain: 0.0,
+            support_margin: 1.0,
+            meander_amp: 0.0,
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect

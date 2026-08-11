@@ -395,6 +395,38 @@ def profile(
 
 
 @mcp.tool()
+def reference_match(config: str = "pillar", skip_capture: bool = False, dood: bool = True,
+                    out_dir: str = "") -> str:
+    """Reference-sequence match gate for the flame look (S-series acceptance).
+
+    Captures current/legacy arms as 40-frame sequences, runs the shared
+    descriptor extractor on both arms and the reference sequence, and returns
+    ceiling-normalized family distances (F1/F2/F3/F4/F7), gap_closed vs the
+    legacy floor arm, per-arm match scores and the pass verdict.
+
+    config: key in tools/flame_refmatch.py REFERENCE_CONFIGS (default "pillar").
+    skip_capture: reuse existing captures in out_dir (analysis only).
+    dood: wrap captures in the DooD screenshot harness (needed from auto-mode).
+    out_dir: capture/output directory (default target/tmp_screens/refmatch).
+
+    Returns the one-line JSON verdict from tools/flame_refmatch.py.
+    """
+    cmd = ["uv", "run", "--with", "pillow", "--with", "numpy", "--with", "scipy",
+           "--with", "opencv-python-headless", "python3", "tools/flame_refmatch.py"]
+    if skip_capture:
+        cmd.append("--skip-capture")
+    if dood:
+        cmd.append("--dood")
+    if out_dir:
+        cmd.extend(["--out-dir", out_dir])
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=str(_repo_root()), timeout=900)
+    if result.returncode != 0:
+        return json.dumps({"ok": False, "error": (result.stderr or result.stdout).strip()[-800:]})
+    last_line = result.stdout.strip().splitlines()[-1]
+    return last_line
+
+
+@mcp.tool()
 def fringe_score(image: str, background: str) -> str:
     """Horizontal line-coherence score for flame screenshots.
 

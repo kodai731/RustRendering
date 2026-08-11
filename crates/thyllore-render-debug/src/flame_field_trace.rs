@@ -89,6 +89,7 @@ fn transform_vector(matrix: &Matrix4<f32>, vector: [f32; 3]) -> [f32; 3] {
 }
 
 const EROSION_MEAN_SHRINK: f32 = 0.0875;
+const PLATEAU_CARVE_BOOST: f32 = 1.0;
 /// Mirror of FLAME_SUPPORT_BISECTION_STEPS in flame_radial_integral.glsl.
 const SUPPORT_BISECTION_STEPS: usize = 8;
 const EROSION_SHELL_REF: f32 = 0.30;
@@ -237,13 +238,35 @@ impl<'a> UboCtx<'a> {
         [sp2[0] * s, sp2[1] * s]
     }
 
+    /// flameMeanderOffsetAt mirror: animated meander displacement of the centerline.
+    fn meander_offset(&self, h: f32) -> [f32; 2] {
+        let meander_amp = self.u.support_margin[1];
+        let swirl_speed = self.u.support_margin[2];
+        let omega1 = swirl_speed * 0.75;
+        let omega2 = swirl_speed * 1.15;
+        let kappa1 = 1.2;
+        let kappa2 = 2.1;
+        let phi1 = 0.0;
+        let phi2 = 2.4;
+        let t = self.u.time;
+        let m = meander_amp * h;
+        [
+            m * (kappa1 * h - omega1 * t + phi1).sin(),
+            m * (kappa2 * h - omega2 * t + phi2).sin() * 0.8,
+        ]
+    }
+
+    /// flameMeanderShifted mirror: p shifted by meander offset at height h.
+    fn meander_shifted(&self, p: [f32; 3], h: f32) -> [f32; 3] {
+        let off = self.meander_offset(h);
+        [p[0] - off[0], p[1], p[2] - off[1]]
+    }
+
     fn wave_mode(&self, slot: usize) -> ([f32; 4], [f32; 4]) {
         (self.u.wave_modes[2 * slot], self.u.wave_modes[2 * slot + 1])
     }
 
     /// flameMediumSwirlShear mirror: azimuthal transport of the RTE medium
-    /// density, accumulated onto (displacement, rate) at a fixed (z, v).
-    /// Direction slot layout is [phase, c.x, drift_rate, c.z] (horizontal c).
     fn medium_swirl_shear(
         &self,
         z: [f32; 3],
@@ -418,9 +441,10 @@ impl<'a> UboCtx<'a> {
     }
 
     fn radial_support_radius(&self) -> f32 {
-        (2.0 / self.u.radialSharpness.max(1e-3f32))
-            .sqrt()
-            .min(SUPPORT_HEADROOM)
+        self.u.support_margin[0]
+            * (2.0 / self.u.radialSharpness.max(1e-3f32))
+                .sqrt()
+                .min(SUPPORT_HEADROOM)
     }
 
     fn radial_radius_scale(&self, hb: f32) -> f32 {
@@ -494,6 +518,27 @@ impl<'a> UboCtx<'a> {
     fn tip_carve_lambda(&self, h: f32) -> f32 {
         let tc = self.u.tip_carve_params;
         1.0 + tc[0] * (-self.envelope_remaining_mu(h) * tc[1]).exp()
+    }
+
+    /// Mirror of flameCarveResidualOuterGate in flame_noise_field.glsl:
+    /// Hermite smoothstep from inner (pre-expanded support edge in u^2 units) to 1.0.
+    /// margin <= 1.0 returns 0.0 (no boost).
+    fn flame_carve_residual_outer_gate(&self, u_squared: f32) -> f32 {
+        let margin = self.u.support_margin[0];
+        if margin <= 1.0 {
+            return 0.0;
+        }
+        let w = u_squared * margin * margin;
+        let t = ((w - 1.0) / 0.5).clamp(0.0, 1.0);
+        t * t * (3.0 - 2.0 * t)
+    }
+
+    /// flamePlateauCarveReach: erosion boost reach — absolute core-radius reach function.
+    /// w = u_squared * margin * margin is core-radius squared; zero inside core, linear increase outside.
+    fn flame_plateau_carve_reach(&self, u_squared: f32) -> f32 {
+        let margin = self.u.support_margin[0];
+        let w = u_squared * margin * margin;
+        (w - 1.0).max(0.0)
     }
 
     /// flameWarpStrain: asymptotic dimensionless strain of the flow warp.
@@ -663,13 +708,33 @@ impl<'a> UboCtx<'a> {
             jitter_psi_rate,
         } = self.wave_frame(p, d, h);
 
+        // Compute u_squared (normalized radius squared) for plateau boost.
+        // Use meander-shifted p for density-side coordinate, matching the shader.
+        let ps = self.meander_shifted(p, h);
+        let boundary = self.boundary_displacement(ps[0], ps[2]);
+        let hb = (h / boundary[0]).clamp(0.0, 1.0);
+        let emitter = self.u.emitter_params.x;
+        let u_squared = if emitter < 0.5 {
+            // Cylinder: normalized radius squared from radial_factor scale
+            let scale = (self.radial_support_radius() * self.radial_radius_scale(hb)).max(1e-4);
+            (ps[0] * ps[0] + ps[2] * ps[2]) / (scale * scale)
+        } else {
+            // Ring: from radial distance normalized by support radius
+            let rm = self.u.emitter_params.y;
+            let minor = (1.0 - rm).max(1e-3);
+            let rho = ((ps[0] * ps[0] + ps[2] * ps[2]).sqrt() - rm) / minor;
+            let rn = rho.abs() / (boundary[1]).max(1e-4);
+            let uu = rn / self.radial_support_radius();
+            uu * uu
+        };
+
         let eddy_time = self.u.noise_scroll_speed * self.u.time;
-        let count = (self.u.wave_params[0] as usize).min(EROSION_SLOTS);
         let mut z_low = 0.0f32;
         let mut unresolved = 0.0f32;
         let mut mode_values = Vec::new();
         let mut mode_weights = Vec::new();
         let record_modes = dt > 0.0;
+        let count = (self.u.wave_params[0] as usize).min(EROSION_SLOTS);
         for pass in 0..2 {
             let mut z_acc = 0.0f32;
             for n in 0..count {
@@ -750,6 +815,7 @@ impl<'a> UboCtx<'a> {
         let strain = self.warp_strain(h);
         let erosion = self.u.noise_amplitude
             * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+                + PLATEAU_CARVE_BOOST * self.flame_plateau_carve_reach(u_squared)
                 + lambda * (density / EROSION_SHELL_REF) * (shaped - 0.4375));
         let argument = self.eroded_argument(density, erosion);
         NodeArgument {
@@ -1090,8 +1156,30 @@ struct SegmentEstimate {
 fn mean_argument_at(ctx: &UboCtx, o: [f32; 3], d: [f32; 3], t: f32) -> f32 {
     let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
     let h = p[1].clamp(0.0, 1.0);
-    let density = ctx.node_density(p, h).density;
-    let mean_erosion = ctx.u.noise_amplitude * mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK;
+    // Use meander-shifted p for density-side coordinate, matching the shader.
+    let ps = ctx.meander_shifted(p, h);
+    let density = ctx.node_density(ps, h).density;
+    // Compute u_squared (normalized radius squared) for plateau boost.
+    let boundary = ctx.boundary_displacement(ps[0], ps[2]);
+    let hb = (h / boundary[0]).clamp(0.0, 1.0);
+    let emitter = ctx.u.emitter_params.x;
+    let u_squared = if emitter < 0.5 {
+        let scale = (ctx.radial_support_radius() * ctx.radial_radius_scale(hb)).max(1e-4);
+        (ps[0] * ps[0] + ps[2] * ps[2]) / (scale * scale)
+    } else if emitter < 1.5 {
+        let taper_r = mixf(1.0, ctx.u.style_params1[0], hb.powf(ctx.u.style_params0[3]));
+        let rm = ctx.u.emitter_params.y;
+        let minor = (1.0 - rm).max(1e-3);
+        let rho = ((ps[0] * ps[0] + ps[2] * ps[2]).sqrt() - rm) / minor;
+        let rn = rho.abs() / (taper_r * boundary[1]).max(1e-4);
+        let uu = rn / ctx.radial_support_radius();
+        uu * uu
+    } else {
+        0.0
+    };
+    let mean_erosion = ctx.u.noise_amplitude
+        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+            + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared));
     ctx.eroded_argument(density, mean_erosion)
 }
 
@@ -1120,10 +1208,26 @@ fn argument_with_slow(
     z_slow: f32,
     sigma_fast: f32,
 ) -> f32 {
-    let h = (o[1] + t * d[1]).clamp(0.0, 1.0);
+    let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
+    let h = p[1].clamp(0.0, 1.0);
+    let boundary = ctx.boundary_displacement(p[0], p[2]);
+    let hb = (h / boundary[0]).clamp(0.0, 1.0);
+    let emitter = ctx.u.emitter_params.x;
+    let u_squared = if emitter < 0.5 {
+        let scale = (ctx.radial_support_radius() * ctx.radial_radius_scale(hb)).max(1e-4);
+        (p[0] * p[0] + p[2] * p[2]) / (scale * scale)
+    } else {
+        let rm = ctx.u.emitter_params.y;
+        let minor = (1.0 - rm).max(1e-3);
+        let rho = ((p[0] * p[0] + p[2] * p[2]).sqrt() - rm) / minor;
+        let rn = rho.abs() / (boundary[1]).max(1e-4);
+        let uu = rn / ctx.radial_support_radius();
+        uu * uu
+    };
     let shaped_delta = ctx.shaped_delta_mean(z_slow, sigma_fast);
     let erosion = ctx.u.noise_amplitude
         * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+            + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared)
             + ctx.tip_carve_lambda(h) * (density / EROSION_SHELL_REF) * shaped_delta);
     ctx.eroded_argument(density, erosion)
 }
@@ -1171,7 +1275,9 @@ fn solve_reference_cutoff(
                 o[2] + t_star * d[2],
             ];
             let h_star = p_star[1].clamp(0.0, 1.0);
-            let density = ctx.node_density(p_star, h_star).density;
+            // Use meander-shifted p for density-side coordinate, matching the shader.
+            let ps_star = ctx.meander_shifted(p_star, h_star);
+            let density = ctx.node_density(ps_star, h_star).density;
             if density > 0.0 {
                 let fade = ctx.envelope_fade(density);
                 let geometry = ctx.u.noise_amplitude
@@ -1536,7 +1642,9 @@ fn trace_ray(
         let t = t0 + node as f32 * dt;
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
         let h = p[1].clamp(0.0, 1.0);
-        let nd = ctx.node_density(p, h);
+        // Use meander-shifted p for density-side coordinate, matching the shader.
+        let ps = ctx.meander_shifted(p, h);
+        let nd = ctx.node_density(ps, h);
         let arg = if nd.density > 0.0 {
             Some(ctx.node_argument(p, d, h, nd.density, dt))
         } else {
@@ -1547,7 +1655,10 @@ fn trace_ray(
 
     let density_at = |t: f32| -> f32 {
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
-        ctx.node_density(p, p[1].clamp(0.0, 1.0)).density
+        let h = p[1].clamp(0.0, 1.0);
+        // Use meander-shifted p for density-side coordinate, matching the shader.
+        let ps = ctx.meander_shifted(p, h);
+        ctx.node_density(ps, h).density
     };
     let support_crossing = |t_dead: f32, t_live: f32| -> f32 {
         let (mut t_dead, mut t_live) = (t_dead, t_live);
@@ -1867,7 +1978,9 @@ fn trace_ray(
         Some(tf) => {
             let p = [o[0] + tf * d[0], o[1] + tf * d[1], o[2] + tf * d[2]];
             let h = p[1].clamp(0.0, 1.0);
-            let nd = ctx.node_density(p, h);
+            // Use meander-shifted p for density-side coordinate, matching the shader.
+            let ps = ctx.meander_shifted(p, h);
+            let nd = ctx.node_density(ps, h);
             let a = ctx.node_argument(p, d, h, nd.density, dt);
             json!({
                 "t": round5(tf),

@@ -135,6 +135,7 @@ pub fn probe_flame_wall(
             effect.radial_sharpness,
             ring_major,
             1.0,
+            effect.support_margin,
         )
     };
 
@@ -177,6 +178,7 @@ pub fn probe_flame_wall(
                         taper,
                         effect.radial_sharpness,
                         wiggle_trim,
+                        effect.support_margin,
                     )
                 },
             );

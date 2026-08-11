@@ -8,5 +8,6 @@ description = "Pure texture profile analysis and curve fitting for ThylloreAnima
 repository = "https://github.com/kodai731/Thyllore-Animation"
 
 [dependencies]
+serde = { version = "1", features = ["derive"] }
 thyllore-math-core = { path = "../thyllore-math-core" }
 thyllore-color-core = { path = "../thyllore-color-core" }

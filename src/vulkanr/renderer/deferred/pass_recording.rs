@@ -710,6 +710,7 @@ pub unsafe fn record_flame_passes(
         let support_scale = thyllore_effect_core::flame_shell_support_scale(
             ubo.emitter_params[0] as u32,
             ubo.emitter_params[1],
+            ubo.support_margin[0],
         );
         let Some(scissor) = compute_flame_scissor(
             app,
@@ -717,6 +718,7 @@ pub unsafe fn record_flame_passes(
             &model_matrix,
             bend_offset,
             support_scale,
+            ubo.support_margin[0],
         ) else {
             continue;
         };
@@ -751,13 +753,13 @@ pub unsafe fn record_flame_passes(
 
     Ok(())
 }
-
 fn compute_flame_scissor(
     app: &App,
     extent: vk::Extent2D,
     model: &cgmath::Matrix4<f32>,
     bend_offset: [f32; 2],
     support_scale: f32,
+    support_margin: f32,
 ) -> Option<vk::Rect2D> {
     use crate::ecs::resource::ProjectionData;
     const SCISSOR_MARGIN_PX: f32 = 2.0;
@@ -771,7 +773,8 @@ fn compute_flame_scissor(
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    let bounds = thyllore_effect_core::flame_local_bounds(bend_offset, support_scale);
+    let bounds =
+        thyllore_effect_core::flame_local_bounds(bend_offset, support_scale, support_margin);
     for corner in thyllore_effect_core::flame_local_bounds_corners(&bounds) {
         let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
         if clip.w <= 0.0 {
