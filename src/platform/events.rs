@@ -876,7 +876,7 @@ unsafe fn render_frame(
                 // --batch-debug-action dump_wall_probe, dump synchronously
                 // at the same frame/time as the screenshot.
                 if dump_wall_probe {
-                    crate::ecs::systems::flame_dump_systems::perform_flame_wall_probe_dump(
+                    crate::ecs::systems::perform_flame_wall_probe_dump(
                         &app.data.ecs_world,
                         [1680.0, 840.0],
                     );

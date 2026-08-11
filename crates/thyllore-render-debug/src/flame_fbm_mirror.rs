@@ -4,21 +4,25 @@
 //! pin the statistics the wave basis is calibrated against
 //! (WAVE_NOISE_MEAN = 0.4375, WAVE_NOISE_STD = 0.106).
 
+fn glsl_fract(x: f32) -> f32 {
+    x - x.floor()
+}
+
 pub fn hash_cell(cell: [f32; 3]) -> f32 {
     let mut p = [
-        (cell[0] * 0.318_309_9 + 0.1).fract(),
-        (cell[1] * 0.318_309_9 + 0.2).fract(),
-        (cell[2] * 0.318_309_9 + 0.3).fract(),
+        glsl_fract(cell[0] * 0.318_309_9 + 0.1),
+        glsl_fract(cell[1] * 0.318_309_9 + 0.2),
+        glsl_fract(cell[2] * 0.318_309_9 + 0.3),
     ];
     for value in &mut p {
         *value *= 17.0;
     }
-    (p[0] * p[1] * p[2] * (p[0] + p[1] + p[2])).fract()
+    glsl_fract(p[0] * p[1] * p[2] * (p[0] + p[1] + p[2]))
 }
 
 pub fn value_noise3(p: [f32; 3]) -> f32 {
     let cell = [p[0].floor(), p[1].floor(), p[2].floor()];
-    let f = [p[0].fract(), p[1].fract(), p[2].fract()];
+    let f = [glsl_fract(p[0]), glsl_fract(p[1]), glsl_fract(p[2])];
     let u = [
         f[0] * f[0] * (3.0 - 2.0 * f[0]),
         f[1] * f[1] * (3.0 - 2.0 * f[1]),

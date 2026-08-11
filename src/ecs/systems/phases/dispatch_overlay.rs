@@ -149,10 +149,7 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 }
             }
             UIEvent::DumpFlameWallProbe { viewport_size } => {
-                crate::ecs::systems::flame_dump_systems::perform_flame_wall_probe_dump(
-                    world,
-                    *viewport_size,
-                );
+                crate::ecs::systems::perform_flame_wall_probe_dump(world, *viewport_size);
             }
             UIEvent::UpdateFlameRenderSettings(new_settings) => {
                 if let Some(mut settings) = world.get_resource_mut::<FlameRenderSettings>() {

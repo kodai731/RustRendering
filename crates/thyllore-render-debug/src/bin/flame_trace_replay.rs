@@ -9,7 +9,7 @@
 use std::fs;
 use std::process;
 
-use thyllore_effect_core::{build_flame_ubo, WallProbeView};
+use thyllore_effect_core::WallProbeView;
 
 use thyllore_render_debug::dump_effect::flame_from_dump;
 use thyllore_render_debug::flame_field_trace::trace_flame_field;
@@ -106,8 +106,7 @@ fn main() {
         process::exit(1);
     }
 
-    let ubo = build_flame_ubo(&effect, &baked, &temporal);
-    let trace = trace_flame_field(&ubo, &view);
+    let trace = trace_flame_field(&effect, &baked, &temporal, &view);
 
     let text = serde_json::to_string(&trace).unwrap();
     fs::write(&args.out, &text).unwrap_or_else(|e| {

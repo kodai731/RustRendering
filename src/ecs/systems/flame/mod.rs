@@ -5,6 +5,7 @@ mod spawn;
 mod temporal;
 mod texture_fit;
 mod time;
+mod trace;
 mod trail;
 
 pub use attach::*;
@@ -14,6 +15,7 @@ pub use spawn::*;
 pub use temporal::*;
 pub use texture_fit::*;
 pub use time::*;
+pub use trace::*;
 pub use trail::*;
 
 #[cfg(test)]

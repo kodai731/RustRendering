@@ -338,6 +338,7 @@ pub fn build_wall_probe_dump_record(
     flames: &[(
         FlameEffect,
         FlameBaked,
+        FlameTemporalAccum,
         thyllore_effect_core::WallProbeReport,
     )],
     unix_time: u64,
@@ -352,8 +353,8 @@ pub fn build_wall_probe_dump_record(
             "reference_step_count": settings.reference_step_count,
             "noise_step_count": settings.noise_step_count
         },
-        "flames": flames.iter().map(|(effect, baked, report)| {
-            let mut entry = build_effect_json(effect, baked, &FlameTemporalAccum::default())
+        "flames": flames.iter().map(|(effect, baked, temporal, report)| {
+            let mut entry = build_effect_json(effect, baked, temporal)
                 .as_object()
                 .unwrap()
                 .clone();
@@ -374,6 +375,7 @@ pub fn write_flame_wall_probe_dump(
     flames: &[(
         FlameEffect,
         FlameBaked,
+        FlameTemporalAccum,
         thyllore_effect_core::WallProbeReport,
     )],
 ) -> std::io::Result<std::path::PathBuf> {
@@ -390,61 +392,6 @@ pub fn write_flame_wall_probe_dump(
     Ok(path)
 }
 
-/// Build and write the wall-probe dump from the world's camera + flame entities.
-/// This is the shared implementation used by both the interactive mode (UIEvent)
-/// and the batch run path (synchronous call after render).
-pub fn perform_flame_wall_probe_dump(world: &World, viewport_size: [f32; 2]) {
-    use crate::ecs::systems::camera_systems::{
-        compute_camera_direction, compute_camera_position, compute_camera_right, compute_camera_up,
-    };
-
-    let camera = (*world.resource::<Camera>()).clone();
-    let settings = world
-        .get_resource::<FlameRenderSettings>()
-        .map(|s| *s)
-        .unwrap_or_default();
-    let view = WallProbeView {
-        position: compute_camera_position(&camera).into(),
-        forward: compute_camera_direction(&camera).into(),
-        right: compute_camera_right(&camera).into(),
-        up: compute_camera_up(&camera).into(),
-        fov_y_radians: camera.fov_y.0.to_radians(),
-        viewport_size_px: viewport_size,
-    };
-
-    let flames: Vec<_> = world
-        .query_flames()
-        .into_iter()
-        .filter_map(|entity| {
-            let effect = world.get_component::<FlameEffect>(entity)?;
-            let baked = world
-                .get_component::<FlameBaked>(entity)
-                .cloned()
-                .unwrap_or_default();
-            let report = probe_flame_wall(&effect, &baked, &view);
-            Some((effect.clone(), baked, report))
-        })
-        .collect();
-    if flames.is_empty() {
-        log_warn!("wall probe dump skipped: no flame entity");
-        return;
-    }
-
-    match write_flame_wall_probe_dump(&camera, &settings, viewport_size, &flames) {
-        Ok(path) => log!("wall probe dumped to {}", path.display()),
-        Err(error) => log_warn!("wall probe dump failed: {}", error),
-    }
-
-    match write_flame_field_traces(&view, &flames) {
-        Ok(paths) => {
-            for path in paths {
-                log!("flame field trace dumped to {}", path.display());
-            }
-        }
-        Err(error) => log_warn!("flame field trace dump failed: {}", error),
-    }
-}
-
 /// Full numerical replay of the analytic flame path (every node / segment
 /// intermediate, from the packed FlameUBO the GPU receives) — one JSON per
 /// flame, next to the wall probe dump. Grid density via
@@ -454,6 +401,7 @@ pub fn write_flame_field_traces(
     flames: &[(
         FlameEffect,
         FlameBaked,
+        FlameTemporalAccum,
         thyllore_effect_core::WallProbeReport,
     )],
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
@@ -464,10 +412,10 @@ pub fn write_flame_field_traces(
     let directory = std::path::Path::new("log/flame");
     std::fs::create_dir_all(directory)?;
     let mut paths = Vec::new();
-    for (index, (effect, baked, _)) in flames.iter().enumerate() {
-        let ubo =
-            thyllore_effect_core::build_flame_ubo(effect, baked, &FlameTemporalAccum::default());
-        let trace = thyllore_render_debug::flame_field_trace::trace_flame_field(&ubo, view);
+    for (index, (effect, baked, temporal, _)) in flames.iter().enumerate() {
+        let trace = thyllore_render_debug::flame_field_trace::trace_flame_field(
+            effect, baked, temporal, view,
+        );
         let name = if flames.len() > 1 {
             format!("flame_trace_{}_{}.json", unix_time, index)
         } else {
@@ -638,7 +586,7 @@ mod tests {
             &camera,
             &settings,
             [1680.0, 840.0],
-            &[(effect, Default::default(), report)],
+            &[(effect, Default::default(), Default::default(), report)],
             123,
         );
 

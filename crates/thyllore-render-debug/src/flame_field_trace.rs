@@ -11,11 +11,14 @@
 //!   * proxy-raster ray interval — approximated by slab [0,1] + outer cylinder
 //!   * mode 3 IGN jitter and the SDF billboard emitter (texture-bound)
 
+use crate::flame_fbm_mirror::fbm3;
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
 use serde_json::{json, Value};
 use thyllore_effect_core::flame_wave::{WAVE_JITTER_K, WAVE_JITTER_PHASE, WAVE_JITTER_RANK};
-use thyllore_effect_core::FlameUBO;
 use thyllore_effect_core::WallProbeView;
+use thyllore_effect_core::{
+    build_flame_ubo, FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO,
+};
 use thyllore_math_core::{integrate_erf_response_linear, smooth_erf_response, ErfResponseModel};
 
 const SEGMENTS: usize = 64;
@@ -153,50 +156,6 @@ fn cheb12(c0: [f32; 4], c1: [f32; 4], c2: [f32; 4], x01: f32) -> f32 {
     let b2 = t * b3 - b4 + c0[2];
     let b1 = t * b2 - b3 + c0[1];
     u * b1 - b2 + c0[0]
-}
-
-fn hash_cell(cell: [f32; 3]) -> f32 {
-    let mut p = [
-        glsl_fract(cell[0] * 0.3183099 + 0.1),
-        glsl_fract(cell[1] * 0.3183099 + 0.2),
-        glsl_fract(cell[2] * 0.3183099 + 0.3),
-    ];
-    for v in &mut p {
-        *v *= 17.0;
-    }
-    glsl_fract(p[0] * p[1] * p[2] * (p[0] + p[1] + p[2]))
-}
-
-fn value_noise3(p: [f32; 3]) -> f32 {
-    let cell = [p[0].floor(), p[1].floor(), p[2].floor()];
-    let f = [glsl_fract(p[0]), glsl_fract(p[1]), glsl_fract(p[2])];
-    let u = [
-        f[0] * f[0] * (3.0 - 2.0 * f[0]),
-        f[1] * f[1] * (3.0 - 2.0 * f[1]),
-        f[2] * f[2] * (3.0 - 2.0 * f[2]),
-    ];
-    let h = |dx: f32, dy: f32, dz: f32| hash_cell([cell[0] + dx, cell[1] + dy, cell[2] + dz]);
-    let nx00 = mixf(h(0.0, 0.0, 0.0), h(1.0, 0.0, 0.0), u[0]);
-    let nx10 = mixf(h(0.0, 1.0, 0.0), h(1.0, 1.0, 0.0), u[0]);
-    let nx01 = mixf(h(0.0, 0.0, 1.0), h(1.0, 0.0, 1.0), u[0]);
-    let nx11 = mixf(h(0.0, 1.0, 1.0), h(1.0, 1.0, 1.0), u[0]);
-    let nxy0 = mixf(nx00, nx10, u[1]);
-    let nxy1 = mixf(nx01, nx11, u[1]);
-    mixf(nxy0, nxy1, u[2])
-}
-
-fn fbm3(p: [f32; 3]) -> f32 {
-    let mut sum = 0.0f32;
-    let mut amplitude = 0.5f32;
-    let mut q = p;
-    for _ in 0..3 {
-        sum += amplitude * value_noise3(q);
-        for axis in 0..3 {
-            q[axis] = q[axis] * 2.02 + 13.7;
-        }
-        amplitude *= 0.5;
-    }
-    sum
 }
 
 struct UboCtx<'a> {
@@ -1340,9 +1299,21 @@ fn vec_json(values: &[f32]) -> Value {
 }
 
 /// Trace every intermediate of the analytic flame path for a grid of view
-/// rays. `mode_trace_ray` (col, row) selects one ray that additionally records
+/// rays, taking the flame's ECS components as the unit of input. The UBO the
+/// shader sees is derived through the same builder the renderer uses.
+pub fn trace_flame_field(
+    effect: &FlameEffect,
+    baked: &FlameBaked,
+    temporal: &FlameTemporalAccum,
+    view: &WallProbeView,
+) -> Value {
+    trace_flame_field_ubo(&build_flame_ubo(effect, baked, temporal), view)
+}
+
+/// UBO-level entry for replay tooling that reconstructs a dumped UBO directly.
+/// `mode_trace_ray` (col, row) selects one ray that additionally records
 /// the per-mode carrier values and low-pass weights at every node.
-pub fn trace_flame_field(ubo: &FlameUBO, view: &WallProbeView) -> Value {
+pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
     let cols = env_usize("THYLLORE_FLAME_TRACE_COLS", 13);
     let rows = env_usize("THYLLORE_FLAME_TRACE_ROWS", 49);
     let segments = env_usize("THYLLORE_FLAME_TRACE_SEGMENTS", SEGMENTS);
@@ -1976,11 +1947,6 @@ mod tests {
         std::env::set_var("THYLLORE_FLAME_TRACE_COLS", "5");
         std::env::set_var("THYLLORE_FLAME_TRACE_ROWS", "5");
         let effect = FlameEffect::default();
-        let ubo = thyllore_effect_core::build_flame_ubo(
-            &effect,
-            &Default::default(),
-            &Default::default(),
-        );
         let view = WallProbeView {
             position: [0.0, 0.5, 3.0],
             forward: [0.0, 0.0, -1.0],
@@ -1989,7 +1955,7 @@ mod tests {
             fov_y_radians: 45f32.to_radians(),
             viewport_size_px: [1280.0, 720.0],
         };
-        let trace = trace_flame_field(&ubo, &view);
+        let trace = trace_flame_field(&effect, &Default::default(), &Default::default(), &view);
         let rays = trace["rays"].as_array().unwrap();
         assert_eq!(rays.len(), 25);
         let any_emission = rays.iter().any(|r| {
