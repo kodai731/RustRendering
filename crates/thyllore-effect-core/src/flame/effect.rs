@@ -15,6 +15,10 @@ pub struct FlameEffect {
     pub temperature_tip_k: f32,
     pub use_blackbody: bool,
     pub noise_amplitude: f32,
+    /// Relative contrast of the noise carving: scales the edge smoothstep
+    /// window half-width as hw0 / noise_contrast around a fixed center.
+    /// 1.0 keeps the authored edge_low/edge_high window untouched.
+    pub noise_contrast: f32,
     pub noise_frequency: f32,
     pub noise_scroll_speed: f32,
     pub time: f32,
@@ -89,6 +93,7 @@ impl Default for FlameEffect {
             temperature_tip_k: 1500.0,
             use_blackbody: true,
             noise_amplitude: 1.5,
+            noise_contrast: 1.0,
             noise_frequency: 6.0,
             noise_scroll_speed: 1.0,
             time: 0.0,

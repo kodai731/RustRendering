@@ -300,6 +300,8 @@ pub struct FlameEffectData {
     pub temperature_tip_k: f32,
     pub use_blackbody: bool,
     pub noise_amplitude: f32,
+    #[serde(default = "default_noise_contrast")]
+    pub noise_contrast: f32,
     pub noise_frequency: f32,
     pub noise_scroll_speed: f32,
     pub time_scale: f32,
@@ -361,6 +363,9 @@ fn default_sigma_dispersion() -> f32 {
     1.0
 }
 
+fn default_noise_contrast() -> f32 {
+    1.0
+}
 fn default_envelope_peak() -> f32 {
     0.35
 }
@@ -471,6 +476,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             temperature_tip_k: effect.temperature_tip_k,
             use_blackbody: effect.use_blackbody,
             noise_amplitude: effect.noise_amplitude,
+            noise_contrast: effect.noise_contrast,
             noise_frequency: effect.noise_frequency,
             noise_scroll_speed: effect.noise_scroll_speed,
             time_scale: effect.time_scale,
@@ -587,6 +593,7 @@ pub fn apply_flame_state_to_world(
         effect.temperature_tip_k = flame.effect.temperature_tip_k;
         effect.use_blackbody = flame.effect.use_blackbody;
         effect.noise_amplitude = flame.effect.noise_amplitude;
+        effect.noise_contrast = flame.effect.noise_contrast;
         effect.noise_frequency = flame.effect.noise_frequency;
         effect.noise_scroll_speed = flame.effect.noise_scroll_speed;
         effect.time_scale = flame.effect.time_scale;
@@ -768,6 +775,7 @@ mod tests {
                 temperature_tip_k: 1500.0,
                 use_blackbody: true,
                 noise_amplitude: 0.1,
+                noise_contrast: 1.0,
                 noise_frequency: 1.0,
                 noise_scroll_speed: 0.0,
                 time_scale: 1.0,
@@ -911,6 +919,7 @@ mod tests {
                 temperature_tip_k: 1500.0,
                 use_blackbody: true,
                 noise_amplitude: 0.1,
+                noise_contrast: 1.0,
                 noise_frequency: 1.0,
                 noise_scroll_speed: 0.0,
                 time_scale: 1.0,

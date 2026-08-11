@@ -78,13 +78,27 @@ type WaveUboFields = (
     [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 );
 
+/// Contrast-scaled base edge window: center is fixed, half-width divides by
+/// noise_contrast (higher contrast = narrower window = harder carving).
+/// Exactly 1.0 returns the authored edge_low/edge_high bytes untouched.
+pub fn contrast_scaled_edges(effect: &FlameEffect) -> (f32, f32) {
+    let contrast = effect.noise_contrast.clamp(0.25, 4.0);
+    if contrast == 1.0 {
+        return (effect.edge_low, effect.edge_high);
+    }
+    let c = 0.5 * (effect.edge_low + effect.edge_high);
+    let hw = 0.5 * (effect.edge_high - effect.edge_low) / contrast;
+    (c - hw, c + hw)
+}
+
 /// Compute the effective edge window (low, high) from noise amplitude.
 /// Center c = 0.5*(edge_low + edge_high) is fixed; half-width scales with
 /// |noise_amplitude| / NOISE_AMPLITUDE_REF raised to EDGE_WIDTH_GAMMA, clamped
-/// to [0.25*hw0, 4.0*hw0] where hw0 = original half-width.
+/// to [0.25*hw0, 4.0*hw0] where hw0 = contrast-scaled half-width.
 pub fn effective_edge_window(effect: &FlameEffect) -> (f32, f32) {
-    let c = 0.5 * (effect.edge_low + effect.edge_high);
-    let hw0 = 0.5 * (effect.edge_high - effect.edge_low);
+    let (edge_lo, edge_hi) = contrast_scaled_edges(effect);
+    let c = 0.5 * (edge_lo + edge_hi);
+    let hw0 = 0.5 * (edge_hi - edge_lo);
     let hw = hw0 * (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(EDGE_WIDTH_GAMMA);
     let hw = hw.max(0.25 * hw0).min(4.0 * hw0);
     (c - hw, c + hw)
@@ -474,12 +488,15 @@ pub fn build_flame_ubo(
             effect.rise_speed,
             effect.taper_power,
         ],
-        style_params1: [
-            effect.radius_tip_ratio,
-            effect.edge_low,
-            effect.edge_high,
-            effect.white_boost,
-        ],
+        style_params1: {
+            let (edge_lo, edge_hi) = contrast_scaled_edges(effect);
+            [
+                effect.radius_tip_ratio,
+                edge_lo,
+                edge_hi,
+                effect.white_boost,
+            ]
+        },
         style_params2: [
             effect.wind_direction.x,
             effect.wind_direction.y,
@@ -860,12 +877,15 @@ pub fn build_flame_ubo_with_trail(
             effect.rise_speed,
             effect.taper_power,
         ],
-        style_params1: [
-            effect.radius_tip_ratio,
-            effect.edge_low,
-            effect.edge_high,
-            effect.white_boost,
-        ],
+        style_params1: {
+            let (edge_lo, edge_hi) = contrast_scaled_edges(effect);
+            [
+                effect.radius_tip_ratio,
+                edge_lo,
+                edge_hi,
+                effect.white_boost,
+            ]
+        },
         style_params2: [
             effect.wind_direction.x,
             effect.wind_direction.y,

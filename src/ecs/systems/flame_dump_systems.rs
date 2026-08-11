@@ -28,6 +28,7 @@ pub fn build_effect_json(
         "temperature_tip_k": effect.temperature_tip_k,
         "use_blackbody": effect.use_blackbody,
         "noise_amplitude": effect.noise_amplitude,
+        "noise_contrast": effect.noise_contrast,
         "noise_frequency": effect.noise_frequency,
         "noise_scroll_speed": effect.noise_scroll_speed,
        "noise_aniso_y": effect.noise_aniso_y,

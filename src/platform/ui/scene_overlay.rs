@@ -763,45 +763,12 @@ fn build_flame_section(
                         });
                     }
 
-                    ui.slider_config("Sigma T", 0.01, 10.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.sigma_t);
-                    ui.same_line();
-                    if ui.small_button("K##SigmaT") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::SigmaT.property_type(),
-                            value: effect_copy.sigma_t,
-                        });
+                    let mut color_changed = false;
+                    color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color_base);
+                    color_changed |= ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
+                    if color_changed {
+                        effect_copy.use_blackbody = false;
                     }
-
-                    ui.checkbox("Use Blackbody", &mut effect_copy.use_blackbody);
-
-                    let mut temp_base = effect_copy.temperature_base_k as i32;
-                    ui.slider_config("Base Temp (K)", 800, 3000)
-                        .build(&mut temp_base);
-                    effect_copy.temperature_base_k = temp_base as f32;
-                    ui.same_line();
-                    if ui.small_button("K##BaseTemp") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::TemperatureBaseK.property_type(),
-                            value: effect_copy.temperature_base_k,
-                        });
-                    }
-
-                    let mut temp_tip = effect_copy.temperature_tip_k as i32;
-                    ui.slider_config("Tip Temp (K)", 800, 3000)
-                        .build(&mut temp_tip);
-                    effect_copy.temperature_tip_k = temp_tip as f32;
-                    ui.same_line();
-                    if ui.small_button("K##TipTemp") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::TemperatureTipK.property_type(),
-                            value: effect_copy.temperature_tip_k,
-                        });
-                    }
-
-                    ui.color_edit3("Base Color", &mut effect_copy.color_base);
-                    ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
 
                     ui.slider_config("Noise Amplitude", 0.0, 3.0)
                         .build(&mut effect_copy.noise_amplitude);
@@ -813,160 +780,12 @@ fn build_flame_section(
                         });
                     }
 
-                    ui.slider_config("Noise Frequency", 0.5, 32.0)
-                        .build(&mut effect_copy.noise_frequency);
-
-                    ui.slider_config("Tip Carve Depth", 0.0, 4.0)
-                        .build(&mut effect_copy.tip_carve_depth);
-
-                    ui.slider_config("Tip Carve Reach", 0.02, 1.0)
-                        .build(&mut effect_copy.tip_carve_reach);
-
-                    ui.slider_config("Noise Scroll Speed", 0.0, 10.0)
-                        .build(&mut effect_copy.noise_scroll_speed);
-
-                    ui.slider_config("Self Shadow", 0.0, 1.0)
-                        .build(&mut effect_copy.self_shadow_strength);
-
-                    ui.slider_config("Occlusion Lum", 0.05, 4.0)
-                        .build(&mut effect_copy.occlusion_lum_ref);
-
-                    ui.slider_config("Contour Wiggle", 0.0, 1.0)
-                        .build(&mut effect_copy.contour_wiggle_amp);
-
-                    ui.slider_config("Boundary Break", 0.0, 0.8)
-                        .build(&mut effect_copy.boundary_amp);
-
-                    ui.slider_config("Near Fade", 0.0, 1.5)
-                        .build(&mut effect_copy.near_fade_radius);
-
-                    ui.slider_config("Boundary Scale", 0.25, 4.0)
-                        .build(&mut effect_copy.boundary_freq);
-
-                    ui.slider_config("Warp Amp", 0.0, 3.0)
-                        .build(&mut effect_copy.warp_amp);
-                    ui.same_line();
-                    if ui.small_button("K##WarpAmp") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::WarpAmp.property_type(),
-                            value: effect_copy.warp_amp,
-                        });
-                    }
-
-                    ui.slider_config("Warp Reach", 0.02, 1.0)
-                        .build(&mut effect_copy.warp_reach);
-
-                    ui.slider_config("Warp Freq", 0.5, 16.0)
-                        .build(&mut effect_copy.warp_freq);
-                    ui.same_line();
-                    if ui.small_button("K##WarpFreq") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::WarpFreq.property_type(),
-                            value: effect_copy.warp_freq,
-                        });
-                    }
-
-                    ui.slider_config("Rise Speed", 0.0, 5.0)
-                        .build(&mut effect_copy.rise_speed);
-                    ui.same_line();
-                    if ui.small_button("K##RiseSpeed") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::RiseSpeed.property_type(),
-                            value: effect_copy.rise_speed,
-                        });
-                    }
-
-                    ui.slider_config("Taper Power", 0.3, 3.0)
-                        .build(&mut effect_copy.taper_power);
-
-                    ui.slider_config("Tip Radius", 0.05, 1.0)
+                    ui.slider_config("Noise Contrast", 0.25, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.radius_tip_ratio);
-
-                    ui.slider_config("Edge Low", 0.0, 1.0)
-                        .build(&mut effect_copy.edge_low);
-                    ui.same_line();
-                    if ui.small_button("K##EdgeLow") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::EdgeLow.property_type(),
-                            value: effect_copy.edge_low,
-                        });
-                    }
-
-                    ui.slider_config("Edge High", 0.0, 1.0)
-                        .build(&mut effect_copy.edge_high);
-                    ui.same_line();
-                    if ui.small_button("K##EdgeHigh") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::EdgeHigh.property_type(),
-                            value: effect_copy.edge_high,
-                        });
-                    }
-
-                    ui.slider_config("White Boost", 0.0, 8.0)
-                        .build(&mut effect_copy.white_boost);
-                    ui.same_line();
-                    if ui.small_button("K##WhiteBoost") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::WhiteBoost.property_type(),
-                            value: effect_copy.white_boost,
-                        });
-                    }
-
-                    ui.slider_config("Wind X", -1.0, 1.0)
-                        .build(&mut effect_copy.wind_direction.x);
-                    ui.same_line();
-                    if ui.small_button("K##WindX") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::WindX.property_type(),
-                            value: effect_copy.wind_direction.x,
-                        });
-                    }
-
-                    ui.slider_config("Wind Z", -1.0, 1.0)
-                        .build(&mut effect_copy.wind_direction.y);
-                    ui.same_line();
-                    if ui.small_button("K##WindZ") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::WindZ.property_type(),
-                            value: effect_copy.wind_direction.y,
-                        });
-                    }
-
-                    ui.slider_config("Bend Amount", 0.0, 2.0)
-                        .build(&mut effect_copy.bend_amount);
-                    ui.same_line();
-                    if ui.small_button("K##BendAmount") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::BendAmount.property_type(),
-                            value: effect_copy.bend_amount,
-                        });
-                    }
-
-                    ui.slider_config("Bend Power", 0.5, 4.0)
-                        .build(&mut effect_copy.bend_power);
+                        .build(&mut effect_copy.noise_contrast);
 
                     ui.slider_config("Time Scale", 0.0, 4.0)
                         .build(&mut effect_copy.time_scale);
-
-                    ui.slider_config("Time Offset", -10.0, 10.0)
-                        .build(&mut effect_copy.time_offset);
-
-                    ui.slider_config("Envelope Peak", 0.05, 0.8)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.envelope_peak);
-
-                    ui.slider_config("Envelope Base", 0.0, 0.95)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.envelope_base);
-
-                    ui.slider_config("Envelope Tail", 0.5, 4.0)
-                        .display_format("%.1f")
-                        .build(&mut effect_copy.envelope_tail);
-
-                    ui.slider_config("Radial Sharpness", 1.0, 12.0)
-                        .display_format("%.1f")
-                        .build(&mut effect_copy.radial_sharpness);
 
                     if ui.button("Clear Flame Keys") {
                         ui_events.send(UIEvent::ClearScalarKeys);

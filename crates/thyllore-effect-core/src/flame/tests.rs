@@ -422,3 +422,36 @@ fn test_effective_edge_window() {
     assert!((elo - 0.2925).abs() < 1e-6, "elo={}", elo);
     assert!((ehi - 0.3075).abs() < 1e-6, "ehi={}", ehi);
 }
+
+#[test]
+fn test_noise_contrast_scales_edge_window() {
+    // contrast = 1.0: authored window returned bit-identically
+    let mut effect = FlameEffect::default();
+    let (lo, hi) = contrast_scaled_edges(&effect);
+    assert_eq!(lo, effect.edge_low);
+    assert_eq!(hi, effect.edge_high);
+
+    // contrast = 2.0: half-width halves around fixed center 0.3
+    effect.noise_contrast = 2.0;
+    let (lo, hi) = contrast_scaled_edges(&effect);
+    assert!((lo - 0.285).abs() < 1e-6, "lo={}", lo);
+    assert!((hi - 0.315).abs() < 1e-6, "hi={}", hi);
+
+    // contrast = 0.5: half-width doubles (softer)
+    effect.noise_contrast = 0.5;
+    let (lo, hi) = contrast_scaled_edges(&effect);
+    assert!((lo - 0.24).abs() < 1e-6, "lo={}", lo);
+    assert!((hi - 0.36).abs() < 1e-6, "hi={}", hi);
+
+    // out-of-range contrast clamps to [0.25, 4.0]
+    effect.noise_contrast = 100.0;
+    let (lo, hi) = contrast_scaled_edges(&effect);
+    assert!((lo - (0.3 - 0.03 / 4.0)).abs() < 1e-6, "lo={}", lo);
+    assert!((hi - (0.3 + 0.03 / 4.0)).abs() < 1e-6, "hi={}", hi);
+
+    // effective window rides on top: amp at REF keeps the scaled window
+    effect.noise_contrast = 2.0;
+    let (elo, ehi) = effective_edge_window(&effect);
+    assert!((elo - 0.285).abs() < 1e-6, "elo={}", elo);
+    assert!((ehi - 0.315).abs() < 1e-6, "ehi={}", ehi);
+}
