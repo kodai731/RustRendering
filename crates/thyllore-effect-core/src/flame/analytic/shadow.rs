@@ -1,4 +1,4 @@
-use super::*;
+use crate::flame::*;
 use thyllore_math_core::evaluate_chebyshev;
 
 pub fn integrate_emission_segment(source: f32, sigma_t: f32, dt: f32) -> f32 {

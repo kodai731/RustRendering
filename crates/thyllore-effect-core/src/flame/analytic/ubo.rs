@@ -1,4 +1,4 @@
-use super::*;
+use crate::flame::*;
 use crate::flame_trail::{FlameTrailSample, FlameTrailState};
 use cgmath::{InnerSpace, Matrix3, Matrix4, Vector3, Vector4};
 use thyllore_color_core::blackbody_rgb;

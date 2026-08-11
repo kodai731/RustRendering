@@ -1,20 +1,23 @@
+pub mod analytic;
+pub mod bake;
 mod baked;
-mod coefficients;
 mod effect;
 mod env;
+pub mod plume;
+mod presets;
 mod settings;
-mod shadow;
 mod temporal;
-mod ubo;
+pub mod trail;
 
+pub use analytic::*;
+pub use bake::*;
 pub use baked::*;
-pub use coefficients::*;
 pub use effect::*;
 pub use env::*;
+pub use presets::*;
 pub use settings::*;
-pub use shadow::*;
 pub use temporal::*;
-pub use ubo::*;
+pub use trail::*;
 
 #[cfg(test)]
 mod tests;

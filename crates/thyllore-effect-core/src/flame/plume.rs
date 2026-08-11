@@ -1,4 +1,4 @@
-use crate::evaluate_gaussian_moments;
+use crate::flame::analytic::radial::evaluate_gaussian_moments;
 
 /// Refractivity of air at STP (dn/dT coefficient).
 pub const REFRACTIVITY_AIR: f32 = 2.77e-4;

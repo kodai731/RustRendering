@@ -1,4 +1,4 @@
-use super::*;
+use crate::flame::*;
 use thyllore_math_core::{
     fit_chebyshev, integrate_chebyshev, pack_coefficients_vec4, parametric_height_falloff,
 };
