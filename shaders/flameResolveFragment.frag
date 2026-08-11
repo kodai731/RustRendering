@@ -61,7 +61,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 warpStrainParams;
     vec4 warpFormParams;
     vec4 unifiedParams;
-    vec4 waveModes[420];
+    vec4 spreadParams;
+    vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;
 

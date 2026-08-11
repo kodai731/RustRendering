@@ -56,6 +56,12 @@ fn noise_aniso_compress(effect: &FlameEffect, v: [f32; 3]) -> [f32; 3] {
     [compressed.x, compressed.y, compressed.z]
 }
 
+/// spreadParams: x = medium spread gain alpha (motion_design L3); the reach
+/// shares tipCarveParams.y in the shader. yzw spare.
+fn build_medium_spread_params(effect: &FlameEffect) -> [f32; 4] {
+    [effect.spread_gain.max(0.0), 0.0, 0.0, 0.0]
+}
+
 /// waveCfParams: x = closed-form variant active, y = shear layer count.
 fn build_wave_cf_params() -> [f32; 4] {
     let cf_active = read_env_wave_cf();
@@ -216,6 +222,21 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
             ];
         }
     }
+    for (i, mode) in build_medium_swirl_modes(effect, &warp_modes)
+        .iter()
+        .enumerate()
+    {
+        let slot = crate::flame_wave::WAVE_MEDIUM_SWIRL_BASE + i;
+        packed[2 * slot] = [mode.k[0], mode.k[1], mode.k[2], mode.amplitude];
+        // The swirl displacement is horizontal (c.y = 0), so the free .z lane
+        // carries the phase-drift rate: [phase, c.x, drift_rate, c.z].
+        packed[2 * slot + 1] = [
+            mode.phase,
+            mode.curl_direction[0],
+            crate::flame_wave::medium_swirl_phase_rate(i, mode.k) * effect.swirl_speed.max(0.0),
+            mode.curl_direction[2],
+        ];
+    }
     let tanh_scale = read_env_wave_tanh();
     let (inverse_scale, mut amplitude) = if tanh_scale <= 0.0 {
         (0.0, 1.0)
@@ -349,31 +370,61 @@ fn build_color_ramp(effect: &FlameEffect, baked_state: &FlameBaked) -> [[f32; 4]
     ramp
 }
 
-/// [s_base, s_tip, 1/mu_w, 1/K] for the asymptotic warp-strain profile. K is
-/// taken over the shear table the warp actually evaluates (cf layers when the
-/// closed-form variant is active, the 16 warp modes otherwise), with the norm
-/// matching the evaluation form: max a|k| for the sequential composition
+/// Form-matched strain norm: max a|k| for the sequential composition
 /// (per-shear bound), RMS for the displacement sum (gradient-sum bound).
-pub fn build_warp_strain_params(effect: &FlameEffect) -> [f32; 4] {
-    let warp_modes = crate::flame_wave::generate_wave_warp_modes();
-    let norm_of = |modes: &[crate::flame_wave::WaveWarpMode]| {
-        if read_env_warp_form_displacement() {
-            crate::flame_wave::warp_strain_norm_rms(modes)
-        } else {
-            crate::flame_wave::warp_strain_norm(modes)
-        }
-    };
-    let strain_norm = if read_env_wave_cf() {
-        let layers = crate::flame_wave::generate_wave_cf_shear_layers(
-            &warp_modes,
+fn shear_strain_norm(modes: &[crate::flame_wave::WaveWarpMode]) -> f32 {
+    if read_env_warp_form_displacement() {
+        crate::flame_wave::warp_strain_norm_rms(modes)
+    } else {
+        crate::flame_wave::warp_strain_norm(modes)
+    }
+}
+
+/// The shear table the warp map actually evaluates: cf layers when the
+/// closed-form variant is active, the 16 warp modes otherwise.
+fn active_shear_table(
+    warp_modes: &[crate::flame_wave::WaveWarpMode],
+) -> Vec<crate::flame_wave::WaveWarpMode> {
+    if read_env_wave_cf() {
+        crate::flame_wave::generate_wave_cf_shear_layers(
+            warp_modes,
             read_env_wave_cf_layers(),
             read_env_wave_cf_shear(),
-        );
-        norm_of(&layers)
+        )
+        .to_vec()
     } else {
-        norm_of(&warp_modes)
-    };
-    crate::flame_wave::warp_strain_params(effect.warp_amp, effect.warp_reach, strain_norm)
+        warp_modes.to_vec()
+    }
+}
+
+/// Medium swirl modes with amplitudes expressing swirl_gain as a share of the
+/// active shear table's strain norm (motion_design L2). Public so the debug
+/// harnesses replay the exact packed table.
+pub fn build_medium_swirl_modes(
+    effect: &FlameEffect,
+    warp_modes: &[crate::flame_wave::WaveWarpMode],
+) -> [crate::flame_wave::WaveWarpMode; crate::flame_wave::WAVE_MEDIUM_SWIRL_MODE_COUNT] {
+    let base_norm = shear_strain_norm(&active_shear_table(warp_modes));
+    crate::flame_wave::generate_medium_swirl_modes(
+        read_env_swirl_gain(effect.swirl_gain),
+        base_norm,
+    )
+}
+
+/// [s_base, s_tip, 1/mu_w, 1/K] for the asymptotic warp-strain profile. K is
+/// taken over the combined table the warp map evaluates — the active shear
+/// table plus the medium swirl modes — so the swirl joins the fixed strain
+/// budget: raising swirl_gain thins the carve warp instead of exceeding the
+/// cap.
+pub fn build_warp_strain_params(effect: &FlameEffect) -> [f32; 4] {
+    let warp_modes = crate::flame_wave::generate_wave_warp_modes();
+    let mut table = active_shear_table(&warp_modes);
+    table.extend_from_slice(&build_medium_swirl_modes(effect, &warp_modes));
+    crate::flame_wave::warp_strain_params(
+        effect.warp_amp,
+        effect.warp_reach,
+        shear_strain_norm(&table),
+    )
 }
 
 /// x = 1 for the displacement form, 0 for the sequential composition; yzw spare.
@@ -550,6 +601,7 @@ pub fn build_flame_ubo(
         warp_strain_params: build_warp_strain_params(effect),
         warp_form_params: build_warp_form_params(),
         unified_params: build_unified_field_params(effect),
+        spread_params: build_medium_spread_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -939,6 +991,7 @@ pub fn build_flame_ubo_with_trail(
         warp_strain_params: build_warp_strain_params(effect),
         warp_form_params: build_warp_form_params(),
         unified_params: build_unified_field_params(effect),
+        spread_params: build_medium_spread_params(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -985,6 +1038,7 @@ pub struct FlameUBO {
     pub warp_strain_params: [f32; 4],
     pub warp_form_params: [f32; 4],
     pub unified_params: [f32; 4],
+    pub spread_params: [f32; 4],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }

@@ -82,6 +82,9 @@ pub fn build_effect_json(
     value["tip_carve_depth"] = json!(effect.tip_carve_depth);
     value["tip_carve_reach"] = json!(effect.tip_carve_reach);
     value["warp_reach"] = json!(effect.warp_reach);
+    value["swirl_gain"] = json!(effect.swirl_gain);
+    value["swirl_speed"] = json!(effect.swirl_speed);
+    value["spread_gain"] = json!(effect.spread_gain);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!(strain);
     value["warp_strain_cap"] = json!(thyllore_effect_core::flame_wave::WARP_STRAIN_CAP);

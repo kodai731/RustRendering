@@ -344,6 +344,16 @@ pub struct FlameEffectData {
     pub tip_carve_reach: f32,
     #[serde(default = "default_warp_reach")]
     pub warp_reach: f32,
+    #[serde(default)]
+    pub swirl_gain: f32,
+    #[serde(default = "default_swirl_speed")]
+    pub swirl_speed: f32,
+    #[serde(default)]
+    pub spread_gain: f32,
+}
+
+fn default_swirl_speed() -> f32 {
+    1.0
 }
 
 fn default_tip_carve_depth() -> f32 {
@@ -505,6 +515,9 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             tip_carve_depth: effect.tip_carve_depth,
             tip_carve_reach: effect.tip_carve_reach,
             warp_reach: effect.warp_reach,
+            swirl_gain: effect.swirl_gain,
+            swirl_speed: effect.swirl_speed,
+            spread_gain: effect.spread_gain,
             edge_temperature_blend: effect.edge_temperature_blend,
         },
         channels,
@@ -624,6 +637,9 @@ pub fn apply_flame_state_to_world(
         effect.tip_carve_depth = flame.effect.tip_carve_depth;
         effect.tip_carve_reach = flame.effect.tip_carve_reach;
         effect.warp_reach = flame.effect.warp_reach;
+        effect.swirl_gain = flame.effect.swirl_gain;
+        effect.swirl_speed = flame.effect.swirl_speed;
+        effect.spread_gain = flame.effect.spread_gain;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
@@ -805,6 +821,9 @@ mod tests {
                 tip_carve_depth: 1.0,
                 tip_carve_reach: 0.2,
                 warp_reach: default_warp_reach(),
+                swirl_gain: 0.0,
+                swirl_speed: 1.0,
+                spread_gain: 0.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
@@ -949,6 +968,9 @@ mod tests {
                 tip_carve_depth: 1.0,
                 tip_carve_reach: 0.2,
                 warp_reach: default_warp_reach(),
+                swirl_gain: 0.0,
+                swirl_speed: 1.0,
+                spread_gain: 0.0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),

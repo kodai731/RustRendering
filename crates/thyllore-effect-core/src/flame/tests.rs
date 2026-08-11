@@ -171,7 +171,7 @@ fn test_flame_ubo_layout_is_std140_compatible() {
     // trail_coefficients is [[f32; 4]; 4] (64 bytes) instead of [f32; 4] (16 bytes)
     assert_eq!(
         std::mem::size_of::<FlameUBO>(),
-        784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 6720 + 1536 - 240 + 48
+        784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240 + 48
     );
     assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
 }

@@ -784,6 +784,36 @@ fn build_flame_section(
                         .display_format("%.2f")
                         .build(&mut effect_copy.noise_contrast);
 
+                    ui.slider_config("Swirl", 0.0, 1.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.swirl_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Medium swirl share: strain budget spent on azimuthal shear \
+                             (0 = off; raising it thins the carve warp)",
+                        );
+                    }
+
+                    ui.slider_config("Swirl Speed", 0.0, 4.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.swirl_speed);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "How fast the swirl layers counter-rotate against the rise \
+                             (time-only: costs no strain budget)",
+                        );
+                    }
+
+                    ui.slider_config("Spread", 0.0, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.spread_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Medium spread toward the tip: noise features enlarge, drift \
+                             outward and dissolve as they rise (0 = rigid scroll)",
+                        );
+                    }
+
                     ui.slider_config("Time Scale", 0.0, 4.0)
                         .build(&mut effect_copy.time_scale);
 

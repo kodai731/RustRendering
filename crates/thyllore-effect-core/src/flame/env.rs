@@ -93,6 +93,20 @@ pub fn read_env_warp_form_displacement() -> bool {
     })
 }
 
+static SWIRL_GAIN_ENV: OnceLock<Option<f32>> = OnceLock::new();
+
+/// Calibration-only override of FlameEffect::swirl_gain (motion_design L2);
+/// removed once the adopted value is baked into the presets.
+pub fn read_env_swirl_gain(effect_value: f32) -> f32 {
+    SWIRL_GAIN_ENV
+        .get_or_init(|| {
+            std::env::var("THYLLORE_FLAME_SWIRL_GAIN")
+                .ok()
+                .and_then(|v| v.parse().ok())
+        })
+        .unwrap_or(effect_value)
+}
+
 static WAVE_UNIFIED_ENV: OnceLock<bool> = OnceLock::new();
 
 /// Unified broadband field (20260809_unified_field_redesign.md): one 128-mode

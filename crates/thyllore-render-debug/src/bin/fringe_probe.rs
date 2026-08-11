@@ -167,8 +167,19 @@ fn main() {
     let k_mag = |m: &WaveMode| (m.k[0] * m.k[0] + m.k[1] * m.k[1] + m.k[2] * m.k[2]).sqrt();
     modes.sort_by(|a, b| k_mag(a).total_cmp(&k_mag(b)));
 
-    // Warp mode table
+    // Warp mode table + medium swirl modes (same combined table the UBO packs).
+    // The swirl phase drift is a frame constant, so it folds into the phase here.
     let warp_modes = generate_wave_warp_modes();
+    let mut shear_modes = warp_modes.to_vec();
+    let drift_time = effect.noise_scroll_speed * effect.time;
+    for (i, mut mode) in thyllore_effect_core::flame::build_medium_swirl_modes(&effect, &warp_modes)
+        .into_iter()
+        .enumerate()
+    {
+        mode.phase +=
+            thyllore_effect_core::flame_wave::medium_swirl_phase_rate(i, mode.k) * drift_time;
+        shear_modes.push(mode);
+    }
 
     // Truncate to top_modes (all tracked, so skipped_power = [0.0, 0.0], skipped_env_coeff = 0.0)
     let n_modes = args.top_modes.min(modes.len());
@@ -251,11 +262,23 @@ fn main() {
                     mu_zw: [ubo.tip_carve_params[2], ubo.tip_carve_params[3]],
                     displacement_form: ubo.warp_form_params[0] > 0.5,
                 };
+                let spread_sigma = ubo.spread_params[0]
+                    * (-thyllore_render_debug::fringe_field::envelope_remaining_mu(
+                        &warp_params,
+                        h,
+                    ) * ubo.tip_carve_params[1])
+                        .exp();
+                let spread = (-spread_sigma * h).exp();
+                let spread_y = 1.0 / (spread * spread);
                 let (q, rate_raw) = flow_warp_with_rate(
-                    &warp_modes,
+                    &shear_modes,
                     &warp_params,
-                    p,
-                    [direction_local.x, direction_local.y, direction_local.z],
+                    [p[0] * spread, p[1] * spread_y, p[2] * spread],
+                    [
+                        direction_local.x * spread,
+                        direction_local.y * spread_y,
+                        direction_local.z * spread,
+                    ],
                     h,
                 );
 

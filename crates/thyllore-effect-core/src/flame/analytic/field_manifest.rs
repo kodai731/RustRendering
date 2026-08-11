@@ -323,6 +323,7 @@ mod tests {
                 "flameWaveCfPsiVectors",
                 "flameWaveCfLoadCheb",
                 "flameWaveWarpOffset",
+                "flameMediumSwirlShear",
                 "flameWarpMapZ",
                 "flameWarpMapJvp",
                 "flameDetailNoise",

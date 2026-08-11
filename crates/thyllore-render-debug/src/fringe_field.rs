@@ -100,16 +100,20 @@ fn warp_map_jvp(
     }
 }
 
-/// flameWarpStrength mirror: mu(h) -> strain(h) -> strength = strain / K.
-pub fn warp_strength(p: &WarpParams, h: f32) -> f32 {
+/// flameEnvelopeRemainingMu mirror over the packed warp params.
+pub fn envelope_remaining_mu(p: &WarpParams, h: f32) -> f32 {
     let primitive = cheb12(
         p.height_primitive[0],
         p.height_primitive[1],
         p.height_primitive[2],
         h,
     );
-    let mu = ((p.mu_zw[0] - primitive) * p.mu_zw[1]).clamp(0.0, 1.0);
-    warp_strain_at(p.strain_params, mu) * p.strain_params[3]
+    ((p.mu_zw[0] - primitive) * p.mu_zw[1]).clamp(0.0, 1.0)
+}
+
+/// flameWarpStrength mirror: mu(h) -> strain(h) -> strength = strain / K.
+pub fn warp_strength(p: &WarpParams, h: f32) -> f32 {
+    warp_strain_at(p.strain_params, envelope_remaining_mu(p, h)) * p.strain_params[3]
 }
 
 /// Anisotropic compression along the advection axis (mirror of

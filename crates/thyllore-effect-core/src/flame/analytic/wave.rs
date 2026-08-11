@@ -27,8 +27,10 @@ pub const WAVE_WARP_BASE: usize = WAVE_EROSION_SLOTS;
 pub const WAVE_DETAIL_BASE: usize = WAVE_WARP_BASE + WAVE_WARP_MODE_COUNT;
 /// Slot index of the closed-form transport shear layers (after the detail table).
 pub const WAVE_CF_SHEAR_SLOT: usize = WAVE_DETAIL_BASE + WAVE_DETAIL_MODE_COUNT;
-/// UBO slot capacity (2 vec4 per mode): erosion + warp + detail + shear layers.
-pub const WAVE_MODE_SLOTS: usize = WAVE_CF_SHEAR_SLOT + 2;
+/// Slot base of the medium swirl-shear modes (after the cf shear layers).
+pub const WAVE_MEDIUM_SWIRL_BASE: usize = WAVE_CF_SHEAR_SLOT + 2;
+/// UBO slot capacity (2 vec4 per mode): erosion + warp + detail + shear + swirl.
+pub const WAVE_MODE_SLOTS: usize = WAVE_MEDIUM_SWIRL_BASE + WAVE_MEDIUM_SWIRL_MODE_COUNT;
 /// Legacy table mode count (N=96: N=48 still showed fine interference fringes on
 /// the real flame under the warp; N=16 reads as discrete elements).
 pub const WAVE_MODE_COUNT: usize = 96;
@@ -614,6 +616,75 @@ pub fn warp_strain_at(params: [f32; 4], mu: f32) -> f32 {
     params[0] + (params[1] - params[0]) * (-mu * params[2]).exp()
 }
 
+/// Medium swirl shear (motion_design L2): low-wavenumber shear modes joining
+/// the warp map whose displacement transports the RTE medium density
+/// azimuthally — vertical wavevector kappa (small horizontal tilt) with a
+/// horizontal displacement direction orthogonal to that tilt, so kappa . c = 0
+/// and every mode is the same divergence-free pure shear as the 16 warp modes.
+/// Stacked in height, the layers read as differential rotation of the medium.
+pub const WAVE_MEDIUM_SWIRL_MODE_COUNT: usize = 4;
+/// |kappa| / 2pi below the warp band 2pi*[1, 2] — the octave where large
+/// scales drag the medium instead of carving it. Four modes: two spread the
+/// share too coherently and push the stretch p99 past the 1.5 fringe gate.
+/// Low band: the displacement per strain unit is s / |kappa|, so the lower
+/// the band the larger the visible sweep the same budget buys.
+const MEDIUM_SWIRL_K_NORM: [f64; WAVE_MEDIUM_SWIRL_MODE_COUNT] = [0.3, 0.42, 0.54, 0.66];
+/// Horizontal tilt of kappa away from vertical: keeps the shear layers from
+/// being perfectly stratified horizontal planes.
+const MEDIUM_SWIRL_TILT: f64 = 0.15;
+/// Phase-drift scale of the swirl modes relative to the erosion eddy-turnover
+/// family. omega = 0 would freeze the shear into the material frame (the
+/// pattern advects rigidly with the scroll and no differential motion is ever
+/// visible), so the swirl carries the same |k|^(2/3) dispersion as L1, scaled
+/// up so the counter-rotating layers read as prominent rolling vortices at
+/// noise_scroll_speed 1 (user reference: real-bonfire footage, 2026-08-11).
+const MEDIUM_SWIRL_RATE_SCALE: f64 = 5.0;
+
+/// Per-mode phase-drift rate (the shader multiplies by
+/// noise_scroll_speed * time, same channel as the erosion eddy rates). Sign
+/// alternates so adjacent layers drift in opposite directions — differential
+/// rotation instead of a single collective slide.
+pub fn medium_swirl_phase_rate(mode_index: usize, k: [f32; 3]) -> f32 {
+    let k_norm = ((k[0] as f64).hypot(k[1] as f64).hypot(k[2] as f64)) / std::f64::consts::TAU;
+    let sign = if mode_index % 2 == 0 { 1.0 } else { -1.0 };
+    (sign * MEDIUM_SWIRL_RATE_SCALE * k_norm.powf(2.0 / 3.0)) as f32
+}
+
+/// Amplitudes carry the swirl share of the strain budget:
+/// b_m * |kappa_m| = swirl_gain * base_strain_norm / sqrt(M). With the shared
+/// strength(h) = strain(h) / K over the combined table the total RMS strain
+/// stays strain(h) <= WARP_STRAIN_CAP for every lever value; swirl_gain only
+/// redistributes budget from the carve warp to the swirl (index.md
+/// Consequences ⚠️). Gain 0 packs zero amplitudes — bit-identical baseline.
+pub fn generate_medium_swirl_modes(
+    swirl_gain: f32,
+    base_strain_norm: f32,
+) -> [WaveWarpMode; WAVE_MEDIUM_SWIRL_MODE_COUNT] {
+    let mut modes = [WaveWarpMode::default(); WAVE_MEDIUM_SWIRL_MODE_COUNT];
+    let strain_share =
+        swirl_gain.max(0.0) * base_strain_norm / (WAVE_MEDIUM_SWIRL_MODE_COUNT as f32).sqrt();
+    let tilt_norm = (1.0 + MEDIUM_SWIRL_TILT * MEDIUM_SWIRL_TILT).sqrt();
+    for (m, mode) in modes.iter_mut().enumerate() {
+        let azimuth = std::f64::consts::TAU * ((m as f64 + 0.5) * PLASTIC_INV).fract();
+        let magnitude = std::f64::consts::TAU * MEDIUM_SWIRL_K_NORM[m];
+        mode.k = [
+            (MEDIUM_SWIRL_TILT * azimuth.cos() / tilt_norm * magnitude) as f32,
+            (magnitude / tilt_norm) as f32,
+            (MEDIUM_SWIRL_TILT * azimuth.sin() / tilt_norm * magnitude) as f32,
+        ];
+        mode.curl_direction = [(-azimuth.sin()) as f32, 0.0, azimuth.cos() as f32];
+        mode.phase =
+            (std::f64::consts::TAU * ((m as f64 + 0.5) * PLASTIC_INV_SQ + 0.25).fract()) as f32;
+        let k_len = (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2]).sqrt();
+        mode.amplitude = if k_len > 0.0 {
+            strain_share / k_len
+        } else {
+            0.0
+        };
+    }
+    modes
+}
+
 /// Closed-form (family-T) variant: the 16-shear transport is replaced by at
 /// most two single-frequency shear layers, and the erosion carrier phases are
 /// pseudo-FM modulated by the 16 warp modes evaluated at the UNWARPED
@@ -1103,6 +1174,152 @@ mod tests {
             assert_eq!(
                 m.jitter, [0.0; WAVE_JITTER_RANK],
                 "unified table carries no jitter"
+            );
+        }
+    }
+
+    /// Medium swirl modes are horizontal pure shears riding the shared strain
+    /// budget: kappa . c = 0, c horizontal unit, and the per-mode strain
+    /// b_m |kappa_m| carries exactly the swirl_gain share of the base norm.
+    #[test]
+    fn test_medium_swirl_modes_are_budgeted_azimuthal_shears() {
+        let base_norm = warp_strain_norm_rms(&generate_wave_warp_modes());
+        for mode in generate_medium_swirl_modes(0.0, base_norm) {
+            assert_eq!(mode.amplitude, 0.0, "gain 0 must pack zero amplitudes");
+        }
+        for gain in [0.5f32, 1.0, 2.0] {
+            let modes = generate_medium_swirl_modes(gain, base_norm);
+            let mut share_sq = 0.0f32;
+            for mode in modes {
+                let k_mag =
+                    (mode.k[0] * mode.k[0] + mode.k[1] * mode.k[1] + mode.k[2] * mode.k[2]).sqrt();
+                let c = mode.curl_direction;
+                let c_len = (c[0] * c[0] + c[1] * c[1] + c[2] * c[2]).sqrt();
+                let k_dot_c = mode.k[0] * c[0] + mode.k[1] * c[1] + mode.k[2] * c[2];
+                assert_eq!(c[1], 0.0, "displacement must be horizontal");
+                assert!((c_len - 1.0).abs() < 1e-6, "unit displacement direction");
+                assert!(
+                    k_dot_c.abs() < 1e-5 * k_mag,
+                    "kappa . c = {k_dot_c} not orthogonal (divergence-free broken)"
+                );
+                let k_norm = k_mag / std::f32::consts::TAU;
+                assert!(
+                    (0.25..=0.8).contains(&k_norm),
+                    "|kappa|/2pi = {k_norm} outside the drag octave"
+                );
+                share_sq += (mode.amplitude * k_mag).powi(2);
+            }
+            assert!(
+                (share_sq.sqrt() - gain * base_norm).abs() < 1e-4 * gain * base_norm,
+                "rms strain share {} != gain * base norm {}",
+                share_sq.sqrt(),
+                gain * base_norm
+            );
+        }
+    }
+
+    fn combined_jacobian(modes: &[WaveWarpMode], strength: f64, z0: [f64; 3]) -> [[f64; 3]; 3] {
+        let mut jac = [[0.0f64; 3]; 3];
+        for (r, row) in jac.iter_mut().enumerate() {
+            row[r] = 1.0;
+        }
+        for mode in modes {
+            let angle = mode.k[0] as f64 * z0[0]
+                + mode.k[1] as f64 * z0[1]
+                + mode.k[2] as f64 * z0[2]
+                + mode.phase as f64;
+            let fp = -strength * mode.amplitude as f64 * angle.sin();
+            for r in 0..3 {
+                for c in 0..3 {
+                    jac[r][c] += mode.curl_direction[r] as f64 * fp * mode.k[c] as f64;
+                }
+            }
+        }
+        jac
+    }
+
+    fn det3(j: &[[f64; 3]; 3]) -> f64 {
+        j[0][0] * (j[1][1] * j[2][2] - j[1][2] * j[2][1])
+            - j[0][1] * (j[1][0] * j[2][2] - j[1][2] * j[2][0])
+            + j[0][2] * (j[1][0] * j[2][1] - j[1][1] * j[2][0])
+    }
+
+    fn largest_singular_value(j: &[[f64; 3]; 3]) -> f64 {
+        let mut v = [0.577_350_27f64; 3];
+        for _ in 0..12 {
+            let mut jv = [0.0f64; 3];
+            for r in 0..3 {
+                for c in 0..3 {
+                    jv[r] += j[r][c] * v[c];
+                }
+            }
+            let mut jtjv = [0.0f64; 3];
+            for c in 0..3 {
+                for r in 0..3 {
+                    jtjv[c] += j[r][c] * jv[r];
+                }
+            }
+            let len = (jtjv[0] * jtjv[0] + jtjv[1] * jtjv[1] + jtjv[2] * jtjv[2])
+                .sqrt()
+                .max(1e-12);
+            v = [jtjv[0] / len, jtjv[1] / len, jtjv[2] / len];
+        }
+        let mut jv = [0.0f64; 3];
+        for r in 0..3 {
+            for c in 0..3 {
+                jv[r] += j[r][c] * v[c];
+            }
+        }
+        (jv[0] * jv[0] + jv[1] * jv[1] + jv[2] * jv[2]).sqrt()
+    }
+
+    /// L2 acceptance sweep over the swirl lever domain: the combined
+    /// warp + swirl table keeps the displacement form orientation-preserving
+    /// (det J > 0) at the full strain cap, and the swirl must not regress the
+    /// stretch p99 at the default lever (warp_amp 1.4 -> s_tip ~= 0.8). The
+    /// absolute p99 <= 1.5 fringe gate lives on the rendered field (strain(h)
+    /// height profile, stretch debug view) — this uniform worst-case sweep
+    /// sits above it even for the swirl-free baseline (~1.53), so the unit
+    /// gate here is fold-freedom + non-regression.
+    #[test]
+    fn test_combined_swirl_warp_jacobian_det_and_stretch() {
+        let warp_modes = generate_wave_warp_modes();
+        let sweep_point = |i: u64| {
+            [
+                (i as f64 * 0.754_876_66) % 37.0 - 18.5,
+                (i as f64 * 0.569_840_29) % 29.0 - 14.5,
+                (i as f64 * 0.618_033_99) % 23.0 - 11.5,
+            ]
+        };
+        let mut baseline_p99 = 0.0f64;
+        for gain in [0.0f32, 0.5, 1.0] {
+            let mut modes = warp_modes.to_vec();
+            modes.extend_from_slice(&generate_medium_swirl_modes(
+                gain,
+                warp_strain_norm_rms(&warp_modes),
+            ));
+            let k_rms = warp_strain_norm_rms(&modes) as f64;
+            let cap_strength = WARP_STRAIN_CAP as f64 / k_rms;
+            let default_strength = warp_strain_tip(1.4) as f64 / k_rms;
+            let mut stretches: Vec<f64> = Vec::with_capacity(20_000);
+            for i in 0..20_000u64 {
+                let z0 = sweep_point(i);
+                let det = det3(&combined_jacobian(&modes, cap_strength, z0));
+                assert!(det > 0.0, "gain {gain}: det(J) = {det} <= 0 at {z0:?}");
+                stretches.push(largest_singular_value(&combined_jacobian(
+                    &modes,
+                    default_strength,
+                    z0,
+                )));
+            }
+            stretches.sort_by(f64::total_cmp);
+            let p99 = stretches[(stretches.len() as f64 * 0.99) as usize];
+            if gain == 0.0 {
+                baseline_p99 = p99;
+            }
+            assert!(
+                p99 <= baseline_p99 * 1.10,
+                "gain {gain}: stretch p99 {p99} regresses > 10% over baseline {baseline_p99}"
             );
         }
     }

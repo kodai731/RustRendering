@@ -25,6 +25,8 @@ const SEGMENTS: usize = 64;
 const EROSION_SLOTS: usize = thyllore_effect_core::flame_wave::WAVE_EROSION_SLOTS;
 const WARP_BASE: usize = thyllore_effect_core::flame_wave::WAVE_WARP_BASE;
 const WARP_COUNT: usize = 16;
+const MEDIUM_SWIRL_BASE: usize = thyllore_effect_core::flame_wave::WAVE_MEDIUM_SWIRL_BASE;
+const MEDIUM_SWIRL_COUNT: usize = thyllore_effect_core::flame_wave::WAVE_MEDIUM_SWIRL_MODE_COUNT;
 const DETAIL_BASE: usize = thyllore_effect_core::flame_wave::WAVE_DETAIL_BASE;
 const DETAIL_COUNT: usize = 64;
 const SHELL_BASE_RADIUS: f32 = 0.5;
@@ -239,6 +241,33 @@ impl<'a> UboCtx<'a> {
         (self.u.wave_modes[2 * slot], self.u.wave_modes[2 * slot + 1])
     }
 
+    /// flameMediumSwirlShear mirror: azimuthal transport of the RTE medium
+    /// density, accumulated onto (displacement, rate) at a fixed (z, v).
+    /// Direction slot layout is [phase, c.x, drift_rate, c.z] (horizontal c).
+    fn medium_swirl_shear(
+        &self,
+        z: [f32; 3],
+        v: [f32; 3],
+        strength: f32,
+        displacement: &mut [f32; 3],
+        rate: &mut [f32; 3],
+    ) {
+        let drift_time = self.u.noise_scroll_speed * self.u.time;
+        for m in 0..MEDIUM_SWIRL_COUNT {
+            let (kv, dv) = self.wave_mode(MEDIUM_SWIRL_BASE + m);
+            let k = [kv[0], kv[1], kv[2]];
+            let curl = [dv[1], 0.0, dv[3]];
+            let angle = dot3(k, z) + dv[0] + dv[2] * drift_time;
+            let shear = strength * kv[3] * angle.cos();
+            let fp = -strength * kv[3] * angle.sin();
+            let kdv = dot3(k, v);
+            for axis in 0..3 {
+                displacement[axis] += curl[axis] * shear;
+                rate[axis] += curl[axis] * fp * kdv;
+            }
+        }
+    }
+
     /// S1 mirror (flameWarpMapJvp): displacement sum (warp_form_params.x > 0.5)
     /// or the legacy sequential shear composition, with the Jacobian-vector
     /// product on v.
@@ -261,6 +290,7 @@ impl<'a> UboCtx<'a> {
                     rate[axis] += curl[axis] * fp * kdv;
                 }
             }
+            self.medium_swirl_shear(z0, v0, strength, &mut displacement, &mut rate);
             for axis in 0..3 {
                 z[axis] = z0[axis] + displacement[axis];
                 v[axis] = v0[axis] + rate[axis];
@@ -272,6 +302,20 @@ impl<'a> UboCtx<'a> {
             let k = [kv[0], kv[1], kv[2]];
             let curl = [dv[1], dv[2], dv[3]];
             let angle = dot3(k, *z) + dv[0];
+            let shear = strength * kv[3] * angle.cos();
+            let fp = -strength * kv[3] * angle.sin();
+            let kdv = dot3(k, *v);
+            for axis in 0..3 {
+                z[axis] += curl[axis] * shear;
+                v[axis] += curl[axis] * fp * kdv;
+            }
+        }
+        let drift_time = self.u.noise_scroll_speed * self.u.time;
+        for m in 0..MEDIUM_SWIRL_COUNT {
+            let (kv, dv) = self.wave_mode(MEDIUM_SWIRL_BASE + m);
+            let k = [kv[0], kv[1], kv[2]];
+            let curl = [dv[1], 0.0, dv[3]];
+            let angle = dot3(k, *z) + dv[0] + dv[2] * drift_time;
             let shear = strength * kv[3] * angle.cos();
             let fp = -strength * kv[3] * angle.sin();
             let kdv = dot3(k, *v);
@@ -463,6 +507,14 @@ impl<'a> UboCtx<'a> {
         self.warp_strain(h) * self.u.warp_strain_params[3]
     }
 
+    /// flameMediumSpreadScale mirror: age-coordinate radial contraction of the
+    /// noise sampling toward the luminous tip (reach shares the tip carve).
+    fn medium_spread_scale(&self, h: f32) -> f32 {
+        let sigma = self.u.spread_params[0]
+            * (-self.envelope_remaining_mu(h) * self.u.tip_carve_params[1]).exp();
+        (-sigma * h).exp()
+    }
+
     fn eroded_argument(&self, d_smooth: f32, erosion: f32) -> f32 {
         d_smooth - (erosion.max(0.0) + erosion.min(0.0) * self.envelope_fade(d_smooth))
     }
@@ -561,8 +613,15 @@ impl<'a> UboCtx<'a> {
     /// ray, and the jitter state.
     fn wave_frame(&self, p: [f32; 3], d: [f32; 3], h: f32) -> WaveFrame {
         let bend = self.bend_offset(h);
-        let pb = [p[0] - bend[0], p[1], p[2] - bend[1]];
-        let (q, rate_raw) = self.flow_warp_rate(pb, d, h);
+        let spread = self.medium_spread_scale(h);
+        let spread_y = 1.0 / (spread * spread);
+        let pb = [
+            (p[0] - bend[0]) * spread,
+            p[1] * spread_y,
+            (p[2] - bend[1]) * spread,
+        ];
+        let ds = [d[0] * spread, d[1] * spread_y, d[2] * spread];
+        let (q, rate_raw) = self.flow_warp_rate(pb, ds, h);
         let cw = self.aniso_compress(q, self.u.temporal_data.z);
         let w = [
             cw[0] * self.u.noise_frequency - self.advect[0],

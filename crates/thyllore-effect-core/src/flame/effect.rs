@@ -76,6 +76,22 @@ pub struct FlameEffect {
     /// penetrates, in remaining-luminous-fraction units (same scale as
     /// tip_carve_reach).
     pub warp_reach: f32,
+    /// Medium swirl share: fraction weight of the strain budget spent on the
+    /// azimuthal swirl-shear modes (differential rotation of the RTE medium
+    /// density). 0 = off, bit-identical to the pre-swirl field; raising it
+    /// thins the carve warp (total strain budget is fixed).
+    pub swirl_gain: f32,
+    /// Multiplier on the swirl phase-drift rate: how fast the shear layers
+    /// counter-rotate relative to the rising material. Time-only, so it costs
+    /// no strain budget and cannot fold the field — the lever for "how alive"
+    /// the vortices look, independent of their strength.
+    pub swirl_speed: f32,
+    /// Medium spread (motion_design L3): age-coordinate radial opening of the
+    /// RTE medium toward the luminous tip. The noise sampling contracts toward
+    /// the axis as the material rises, so carved features enlarge, drift
+    /// outward and dissolve instead of scrolling up unchanged. 0 = off,
+    /// bit-identical to the unspread field. Reach shares tip_carve_reach.
+    pub spread_gain: f32,
 }
 
 impl Default for FlameEffect {
@@ -137,6 +153,9 @@ impl Default for FlameEffect {
             tip_carve_depth: 1.0,
             tip_carve_reach: 0.2,
             warp_reach: crate::flame_wave::WARP_REACH_DEFAULT,
+            swirl_gain: 0.0,
+            swirl_speed: 1.0,
+            spread_gain: 0.0,
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect

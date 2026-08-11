@@ -119,6 +119,8 @@ const int FLAME_WAVE_DETAIL_BASE = FLAME_WAVE_WARP_BASE + FLAME_WAVE_WARP_COUNT;
 const float FLAME_WAVE_CF_PSI_BOUND = 11.313708;
 const int FLAME_WAVE_CF_CHEB_COEFFS = 21;
 const int FLAME_WAVE_CF_SHEAR_BASE = 208;
+const int FLAME_WAVE_MEDIUM_SWIRL_BASE = 210;
+const int FLAME_WAVE_MEDIUM_SWIRL_COUNT = 4;
 
 // Rank-M phase jitter of the erosion carriers: M shared low-wavenumber fields
 // Psi_m(w) = sin(kappa_m . w + phi_m) in the warped erosion coordinate; mode n
@@ -381,6 +383,28 @@ bool flameWarpFormDisplacement() {
     return flame.warpFormParams.x > 0.5;
 }
 
+// Medium swirl shear (motion_design L2): azimuthal transport of the RTE
+// medium density — the same pure shear form as the warp modes, with packed
+// amplitudes already carrying the swirl share of the strain budget (gain 0
+// packs zero amplitudes, so the added terms are exactly 0.0). The direction
+// slot is [phase, c.x, drift_rate, c.z] (displacement is horizontal): the
+// drift rate makes the shear pattern move relative to the advected material,
+// so the layers visibly counter-rotate instead of scrolling rigidly. Time is
+// a frame uniform, so the drift never enters the ray-rate JVP.
+void flameMediumSwirlShear(vec3 z, vec3 v, float strength,
+        inout vec3 displacement, inout vec3 rate) {
+    float driftTime = flame.noiseScrollSpeed * flame.time;
+    for (int m = 0; m < FLAME_WAVE_MEDIUM_SWIRL_COUNT; ++m) {
+        vec4 waveVector = flame.waveModes[2 * (FLAME_WAVE_MEDIUM_SWIRL_BASE + m)];
+        vec4 direction = flame.waveModes[2 * (FLAME_WAVE_MEDIUM_SWIRL_BASE + m) + 1];
+        vec3 curlDir = vec3(direction.y, 0.0, direction.w);
+        float angle = dot(waveVector.xyz, z) + direction.x + direction.z * driftTime;
+        displacement += curlDir * (strength * waveVector.w * cos(angle));
+        rate += curlDir
+            * (-strength * waveVector.w * sin(angle) * dot(waveVector.xyz, v));
+    }
+}
+
 vec3 flameWarpMapZ(vec3 z, int base, int warpCount, float strength) {
     if (flameWarpFormDisplacement()) {
         vec3 z0 = z;
@@ -391,6 +415,8 @@ vec3 flameWarpMapZ(vec3 z, int base, int warpCount, float strength) {
             float angle = dot(waveVector.xyz, z0) + direction.x;
             displacement += direction.yzw * (strength * waveVector.w * cos(angle));
         }
+        vec3 swirlRate = vec3(0.0);
+        flameMediumSwirlShear(z0, vec3(0.0), strength, displacement, swirlRate);
         return z0 + displacement;
     }
     for (int m = 0; m < warpCount; ++m) {
@@ -398,6 +424,13 @@ vec3 flameWarpMapZ(vec3 z, int base, int warpCount, float strength) {
         vec4 direction = flame.waveModes[2 * (base + m) + 1];
         float angle = dot(waveVector.xyz, z) + direction.x;
         z += direction.yzw * (strength * waveVector.w * cos(angle));
+    }
+    float driftTime = flame.noiseScrollSpeed * flame.time;
+    for (int m = 0; m < FLAME_WAVE_MEDIUM_SWIRL_COUNT; ++m) {
+        vec4 waveVector = flame.waveModes[2 * (FLAME_WAVE_MEDIUM_SWIRL_BASE + m)];
+        vec4 direction = flame.waveModes[2 * (FLAME_WAVE_MEDIUM_SWIRL_BASE + m) + 1];
+        float angle = dot(waveVector.xyz, z) + direction.x + direction.z * driftTime;
+        z += vec3(direction.y, 0.0, direction.w) * (strength * waveVector.w * cos(angle));
     }
     return z;
 }
@@ -421,6 +454,7 @@ void flameWarpMapJvp(inout vec3 z, inout vec3 v, int base, int warpCount, float 
             displacement += curlDir * shearValue;
             rate += curlDir * (fPrime * dot(waveVector.xyz, v0));
         }
+        flameMediumSwirlShear(z0, v0, strength, displacement, rate);
         z = z0 + displacement;
         v = v0 + rate;
         return;
@@ -432,6 +466,17 @@ void flameWarpMapJvp(inout vec3 z, inout vec3 v, int base, int warpCount, float 
         float shearValue = strength * waveVector.w * cos(angle);
         float fPrime = -strength * waveVector.w * sin(angle);
         vec3 curlDir = direction.yzw;
+        z += curlDir * shearValue;
+        v += curlDir * (fPrime * dot(waveVector.xyz, v));
+    }
+    float driftTime = flame.noiseScrollSpeed * flame.time;
+    for (int m = 0; m < FLAME_WAVE_MEDIUM_SWIRL_COUNT; ++m) {
+        vec4 waveVector = flame.waveModes[2 * (FLAME_WAVE_MEDIUM_SWIRL_BASE + m)];
+        vec4 direction = flame.waveModes[2 * (FLAME_WAVE_MEDIUM_SWIRL_BASE + m) + 1];
+        float angle = dot(waveVector.xyz, z) + direction.x + direction.z * driftTime;
+        float shearValue = strength * waveVector.w * cos(angle);
+        float fPrime = -strength * waveVector.w * sin(angle);
+        vec3 curlDir = vec3(direction.y, 0.0, direction.w);
         z += curlDir * shearValue;
         v += curlDir * (fPrime * dot(waveVector.xyz, v));
     }
@@ -496,10 +541,30 @@ struct FlameWarpFrame {
     vec3 rate;  // dw/dt along the ray direction
 };
 
+// Medium spread (motion_design L3): age-coordinate volume-preserving opening
+// of the RTE medium. The sampling contracts in xz (scale s < 1 toward the
+// luminous tip) and stretches in y by 1/s^2 — the det = 1 pair. Rising
+// features therefore enlarge laterally, flatten vertically, decelerate (the
+// apparent rise speed picks up the factor s^2 through the advect chain) and
+// end as sideways puffs the tip carve dissolves, instead of every feature
+// streaming upward unchanged. Reach shares the tip carve; spreadParams.x = 0
+// evaluates to exactly 1.0 (bit-identical baseline). The scale is frozen per
+// node like the strain profile, so it enters the ray-rate chain as plain
+// per-axis factors.
+float flameMediumSpreadScale(float h) {
+    float sigma =
+        flame.spreadParams.x * exp(-flameEnvelopeRemainingMu(h) * flame.tipCarveParams.y);
+    return exp(-sigma * h);
+}
+
 FlameWarpFrame flameBuildWarpFrame(vec3 p, vec3 d, float h) {
     FlameWarpFrame frame;
     frame.pb = flameNoiseBendRemoved(p, h);
-    vec3 rateRaw = flameWaveFlowWarpRate(frame.pb, d, h, frame.q);
+    float spread = flameMediumSpreadScale(h);
+    float spreadY = 1.0 / (spread * spread);
+    frame.pb = vec3(frame.pb.x * spread, frame.pb.y * spreadY, frame.pb.z * spread);
+    vec3 ds = vec3(d.x * spread, d.y * spreadY, d.z * spread);
+    vec3 rateRaw = flameWaveFlowWarpRate(frame.pb, ds, h, frame.q);
     frame.w = flameAnisoCompress(frame.q, flame.temporalData.z) * flame.noiseFrequency
         - flameNoiseAdvect();
     frame.rate = flameAnisoCompress(rateRaw, flame.temporalData.z) * flame.noiseFrequency;

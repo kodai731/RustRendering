@@ -77,6 +77,9 @@ pub fn flame_from_dump(
     apply_scalar!(tip_carve_depth, "tip_carve_depth");
     apply_scalar!(tip_carve_reach, "tip_carve_reach");
     apply_scalar!(warp_reach, "warp_reach");
+    apply_scalar!(swirl_gain, "swirl_gain");
+    apply_scalar!(swirl_speed, "swirl_speed");
+    apply_scalar!(spread_gain, "spread_gain");
     if let Some(v) = flame_json.get("baked_blend").and_then(|f| f.as_f64()) {
         baked.blend = v as f32;
     }
