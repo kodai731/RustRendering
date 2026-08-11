@@ -663,7 +663,7 @@ pub unsafe fn record_flame_passes(
             .data
             .ecs_world
             .get_resource::<crate::ecs::resource::FlameRenderSettings>()
-            .map(|s| s.shading_mode == thyllore_render_core::FlameShadingMode::NoiseRaymarch)
+            .map(|s| s.shading_mode == thyllore_effect_core::FlameShadingMode::NoiseRaymarch)
             .unwrap_or(false);
         let baked = app
             .data
@@ -677,7 +677,7 @@ pub unsafe fn record_flame_passes(
             .get_component::<crate::ecs::component::FlameTemporalAccum>(flame)
             .cloned()
             .unwrap_or_default();
-        let ubo = thyllore_render_core::build_flame_ubo_with_trail(
+        let ubo = thyllore_effect_core::build_flame_ubo_with_trail(
             effect,
             &baked,
             &temporal_accum,
@@ -707,7 +707,7 @@ pub unsafe fn record_flame_passes(
             ubo.style_params2[0] * ubo.style_params2[2],
             ubo.style_params2[1] * ubo.style_params2[2],
         ];
-        let support_scale = thyllore_render_core::flame_shell_support_scale(
+        let support_scale = thyllore_effect_core::flame_shell_support_scale(
             ubo.emitter_params[0] as u32,
             ubo.emitter_params[1],
         );
@@ -771,8 +771,8 @@ fn compute_flame_scissor(
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    let bounds = thyllore_render_core::flame_local_bounds(bend_offset, support_scale);
-    for corner in thyllore_render_core::flame_local_bounds_corners(&bounds) {
+    let bounds = thyllore_effect_core::flame_local_bounds(bend_offset, support_scale);
+    for corner in thyllore_effect_core::flame_local_bounds_corners(&bounds) {
         let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
         if clip.w <= 0.0 {
             return Some(full_extent_scissor(extent));

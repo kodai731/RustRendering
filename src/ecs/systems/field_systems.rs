@@ -1,7 +1,7 @@
 use crate::app::FrameContext;
 use crate::ecs::component::{FieldAffected, FlameEffect};
 use crate::ecs::world::World;
-use thyllore_render_core::{flame_field_manifest, FieldManifest};
+use thyllore_effect_core::{flame_field_manifest, FieldManifest};
 
 /// Single pass for all field compositions: derive, attach, log changes, warn on pending sources.
 pub fn field_manifest_sync(ctx: &mut FrameContext) {
@@ -49,7 +49,7 @@ fn report_composition(entity_id: u64, manifest: &FieldManifest, is_change: bool)
 mod tests {
     use super::*;
     use crate::ecs::systems::spawn_flame;
-    use thyllore_render_core::FieldSourceKind;
+    use thyllore_effect_core::FieldSourceKind;
 
     #[test]
     fn sync_attaches_the_manifest_to_every_flame() {

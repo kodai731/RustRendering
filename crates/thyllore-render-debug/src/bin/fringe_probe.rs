@@ -8,11 +8,11 @@ use std::fs;
 use std::process;
 
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
-use thyllore_render_core::flame_wave::*;
-use thyllore_render_core::{
+use thyllore_effect_core::flame_wave::*;
+use thyllore_effect_core::{
     build_flame_inverse_model_matrix, build_flame_ubo, flame_bounding_radius,
 };
-use thyllore_render_core::{ring_support_span, FlameRadialTaper};
+use thyllore_effect_core::{ring_support_span, FlameRadialTaper};
 
 use thyllore_render_debug::dump_effect::{camera_from_dump, flame_from_dump};
 use thyllore_render_debug::fringe_field::{flow_warp_with_rate, sample_wave_field, WarpParams};
@@ -146,12 +146,12 @@ fn main() {
 
     // Build mode table: unified 128-mode table when the unified field is on,
     // else legacy 96 + envelope; sorted by |k| ascending below.
-    let mut modes: Vec<WaveMode> = if thyllore_render_core::read_env_wave_unified() {
+    let mut modes: Vec<WaveMode> = if thyllore_effect_core::read_env_wave_unified() {
         build_unified_erosion_modes(
             WAVE_K_RATIO,
             WAVE_ENV_MU,
-            effect.boundary_amp * thyllore_render_core::read_env_unified_tilt_gain_b(),
-            effect.contour_wiggle_amp * thyllore_render_core::read_env_unified_tilt_gain_w(),
+            effect.boundary_amp * thyllore_effect_core::read_env_unified_tilt_gain_b(),
+            effect.contour_wiggle_amp * thyllore_effect_core::read_env_unified_tilt_gain_w(),
         )
     } else {
         let mut m = generate_wave_modes_with_ratio(WAVE_K_RATIO).to_vec();

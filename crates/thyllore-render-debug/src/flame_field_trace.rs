@@ -13,16 +13,16 @@
 
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
 use serde_json::{json, Value};
+use thyllore_effect_core::flame_wave::{WAVE_JITTER_K, WAVE_JITTER_PHASE, WAVE_JITTER_RANK};
+use thyllore_effect_core::FlameUBO;
+use thyllore_effect_core::WallProbeView;
 use thyllore_math_core::{integrate_erf_response_linear, smooth_erf_response, ErfResponseModel};
-use thyllore_render_core::flame_wave::{WAVE_JITTER_K, WAVE_JITTER_PHASE, WAVE_JITTER_RANK};
-use thyllore_render_core::FlameUBO;
-use thyllore_render_core::WallProbeView;
 
 const SEGMENTS: usize = 64;
-const EROSION_SLOTS: usize = thyllore_render_core::flame_wave::WAVE_EROSION_SLOTS;
-const WARP_BASE: usize = thyllore_render_core::flame_wave::WAVE_WARP_BASE;
+const EROSION_SLOTS: usize = thyllore_effect_core::flame_wave::WAVE_EROSION_SLOTS;
+const WARP_BASE: usize = thyllore_effect_core::flame_wave::WAVE_WARP_BASE;
 const WARP_COUNT: usize = 16;
-const DETAIL_BASE: usize = thyllore_render_core::flame_wave::WAVE_DETAIL_BASE;
+const DETAIL_BASE: usize = thyllore_effect_core::flame_wave::WAVE_DETAIL_BASE;
 const DETAIL_COUNT: usize = 64;
 const SHELL_BASE_RADIUS: f32 = 0.5;
 const SUPPORT_HEADROOM: f32 = 1.5;
@@ -1969,14 +1969,14 @@ fn clone_argument(a: &NodeArgument) -> NodeArgument {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thyllore_render_core::FlameEffect;
+    use thyllore_effect_core::FlameEffect;
 
     #[test]
     fn test_trace_default_effect_produces_finite_emission() {
         std::env::set_var("THYLLORE_FLAME_TRACE_COLS", "5");
         std::env::set_var("THYLLORE_FLAME_TRACE_ROWS", "5");
         let effect = FlameEffect::default();
-        let ubo = thyllore_render_core::build_flame_ubo(
+        let ubo = thyllore_effect_core::build_flame_ubo(
             &effect,
             &Default::default(),
             &Default::default(),
@@ -2017,7 +2017,7 @@ mod tests {
     #[test]
     fn test_faddeeva_ray_produces_finite_emission() {
         let effect = FlameEffect::default();
-        let ubo = thyllore_render_core::build_flame_ubo(
+        let ubo = thyllore_effect_core::build_flame_ubo(
             &effect,
             &Default::default(),
             &Default::default(),

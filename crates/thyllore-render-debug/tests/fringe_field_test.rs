@@ -1,4 +1,4 @@
-use thyllore_render_core::flame_wave::*;
+use thyllore_effect_core::flame_wave::*;
 use thyllore_render_debug::flame_wave_mirror::{
     evaluate_wave_displacement_warp_with_rate, evaluate_wave_flow_warp_with_rate,
     evaluate_wave_noise_local_lowpass_reduced,

@@ -6,7 +6,7 @@ use crate::frame_context::FrameRenderContext;
 use crate::pipeline::RRPipeline;
 use crate::renderer::push_constants::FlamePushConstants;
 use crate::resource::flame_buffer::FlameBuffer;
-use thyllore_render_core::FlameUBO;
+use thyllore_effect_core::FlameUBO;
 
 // In-command-buffer update keeps the single UBO race-free across frames in
 // flight: the transfer executes in submission order before this frame's

@@ -407,7 +407,7 @@ pub enum UIEvent {
     UpdateAutoExposure(AutoExposure),
     UpdateOnionSkinning(OnionSkinningConfig),
     UpdateFlameEffect(Box<FlameEffect>),
-    UpdateFlameBaked(Box<thyllore_render_core::FlameBaked>),
+    UpdateFlameBaked(Box<thyllore_effect_core::FlameBaked>),
     ApplyFlamePreset(String),
     ApplyFlameTextureFit {
         path: String,

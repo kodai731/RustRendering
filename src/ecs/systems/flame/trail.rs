@@ -1,7 +1,7 @@
 use crate::app::FrameContext;
 use crate::ecs::component::{FlameEffect, FlameTrail};
 use crate::ecs::resource::{BatchRun, TimelineState};
-use thyllore_render_core::advance_flame_trail;
+use thyllore_effect_core::advance_flame_trail;
 
 pub fn flame_trail_advance(ctx: &mut FrameContext) {
     let flame_entities = ctx.world.query_flames();

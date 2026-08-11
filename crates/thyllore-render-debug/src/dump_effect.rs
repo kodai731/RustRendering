@@ -1,5 +1,5 @@
 use cgmath::{Vector2, Vector3};
-use thyllore_render_core::{
+use thyllore_effect_core::{
     refresh_flame_coefficients, FlameBaked, FlameCoefficients, FlameEffect, FlameTemporalAccum,
 };
 

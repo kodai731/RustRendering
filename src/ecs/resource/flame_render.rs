@@ -1,1 +1,1 @@
-pub use thyllore_render_core::{FlameDebugView, FlameRenderSettings, FlameShadingMode};
+pub use thyllore_effect_core::{FlameDebugView, FlameRenderSettings, FlameShadingMode};

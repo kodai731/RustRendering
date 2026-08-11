@@ -23,7 +23,7 @@ use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
-use thyllore_render_core::FlameUBO;
+use thyllore_effect_core::FlameUBO;
 
 pub const MAX_FLAME_INSTANCES: usize = 4;
 

@@ -9,7 +9,7 @@
 use std::fs;
 use std::process;
 
-use thyllore_render_core::{build_flame_ubo, WallProbeView};
+use thyllore_effect_core::{build_flame_ubo, WallProbeView};
 
 use thyllore_render_debug::dump_effect::flame_from_dump;
 use thyllore_render_debug::flame_field_trace::trace_flame_field;

@@ -61,13 +61,13 @@ const EXCEPTION_LEDGER: &[Exception] = &[
         reason: "FlameShadingMode::parse accepts the debug mode name",
     },
     Exception {
-        file_suffix: "flame/coefficients.rs",
+        file_suffix: "analytic/coefficients.rs",
         token: "lut_lerp",
         reason: "baked texture-fit envelope/radius LUT; scheduled for \
                  coefficient-form replacement or permanent registration in W9 S3",
     },
     Exception {
-        file_suffix: "flame/coefficients.rs",
+        file_suffix: "analytic/coefficients.rs",
         token: "[f32; 33]",
         reason: "baked LUT storage, same pending decision as lut_lerp",
     },
@@ -189,13 +189,27 @@ fn flame_runtime_stays_closed_form() {
         )
         .collect();
 
-    let flame_dir = root.join("crates/thyllore-render-core/src/flame");
-    let rust_files: Vec<PathBuf> = fs::read_dir(&flame_dir)
-        .unwrap_or_else(|e| panic!("read_dir {}: {e}", flame_dir.display()))
-        .map(|entry| entry.unwrap().path())
-        .filter(|p| p.extension().is_some_and(|ext| ext == "rs"))
-        .filter(|p| p.file_name().is_some_and(|name| name != "tests.rs"))
-        .collect();
+    let flame_dir = root.join("crates/thyllore-effect-core/src/flame");
+    let mut rust_files: Vec<PathBuf> = Vec::new();
+    let mut dirs = vec![flame_dir.clone()];
+    while let Some(dir) = dirs.pop() {
+        for entry in
+            fs::read_dir(&dir).unwrap_or_else(|e| panic!("read_dir {}: {e}", dir.display()))
+        {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                // bake/ is offline tooling and allowed to sample; the runtime
+                // guard covers the analytic tree and the component data files.
+                if path.file_name().is_some_and(|name| name != "bake") {
+                    dirs.push(path);
+                }
+            } else if path.extension().is_some_and(|ext| ext == "rs")
+                && path.file_name().is_some_and(|name| name != "tests.rs")
+            {
+                rust_files.push(path);
+            }
+        }
+    }
 
     let mut used = BTreeSet::new();
     let mut violations = Vec::new();

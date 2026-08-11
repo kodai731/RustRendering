@@ -496,7 +496,7 @@ fn build_flame_section(
             }
 
             {
-                use thyllore_render_core::flame_wave::{
+                use thyllore_effect_core::flame_wave::{
                     read_env_wave_jitter, read_env_wave_jitter_freq, set_wave_jitter,
                     set_wave_jitter_freq,
                 };
@@ -561,7 +561,7 @@ fn build_flame_section(
         }
 
         // Flame Preset selector
-        let presets: Vec<String> = thyllore_render_core::FLAME_PRESET_NAMES
+        let presets: Vec<String> = thyllore_effect_core::FLAME_PRESET_NAMES
             .iter()
             .map(|s| s.to_string())
             .collect();
@@ -677,7 +677,7 @@ fn build_flame_section(
             if ui.button("Apply Texture Fit") {
                 let path = overlay_state.texture_fit_path.clone();
                 let blend = overlay_state.texture_fit_blend;
-                let groups = thyllore_render_core::TextureFitGroups {
+                let groups = thyllore_effect_core::TextureFitGroups {
                     silhouette: overlay_state.texture_fit_groups[0],
                     color: overlay_state.texture_fit_groups[1],
                     turbulence: overlay_state.texture_fit_groups[2],

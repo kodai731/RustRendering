@@ -90,7 +90,7 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     world,
                     path,
                     *blend,
-                    thyllore_render_core::TextureFitGroups {
+                    thyllore_effect_core::TextureFitGroups {
                         silhouette: groups[0],
                         color: groups[1],
                         turbulence: groups[2],
@@ -110,7 +110,7 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     world.insert_component(
                         target,
                         FlameTrail {
-                            state: thyllore_render_core::FlameTrailState {
+                            state: thyllore_effect_core::FlameTrailState {
                                 enabled: *enabled,
                                 ..Default::default()
                             },
@@ -129,7 +129,7 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     world.insert_component(
                         target,
                         FlameTrail {
-                            state: thyllore_render_core::FlameTrailState {
+                            state: thyllore_effect_core::FlameTrailState {
                                 fade_seconds: *fade,
                                 ..Default::default()
                             },

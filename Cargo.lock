@@ -3700,6 +3700,7 @@ dependencies = [
  "sha2",
  "thiserror 1.0.69",
  "thyllore-anim-core",
+ "thyllore-effect-core",
  "thyllore-exporter-core",
  "thyllore-grpc-client",
  "thyllore-importer-core",
@@ -3718,6 +3719,16 @@ dependencies = [
 [[package]]
 name = "thyllore-color-core"
 version = "0.0.1"
+
+[[package]]
+name = "thyllore-effect-core"
+version = "0.0.1"
+dependencies = [
+ "cgmath",
+ "thyllore-color-core",
+ "thyllore-math-core",
+ "thyllore-texture-fit-core",
+]
 
 [[package]]
 name = "thyllore-exporter-core"
@@ -3836,10 +3847,7 @@ dependencies = [
  "anyhow",
  "cgmath",
  "thyllore-anim-core",
- "thyllore-color-core",
- "thyllore-math-core",
  "thyllore-model-core",
- "thyllore-texture-fit-core",
 ]
 
 [[package]]
@@ -3848,6 +3856,7 @@ version = "0.0.1"
 dependencies = [
  "cgmath",
  "serde_json",
+ "thyllore-effect-core",
  "thyllore-math-core",
  "thyllore-render-core",
 ]
@@ -3870,6 +3879,7 @@ dependencies = [
  "log",
  "png 0.17.16",
  "thiserror 1.0.69",
+ "thyllore-effect-core",
  "thyllore-log-core",
  "thyllore-math-core",
  "thyllore-model-core",

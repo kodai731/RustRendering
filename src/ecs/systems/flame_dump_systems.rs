@@ -4,7 +4,7 @@ use serde_json::{json, Value};
 
 use crate::ecs::resource::{Camera, FlameDumpSink, FlameRenderSettings, FlameTemporalState};
 use crate::ecs::World;
-use thyllore_render_core::{
+use thyllore_effect_core::{
     build_flame_ubo, probe_flame_wall, FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO,
     WallProbeView,
 };
@@ -81,10 +81,10 @@ pub fn build_effect_json(
     value["tip_carve_depth"] = json!(effect.tip_carve_depth);
     value["tip_carve_reach"] = json!(effect.tip_carve_reach);
     value["warp_reach"] = json!(effect.warp_reach);
-    let strain = thyllore_render_core::build_warp_strain_params(effect);
+    let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!(strain);
-    value["warp_strain_cap"] = json!(thyllore_render_core::flame_wave::WARP_STRAIN_CAP);
-    value["warp_form"] = json!(if thyllore_render_core::read_env_warp_form_displacement() {
+    value["warp_strain_cap"] = json!(thyllore_effect_core::flame_wave::WARP_STRAIN_CAP);
+    value["warp_form"] = json!(if thyllore_effect_core::read_env_warp_form_displacement() {
         "disp"
     } else {
         "seq"
@@ -95,10 +95,10 @@ pub fn build_effect_json(
         0.0
     });
     value["unified_field"] = json!({
-        "active": thyllore_render_core::read_env_wave_unified(),
-        "window_beta": thyllore_render_core::read_env_unified_beta(),
-        "tilt_gain_b": thyllore_render_core::read_env_unified_tilt_gain_b(),
-        "tilt_gain_w": thyllore_render_core::read_env_unified_tilt_gain_w(),
+        "active": thyllore_effect_core::read_env_wave_unified(),
+        "window_beta": thyllore_effect_core::read_env_unified_beta(),
+        "tilt_gain_b": thyllore_effect_core::read_env_unified_tilt_gain_b(),
+        "tilt_gain_w": thyllore_effect_core::read_env_unified_tilt_gain_w(),
     });
     value["baked_blend"] = json!(baked.blend);
     value["baked_envelope"] = json!(baked.envelope.map(|a| a.to_vec()));
@@ -267,7 +267,7 @@ pub fn build_wall_probe_camera_json(camera: &crate::ecs::resource::Camera) -> Va
     })
 }
 
-fn build_wall_probe_ray_json(ray: &thyllore_render_core::WallProbeRay) -> Value {
+fn build_wall_probe_ray_json(ray: &thyllore_effect_core::WallProbeRay) -> Value {
     json!({
         "ndc": ray.ndc,
         "hit": ray.hit,
@@ -290,7 +290,7 @@ fn build_wall_probe_ray_json(ray: &thyllore_render_core::WallProbeRay) -> Value 
     })
 }
 
-pub fn build_wall_probe_json(report: &thyllore_render_core::WallProbeReport) -> Value {
+pub fn build_wall_probe_json(report: &thyllore_effect_core::WallProbeReport) -> Value {
     json!({
         "camera_local": report.camera_local,
         "camera_density": report.camera_density,
@@ -309,7 +309,7 @@ pub fn build_wall_probe_json(report: &thyllore_render_core::WallProbeReport) -> 
 }
 
 /// Declared field composition for the dump: which noise was active, driving what, gated by which lever.
-pub fn build_field_manifest_json(manifest: &thyllore_render_core::FieldManifest) -> Value {
+pub fn build_field_manifest_json(manifest: &thyllore_effect_core::FieldManifest) -> Value {
     json!({
         "summary": manifest.summary(),
         "active_sources": manifest
@@ -338,7 +338,7 @@ pub fn build_wall_probe_dump_record(
     flames: &[(
         FlameEffect,
         FlameBaked,
-        thyllore_render_core::WallProbeReport,
+        thyllore_effect_core::WallProbeReport,
     )],
     unix_time: u64,
 ) -> Value {
@@ -360,7 +360,7 @@ pub fn build_wall_probe_dump_record(
             entry.insert("wall_probe".to_string(), build_wall_probe_json(report));
             entry.insert(
                 "field_manifest".to_string(),
-                build_field_manifest_json(&thyllore_render_core::flame_field_manifest(effect)),
+                build_field_manifest_json(&thyllore_effect_core::flame_field_manifest(effect)),
             );
             Value::Object(entry)
         }).collect::<Vec<_>>()
@@ -374,7 +374,7 @@ pub fn write_flame_wall_probe_dump(
     flames: &[(
         FlameEffect,
         FlameBaked,
-        thyllore_render_core::WallProbeReport,
+        thyllore_effect_core::WallProbeReport,
     )],
 ) -> std::io::Result<std::path::PathBuf> {
     let unix_time = std::time::SystemTime::now()
@@ -454,7 +454,7 @@ pub fn write_flame_field_traces(
     flames: &[(
         FlameEffect,
         FlameBaked,
-        thyllore_render_core::WallProbeReport,
+        thyllore_effect_core::WallProbeReport,
     )],
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
     let unix_time = std::time::SystemTime::now()
@@ -466,7 +466,7 @@ pub fn write_flame_field_traces(
     let mut paths = Vec::new();
     for (index, (effect, baked, _)) in flames.iter().enumerate() {
         let ubo =
-            thyllore_render_core::build_flame_ubo(effect, baked, &FlameTemporalAccum::default());
+            thyllore_effect_core::build_flame_ubo(effect, baked, &FlameTemporalAccum::default());
         let trace = thyllore_render_debug::flame_field_trace::trace_flame_field(&ubo, view);
         let name = if flames.len() > 1 {
             format!("flame_trace_{}_{}.json", unix_time, index)
@@ -564,7 +564,7 @@ pub fn write_texture_fit_provenance(
 mod tests {
     use super::*;
     use cgmath::{Vector3, Vector4};
-    use thyllore_render_core::FlameCoefficients;
+    use thyllore_effect_core::FlameCoefficients;
 
     fn sample_effect() -> FlameEffect {
         FlameEffect {
@@ -584,8 +584,8 @@ mod tests {
             time: 0.0,
             time_scale: 1.0,
             time_offset: 0.0,
-            coefficients: thyllore_render_core::fit_flame_coefficients(
-                &thyllore_render_core::FlameProfile::default(),
+            coefficients: thyllore_effect_core::fit_flame_coefficients(
+                &thyllore_effect_core::FlameProfile::default(),
             ),
             light_position_world: Vector3::new(2.0, 3.0, 2.0),
             self_shadow_strength: 0.5,
@@ -625,7 +625,7 @@ mod tests {
         };
         let settings = crate::ecs::resource::FlameRenderSettings::default();
         let effect = sample_effect();
-        let view = thyllore_render_core::WallProbeView {
+        let view = thyllore_effect_core::WallProbeView {
             position: [0.0, 1.15, 1.15],
             forward: [0.0, 0.0, -1.0],
             right: [1.0, 0.0, 0.0],
@@ -633,7 +633,7 @@ mod tests {
             fov_y_radians: 45.0f32.to_radians(),
             viewport_size_px: [1680.0, 840.0],
         };
-        let report = thyllore_render_core::probe_flame_wall(&effect, &Default::default(), &view);
+        let report = thyllore_effect_core::probe_flame_wall(&effect, &Default::default(), &view);
         let record = build_wall_probe_dump_record(
             &camera,
             &settings,
@@ -654,7 +654,7 @@ mod tests {
         assert!(summary["hit_fraction"].is_number());
         assert_eq!(
             flame["wall_probe"]["rays"].as_array().unwrap().len(),
-            thyllore_render_core::WALL_PROBE_GRID_COLS * thyllore_render_core::WALL_PROBE_GRID_ROWS
+            thyllore_effect_core::WALL_PROBE_GRID_COLS * thyllore_effect_core::WALL_PROBE_GRID_ROWS
         );
     }
 
@@ -663,7 +663,7 @@ mod tests {
         let mut effect = sample_effect();
         effect.noise_amplitude = 1.5;
         effect.boundary_amp = 0.2;
-        let manifest = thyllore_render_core::flame_field_manifest(&effect);
+        let manifest = thyllore_effect_core::flame_field_manifest(&effect);
         let value = build_field_manifest_json(&manifest);
         assert!(value["summary"]
             .as_str()

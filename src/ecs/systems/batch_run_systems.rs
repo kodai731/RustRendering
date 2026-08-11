@@ -54,7 +54,7 @@ pub struct BatchCameraPose {
 pub struct EngineCliOverrides {
     pub batch_run: Option<BatchRun>,
     pub flame_mode: Option<FlameShadingMode>,
-    pub flame_debug_view: Option<thyllore_render_core::FlameDebugView>,
+    pub flame_debug_view: Option<thyllore_effect_core::FlameDebugView>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
     pub flame_dump_path: Option<String>,
@@ -247,7 +247,7 @@ pub fn flame_mode_resolve_from_args(args: &[String]) -> Result<Option<FlameShadi
 
 pub fn flame_debug_view_resolve_from_args(
     args: &[String],
-) -> Result<Option<thyllore_render_core::FlameDebugView>> {
+) -> Result<Option<thyllore_effect_core::FlameDebugView>> {
     let Some(position) = args
         .iter()
         .position(|arg| arg == BATCH_FLAME_DEBUG_VIEW_FLAG)
@@ -257,7 +257,7 @@ pub fn flame_debug_view_resolve_from_args(
     let Some(value) = args.get(position + 1) else {
         bail!("{BATCH_FLAME_DEBUG_VIEW_FLAG} requires a value: off|shaped|erosion|argument|density|sigma|emission|jitter|wcoord");
     };
-    let view = thyllore_render_core::FlameDebugView::parse(value).ok_or_else(|| {
+    let view = thyllore_effect_core::FlameDebugView::parse(value).ok_or_else(|| {
         anyhow::anyhow!(
             "invalid flame debug view '{value}': expected off|shaped|erosion|argument|density|sigma|emission|jitter|wcoord|grid|strain|stretch"
         )
@@ -431,11 +431,11 @@ fn flame_preset_resolve_from_args(args: &[String]) -> Result<Option<String>> {
     let Some(value) = args.get(position + 1) else {
         bail!("{BATCH_FLAME_PRESET_FLAG} requires <name>");
     };
-    if !thyllore_render_core::FLAME_PRESET_NAMES.contains(&value.as_str()) {
+    if !thyllore_effect_core::FLAME_PRESET_NAMES.contains(&value.as_str()) {
         bail!(
             "unknown flame preset '{}'. Valid presets: {}",
             value,
-            thyllore_render_core::FLAME_PRESET_NAMES.join(", ")
+            thyllore_effect_core::FLAME_PRESET_NAMES.join(", ")
         );
     }
     Ok(Some(value.clone()))
@@ -842,10 +842,10 @@ pub fn batch_run_report(batch: &BatchRun) -> (bool, String) {
 
 pub fn apply_texture_fit_from_path(
     effect: &mut FlameEffect,
-    baked: &mut thyllore_render_core::FlameBaked,
+    baked: &mut thyllore_effect_core::FlameBaked,
     path: &str,
     blend: f32,
-    groups: thyllore_render_core::TextureFitGroups,
+    groups: thyllore_effect_core::TextureFitGroups,
     profile: bool,
     route: &str,
 ) {
@@ -864,7 +864,7 @@ pub fn apply_texture_fit_from_path(
     let dump = |source_bytes: Option<&[u8]>,
                 result: serde_json::Value,
                 effect_after: &FlameEffect,
-                baked_after: &thyllore_render_core::FlameBaked| {
+                baked_after: &thyllore_effect_core::FlameBaked| {
         crate::ecs::systems::write_texture_fit_provenance(
             route,
             path,
@@ -963,9 +963,9 @@ pub fn apply_texture_fit_from_path(
         let g = buf[i + 1] as f32 / 255.0;
         let b = buf[i + 2] as f32 / 255.0;
         pixels.push([
-            thyllore_render_core::flame_fit::srgb_to_linear(r),
-            thyllore_render_core::flame_fit::srgb_to_linear(g),
-            thyllore_render_core::flame_fit::srgb_to_linear(b),
+            thyllore_effect_core::flame_fit::srgb_to_linear(r),
+            thyllore_effect_core::flame_fit::srgb_to_linear(g),
+            thyllore_effect_core::flame_fit::srgb_to_linear(b),
         ]);
     }
     let mut max_luminance = 0.0f32;
@@ -980,7 +980,7 @@ pub fn apply_texture_fit_from_path(
         "mean_luminance": luminance_sum / total_pixels.max(1) as f64,
     });
 
-    let fit = match thyllore_render_core::fit_flame_texture(&pixels, width, height, effect, baked) {
+    let fit = match thyllore_effect_core::fit_flame_texture(&pixels, width, height, effect, baked) {
         Some(f) => f,
         None => {
             eprintln!("warning: texture fit failed for image '{}'", path);
@@ -999,7 +999,7 @@ pub fn apply_texture_fit_from_path(
         }
     };
 
-    thyllore_render_core::apply_texture_fit(effect, baked, &fit, groups, blend, profile);
+    thyllore_effect_core::apply_texture_fit(effect, baked, &fit, groups, blend, profile);
     dump(
         Some(&bytes),
         json!({
@@ -1397,7 +1397,7 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                         &mut baked,
                         path,
                         *blend,
-                        thyllore_render_core::TextureFitGroups::default(),
+                        thyllore_effect_core::TextureFitGroups::default(),
                         *profile,
                         "debug_action",
                     );
@@ -1430,7 +1430,7 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                         &mut baked,
                         path,
                         *blend,
-                        thyllore_render_core::TextureFitGroups::default(),
+                        thyllore_effect_core::TextureFitGroups::default(),
                         *profile,
                         "debug_action",
                     );
@@ -1949,7 +1949,7 @@ mod tests {
     fn test_flame_preset_then_override_order() {
         // "candle" preset sets height=0.28, radius=0.07, intensity=2.0, etc.
         let mut effect = FlameEffect::default();
-        thyllore_render_core::apply_flame_preset(&mut effect, "candle");
+        thyllore_effect_core::apply_flame_preset(&mut effect, "candle");
 
         // Now apply an individual override for height via flame_set
         let overrides: Vec<(String, f32)> = vec![(String::from("height"), 1.5)];

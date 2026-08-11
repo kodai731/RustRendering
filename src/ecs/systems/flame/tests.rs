@@ -9,7 +9,7 @@ use crate::ecs::resource::{
     LightState, ProjectionData, TimelineState,
 };
 use crate::ecs::world::{Entity, Transform, World};
-use thyllore_render_core::{advance_flame_time, advance_flame_trail};
+use thyllore_effect_core::{advance_flame_time, advance_flame_trail};
 
 use super::*;
 use crate::ecs::component::EditorDisplay;

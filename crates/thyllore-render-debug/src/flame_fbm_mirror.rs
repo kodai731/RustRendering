@@ -54,7 +54,7 @@ pub fn fbm3(p: [f32; 3]) -> f32 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thyllore_render_core::flame_wave::{WAVE_NOISE_MEAN, WAVE_NOISE_STD};
+    use thyllore_effect_core::flame_wave::{WAVE_NOISE_MEAN, WAVE_NOISE_STD};
 
     /// The calibration constants the wave basis reproduces are the measured
     /// lattice statistics of this fbm (mean = 0.5 * (0.5 + 0.25 + 0.125)).

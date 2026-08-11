@@ -113,9 +113,9 @@ fn main() -> Result<()> {
                     temperature_tip_k: 1100.0 - 150.0 * i as f32,
                     ..FlameEffect::default()
                 };
-                let mut baked = thyllore_render_core::FlameBaked::default();
+                let mut baked = thyllore_effect_core::FlameBaked::default();
                 if let Some(name) = overrides.flame_preset.as_deref() {
-                    thyllore_render_core::apply_flame_preset(&mut effect, name);
+                    thyllore_effect_core::apply_flame_preset(&mut effect, name);
                 }
                 if let Some((ref path, blend, profile)) = overrides.flame_texture_fit {
                     apply_texture_fit_from_path(
@@ -123,13 +123,13 @@ fn main() -> Result<()> {
                         &mut baked,
                         path,
                         blend,
-                        thyllore_render_core::TextureFitGroups::default(),
+                        thyllore_effect_core::TextureFitGroups::default(),
                         profile,
                         "cli",
                     );
                 }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
-                thyllore_render_core::refresh_flame_coefficients(&mut effect, &baked);
+                thyllore_effect_core::refresh_flame_coefficients(&mut effect, &baked);
                 let entity = thyllore_animation::ecs::systems::spawn_flame_with_clip(
                     &mut app.data.ecs_world,
                     &mut app.data.ecs_assets,
@@ -154,11 +154,11 @@ fn main() -> Result<()> {
             let mut baked = app
                 .data
                 .ecs_world
-                .get_component::<thyllore_render_core::FlameBaked>(e)
+                .get_component::<thyllore_effect_core::FlameBaked>(e)
                 .cloned()
                 .unwrap_or_default();
             if let Some(name) = overrides.flame_preset.as_deref() {
-                thyllore_render_core::apply_flame_preset(&mut effect, name);
+                thyllore_effect_core::apply_flame_preset(&mut effect, name);
             }
             if let Some((ref path, blend, profile)) = overrides.flame_texture_fit {
                 apply_texture_fit_from_path(
@@ -166,13 +166,13 @@ fn main() -> Result<()> {
                     &mut baked,
                     path,
                     blend,
-                    thyllore_render_core::TextureFitGroups::default(),
+                    thyllore_effect_core::TextureFitGroups::default(),
                     profile,
                     "cli",
                 );
             }
             apply_flame_overrides(&mut effect, &overrides.flame_set);
-            thyllore_render_core::refresh_flame_coefficients(&mut effect, &baked);
+            thyllore_effect_core::refresh_flame_coefficients(&mut effect, &baked);
             app.data.ecs_world.insert_component(e, effect);
             app.data.ecs_world.insert_component(e, baked);
         }
@@ -185,7 +185,7 @@ fn main() -> Result<()> {
             app.data.ecs_world.insert_component(
                 e,
                 FlameTrail {
-                    state: thyllore_render_core::FlameTrailState {
+                    state: thyllore_effect_core::FlameTrailState {
                         enabled: true,
                         fade_seconds: fade,
                         ..Default::default()
@@ -324,9 +324,9 @@ fn main() -> Result<()> {
 
     {
         let (pixels, w, h) = match overrides.flame_sdf.as_ref() {
-            Some(path) => match thyllore_render_core::flame_sdf::load_flame_sdf(path) {
+            Some(path) => match thyllore_effect_core::flame_sdf::load_flame_sdf(path) {
                 Ok(sdf) => {
-                    let p = thyllore_render_core::flame_sdf::encode_sdf_rgba8(&sdf);
+                    let p = thyllore_effect_core::flame_sdf::encode_sdf_rgba8(&sdf);
                     (p, sdf.width, sdf.height)
                 }
                 Err(e) => {

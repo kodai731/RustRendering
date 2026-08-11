@@ -1,7 +1,7 @@
 use super::{resolve_selected_flame, write_flame_transform};
 use crate::ecs::component::{FlameBaked, FlameEffect};
 use crate::ecs::world::World;
-use thyllore_render_core::TextureFitGroups;
+use thyllore_effect_core::TextureFitGroups;
 
 /// Run a texture fit against the selected flame and write the results into
 /// its parameter and baked components. The heavy fit itself stays in

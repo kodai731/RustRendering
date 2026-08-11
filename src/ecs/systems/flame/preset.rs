@@ -15,7 +15,7 @@ pub fn apply_flame_preset_to_selected(world: &mut World, name: &str) {
     else {
         return;
     };
-    if thyllore_render_core::apply_flame_preset(&mut effect, name) {
+    if thyllore_effect_core::apply_flame_preset(&mut effect, name) {
         write_flame_transform(world, target, effect.position, effect.rotation);
         world.insert_component(target, effect);
     }

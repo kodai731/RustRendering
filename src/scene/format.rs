@@ -351,7 +351,7 @@ fn default_tip_carve_reach() -> f32 {
     0.2
 }
 fn default_warp_reach() -> f32 {
-    thyllore_render_core::flame_wave::WARP_REACH_DEFAULT
+    thyllore_effect_core::flame_wave::WARP_REACH_DEFAULT
 }
 
 fn default_rte_bands() -> f32 {
@@ -617,7 +617,7 @@ pub fn apply_flame_state_to_world(
         effect.tip_carve_depth = flame.effect.tip_carve_depth;
         effect.tip_carve_reach = flame.effect.tip_carve_reach;
         effect.warp_reach = flame.effect.warp_reach;
-        thyllore_render_core::refresh_flame_coefficients(&mut effect, &Default::default());
+        thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
     crate::ecs::systems::write_flame_transform(

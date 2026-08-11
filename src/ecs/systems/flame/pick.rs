@@ -1,7 +1,7 @@
 use crate::ecs::component::FlameEffect;
 use crate::ecs::resource::PickRay;
 use crate::ecs::world::{Entity, World};
-use thyllore_render_core::{build_flame_inverse_model_matrix, intersect_flame_proxy};
+use thyllore_effect_core::{build_flame_inverse_model_matrix, intersect_flame_proxy};
 
 /// Nearest flame whose proxy the ray enters, with the distance at which it enters.
 ///
