@@ -602,7 +602,12 @@ pub fn apply_flame_state_to_world(
     let entities: Vec<_> = world.query_flames();
     let entity = match entities.first() {
         Some(e) => *e,
-        None => return, // no flame entity exists yet, skip silently
+        None => crate::ecs::systems::spawn_flame_with_clip(
+            world,
+            assets,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        ),
     };
 
     // Write effect fields onto the existing FlameEffect component
@@ -1281,6 +1286,38 @@ mod tests {
         assert_eq!(loaded_mp.angular_speed, 0.7);
         assert_eq!(loaded_mp.phase_offset, 1.5);
         assert!(loaded_mp.enabled);
+    }
+
+    #[test]
+    fn test_apply_flame_state_spawns_entity_when_world_has_none() {
+        let mut source = crate::ecs::world::World::new();
+        let entity = crate::ecs::systems::spawn_flame(
+            &mut source,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect {
+                height: 8.0,
+                radius: 1.0,
+                radius_tip_ratio: 1.0,
+                ..crate::ecs::component::FlameEffect::default()
+            },
+        );
+        let _ = entity;
+        let data = build_flame_scene_data(&source).expect("scene data");
+
+        let mut world2 = crate::ecs::world::World::new();
+        world2.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets2 = crate::asset::AssetStorage::new();
+        assert!(world2.query_flames().is_empty());
+        apply_flame_state_to_world(&mut world2, &mut assets2, &data);
+
+        let flames = world2.query_flames();
+        assert_eq!(flames.len(), 1, "flame entity should be spawned on load");
+        let effect = world2
+            .get_component::<crate::ecs::component::FlameEffect>(flames[0])
+            .expect("FlameEffect on spawned entity");
+        assert_eq!(effect.height, 8.0);
+        assert_eq!(effect.radius, 1.0);
+        assert_eq!(effect.radius_tip_ratio, 1.0);
     }
 
     #[test]
