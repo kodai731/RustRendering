@@ -86,6 +86,9 @@ pub fn build_effect_json(
     value["swirl_speed"] = json!(effect.swirl_speed);
     value["spread_gain"] = json!(effect.spread_gain);
     value["support_margin"] = json!(effect.support_margin);
+    value["edge_outer_sharpen"] = json!(effect.edge_outer_sharpen);
+    value["noise_scale_mode"] = json!(effect.noise_scale_mode);
+    value["erosion_noise_gain"] = json!(effect.erosion_noise_gain);
     value["meander_amp"] = json!(effect.meander_amp);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!(strain);
@@ -138,7 +141,10 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "color_base": [ubo.color_base.x, ubo.color_base.y, ubo.color_base.z, ubo.color_base.w],
         "color_mid": [ubo.color_mid.x, ubo.color_mid.y, ubo.color_mid.z, ubo.color_mid.w],
         "color_tip": [ubo.color_tip.x, ubo.color_tip.y, ubo.color_tip.z, ubo.color_tip.w],
-        "light_data": [ubo.light_data.x, ubo.light_data.y, ubo.light_data.z, ubo.light_data.w]
+        "light_data": [ubo.light_data.x, ubo.light_data.y, ubo.light_data.z, ubo.light_data.w],
+        "unified_params": ubo.unified_params,
+        "spread_params": ubo.spread_params,
+        "support_margin": ubo.support_margin,
     })
 }
 
@@ -384,6 +390,7 @@ pub fn write_flame_wall_probe_dump(
         FlameTemporalAccum,
         thyllore_effect_core::WallProbeReport,
     )],
+    output_path: Option<&std::path::Path>,
 ) -> std::io::Result<std::path::PathBuf> {
     let unix_time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -391,9 +398,16 @@ pub fn write_flame_wall_probe_dump(
         .unwrap_or(0);
     let record = build_wall_probe_dump_record(camera, settings, viewport_size, flames, unix_time);
 
-    let directory = std::path::Path::new("log/flame");
-    std::fs::create_dir_all(directory)?;
-    let path = directory.join(format!("wall_probe_{}.json", unix_time));
+    let path = if let Some(output_path) = output_path {
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        output_path.to_path_buf()
+    } else {
+        let directory = std::path::Path::new("log/flame");
+        std::fs::create_dir_all(directory)?;
+        directory.join(format!("wall_probe_{}.json", unix_time))
+    };
     std::fs::write(&path, serde_json::to_string_pretty(&record)?)?;
     Ok(path)
 }
@@ -410,24 +424,32 @@ pub fn write_flame_field_traces(
         FlameTemporalAccum,
         thyllore_effect_core::WallProbeReport,
     )],
+    output_path: Option<&std::path::Path>,
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
     let unix_time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let directory = std::path::Path::new("log/flame");
-    std::fs::create_dir_all(directory)?;
     let mut paths = Vec::new();
     for (index, (effect, baked, temporal, _)) in flames.iter().enumerate() {
         let trace = thyllore_render_debug::flame_field_trace::trace_flame_field(
             effect, baked, temporal, view,
         );
-        let name = if flames.len() > 1 {
-            format!("flame_trace_{}_{}.json", unix_time, index)
+        let path = if let Some(output_path) = output_path {
+            if let Some(parent) = output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            output_path.to_path_buf()
         } else {
-            format!("flame_trace_{}.json", unix_time)
+            let directory = std::path::Path::new("log/flame");
+            std::fs::create_dir_all(directory)?;
+            let name = if flames.len() > 1 {
+                format!("flame_trace_{}_{}.json", unix_time, index)
+            } else {
+                format!("flame_trace_{}.json", unix_time)
+            };
+            directory.join(name)
         };
-        let path = directory.join(name);
         std::fs::write(&path, serde_json::to_string(&trace)?)?;
         paths.push(path);
     }

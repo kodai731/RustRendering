@@ -56,10 +56,26 @@ fn noise_aniso_compress(effect: &FlameEffect, v: [f32; 3]) -> [f32; 3] {
     [compressed.x, compressed.y, compressed.z]
 }
 
+/// Effective noise aniso y: noise_scale_mode < 0.5 returns noise_aniso_y as-is;
+/// >= 0.5 multiplies by height/radius to compensate for world-to-local scaling.
+pub fn effective_noise_aniso_y(effect: &FlameEffect) -> f32 {
+    if effect.noise_scale_mode < 0.5 {
+        effect.noise_aniso_y
+    } else {
+        effect.noise_aniso_y * (effect.height / effect.radius.max(1e-4))
+    }
+}
+
 /// spreadParams: x = medium spread gain alpha (motion_design L3); the reach
-/// shares tipCarveParams.y in the shader. yzw spare.
+/// shares tipCarveParams.y in the shader. y = edge_outer_sharpen,
+/// w = erosion_noise_gain, z spare.
 fn build_medium_spread_params(effect: &FlameEffect) -> [f32; 4] {
-    [effect.spread_gain.max(0.0), 0.0, 0.0, 0.0]
+    [
+        effect.spread_gain.max(0.0),
+        effect.edge_outer_sharpen,
+        0.0,
+        effect.erosion_noise_gain,
+    ]
 }
 
 /// waveCfParams: x = closed-form variant active, y = shear layer count.
@@ -524,7 +540,7 @@ pub fn build_flame_ubo(
         temporal_data: Vector4::new(
             temporal.weight,
             (temporal.frame_index % 16384) as f32,
-            effect.noise_aniso_y,
+            effective_noise_aniso_y(effect),
             effect.warp_y_scale,
         ),
         light_data: Vector4::new(
@@ -920,7 +936,7 @@ pub fn build_flame_ubo_with_trail(
         temporal_data: Vector4::new(
             temporal.weight,
             (temporal.frame_index % 16384) as f32,
-            effect.noise_aniso_y,
+            effective_noise_aniso_y(effect),
             effect.warp_y_scale,
         ),
         light_data: Vector4::new(
@@ -1063,5 +1079,28 @@ impl Default for FlameUBO {
             &FlameBaked::default(),
             &FlameTemporalAccum::default(),
         )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_effective_noise_aniso_y_mode_zero() {
+        let mut effect = FlameEffect::default();
+        effect.noise_scale_mode = 0.0;
+        effect.noise_aniso_y = 0.5;
+        assert!((effective_noise_aniso_y(&effect) - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_effective_noise_aniso_y_mode_one() {
+        let mut effect = FlameEffect::default();
+        effect.noise_scale_mode = 1.0;
+        effect.noise_aniso_y = 0.5;
+        effect.height = 8.0;
+        effect.radius = 1.0;
+        assert!((effective_noise_aniso_y(&effect) - 4.0).abs() < 1e-6);
     }
 }

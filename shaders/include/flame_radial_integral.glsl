@@ -71,7 +71,7 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
     float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x) * radial * flameNearCameraFade(p);
    float erosion = flameNoiseErosionValue(p, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
-       flameResponseOccupancy(dSmooth, erosion, h),
+       flameResponseOccupancy(dSmooth, erosion, h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -94,7 +94,7 @@ float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
   float dSmooth = flameEmitterSmoothDensityDisplacedAt(ps, h, wiggle, flameBoundaryDisplacement(ps.xz), uSquared) * flameNearCameraFade(p);
    float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h, dSmooth, uSquared) : 0.0;
     return flameApplyCarveResidual(
-      flameResponseOccupancy(dSmooth, erosion, h),
+      flameResponseOccupancy(dSmooth, erosion, h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -307,7 +307,7 @@ vec2 flameWaveSegmentCarved(
     }
 
     float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
-    float sigmaEff = 0.5 * (nodes.sigmaStart + nodes.sigmaEnd) * shapingDerivAvg * abs(flame.noiseAmplitude)
+    float sigmaEff = flame.spreadParams.w * 0.5 * (nodes.sigmaStart + nodes.sigmaEnd) * shapingDerivAvg * abs(flame.noiseAmplitude)
         * flameTipCarveLambda(hMid) * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
         * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd))
         * 0.5 * (nodes.remapStart + nodes.remapEnd);
@@ -316,6 +316,7 @@ vec2 flameWaveSegmentCarved(
         float sigmaFloor = flame.unifiedParams.y * flameTipCarveLambda(hMid)
             * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
             * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd));
+        sigmaFloor *= mix(1.0, 1.0 - flame.spreadParams.y, flameCarveResidualOuterGate(uSquared));
         sigmaEff = max(sigmaEff, sigmaFloor);
     }
     FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);

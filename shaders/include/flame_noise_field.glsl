@@ -794,7 +794,7 @@ const float FLAME_EROSION_MEAN_SHRINK = 0.0875;
 const float FLAME_PLATEAU_CARVE_BOOST = 1.0;
 const float FLAME_EROSION_SHELL_REF = 0.30;
 float flameNoiseErosionFromValue(float noise, float h, float density, float uSquared) {
-    float relative = flameTipCarveLambda(h) * (density / FLAME_EROSION_SHELL_REF)
+    float relative = flame.spreadParams.w * flameTipCarveLambda(h) * (density / FLAME_EROSION_SHELL_REF)
         * (noise - 0.4375);
     return flame.noiseAmplitude
         * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + FLAME_PLATEAU_CARVE_BOOST * flamePlateauCarveReach(uSquared) + relative);
@@ -802,7 +802,7 @@ float flameNoiseErosionFromValue(float noise, float h, float density, float uSqu
 
 // Response through the (optionally relative) window: unified keeps the
 // half-width >= the local modulation sigma so the rectifier never binarizes.
-float flameResponseOccupancy(float dSmooth, float erosion, float h) {
+float flameResponseOccupancy(float dSmooth, float erosion, float h, float uSquared) {
     float lo = flame.nearFadeParams.z;
     float hi = flame.nearFadeParams.w;
     if (flame.unifiedParams.x > 0.5) {
@@ -810,6 +810,7 @@ float flameResponseOccupancy(float dSmooth, float erosion, float h) {
             * dSmooth / FLAME_EROSION_SHELL_REF;
         float c = 0.5 * (lo + hi);
         float hw = max(0.5 * (hi - lo), 2.24 * sigmaFloor);
+        hw *= mix(1.0, 1.0 - flame.spreadParams.y, flameCarveResidualOuterGate(uSquared));
         lo = c - hw;
         hi = c + hw;
     }
@@ -828,7 +829,7 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
    dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
    float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
-      flameResponseOccupancy(dSmooth, erosion, h),
+      flameResponseOccupancy(dSmooth, erosion, h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -863,7 +864,7 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
    dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
   float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
-     flameResponseOccupancy(dSmooth, erosion, h),
+     flameResponseOccupancy(dSmooth, erosion, h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -875,7 +876,7 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
   dSmooth = flameEmitterSmoothDensityDisplacedAt(p, h, 1.0, flameBoundaryDisplacement(p.xz), uSquared);
   float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
-    flameResponseOccupancy(dSmooth, erosion, h),
+    flameResponseOccupancy(dSmooth, erosion, h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 

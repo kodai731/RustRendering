@@ -100,6 +100,9 @@ pub struct FlameEffect {
     /// Animated meander amplitude: time-varying horizontal displacement of the centerline.
     /// 0 = off (bit-identical to pre-meander field).
     pub meander_amp: f32,
+    pub edge_outer_sharpen: f32,
+    pub noise_scale_mode: f32,
+    pub erosion_noise_gain: f32,
 }
 
 impl Default for FlameEffect {
@@ -166,6 +169,9 @@ impl Default for FlameEffect {
             spread_gain: 0.0,
             support_margin: 1.0,
             meander_amp: 0.0,
+            edge_outer_sharpen: 0.0,
+            noise_scale_mode: 0.0,
+            erosion_noise_gain: 1.0,
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect

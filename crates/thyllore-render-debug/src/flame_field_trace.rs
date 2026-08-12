@@ -508,11 +508,18 @@ impl<'a> UboCtx<'a> {
         self.u.unified_params[0] > 0.5
     }
 
-    fn unified_sigma_floor(&self, h: f32, density: f32) -> f32 {
+    fn unified_sigma_floor(&self, h: f32, density: f32, u_squared: f32) -> f32 {
         if !self.unified() {
             return 0.0;
         }
-        self.u.unified_params[1] * self.tip_carve_lambda(h) * density / EROSION_SHELL_REF
+        let mut sigma_floor =
+            self.u.unified_params[1] * self.tip_carve_lambda(h) * density / EROSION_SHELL_REF;
+        sigma_floor *= mixf(
+            1.0,
+            1.0 - self.u.spread_params[1],
+            self.flame_carve_residual_outer_gate(u_squared),
+        );
+        sigma_floor
     }
 
     fn tip_carve_lambda(&self, h: f32) -> f32 {
@@ -816,7 +823,10 @@ impl<'a> UboCtx<'a> {
         let erosion = self.u.noise_amplitude
             * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
                 + PLATEAU_CARVE_BOOST * self.flame_plateau_carve_reach(u_squared)
-                + lambda * (density / EROSION_SHELL_REF) * (shaped - 0.4375));
+                + self.u.spread_params[3]
+                    * lambda
+                    * (density / EROSION_SHELL_REF)
+                    * (shaped - 0.4375));
         let argument = self.eroded_argument(density, erosion);
         NodeArgument {
             pb,
@@ -1146,6 +1156,8 @@ struct SegmentEstimate {
     sigma: f32,
     shaping_deriv: f32,
     linear_correction: f32,
+    sigma_eff_raw: f32,
+    sigma_floor: f32,
 }
 
 /// Faddeeva estimator v3 (continuous ray integrator P1b, deep-modulation
@@ -1228,7 +1240,10 @@ fn argument_with_slow(
     let erosion = ctx.u.noise_amplitude
         * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
             + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared)
-            + ctx.tip_carve_lambda(h) * (density / EROSION_SHELL_REF) * shaped_delta);
+            + ctx.u.spread_params[3]
+                * ctx.tip_carve_lambda(h)
+                * (density / EROSION_SHELL_REF)
+                * shaped_delta);
     ctx.eroded_argument(density, erosion)
 }
 
@@ -1284,7 +1299,8 @@ fn solve_reference_cutoff(
                     * ctx.tip_carve_lambda(h_star)
                     * (density / EROSION_SHELL_REF)
                     * fade;
-                let sigma_floor = ctx.unified_sigma_floor(h_star, density) * fade;
+                let u_squared = (h_star - 1.0).powi(2);
+                let sigma_floor = ctx.unified_sigma_floor(h_star, density, u_squared) * fade;
                 let sigma_full =
                     folded_sigma_argument(geometry, gain, distortion, carrier, carrier.modal_power)
                         .max(sigma_floor);
@@ -1331,7 +1347,8 @@ fn faddeeva_segment_estimate(
         * ctx.tip_carve_lambda(h_mid)
         * (density_avg / EROSION_SHELL_REF)
         * fade_avg;
-    let sigma_floor = ctx.unified_sigma_floor(h_mid, density_avg) * fade_avg;
+    let u_squared = (h_mid - 1.0).powi(2);
+    let sigma_floor = ctx.unified_sigma_floor(h_mid, density_avg, u_squared) * fade_avg;
 
     let captured_ref =
         0.5 * (state_start.captured_power(alpha_ref) + state_end.captured_power(alpha_ref));
@@ -1357,14 +1374,13 @@ fn faddeeva_segment_estimate(
         sigma_fast,
     );
     let slope = (arg_end - arg_start) / span;
-
     // Segment-local sigma: fold everything the local realized slope cannot
     // resolve. Two fixed-point iterations settle sigma <-> alpha.
     let mut folded = (carrier.modal_power - captured_ref).max(0.0);
     let mut sigma_smooth = 0.0;
     for _ in 0..2 {
-        sigma_smooth =
-            folded_sigma_argument(geometry, gain, distortion, carrier, folded).max(sigma_floor);
+        let sigma_raw = folded_sigma_argument(geometry, gain, distortion, carrier, folded);
+        sigma_smooth = sigma_raw.max(sigma_floor);
         let kappa_eff = smooth_erf_response(&ctx.erf, sigma_smooth).kappa_eff;
         let shell_width = 1.0 / (std::f32::consts::SQRT_2 * kappa_eff);
         let alpha_local = if slope.abs() > 1e-6 {
@@ -1391,6 +1407,8 @@ fn faddeeva_segment_estimate(
         sigma: sigma_smooth,
         shaping_deriv: gain,
         linear_correction: 0.0,
+        sigma_eff_raw: folded_sigma_argument(geometry, gain, distortion, carrier, folded),
+        sigma_floor,
     }
 }
 
@@ -1774,7 +1792,8 @@ fn trace_ray(
             SegmentIntegrator::Legacy => {
                 let shaping_deriv_avg =
                     0.5 * (ctx.shaping_deriv(start_arg.shaped) + ctx.shaping_deriv(end_arg.shaped));
-                let mut sigma_eff = 0.5
+                let sigma_eff_raw = ctx.u.spread_params[3]
+                    * 0.5
                     * (start_arg.sigma_noise + end_arg.sigma_noise)
                     * shaping_deriv_avg
                     * ctx.u.noise_amplitude.abs()
@@ -1783,9 +1802,11 @@ fn trace_ray(
                     * 0.5
                     * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
                 let slope = (end_arg.argument - start_arg.argument) / span;
-                sigma_eff = sigma_eff.max(
-                    ctx.unified_sigma_floor(h_mid, 0.5 * (density_start + density_end)) * fade_avg,
-                );
+                let u_squared = (h_mid - 1.0).powi(2);
+                let sigma_floor =
+                    ctx.unified_sigma_floor(h_mid, 0.5 * (density_start + density_end), u_squared)
+                        * fade_avg;
+                let sigma_eff = sigma_eff_raw.max(sigma_floor);
                 let (integral, first_moment) = integrate_erf_response_linear(
                     &ctx.erf,
                     sigma_eff,
@@ -1800,6 +1821,8 @@ fn trace_ray(
                     sigma: sigma_eff,
                     shaping_deriv: shaping_deriv_avg,
                     linear_correction: 0.0,
+                    sigma_eff_raw,
+                    sigma_floor,
                 }
             }
             SegmentIntegrator::Faddeeva => {
@@ -1915,6 +1938,8 @@ fn trace_ray(
             "exiting": exiting,
             "arg_start": round5(start_arg.argument),
             "arg_end": round5(end_arg.argument),
+            "sigma_eff_raw": round5(estimate.sigma_eff_raw),
+            "sigma_floor": round5(estimate.sigma_floor),
             "sigma_eff": round5(estimate.sigma),
             "shaping_deriv_avg": round5(estimate.shaping_deriv),
             "linear_correction": round5(estimate.linear_correction),

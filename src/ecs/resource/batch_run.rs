@@ -18,6 +18,8 @@ pub struct BatchRun {
     pub stride: u32,
     pub sequence_dir: Option<PathBuf>,
     pub total_count: u32,
+    pub flame_trace_path: Option<PathBuf>,
+    pub wall_probe_path: Option<PathBuf>,
 }
 
 impl BatchRun {
@@ -33,6 +35,8 @@ impl BatchRun {
             stride: 1,
             sequence_dir: None,
             total_count: 0,
+            flame_trace_path: None,
+            wall_probe_path: None,
         }
     }
 

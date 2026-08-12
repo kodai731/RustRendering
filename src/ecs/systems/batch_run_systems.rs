@@ -41,6 +41,8 @@ const BATCH_HEAT_PLUME_FLAG: &str = "--batch-heat-plume";
 const BATCH_PICK_FLAG: &str = "--batch-pick";
 const BATCH_ANIM_EDIT_FLAG: &str = "--batch-anim-edit";
 const BATCH_ANIM_DUMP_FLAG: &str = "--batch-anim-dump";
+const BATCH_FLAME_TRACE_FLAG: &str = "--batch-flame-trace";
+const BATCH_WALL_PROBE_FLAG: &str = "--batch-wall-probe";
 const BATCH_DEBUG_ACTION_FLAG: &str = "--batch-debug-action";
 pub const BATCH_LIST_DEBUG_ACTIONS_FLAG: &str = "--batch-list-debug-actions";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
@@ -77,8 +79,9 @@ pub struct EngineCliOverrides {
     pub anim_edits: Vec<BatchAnimEdit>,
     pub anim_dump_path: Option<String>,
     pub debug_actions: Vec<BatchDebugAction>,
+    pub flame_trace_path: Option<String>,
+    pub wall_probe_path: Option<String>,
 }
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum BatchAnimEdit {
     DebugKeys {
@@ -149,6 +152,8 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         anim_edits: anim_edits_resolve_from_args(args)?,
         anim_dump_path: flag_value_resolve_from_args(args, BATCH_ANIM_DUMP_FLAG)?,
         debug_actions: debug_actions_resolve_from_args(args)?,
+        flame_trace_path: flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?,
+        wall_probe_path: flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?,
     })
 }
 
@@ -248,6 +253,10 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
         batch.stride = stride;
         batch.sequence_dir = Some(PathBuf::from(dir));
         batch.total_count = count;
+        batch.flame_trace_path =
+            flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
+        batch.wall_probe_path =
+            flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?.map(PathBuf::from);
         Ok(Some(batch))
     } else {
         // Single-shot mode (existing behavior)
@@ -285,6 +294,10 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
 
         let mut batch = BatchRun::new(output, screenshot_frame, flame_set);
         batch.dump_wall_probe = dump_wall_probe;
+        batch.flame_trace_path =
+            flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
+        batch.wall_probe_path =
+            flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?.map(PathBuf::from);
         Ok(Some(batch))
     }
 }
@@ -444,6 +457,9 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "boundary_freq",
     "boundary_speed",
     "boundary_radius_ratio",
+    "edge_outer_sharpen",
+    "noise_scale_mode",
+    "erosion_noise_gain",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -830,6 +846,9 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "boundary_freq" => effect.boundary_freq = *value,
             "boundary_speed" => effect.boundary_speed = *value,
             "boundary_radius_ratio" => effect.boundary_radius_ratio = *value,
+            "edge_outer_sharpen" => effect.edge_outer_sharpen = *value,
+            "noise_scale_mode" => effect.noise_scale_mode = *value,
+            "erosion_noise_gain" => effect.erosion_noise_gain = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }
@@ -959,7 +978,94 @@ pub fn batch_run_record_screenshot(world: &World, save_result: Result<String, St
 
     // Single-shot mode (existing behavior)
     let result = save_result.and_then(|saved| move_screenshot_to_output(&saved, &batch.output));
+
+    // Flame trace / wall probe dumps: if paths are set, dump synchronously
+    // at the same frame/time as the screenshot.
+    let flame_trace_path = batch.flame_trace_path.clone();
+    let wall_probe_path = batch.wall_probe_path.clone();
+    if flame_trace_path.is_some() || wall_probe_path.is_some() {
+        crate::ecs::systems::batch_run_flame_dump(
+            world,
+            flame_trace_path.as_deref(),
+            wall_probe_path.as_deref(),
+        );
+    }
+
     batch.state = BatchRunState::Completed { result };
+}
+
+pub fn batch_run_flame_dump(
+    world: &World,
+    flame_trace_path: Option<&std::path::Path>,
+    wall_probe_path: Option<&std::path::Path>,
+) {
+    use crate::ecs::systems::camera_systems::{
+        compute_camera_direction, compute_camera_position, compute_camera_right, compute_camera_up,
+    };
+
+    let camera = (*world.resource::<crate::ecs::resource::Camera>()).clone();
+    let settings = world
+        .get_resource::<crate::ecs::resource::FlameRenderSettings>()
+        .map(|s| *s)
+        .unwrap_or_default();
+    let view = thyllore_effect_core::WallProbeView {
+        position: compute_camera_position(&camera).into(),
+        forward: compute_camera_direction(&camera).into(),
+        right: compute_camera_right(&camera).into(),
+        up: compute_camera_up(&camera).into(),
+        fov_y_radians: camera.fov_y.0.to_radians(),
+        viewport_size_px: [1680.0, 840.0],
+    };
+
+    let flames: Vec<_> = world
+        .query_flames()
+        .into_iter()
+        .filter_map(|entity| {
+            let effect = world.get_component::<crate::ecs::component::FlameEffect>(entity)?;
+            let baked = world
+                .get_component::<crate::ecs::component::FlameBaked>(entity)
+                .cloned()
+                .unwrap_or_default();
+            let temporal = world
+                .get_component::<crate::ecs::component::FlameTemporalAccum>(entity)
+                .cloned()
+                .unwrap_or_default();
+            let report = thyllore_effect_core::probe_flame_wall(&effect, &baked, &view);
+            Some((effect.clone(), baked, temporal, report))
+        })
+        .collect();
+    if flames.is_empty() {
+        log_warn!("batch flame dump skipped: no flame entity");
+        return;
+    }
+
+    if let Some(path) = wall_probe_path {
+        match crate::ecs::systems::flame_dump_systems::write_flame_wall_probe_dump(
+            &camera,
+            &settings,
+            [1680.0, 840.0],
+            &flames,
+            Some(path),
+        ) {
+            Ok(p) => log!("wall probe dumped to {}", p.display()),
+            Err(e) => log_warn!("wall probe dump failed: {}", e),
+        }
+    }
+
+    if let Some(path) = flame_trace_path {
+        match crate::ecs::systems::flame_dump_systems::write_flame_field_traces(
+            &view,
+            &flames,
+            Some(path),
+        ) {
+            Ok(paths) => {
+                for p in paths {
+                    log!("flame field trace dumped to {}", p.display());
+                }
+            }
+            Err(e) => log_warn!("flame field trace dump failed: {}", e),
+        }
+    }
 }
 
 fn move_screenshot_to_output(saved: &str, output: &Path) -> Result<String, String> {

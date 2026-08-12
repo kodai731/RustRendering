@@ -354,6 +354,16 @@ pub struct FlameEffectData {
     pub support_margin: f32,
     #[serde(default)]
     pub meander_amp: f32,
+    #[serde(default)]
+    pub edge_outer_sharpen: f32,
+    #[serde(default)]
+    pub noise_scale_mode: f32,
+    #[serde(default = "default_erosion_noise_gain")]
+    pub erosion_noise_gain: f32,
+}
+
+fn default_erosion_noise_gain() -> f32 {
+    1.0
 }
 
 fn default_swirl_speed() -> f32 {
@@ -527,6 +537,9 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             swirl_speed: effect.swirl_speed,
             spread_gain: effect.spread_gain,
             support_margin: effect.support_margin,
+            edge_outer_sharpen: effect.edge_outer_sharpen,
+            noise_scale_mode: effect.noise_scale_mode,
+            erosion_noise_gain: effect.erosion_noise_gain,
             meander_amp: effect.meander_amp,
             edge_temperature_blend: effect.edge_temperature_blend,
         },
@@ -651,6 +664,9 @@ pub fn apply_flame_state_to_world(
         effect.swirl_speed = flame.effect.swirl_speed;
         effect.support_margin = flame.effect.support_margin;
         effect.meander_amp = flame.effect.meander_amp;
+        effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
+        effect.noise_scale_mode = flame.effect.noise_scale_mode;
+        effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
@@ -836,6 +852,9 @@ mod tests {
                 swirl_speed: 1.0,
                 spread_gain: 0.0,
                 support_margin: 1.0,
+                edge_outer_sharpen: 0.0,
+                noise_scale_mode: 0.0,
+                erosion_noise_gain: 1.0,
                 meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {
@@ -985,6 +1004,9 @@ mod tests {
                 swirl_speed: 1.0,
                 spread_gain: 0.0,
                 support_margin: 1.0,
+                edge_outer_sharpen: 0.0,
+                noise_scale_mode: 0.0,
+                erosion_noise_gain: 1.0,
                 meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {
