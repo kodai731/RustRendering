@@ -657,7 +657,17 @@ fn build_flame_section(
             ui.slider("Fit Blend", 0.0, 1.0, &mut overlay_state.texture_fit_blend);
             ui.checkbox("Silhouette", &mut overlay_state.texture_fit_groups[0]);
             ui.checkbox("Color", &mut overlay_state.texture_fit_groups[1]);
-            ui.checkbox("Turbulence", &mut overlay_state.texture_fit_groups[2]);
+            {
+                let _disabled = ui.begin_disabled(overlay_state.texture_fit_profile);
+                ui.checkbox("Turbulence", &mut overlay_state.texture_fit_groups[2]);
+            }
+            if overlay_state.texture_fit_profile && ui.is_item_hovered() {
+                ui.tooltip_text(
+                    "Ignored in profile (reproduction) mode: the turbulence \
+                     estimate is far below the calibrated pattern amplitude \
+                     and would crush the noise",
+                );
+            }
             ui.checkbox("Tilt", &mut overlay_state.texture_fit_groups[3]);
 
             // Fidelity radio button
@@ -805,6 +815,26 @@ fn build_flame_section(
                         );
                     }
 
+                    let mut vortex = (effect_copy.twist_gain
+                        / thyllore_effect_core::VORTEX_MACRO_MAX_GAIN)
+                        .clamp(0.0, 1.0);
+                    if ui
+                        .slider_config("Vortex", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut vortex)
+                    {
+                        let (gain, speed) = thyllore_effect_core::vortex_macro_levers(vortex);
+                        effect_copy.twist_gain = gain;
+                        effect_copy.twist_speed = speed;
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Vortex macro: one knob writing both twist levers along a \
+                             faster-and-deeper curve (stateless; the fine sliders below \
+                             stay the source of truth)",
+                        );
+                    }
+
                     ui.slider_config("Twist", 0.0, 8.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.twist_gain);
@@ -813,6 +843,16 @@ fn build_flame_section(
                             "Azimuthal twist of the noise pattern around the axis \
                              (radians at the tip; a rotation never folds, so any \
                              amplitude is structurally safe; 0 = off)",
+                        );
+                    }
+
+                    ui.slider_config("Twist Speed", 0.0, 4.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.twist_speed);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Twist rotation rate scale (0 = follow Swirl Speed; > 0 gives \
+                             the twist its own rate so depth and speed tune independently)",
                         );
                     }
 

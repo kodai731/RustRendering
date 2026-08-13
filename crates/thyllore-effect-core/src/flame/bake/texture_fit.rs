@@ -416,6 +416,21 @@ pub fn apply_texture_fit(
         return;
     }
 
+    // Profile (reproduction) mode never writes the turbulence group: the
+    // amplitude heuristic in fit_turbulence_and_tilt is bounded to [0.2, 0.8]
+    // — an order of magnitude under the calibrated erosion working point — so
+    // applying it only crushes the procedural pattern the baked silhouette is
+    // supposed to sit on. Turbulence stays a statistics-mode concern until the
+    // estimator is recalibrated against the forward model.
+    let groups = if profile {
+        TextureFitGroups {
+            turbulence: false,
+            ..groups
+        }
+    } else {
+        groups
+    };
+
     // Silhouette
     if groups.silhouette {
         effect.envelope_peak =
@@ -661,6 +676,56 @@ mod tests {
         // Tilt fields should be unchanged
         assert_eq!(effect.wind_direction, original_wind_direction);
         assert!((effect.bend_amount - original_bend_amount).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_apply_profile_mode_never_writes_turbulence() {
+        let mut effect = crate::flame::FlameEffect::default();
+        effect.noise_amplitude = 6.0;
+        let original_noise_amplitude = effect.noise_amplitude;
+        let original_noise_frequency = effect.noise_frequency;
+        let original_contour_wiggle_amp = effect.contour_wiggle_amp;
+
+        let fit = FlameTextureFit {
+            envelope_peak: 2.0,
+            envelope_base: 0.5,
+            envelope_tail: 0.1,
+            radius: 1.0,
+            radius_tip_ratio: 0.3,
+            taper_power: 4.0,
+            color_bands: [[1.0, 0.0, 0.0], [1.0, 0.5, 0.0], [0.0, 0.0, 1.0]],
+            temperature_base_k: 3000.0,
+            temperature_tip_k: 1500.0,
+            use_blackbody: true,
+            noise_amplitude: 0.49,
+            contour_wiggle_amp: 0.6,
+            noise_frequency: 5.0,
+            wind_x: 1.0,
+            wind_z: 0.5,
+            bend_amount: 0.9,
+            suggested_instances: 1,
+            envelope_profile: [0.0; 33],
+            radius_profile: [0.0; 33],
+            color_ramp: [[0.0; 3]; 8],
+        };
+        apply_texture_fit(
+            &mut effect,
+            &mut Default::default(),
+            &fit,
+            TextureFitGroups {
+                silhouette: true,
+                color: true,
+                turbulence: true,
+                tilt: true,
+            },
+            1.0,
+            true,
+        );
+
+        assert!((effect.noise_amplitude - original_noise_amplitude).abs() < 1e-6);
+        assert!((effect.noise_frequency - original_noise_frequency).abs() < 1e-6);
+        assert!((effect.contour_wiggle_amp - original_contour_wiggle_amp).abs() < 1e-6);
+        assert!((effect.envelope_peak - fit.envelope_peak).abs() < 1e-6);
     }
 
     #[test]

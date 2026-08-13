@@ -90,6 +90,7 @@ pub fn build_effect_json(
     value["noise_scale_mode"] = json!(effect.noise_scale_mode);
     value["erosion_noise_gain"] = json!(effect.erosion_noise_gain);
     value["twist_gain"] = json!(effect.twist_gain);
+    value["twist_speed"] = json!(effect.twist_speed);
     value["noise_shaping_scale"] = json!(effect.noise_shaping_scale);
     value["meander_amp"] = json!(effect.meander_amp);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);

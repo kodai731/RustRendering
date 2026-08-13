@@ -673,9 +673,13 @@ impl<'a> UboCtx<'a> {
         const TWIST_PSI2: f32 = 2.9;
         const TWIST_A1: f32 = 0.65;
         const TWIST_A2: f32 = 0.35;
-        let swirl_speed = self.u.support_margin[2];
-        let omega1 = swirl_speed * 0.497;
-        let omega2 = swirl_speed * 0.690;
+        let rate_scale = if self.u.support_margin[3] > 0.0 {
+            self.u.support_margin[3]
+        } else {
+            self.u.support_margin[2]
+        };
+        let omega1 = rate_scale * 0.497;
+        let omega2 = rate_scale * 0.690;
         let t = self.u.time;
         let radial = TWIST_CORE_R2 / (r_squared + TWIST_CORE_R2);
         self.u.spread_params[2]
@@ -2200,6 +2204,35 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// twist_speed = 0 delegates the twist rate to swirl_speed; > 0 owns it.
+    #[test]
+    fn test_twist_speed_delegates_to_swirl_speed_at_zero() {
+        let baked = Default::default();
+        let trail = Default::default();
+        let mut effect = FlameEffect::default();
+        effect.twist_gain = 2.0;
+        effect.time = 1.7;
+
+        effect.swirl_speed = 1.3;
+        effect.twist_speed = 0.0;
+        let ubo_delegate = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let delegate = UboCtx::new(&ubo_delegate, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
+
+        effect.swirl_speed = 0.4;
+        effect.twist_speed = 1.3;
+        let ubo_own = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let own = UboCtx::new(&ubo_own, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
+        assert_eq!(delegate, own, "twist_speed must override the rate exactly");
+
+        effect.twist_speed = 2.6;
+        let ubo_fast = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let fast = UboCtx::new(&ubo_fast, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
+        assert_ne!(
+            delegate, fast,
+            "a different twist_speed must change the angle"
+        );
     }
 
     /// The Faddeeva estimator must produce finite, non-trivial emission on

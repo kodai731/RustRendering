@@ -345,6 +345,14 @@ fn draw_playhead_handle(draw_list: &imgui::DrawListMut, x: f32, y: f32, ruler_he
         .build();
 }
 
+/// Raw-io mouse handling below must not react while the pointer is over a
+/// window stacked above the timeline (e.g. the scene overlay panel) or while
+/// another widget is being dragged — otherwise a slider drag in the overlay
+/// falls through and scrubs the playhead underneath.
+fn timeline_pointer_available(ui: &imgui::Ui) -> bool {
+    ui.is_window_hovered() && !ui.is_any_item_active()
+}
+
 fn handle_scrub_interaction(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
@@ -368,7 +376,7 @@ fn handle_scrub_interaction(
         && mouse_pos[1] >= rect_min[1]
         && mouse_pos[1] <= rect_max[1];
 
-    if !interaction.scrubbing && !is_mouse_in_ruler {
+    if !interaction.scrubbing && !(is_mouse_in_ruler && timeline_pointer_available(ui)) {
         return;
     }
 
@@ -420,8 +428,10 @@ fn build_clip_tracks_section(
     let pixels_per_second = PIXELS_PER_SECOND * state.zoom_level;
     let mouse_pos = ui.io().mouse_pos;
     let mouse_down = ui.io().mouse_down[0];
-    let mouse_clicked = ui.is_mouse_clicked(imgui::MouseButton::Left);
-    let mouse_double_clicked = ui.is_mouse_double_clicked(imgui::MouseButton::Left);
+    let pointer_available = timeline_pointer_available(ui);
+    let mouse_clicked = ui.is_mouse_clicked(imgui::MouseButton::Left) && pointer_available;
+    let mouse_double_clicked =
+        ui.is_mouse_double_clicked(imgui::MouseButton::Left) && pointer_available;
 
     handle_clip_drag_release(ui, ui_events, interaction, pixels_per_second);
 

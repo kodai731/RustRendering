@@ -628,7 +628,9 @@ float flameMediumSpreadScale(float h) {
 // A rotation is a per-shell bijection for ANY angle — no fold — so the gain
 // is not strain-capped (unlike the shear warp modes). g(h) = h anchors the
 // base, matching the meander convention. spreadParams.z = twist_gain,
-// 0 = bit-identical baseline.
+// 0 = bit-identical baseline. supportParams.w = twist_speed (plan D): its
+// own rate scale so amplitude and rate fit independently from reference
+// footage (F9c / F9); 0 delegates the rate to swirl_speed (supportParams.z).
 // Mirrored in thyllore-render-debug/src/flame_field_trace.rs (twist_angle).
 float flameMediumTwistAngle(float rSquared, float h) {
     const float TWIST_CORE_R2 = 0.49;
@@ -638,9 +640,9 @@ float flameMediumTwistAngle(float rSquared, float h) {
     const float TWIST_PSI2 = 2.9;
     const float TWIST_A1 = 0.65;
     const float TWIST_A2 = 0.35;
-    float swirlSpeed = flame.supportParams.z;
-    float omega1 = swirlSpeed * 0.497;
-    float omega2 = swirlSpeed * 0.690;
+    float rateScale = flame.supportParams.w > 0.0 ? flame.supportParams.w : flame.supportParams.z;
+    float omega1 = rateScale * 0.497;
+    float omega2 = rateScale * 0.690;
     float radial = TWIST_CORE_R2 / (rSquared + TWIST_CORE_R2);
     return flame.spreadParams.z * radial * h
         * (TWIST_A1 * cos(TWIST_KAPPA1 * h - omega1 * flame.time + TWIST_PSI1)

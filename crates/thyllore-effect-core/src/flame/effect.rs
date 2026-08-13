@@ -108,6 +108,11 @@ pub struct FlameEffect {
     /// folds, so unlike the shear warp modes this gain has no strain cap.
     /// 0 = off (bit-identical baseline).
     pub twist_gain: f32,
+    /// Medium twist rate scale (V design, plan D): omega_j = twist_speed *
+    /// (kappa_j / 2pi)^(2/3). 0 delegates to swirl_speed (the pre-plan-D
+    /// behavior), > 0 gives the twist its own rate so amplitude (twist_gain)
+    /// and rate stay independently fittable from reference footage (F9c / F9).
+    pub twist_speed: f32,
     /// tanh shaping scale override for the wave noise (0 = keep the built-in
     /// WAVE_TANH_SCALE / env default). The default 0.6 clips shaped noise at
     /// +-0.279 around the mean, crushing interior pattern contrast; raising
@@ -185,6 +190,7 @@ impl Default for FlameEffect {
             noise_scale_mode: 0.0,
             erosion_noise_gain: 1.0,
             twist_gain: 0.0,
+            twist_speed: 0.0,
             noise_shaping_scale: 0.0,
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
@@ -193,6 +199,20 @@ impl Default for FlameEffect {
 }
 
 pub(crate) const MIN_FLAME_EXTENT: f32 = 1e-3;
+
+/// Vortex macro (plan D): one UI knob v in [0, 1] mapped onto both twist
+/// levers along a monotone "faster and deeper" curve. The macro is a
+/// stateless write-through — the two levers stay the single source of truth
+/// (a fit can still write them independently) and the knob position shown in
+/// the UI is derived back from twist_gain alone. The curve constants are
+/// provisional until the F9 gate calibration lands.
+pub const VORTEX_MACRO_MAX_GAIN: f32 = 6.0;
+pub const VORTEX_MACRO_MAX_SPEED: f32 = 2.0;
+
+pub fn vortex_macro_levers(v: f32) -> (f32, f32) {
+    let v = v.clamp(0.0, 1.0);
+    (VORTEX_MACRO_MAX_GAIN * v, VORTEX_MACRO_MAX_SPEED * v)
+}
 
 pub fn advance_flame_time(effect: &mut FlameEffect, delta_time: f32) {
     effect.time += delta_time.max(0.0);
@@ -220,4 +240,26 @@ pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
     Matrix4::from_nonuniform_scale(1.0 / radius, 1.0 / height, 1.0 / radius)
         * Matrix4::from(effect.rotation.conjugate())
         * Matrix4::from_translation(-effect.position)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vortex_macro_is_monotone_and_off_at_zero() {
+        assert_eq!(vortex_macro_levers(0.0), (0.0, 0.0));
+        assert_eq!(
+            vortex_macro_levers(1.0),
+            (VORTEX_MACRO_MAX_GAIN, VORTEX_MACRO_MAX_SPEED)
+        );
+        assert_eq!(vortex_macro_levers(2.0), vortex_macro_levers(1.0));
+        assert_eq!(vortex_macro_levers(-1.0), vortex_macro_levers(0.0));
+        let mut previous = vortex_macro_levers(0.0);
+        for step in 1..=10 {
+            let current = vortex_macro_levers(step as f32 / 10.0);
+            assert!(current.0 > previous.0 && current.1 > previous.1);
+            previous = current;
+        }
+    }
 }
