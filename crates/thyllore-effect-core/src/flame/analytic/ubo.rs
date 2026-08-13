@@ -447,15 +447,16 @@ pub fn build_warp_strain_params(effect: &FlameEffect) -> [f32; 4] {
     )
 }
 
-/// x = 1 for the displacement form, 0 for the sequential composition; yzw spare.
-fn build_warp_form_params() -> [f32; 4] {
+/// x = 1 for the displacement form, 0 for the sequential composition,
+/// y = burnout_gain (D design: age-driven erosion mean deepening); zw spare.
+fn build_warp_form_params(effect: &FlameEffect) -> [f32; 4] {
     [
         if read_env_warp_form_displacement() {
             1.0
         } else {
             0.0
         },
-        0.0,
+        effect.burnout_gain,
         0.0,
         0.0,
     ]
@@ -619,7 +620,7 @@ pub fn build_flame_ubo(
         wave_params: wave_fields.0,
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
-        warp_form_params: build_warp_form_params(),
+        warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
         spread_params: build_medium_spread_params(effect),
         support_margin: [
@@ -1015,7 +1016,7 @@ pub fn build_flame_ubo_with_trail(
         wave_params: wave_fields.0,
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
-        warp_form_params: build_warp_form_params(),
+        warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
         spread_params: build_medium_spread_params(effect),
         support_margin: [

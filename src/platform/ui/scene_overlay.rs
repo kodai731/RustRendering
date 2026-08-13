@@ -867,6 +867,31 @@ fn build_flame_section(
                         );
                     }
 
+                    ui.slider_config("Burnout", 0.0, 32.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.burnout_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Age-driven burnout of the rising material: deepens the erosion \
+                             mean toward the flame top so noise troughs sever the column \
+                             (base shedding) and detached tongues dissolve (0 = off; \
+                             the range above ~8 is debug headroom for making the severing \
+                             obvious, pair with Carve Residual 0)",
+                        );
+                    }
+
+                    ui.slider_config("Carve Residual", 0.0, 0.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.carve_residual);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Translucent floor left where the noise carves the medium away. \
+                             0 = fully carved spans become hard holes — the severing moment \
+                             of Burnout is only visible near 0 (debug); the product look \
+                             keeps ~0.12",
+                        );
+                    }
+
                     ui.slider_config("Meander", 0.0, 2.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.meander_amp);

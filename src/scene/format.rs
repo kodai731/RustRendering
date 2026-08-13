@@ -365,6 +365,8 @@ pub struct FlameEffectData {
     #[serde(default)]
     pub twist_speed: f32,
     #[serde(default)]
+    pub burnout_gain: f32,
+    #[serde(default)]
     pub noise_shaping_scale: f32,
 }
 
@@ -548,6 +550,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             erosion_noise_gain: effect.erosion_noise_gain,
             twist_gain: effect.twist_gain,
             twist_speed: effect.twist_speed,
+            burnout_gain: effect.burnout_gain,
             noise_shaping_scale: effect.noise_shaping_scale,
             meander_amp: effect.meander_amp,
             edge_temperature_blend: effect.edge_temperature_blend,
@@ -683,6 +686,7 @@ pub fn apply_flame_state_to_world(
         effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
         effect.twist_gain = flame.effect.twist_gain;
         effect.twist_speed = flame.effect.twist_speed;
+        effect.burnout_gain = flame.effect.burnout_gain;
         effect.noise_shaping_scale = flame.effect.noise_shaping_scale;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
@@ -874,6 +878,7 @@ mod tests {
                 erosion_noise_gain: 1.0,
                 twist_gain: 0.0,
                 twist_speed: 0.0,
+                burnout_gain: 0.0,
                 noise_shaping_scale: 0.0,
                 meander_amp: 0.0,
             },
@@ -1029,6 +1034,7 @@ mod tests {
                 erosion_noise_gain: 1.0,
                 twist_gain: 0.0,
                 twist_speed: 0.0,
+                burnout_gain: 0.0,
                 noise_shaping_scale: 0.0,
                 meander_amp: 0.0,
             },

@@ -462,6 +462,7 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "erosion_noise_gain",
     "twist_gain",
     "twist_speed",
+    "burnout_gain",
     "noise_shaping_scale",
 ];
 
@@ -854,6 +855,7 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "erosion_noise_gain" => effect.erosion_noise_gain = *value,
             "twist_gain" => effect.twist_gain = *value,
             "twist_speed" => effect.twist_speed = *value,
+            "burnout_gain" => effect.burnout_gain = *value,
             "noise_shaping_scale" => effect.noise_shaping_scale = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }

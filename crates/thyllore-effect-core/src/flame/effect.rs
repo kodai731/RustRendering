@@ -113,6 +113,15 @@ pub struct FlameEffect {
     /// behavior), > 0 gives the twist its own rate so amplitude (twist_gain)
     /// and rate stay independently fittable from reference footage (F9c / F9).
     pub twist_speed: f32,
+    /// Burnout gain (D design): deepening of the deterministic erosion mean
+    /// shrink toward the flame's own luminous top, mean_shrink'(h) =
+    /// mean_shrink(h) * (1 + burnout_gain * exp(-mu(h) / mu0)) — the same
+    /// remaining-luminous-fraction asymptote as the tip carve, sharing
+    /// tip_carve_reach as mu0. The boost pushes the upper column toward the
+    /// cut threshold so the stochastic noise troughs actually sever the
+    /// support (base shedding, F7) and detached parcels rising into smaller
+    /// mu burn away (dissipation). 0 = off (bit-identical baseline).
+    pub burnout_gain: f32,
     /// tanh shaping scale override for the wave noise (0 = keep the built-in
     /// WAVE_TANH_SCALE / env default). The default 0.6 clips shaped noise at
     /// +-0.279 around the mean, crushing interior pattern contrast; raising
@@ -191,6 +200,7 @@ impl Default for FlameEffect {
             erosion_noise_gain: 1.0,
             twist_gain: 0.0,
             twist_speed: 0.0,
+            burnout_gain: 0.0,
             noise_shaping_scale: 0.0,
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());

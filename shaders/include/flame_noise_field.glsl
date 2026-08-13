@@ -833,11 +833,31 @@ float flameTipCarveLambda(float h) {
 const float FLAME_EROSION_MEAN_SHRINK = 0.0875;
 const float FLAME_PLATEAU_CARVE_BOOST = 1.0;
 const float FLAME_EROSION_SHELL_REF = 0.30;
+
+// Burnout (D design): age-driven deepening of the deterministic mean shrink,
+// mean' = mean * (1 + burnout_gain * B(h)) with B = exp(-mu(h) / mu0) — the
+// same remaining-luminous-fraction asymptote as the tip carve and the L3
+// spread, sharing tip_carve_reach (mu0 = tipCarveParams.y inverse). Anchoring
+// on mu instead of raw h keeps the boost inside the flame's own luminous top
+// for any envelope (an h-threshold form sat above the visible column and did
+// nothing, measured 2026-08-13). The boost lifts the mean toward the cut
+// threshold so the existing stochastic troughs actually sever the support
+// (base shedding) and detached parcels rising into smaller mu burn away
+// (dissipation). The exp asymptote is smooth — the mean alone never steps
+// (fringe gate E(h) condition); severing only happens where a noise trough
+// adds on top. burnout_gain = 0 is bit-identical to the pre-burnout field.
+// Mirrored in thyllore-render-debug/src/flame_field_trace.rs (burnout_boost).
+float flameBurnoutBoost(float h) {
+    return flame.warpFormParams.y
+        * exp(-flameEnvelopeRemainingMu(h) * flame.tipCarveParams.y);
+}
+
 float flameNoiseErosionFromValue(float noise, float h, float density, float uSquared) {
     float relative = flame.spreadParams.w * flameTipCarveLambda(h) * (density / FLAME_EROSION_SHELL_REF)
         * (noise - 0.4375);
     return flame.noiseAmplitude
-        * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK + FLAME_PLATEAU_CARVE_BOOST * flamePlateauCarveReach(uSquared) + relative);
+        * (mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK * (1.0 + flameBurnoutBoost(h))
+            + FLAME_PLATEAU_CARVE_BOOST * flamePlateauCarveReach(uSquared) + relative);
 }
 
 // Response through the (optionally relative) window: unified keeps the

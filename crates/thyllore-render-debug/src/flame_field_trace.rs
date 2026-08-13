@@ -527,6 +527,14 @@ impl<'a> UboCtx<'a> {
         1.0 + tc[0] * (-self.envelope_remaining_mu(h) * tc[1]).exp()
     }
 
+    /// Mirror of flameBurnoutBoost (D design): remaining-luminous-fraction
+    /// deepening factor of the deterministic erosion mean shrink.
+    /// warp_form_params.y = burnout gain, tip_carve_params.y = 1/reach.
+    fn burnout_boost(&self, h: f32) -> f32 {
+        self.u.warp_form_params[1]
+            * (-self.envelope_remaining_mu(h) * self.u.tip_carve_params[1]).exp()
+    }
+
     /// Mirror of flameCarveResidualOuterGate in flame_noise_field.glsl:
     /// Hermite smoothstep from inner (pre-expanded support edge in u^2 units) to 1.0.
     /// margin <= 1.0 returns 0.0 (no boost).
@@ -852,7 +860,7 @@ impl<'a> UboCtx<'a> {
         let mu = self.envelope_remaining_mu(h);
         let strain = self.warp_strain(h);
         let erosion = self.u.noise_amplitude
-            * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+            * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + self.burnout_boost(h))
                 + PLATEAU_CARVE_BOOST * self.flame_plateau_carve_reach(u_squared)
                 + self.u.spread_params[3]
                     * lambda
@@ -1221,7 +1229,7 @@ fn mean_argument_at(ctx: &UboCtx, o: [f32; 3], d: [f32; 3], t: f32) -> f32 {
         0.0
     };
     let mean_erosion = ctx.u.noise_amplitude
-        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + ctx.burnout_boost(h))
             + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared));
     ctx.eroded_argument(density, mean_erosion)
 }
@@ -1269,7 +1277,7 @@ fn argument_with_slow(
     };
     let shaped_delta = ctx.shaped_delta_mean(z_slow, sigma_fast);
     let erosion = ctx.u.noise_amplitude
-        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + ctx.burnout_boost(h))
             + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared)
             + ctx.u.spread_params[3]
                 * ctx.tip_carve_lambda(h)
@@ -2235,6 +2243,42 @@ mod tests {
         assert_ne!(
             delegate, fast,
             "a different twist_speed must change the angle"
+        );
+    }
+
+    /// Burnout (D design): gain 0 leaves the boost at exactly 0, a positive
+    /// gain deepens the mean shrink toward the luminous top (mu asymptote,
+    /// near-zero at the base), and a larger tip_carve_reach descends deeper.
+    #[test]
+    fn test_burnout_boost_zero_off_and_mu_monotone() {
+        let baked = Default::default();
+        let trail = Default::default();
+        let mut effect = FlameEffect::default();
+        let ubo_off = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let off = UboCtx::new(&ubo_off, [0.0, 0.5, 3.0]);
+        for h in [0.0, 0.5, 1.0] {
+            assert_eq!(off.burnout_boost(h), 0.0);
+        }
+
+        effect.burnout_gain = 2.0;
+        let ubo_on = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let on = UboCtx::new(&ubo_on, [0.0, 0.5, 3.0]);
+        let base = on.burnout_boost(0.0);
+        let mid = on.burnout_boost(0.5);
+        let top = on.burnout_boost(1.0);
+        assert!(base < 0.05, "the base must stay essentially untouched");
+        assert!(
+            top > mid && mid > base,
+            "boost must deepen toward the luminous top"
+        );
+        assert!(top <= effect.burnout_gain);
+
+        effect.tip_carve_reach *= 4.0;
+        let ubo_deep = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let deep = UboCtx::new(&ubo_deep, [0.0, 0.5, 3.0]);
+        assert!(
+            deep.burnout_boost(0.5) > mid,
+            "a larger reach must burn deeper down the column"
         );
     }
 
