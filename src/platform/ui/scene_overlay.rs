@@ -804,14 +804,25 @@ fn build_flame_section(
                         );
                     }
 
-                    ui.slider_config("Noise Shaping", 0.0, 6.0)
+                    let mut noise_sharpness =
+                        thyllore_effect_core::shaping_scale_to_noise_sharpness(
+                            effect_copy.noise_shaping_scale,
+                        );
+                    if ui
+                        .slider_config("Noise Sharpness", 0.0, 1.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.noise_shaping_scale);
+                        .build(&mut noise_sharpness)
+                    {
+                        effect_copy.noise_shaping_scale =
+                            thyllore_effect_core::noise_sharpness_to_shaping_scale(noise_sharpness);
+                    }
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "tanh shaping scale of the wave noise (0 = built-in 0.6). \
-                             The default clips the pattern at +-0.28 and crushes interior \
-                             contrast; ~3 lets the pattern breathe (measured +58%)",
+                            "Crispness of the noise pattern: log remap of the tanh shaping \
+                             scale, harder edges to the right (small scale saturates the \
+                             tanh into near-binary blobs; ~0.78 = scale 0.25, the measured \
+                             perceptual sweet spot). Stateless — noise_shaping_scale stays \
+                             the source of truth (0 = built-in 0.6)",
                         );
                     }
 

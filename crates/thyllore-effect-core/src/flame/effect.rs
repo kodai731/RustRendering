@@ -214,6 +214,36 @@ pub fn vortex_macro_levers(v: f32) -> (f32, f32) {
     (VORTEX_MACRO_MAX_GAIN * v, VORTEX_MACRO_MAX_SPEED * v)
 }
 
+/// Noise Sharpness macro: one UI knob v in [0, 1] mapped onto the tanh
+/// shaping scale along a log curve, crisper to the right. Perceived crispness
+/// comes from tanh saturation (small scale binarizes the pattern into hard
+/// step edges), so the knob inverts and log-remaps the scale: the raw lever
+/// packs its whole perceptual range into [~0.1, 1] of a 0-6 span and grows
+/// softer as the value rises. Stateless write-through like the Vortex macro —
+/// `noise_shaping_scale` stays the single source of truth (fit/serde keep
+/// writing the raw scale) and the knob position is derived back from it.
+pub const NOISE_SHARPNESS_SCALE_SOFT: f32 = 6.0;
+pub const NOISE_SHARPNESS_SCALE_SHARP: f32 = 0.1;
+
+pub fn noise_sharpness_to_shaping_scale(v: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    NOISE_SHARPNESS_SCALE_SOFT * (NOISE_SHARPNESS_SCALE_SHARP / NOISE_SHARPNESS_SCALE_SOFT).powf(v)
+}
+
+/// Inverse of [`noise_sharpness_to_shaping_scale`]. A non-positive scale means
+/// "delegate to the built-in default" and derives the knob position from
+/// [`crate::flame_wave::WAVE_TANH_SCALE`].
+pub fn shaping_scale_to_noise_sharpness(scale: f32) -> f32 {
+    let scale = if scale > 0.0 {
+        scale
+    } else {
+        crate::flame_wave::WAVE_TANH_SCALE
+    };
+    let sharpness = (scale / NOISE_SHARPNESS_SCALE_SOFT).ln()
+        / (NOISE_SHARPNESS_SCALE_SHARP / NOISE_SHARPNESS_SCALE_SOFT).ln();
+    sharpness.clamp(0.0, 1.0)
+}
+
 pub fn advance_flame_time(effect: &mut FlameEffect, delta_time: f32) {
     effect.time += delta_time.max(0.0);
 }
@@ -261,5 +291,45 @@ mod tests {
             assert!(current.0 > previous.0 && current.1 > previous.1);
             previous = current;
         }
+    }
+
+    #[test]
+    fn test_noise_sharpness_endpoints_and_monotone() {
+        assert!((noise_sharpness_to_shaping_scale(0.0) - NOISE_SHARPNESS_SCALE_SOFT).abs() < 1e-5);
+        assert!((noise_sharpness_to_shaping_scale(1.0) - NOISE_SHARPNESS_SCALE_SHARP).abs() < 1e-5);
+        assert_eq!(
+            noise_sharpness_to_shaping_scale(2.0),
+            noise_sharpness_to_shaping_scale(1.0)
+        );
+        assert_eq!(
+            noise_sharpness_to_shaping_scale(-1.0),
+            noise_sharpness_to_shaping_scale(0.0)
+        );
+        let mut previous = noise_sharpness_to_shaping_scale(0.0);
+        for step in 1..=10 {
+            let current = noise_sharpness_to_shaping_scale(step as f32 / 10.0);
+            assert!(current < previous);
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn test_noise_sharpness_round_trip() {
+        for scale in [0.1_f32, 0.25, 0.6, 1.0, 3.0, 6.0] {
+            let recovered =
+                noise_sharpness_to_shaping_scale(shaping_scale_to_noise_sharpness(scale));
+            assert!(
+                (recovered - scale).abs() / scale < 1e-3,
+                "scale {scale} round-tripped to {recovered}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_noise_sharpness_delegation_matches_builtin_default() {
+        assert_eq!(
+            shaping_scale_to_noise_sharpness(0.0),
+            shaping_scale_to_noise_sharpness(crate::flame_wave::WAVE_TANH_SCALE)
+        );
     }
 }
