@@ -460,6 +460,8 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "edge_outer_sharpen",
     "noise_scale_mode",
     "erosion_noise_gain",
+    "twist_gain",
+    "noise_shaping_scale",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -849,6 +851,8 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "edge_outer_sharpen" => effect.edge_outer_sharpen = *value,
             "noise_scale_mode" => effect.noise_scale_mode = *value,
             "erosion_noise_gain" => effect.erosion_noise_gain = *value,
+            "twist_gain" => effect.twist_gain = *value,
+            "noise_shaping_scale" => effect.noise_shaping_scale = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }

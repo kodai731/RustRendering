@@ -794,6 +794,28 @@ fn build_flame_section(
                         );
                     }
 
+                    ui.slider_config("Noise Shaping", 0.0, 6.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.noise_shaping_scale);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "tanh shaping scale of the wave noise (0 = built-in 0.6). \
+                             The default clips the pattern at +-0.28 and crushes interior \
+                             contrast; ~3 lets the pattern breathe (measured +58%)",
+                        );
+                    }
+
+                    ui.slider_config("Twist", 0.0, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.twist_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Azimuthal twist of the noise pattern around the axis \
+                             (radians at the tip; a rotation never folds, so any \
+                             amplitude is structurally safe; 0 = off)",
+                        );
+                    }
+
                     ui.slider_config("Meander", 0.0, 2.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.meander_amp);

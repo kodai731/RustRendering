@@ -360,6 +360,10 @@ pub struct FlameEffectData {
     pub noise_scale_mode: f32,
     #[serde(default = "default_erosion_noise_gain")]
     pub erosion_noise_gain: f32,
+    #[serde(default)]
+    pub twist_gain: f32,
+    #[serde(default)]
+    pub noise_shaping_scale: f32,
 }
 
 fn default_erosion_noise_gain() -> f32 {
@@ -540,6 +544,8 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             edge_outer_sharpen: effect.edge_outer_sharpen,
             noise_scale_mode: effect.noise_scale_mode,
             erosion_noise_gain: effect.erosion_noise_gain,
+            twist_gain: effect.twist_gain,
+            noise_shaping_scale: effect.noise_shaping_scale,
             meander_amp: effect.meander_amp,
             edge_temperature_blend: effect.edge_temperature_blend,
         },
@@ -672,6 +678,8 @@ pub fn apply_flame_state_to_world(
         effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
         effect.noise_scale_mode = flame.effect.noise_scale_mode;
         effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
+        effect.twist_gain = flame.effect.twist_gain;
+        effect.noise_shaping_scale = flame.effect.noise_shaping_scale;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
@@ -860,6 +868,8 @@ mod tests {
                 edge_outer_sharpen: 0.0,
                 noise_scale_mode: 0.0,
                 erosion_noise_gain: 1.0,
+                twist_gain: 0.0,
+                noise_shaping_scale: 0.0,
                 meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {
@@ -1012,6 +1022,8 @@ mod tests {
                 edge_outer_sharpen: 0.0,
                 noise_scale_mode: 0.0,
                 erosion_noise_gain: 1.0,
+                twist_gain: 0.0,
+                noise_shaping_scale: 0.0,
                 meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {

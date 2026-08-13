@@ -68,12 +68,12 @@ pub fn effective_noise_aniso_y(effect: &FlameEffect) -> f32 {
 
 /// spreadParams: x = medium spread gain alpha (motion_design L3); the reach
 /// shares tipCarveParams.y in the shader. y = edge_outer_sharpen,
-/// w = erosion_noise_gain, z spare.
+/// z = twist_gain (V design), w = erosion_noise_gain.
 fn build_medium_spread_params(effect: &FlameEffect) -> [f32; 4] {
     [
         effect.spread_gain.max(0.0),
         effect.edge_outer_sharpen,
-        0.0,
+        effect.twist_gain,
         effect.erosion_noise_gain,
     ]
 }
@@ -253,7 +253,11 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
             mode.curl_direction[2],
         ];
     }
-    let tanh_scale = read_env_wave_tanh();
+    let tanh_scale = if effect.noise_shaping_scale > 0.0 {
+        effect.noise_shaping_scale
+    } else {
+        read_env_wave_tanh()
+    };
     let (inverse_scale, mut amplitude) = if tanh_scale <= 0.0 {
         (0.0, 1.0)
     } else {

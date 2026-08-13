@@ -663,16 +663,43 @@ impl<'a> UboCtx<'a> {
     /// Warped noise frame shared by the node argument and the segment mode
     /// frame: bent point, warp image, noise coordinate, its rate along the
     /// ray, and the jitter state.
+    /// flameMediumTwistAngle mirror: node-frozen azimuthal twist of the noise
+    /// coordinate (Lamb-Oseen radial profile x two counter-rotating axial modes).
+    fn twist_angle(&self, r_squared: f32, h: f32) -> f32 {
+        const TWIST_CORE_R2: f32 = 0.49;
+        const TWIST_KAPPA1: f32 = 2.2;
+        const TWIST_KAPPA2: f32 = 3.6;
+        const TWIST_PSI1: f32 = 0.7;
+        const TWIST_PSI2: f32 = 2.9;
+        const TWIST_A1: f32 = 0.65;
+        const TWIST_A2: f32 = 0.35;
+        let swirl_speed = self.u.support_margin[2];
+        let omega1 = swirl_speed * 0.497;
+        let omega2 = swirl_speed * 0.690;
+        let t = self.u.time;
+        let radial = TWIST_CORE_R2 / (r_squared + TWIST_CORE_R2);
+        self.u.spread_params[2]
+            * radial
+            * h
+            * (TWIST_A1 * (TWIST_KAPPA1 * h - omega1 * t + TWIST_PSI1).cos()
+                + TWIST_A2 * (TWIST_KAPPA2 * h + omega2 * t + TWIST_PSI2).cos())
+    }
+
     fn wave_frame(&self, p: [f32; 3], d: [f32; 3], h: f32) -> WaveFrame {
         let bend = self.bend_offset(h);
+        let mut pbu = [p[0] - bend[0], p[1], p[2] - bend[1]];
+        let mut du = d;
+        if self.u.spread_params[2] != 0.0 {
+            let r_squared = pbu[0] * pbu[0] + pbu[2] * pbu[2];
+            let phi = self.twist_angle(r_squared, h);
+            let (sp, cp) = phi.sin_cos();
+            pbu = [cp * pbu[0] - sp * pbu[2], pbu[1], sp * pbu[0] + cp * pbu[2]];
+            du = [cp * d[0] - sp * d[2], d[1], sp * d[0] + cp * d[2]];
+        }
         let spread = self.medium_spread_scale(h);
         let spread_y = 1.0 / (spread * spread);
-        let pb = [
-            (p[0] - bend[0]) * spread,
-            p[1] * spread_y,
-            (p[2] - bend[1]) * spread,
-        ];
-        let ds = [d[0] * spread, d[1] * spread_y, d[2] * spread];
+        let pb = [pbu[0] * spread, pbu[1] * spread_y, pbu[2] * spread];
+        let ds = [du[0] * spread, du[1] * spread_y, du[2] * spread];
         let (q, rate_raw) = self.flow_warp_rate(pb, ds, h);
         let cw = self.aniso_compress(q, self.u.temporal_data.z);
         let w = [

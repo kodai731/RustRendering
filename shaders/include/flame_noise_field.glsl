@@ -621,13 +621,51 @@ float flameMediumSpreadScale(float h) {
     return exp(-sigma * h);
 }
 
+// Medium twist (V design): node-frozen azimuthal rotation of the noise
+// coordinate about the bend-removed axis. Lamb-Oseen radial profile keeps the
+// angle finite on the axis; two counter-rotating axial modes advance with
+// eddy-turnover rates (like L1) so depth layers swirl against each other.
+// A rotation is a per-shell bijection for ANY angle — no fold — so the gain
+// is not strain-capped (unlike the shear warp modes). g(h) = h anchors the
+// base, matching the meander convention. spreadParams.z = twist_gain,
+// 0 = bit-identical baseline.
+// Mirrored in thyllore-render-debug/src/flame_field_trace.rs (twist_angle).
+float flameMediumTwistAngle(float rSquared, float h) {
+    const float TWIST_CORE_R2 = 0.49;
+    const float TWIST_KAPPA1 = 2.2;
+    const float TWIST_KAPPA2 = 3.6;
+    const float TWIST_PSI1 = 0.7;
+    const float TWIST_PSI2 = 2.9;
+    const float TWIST_A1 = 0.65;
+    const float TWIST_A2 = 0.35;
+    float swirlSpeed = flame.supportParams.z;
+    float omega1 = swirlSpeed * 0.497;
+    float omega2 = swirlSpeed * 0.690;
+    float radial = TWIST_CORE_R2 / (rSquared + TWIST_CORE_R2);
+    return flame.spreadParams.z * radial * h
+        * (TWIST_A1 * cos(TWIST_KAPPA1 * h - omega1 * flame.time + TWIST_PSI1)
+         + TWIST_A2 * cos(TWIST_KAPPA2 * h + omega2 * flame.time + TWIST_PSI2));
+}
+
 FlameWarpFrame flameBuildWarpFrame(vec3 p, vec3 d, float h) {
     FlameWarpFrame frame;
     frame.pb = flameNoiseBendRemoved(p, h);
+    vec3 dt = d;
+    if (flame.spreadParams.z != 0.0) {
+        float rSquared = frame.pb.x * frame.pb.x + frame.pb.z * frame.pb.z;
+        float phi = flameMediumTwistAngle(rSquared, h);
+        float cp = cos(phi);
+        float sp = sin(phi);
+        frame.pb = vec3(
+            cp * frame.pb.x - sp * frame.pb.z,
+            frame.pb.y,
+            sp * frame.pb.x + cp * frame.pb.z);
+        dt = vec3(cp * d.x - sp * d.z, d.y, sp * d.x + cp * d.z);
+    }
     float spread = flameMediumSpreadScale(h);
     float spreadY = 1.0 / (spread * spread);
     frame.pb = vec3(frame.pb.x * spread, frame.pb.y * spreadY, frame.pb.z * spread);
-    vec3 ds = vec3(d.x * spread, d.y * spreadY, d.z * spread);
+    vec3 ds = vec3(dt.x * spread, dt.y * spreadY, dt.z * spread);
     vec3 rateRaw = flameWaveFlowWarpRate(frame.pb, ds, h, frame.q);
     frame.w = flameAnisoCompress(frame.q, flame.temporalData.z) * flame.noiseFrequency
         - flameNoiseAdvect();

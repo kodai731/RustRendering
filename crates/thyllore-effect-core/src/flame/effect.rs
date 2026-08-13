@@ -103,6 +103,18 @@ pub struct FlameEffect {
     pub edge_outer_sharpen: f32,
     pub noise_scale_mode: f32,
     pub erosion_noise_gain: f32,
+    /// Medium twist gain (V design): amplitude (radians at the axis, tip) of the
+    /// node-frozen azimuthal rotation of the noise coordinate. A rotation never
+    /// folds, so unlike the shear warp modes this gain has no strain cap.
+    /// 0 = off (bit-identical baseline).
+    pub twist_gain: f32,
+    /// tanh shaping scale override for the wave noise (0 = keep the built-in
+    /// WAVE_TANH_SCALE / env default). The default 0.6 clips shaped noise at
+    /// +-0.279 around the mean, crushing interior pattern contrast; raising
+    /// the scale softens the clip while the variance-preserving amplitude
+    /// normalization keeps the silhouette calibration. The sigmaEff chain
+    /// reads the same shaping params, so the closed form stays in sync.
+    pub noise_shaping_scale: f32,
 }
 
 impl Default for FlameEffect {
@@ -172,6 +184,8 @@ impl Default for FlameEffect {
             edge_outer_sharpen: 0.0,
             noise_scale_mode: 0.0,
             erosion_noise_gain: 1.0,
+            twist_gain: 0.0,
+            noise_shaping_scale: 0.0,
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect
