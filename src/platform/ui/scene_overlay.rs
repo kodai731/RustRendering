@@ -845,13 +845,13 @@ fn build_flame_section(
                         .display_format("%.2f")
                         .build(&mut vortex)
                     {
-                        let (gain, speed) = thyllore_effect_core::vortex_macro_levers(vortex);
+                        let (gain, speed) = thyllore_effect_core::vortex_macro_parameters(vortex);
                         effect_copy.twist_gain = gain;
                         effect_copy.twist_speed = speed;
                     }
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Vortex macro: one knob writing both twist levers along a \
+                            "Vortex macro: one knob writing both twist parameters along a \
                              faster-and-deeper curve (stateless; the fine sliders below \
                              stay the source of truth)",
                         );

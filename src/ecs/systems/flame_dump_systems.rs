@@ -325,7 +325,7 @@ pub fn build_wall_probe_json(report: &thyllore_effect_core::WallProbeReport) -> 
     })
 }
 
-/// Declared field composition for the dump: which noise was active, driving what, gated by which lever.
+/// Declared field composition for the dump: which noise was active, driving what, gated by which parameter.
 pub fn build_field_manifest_json(manifest: &thyllore_effect_core::FieldManifest) -> Value {
     json!({
         "summary": manifest.summary(),
@@ -342,7 +342,7 @@ pub fn build_field_manifest_json(manifest: &thyllore_effect_core::FieldManifest)
         "influences": manifest.influences.iter().map(|i| json!({
             "source": i.source.as_str(),
             "target": i.target.as_str(),
-            "lever": i.lever,
+            "parameter": i.parameter,
             "active": i.active,
         })).collect::<Vec<_>>(),
     })
@@ -639,7 +639,7 @@ mod tests {
     }
 
     #[test]
-    fn field_manifest_json_names_sources_targets_and_levers() {
+    fn field_manifest_json_names_sources_targets_and_parameters() {
         let mut effect = sample_effect();
         effect.noise_amplitude = 1.5;
         effect.boundary_amp = 0.2;
@@ -657,7 +657,7 @@ mod tests {
         let first = &value["influences"][0];
         assert!(first["source"].is_string());
         assert!(first["target"].is_string());
-        assert!(first["lever"].is_string());
+        assert!(first["parameter"].is_string());
         assert!(first["active"].is_boolean());
     }
 

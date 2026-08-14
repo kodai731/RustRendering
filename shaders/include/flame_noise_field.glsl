@@ -45,7 +45,7 @@ float flamePlateauRadialFactor(float uSquared) {
 }
 
 // Support radius S of the biweight profile in R(h) units. The curvature at the axis
-// matches the former Gaussian exp(-radialSharpness * u^2), so the sharpness lever
+// matches the former Gaussian exp(-radialSharpness * u^2), so the sharpness parameter
 // keeps its direction; the shell headroom bounds the support so the proxy never cuts.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (flame_radial_support_radius).
 float flameRadialSupportRadius() {

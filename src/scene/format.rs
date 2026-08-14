@@ -827,66 +827,87 @@ mod tests {
         );
     }
 
+    fn sample_flame_effect_data() -> FlameEffectData {
+        FlameEffectData {
+            position: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            height: 1.0,
+            radius: 0.5,
+            sigma_t: 0.3,
+            intensity: 1.0,
+            color_base: [1.0, 0.5, 0.0],
+            color_tip: [1.0, 1.0, 1.0],
+            temperature_base_k: 3200.0,
+            temperature_tip_k: 1500.0,
+            use_blackbody: true,
+            noise_amplitude: 0.1,
+            noise_contrast: 1.0,
+            noise_frequency: 1.0,
+            noise_scroll_speed: 0.0,
+            time_scale: 1.0,
+            time_offset: 0.0,
+            warp_amp: 0.05,
+            warp_freq: 2.0,
+            rise_speed: 1.0,
+            taper_power: 1.0,
+            radius_tip_ratio: 0.10,
+            edge_low: 0.3,
+            edge_high: 0.7,
+            white_boost: 0.0,
+            wind_direction: [0.0, 0.0],
+            bend_amount: 0.0,
+            bend_power: 2.0,
+            self_shadow_strength: 0.0,
+            envelope_peak: 0.35,
+            envelope_base: 0.45,
+            envelope_tail: 1.6,
+            radial_sharpness: 4.0,
+            occlusion_lum_ref: 1.0,
+            contour_wiggle_amp: 0.3,
+            aniso_axis_advect: 0.0,
+            rte_bands: 4.0,
+            sigma_dispersion: 1.0,
+            edge_temperature_blend: 0.0,
+            tip_carve_depth: 1.0,
+            tip_carve_reach: 0.2,
+            warp_reach: default_warp_reach(),
+            swirl_gain: 0.0,
+            swirl_speed: 1.0,
+            spread_gain: 0.0,
+            support_margin: 1.0,
+            edge_outer_sharpen: 0.0,
+            noise_scale_mode: 0.0,
+            erosion_noise_gain: 1.0,
+            twist_gain: 0.0,
+            twist_speed: 0.0,
+            burnout_gain: 0.0,
+            noise_shaping_scale: 0.0,
+            optical_depth: 0.0,
+            meander_amp: 0.0,
+        }
+    }
+
+    #[test]
+    fn test_flame_effect_data_fields_match_parameter_ownership_table() {
+        let value = serde_json::to_value(sample_flame_effect_data()).expect("serialize");
+        let serde_fields: std::collections::BTreeSet<String> = value
+            .as_object()
+            .expect("FlameEffectData serializes to an object")
+            .keys()
+            .cloned()
+            .collect();
+        let table_fields: std::collections::BTreeSet<String> =
+            thyllore_effect_core::PARAMETER_OWNERSHIP
+                .iter()
+                .map(|(name, _)| name.to_string())
+                .collect();
+        assert_eq!(serde_fields, table_fields);
+    }
+
     #[test]
     fn test_flame_scene_data_serde_roundtrip() {
         let scene = FlameSceneData {
-            effect: FlameEffectData {
-                position: [0.0, 0.0, 0.0],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                height: 1.0,
-                radius: 0.5,
-                sigma_t: 0.3,
-                intensity: 1.0,
-                color_base: [1.0, 0.5, 0.0],
-                color_tip: [1.0, 1.0, 1.0],
-                temperature_base_k: 3200.0,
-                temperature_tip_k: 1500.0,
-                use_blackbody: true,
-                noise_amplitude: 0.1,
-                noise_contrast: 1.0,
-                noise_frequency: 1.0,
-                noise_scroll_speed: 0.0,
-                time_scale: 1.0,
-                time_offset: 0.0,
-                warp_amp: 0.05,
-                warp_freq: 2.0,
-                rise_speed: 1.0,
-                taper_power: 1.0,
-                radius_tip_ratio: 0.10,
-                edge_low: 0.3,
-                edge_high: 0.7,
-                white_boost: 0.0,
-                wind_direction: [0.0, 0.0],
-                bend_amount: 0.0,
-                bend_power: 2.0,
-                self_shadow_strength: 0.0,
-                envelope_peak: 0.35,
-                envelope_base: 0.45,
-                envelope_tail: 1.6,
-                radial_sharpness: 4.0,
-                occlusion_lum_ref: 1.0,
-                contour_wiggle_amp: 0.3,
-                aniso_axis_advect: 0.0,
-                rte_bands: 4.0,
-                sigma_dispersion: 1.0,
-                edge_temperature_blend: 0.0,
-                tip_carve_depth: 1.0,
-                tip_carve_reach: 0.2,
-                warp_reach: default_warp_reach(),
-                swirl_gain: 0.0,
-                swirl_speed: 1.0,
-                spread_gain: 0.0,
-                support_margin: 1.0,
-                edge_outer_sharpen: 0.0,
-                noise_scale_mode: 0.0,
-                erosion_noise_gain: 1.0,
-                twist_gain: 0.0,
-                twist_speed: 0.0,
-                burnout_gain: 0.0,
-                noise_shaping_scale: 0.0,
-                optical_depth: 0.0,
-                meander_amp: 0.0,
-            },
+            effect: sample_flame_effect_data(),
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
                 keys: vec![

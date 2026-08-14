@@ -287,14 +287,15 @@ pub fn build_unified_field_params(effect: &FlameEffect) -> [f32; 4] {
     if !read_env_wave_unified() {
         return [0.0; 4];
     }
-    let lever = (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
+    let amplitude_ratio = (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
     let std = crate::flame_wave::unified_noise_std(
         read_env_wave_k_ratio(),
         read_env_wave_env_mu(),
         effect.boundary_amp * read_env_unified_tilt_gain_b(),
         effect.contour_wiggle_amp * read_env_unified_tilt_gain_w(),
     );
-    let sigma_floor = read_env_unified_beta() * effect.noise_amplitude.abs() * std * lever;
+    let sigma_floor =
+        read_env_unified_beta() * effect.noise_amplitude.abs() * std * amplitude_ratio;
     [1.0, sigma_floor, 0.0, 0.0]
 }
 

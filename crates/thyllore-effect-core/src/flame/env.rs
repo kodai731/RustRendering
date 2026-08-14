@@ -121,7 +121,7 @@ pub fn read_env_wave_unified() -> bool {
     })
 }
 
-/// Lever mapping of the unified spectral tilt: old boundary_amp / wiggle_amp
+/// Parameter mapping of the unified spectral tilt: old boundary_amp / wiggle_amp
 /// become smooth low- / mid-octave gains of the one table.
 pub const UNIFIED_BOUNDARY_TILT_GAIN: f32 = 10.0;
 pub const UNIFIED_WIGGLE_TILT_GAIN: f32 = 2.0;

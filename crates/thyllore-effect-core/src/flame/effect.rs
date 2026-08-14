@@ -87,7 +87,7 @@ pub struct FlameEffect {
     pub swirl_gain: f32,
     /// Multiplier on the swirl phase-drift rate: how fast the shear layers
     /// counter-rotate relative to the rising material. Time-only, so it costs
-    /// no strain budget and cannot fold the field — the lever for "how alive"
+    /// no strain budget and cannot fold the field — the parameter for "how alive"
     /// the vortices look, independent of their strength.
     pub swirl_speed: f32,
     /// Medium spread (motion_design L3): age-coordinate radial opening of the
@@ -216,15 +216,15 @@ impl Default for FlameEffect {
 pub(crate) const MIN_FLAME_EXTENT: f32 = 1e-3;
 
 /// Vortex macro (plan D): one UI knob v in [0, 1] mapped onto both twist
-/// levers along a monotone "faster and deeper" curve. The macro is a
-/// stateless write-through — the two levers stay the single source of truth
+/// parameters along a monotone "faster and deeper" curve. The macro is a
+/// stateless write-through — the two parameters stay the single source of truth
 /// (a fit can still write them independently) and the knob position shown in
 /// the UI is derived back from twist_gain alone. The curve constants are
 /// provisional until the F9 gate calibration lands.
 pub const VORTEX_MACRO_MAX_GAIN: f32 = 6.0;
 pub const VORTEX_MACRO_MAX_SPEED: f32 = 2.0;
 
-pub fn vortex_macro_levers(v: f32) -> (f32, f32) {
+pub fn vortex_macro_parameters(v: f32) -> (f32, f32) {
     let v = v.clamp(0.0, 1.0);
     (VORTEX_MACRO_MAX_GAIN * v, VORTEX_MACRO_MAX_SPEED * v)
 }
@@ -232,7 +232,7 @@ pub fn vortex_macro_levers(v: f32) -> (f32, f32) {
 /// Noise Sharpness macro: one UI knob v in [0, 1] mapped onto the tanh
 /// shaping scale along a log curve, crisper to the right. Perceived crispness
 /// comes from tanh saturation (small scale binarizes the pattern into hard
-/// step edges), so the knob inverts and log-remaps the scale: the raw lever
+/// step edges), so the knob inverts and log-remaps the scale: the raw parameter
 /// packs its whole perceptual range into [~0.1, 1] of a 0-6 span and grows
 /// softer as the value rises. Stateless write-through like the Vortex macro —
 /// `noise_shaping_scale` stays the single source of truth (fit/serde keep
@@ -301,16 +301,16 @@ mod tests {
 
     #[test]
     fn test_vortex_macro_is_monotone_and_off_at_zero() {
-        assert_eq!(vortex_macro_levers(0.0), (0.0, 0.0));
+        assert_eq!(vortex_macro_parameters(0.0), (0.0, 0.0));
         assert_eq!(
-            vortex_macro_levers(1.0),
+            vortex_macro_parameters(1.0),
             (VORTEX_MACRO_MAX_GAIN, VORTEX_MACRO_MAX_SPEED)
         );
-        assert_eq!(vortex_macro_levers(2.0), vortex_macro_levers(1.0));
-        assert_eq!(vortex_macro_levers(-1.0), vortex_macro_levers(0.0));
-        let mut previous = vortex_macro_levers(0.0);
+        assert_eq!(vortex_macro_parameters(2.0), vortex_macro_parameters(1.0));
+        assert_eq!(vortex_macro_parameters(-1.0), vortex_macro_parameters(0.0));
+        let mut previous = vortex_macro_parameters(0.0);
         for step in 1..=10 {
-            let current = vortex_macro_levers(step as f32 / 10.0);
+            let current = vortex_macro_parameters(step as f32 / 10.0);
             assert!(current.0 > previous.0 && current.1 > previous.1);
             previous = current;
         }

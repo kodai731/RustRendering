@@ -8,7 +8,7 @@
 //! Modes are deterministic (spherical Fibonacci directions, low-discrepancy
 //! log-uniform magnitudes and phases) and parameter-free in normalized units:
 //! frequency, anisotropy, advection and the erosion amplitude mapping stay the
-//! runtime levers they are for the fbm basis, applied to the same warped
+//! runtime parameters they are for the fbm basis, applied to the same warped
 //! coordinate `anisoCompress(p) * noiseFrequency - advect`. Time evolution is
 //! sweeping (advection translates the coordinate, so omega = k . U falls out)
 //! plus a per-mode eddy-turnover rate ~ |k|^(2/3) scaled by noise_scroll_speed.
@@ -42,7 +42,7 @@ pub const WAVE_LOW_K_MIN: f32 = 0.25;
 
 static WAVE_LOW_K_MIN_ENV: OnceLock<f32> = OnceLock::new();
 
-/// Runtime override of the low-octave floor (calibration lever for the
+/// Runtime override of the low-octave floor (calibration parameter for the
 /// unified table; the constant is the design default).
 pub fn read_env_wave_low_k_min() -> f32 {
     *WAVE_LOW_K_MIN_ENV.get_or_init(|| {
@@ -160,7 +160,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 static WAVE_JITTER_CURRENT: AtomicU32 = AtomicU32::new(u32::MAX);
 static WAVE_JITTER_FREQ_CURRENT: AtomicU32 = AtomicU32::new(u32::MAX);
 
-fn read_lever(slot: &AtomicU32, env_name: &str, default: f32) -> f32 {
+fn read_parameter(slot: &AtomicU32, env_name: &str, default: f32) -> f32 {
     let bits = slot.load(Ordering::Relaxed);
     if bits != u32::MAX {
         return f32::from_bits(bits);
@@ -179,7 +179,7 @@ fn read_lever(slot: &AtomicU32, env_name: &str, default: f32) -> f32 {
 /// consumed (UBO packing, replay probes) so the deterministic table stays
 /// parameter-free; the UBO rebuilds every frame, so changes apply immediately.
 pub fn read_env_wave_jitter() -> f32 {
-    read_lever(&WAVE_JITTER_CURRENT, "THYLLORE_FLAME_WAVE_JITTER", 1.0)
+    read_parameter(&WAVE_JITTER_CURRENT, "THYLLORE_FLAME_WAVE_JITTER", 1.0)
 }
 
 pub fn set_wave_jitter(value: f32) {
@@ -194,7 +194,7 @@ pub fn set_wave_jitter(value: f32) {
 pub const WAVE_JITTER_FREQ_DEFAULT: f32 = 3.0;
 
 pub fn read_env_wave_jitter_freq() -> f32 {
-    read_lever(
+    read_parameter(
         &WAVE_JITTER_FREQ_CURRENT,
         "THYLLORE_FLAME_WAVE_JITTER_FREQ",
         WAVE_JITTER_FREQ_DEFAULT,
@@ -206,7 +206,7 @@ pub fn set_wave_jitter_freq(value: f32) {
 }
 
 /// Deterministic mode table in normalized units. Every call returns the same
-/// table; runtime levers (frequency, anisotropy, advection, amplitude) apply
+/// table; runtime parameters (frequency, anisotropy, advection, amplitude) apply
 /// through the shared warped coordinate and the erosion mapping instead.
 pub fn generate_wave_modes() -> [WaveMode; WAVE_MODE_COUNT] {
     generate_wave_modes_with_ratio(WAVE_K_RATIO)
@@ -352,7 +352,7 @@ pub fn wave_low_aniso_y(k_norm: f32) -> f32 {
 /// Smooth spectral tilt over normalized |k|/2pi: the unified field's role
 /// weights. `kappa_b` lifts the silhouette-scale low octaves (old boundary
 /// amp), `kappa_w` a mid-band bump (old contour wiggle amp). Smooth in |k| —
-/// any lever value keeps the spectrum family-free.
+/// any parameter value keeps the spectrum family-free.
 pub fn wave_spectral_tilt(k_norm: f32, kappa_b: f32, kappa_w: f32) -> f32 {
     const K_B: f32 = 0.5;
     const K_W: f32 = 2.0;
@@ -374,7 +374,7 @@ pub fn wave_low_rolloff(k_norm: f32) -> f32 {
 
 /// The unified erosion table: legacy 96 + appended 32 low octaves on one
 /// continuous Kolmogorov line, spectral tilt applied, envelope + total-variance
-/// normalization over the combined set. Deterministic given the levers.
+/// normalization over the combined set. Deterministic given the parameters.
 pub fn build_unified_erosion_modes(
     k_ratio: f32,
     env_mu: f32,
@@ -553,11 +553,11 @@ pub const WAVE_SHEAR_STRENGTH_SCALE: f32 = 0.96;
 ///   strain(h) = s_base + (s_tip - s_base) * exp(-mu(h) / mu_w)
 /// with mu(h) the remaining luminous fraction (shared with the tip carve), and
 /// strength(h) = strain(h) / K where K = max_m a_m * |k_m|, so s_m <= strain(h)
-/// <= WARP_STRAIN_CAP < 1 for every height, mode, and lever value.
+/// <= WARP_STRAIN_CAP < 1 for every height, mode, and parameter value.
 pub const WARP_STRAIN_CAP: f32 = 0.9;
-/// Lever scale A0 of the saturating map s_tip = CAP * (1 - exp(-warp_amp / A0)):
-/// the default warp_amp 1.4 lands at s_tip ~= 0.8 and no lever value crosses CAP.
-pub const WARP_STRAIN_LEVER_SCALE: f32 = 0.64;
+/// Parameter scale A0 of the saturating map s_tip = CAP * (1 - exp(-warp_amp / A0)):
+/// the default warp_amp 1.4 lands at s_tip ~= 0.8 and no parameter value crosses CAP.
+pub const WARP_STRAIN_PARAMETER_SCALE: f32 = 0.64;
 /// Base strain as a fraction of s_tip, matching the legacy mix(0.15, 1, h)
 /// base-to-tip deformation ratio.
 pub const WARP_STRAIN_BASE_RATIO: f32 = 0.15;
@@ -589,9 +589,9 @@ pub fn warp_strain_norm_rms(modes: &[WaveWarpMode]) -> f32 {
         .sqrt()
 }
 
-/// Saturating lever map: any warp_amp stays below WARP_STRAIN_CAP.
+/// Saturating parameter map: any warp_amp stays below WARP_STRAIN_CAP.
 pub fn warp_strain_tip(warp_amp: f32) -> f32 {
-    WARP_STRAIN_CAP * (1.0 - (-warp_amp.max(0.0) / WARP_STRAIN_LEVER_SCALE).exp())
+    WARP_STRAIN_CAP * (1.0 - (-warp_amp.max(0.0) / WARP_STRAIN_PARAMETER_SCALE).exp())
 }
 
 /// UBO packing [s_base, s_tip, 1/mu_w, 1/K] shared by the shader, the CPU
@@ -653,7 +653,7 @@ pub fn medium_swirl_phase_rate(mode_index: usize, k: [f32; 3]) -> f32 {
 /// Amplitudes carry the swirl share of the strain budget:
 /// b_m * |kappa_m| = swirl_gain * base_strain_norm / sqrt(M). With the shared
 /// strength(h) = strain(h) / K over the combined table the total RMS strain
-/// stays strain(h) <= WARP_STRAIN_CAP for every lever value; swirl_gain only
+/// stays strain(h) <= WARP_STRAIN_CAP for every parameter value; swirl_gain only
 /// redistributes budget from the carve warp to the swirl (index.md
 /// Consequences ⚠️). Gain 0 packs zero amplitudes — bit-identical baseline.
 pub fn generate_medium_swirl_modes(
@@ -1029,12 +1029,12 @@ mod tests {
         );
     }
 
-    /// Fold-free guarantee: for every lever value, mode, and height, the
+    /// Fold-free guarantee: for every parameter value, mode, and height, the
     /// per-shear dimensionless strain strength * a_m * |k_m| stays below
     /// WARP_STRAIN_CAP (< 1), so the composed shear map cannot laminate the
     /// noise into height-chirped fringes.
     #[test]
-    fn test_warp_strain_bounded_for_all_levers_and_heights() {
+    fn test_warp_strain_bounded_for_all_parameters_and_heights() {
         let warp_modes = generate_wave_warp_modes();
         let norm = warp_strain_norm(&warp_modes);
         assert!(norm > 0.0);
@@ -1125,9 +1125,9 @@ mod tests {
         assert!(min_det > 0.05, "min det {} too close to folding", min_det);
     }
 
-    /// Default lever (warp_amp 1.4) lands near the designed s_tip ~= 0.8.
+    /// Default parameter (warp_amp 1.4) lands near the designed s_tip ~= 0.8.
     #[test]
-    fn test_warp_strain_default_lever_calibration() {
+    fn test_warp_strain_default_parameter_calibration() {
         let s_tip = warp_strain_tip(1.4);
         assert!(
             (0.75..=0.85).contains(&s_tip),
@@ -1273,10 +1273,10 @@ mod tests {
         (jv[0] * jv[0] + jv[1] * jv[1] + jv[2] * jv[2]).sqrt()
     }
 
-    /// L2 acceptance sweep over the swirl lever domain: the combined
+    /// L2 acceptance sweep over the swirl parameter domain: the combined
     /// warp + swirl table keeps the displacement form orientation-preserving
     /// (det J > 0) at the full strain cap, and the swirl must not regress the
-    /// stretch p99 at the default lever (warp_amp 1.4 -> s_tip ~= 0.8). The
+    /// stretch p99 at the default parameter (warp_amp 1.4 -> s_tip ~= 0.8). The
     /// absolute p99 <= 1.5 fringe gate lives on the rendered field (strain(h)
     /// height profile, stretch debug view) — this uniform worst-case sweep
     /// sits above it even for the swirl-free baseline (~1.53), so the unit

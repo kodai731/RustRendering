@@ -69,7 +69,7 @@ mod tests {
     }
 
     #[test]
-    fn sync_tracks_lever_changes() {
+    fn sync_tracks_parameter_changes() {
         let mut world = World::new();
         let mut effect = FlameEffect::default();
         effect.noise_amplitude = 1.5;
@@ -89,7 +89,7 @@ mod tests {
                 .manifest
                 .active_sources()
                 .contains(&FieldSourceKind::ErosionWaveTable),
-            "manifest follows the lever"
+            "manifest follows the parameter"
         );
     }
 }
