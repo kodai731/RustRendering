@@ -290,6 +290,7 @@ fn handle_redraw_requested(
         flame_style_scan: model_state.flame_style_scan.clone(),
         flame_style_scan_done: model_state.flame_style_scan_done,
         flame_style_groups: model_state.flame_style_groups,
+        flame_style_save_name: model_state.flame_style_save_name.clone(),
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
         #[cfg(feature = "auto-rig")]
@@ -346,6 +347,8 @@ fn handle_redraw_requested(
         .flame_style_scan_done = overlay_state.flame_style_scan_done;
     app.resource_mut::<crate::ecs::ModelState>()
         .flame_style_groups = overlay_state.flame_style_groups;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_save_name = overlay_state.flame_style_save_name;
 
     #[cfg(debug_assertions)]
     {

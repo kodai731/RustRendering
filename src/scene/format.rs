@@ -275,6 +275,16 @@ pub struct FlameSceneData {
     pub channels: Vec<FlameChannelData>,
     #[serde(default)]
     pub motion_path: Option<MotionPathData>,
+    #[serde(default)]
+    pub style: Option<FlameStyleRefData>,
+}
+
+/// Name and version of the style whose values are baked into the effect —
+/// provenance only, so editing the style file never changes a saved scene.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlameStyleRefData {
+    pub name: String,
+    pub version: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -495,6 +505,13 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             enabled: mp.enabled,
         });
 
+    let style = world
+        .get_component::<crate::ecs::component::AppliedFlameStyle>(*entity)
+        .map(|applied| FlameStyleRefData {
+            name: applied.name.clone(),
+            version: applied.version,
+        });
+
     Some(FlameSceneData {
         effect: FlameEffectData {
             position: [effect.position.x, effect.position.y, effect.position.z],
@@ -560,6 +577,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
         },
         channels,
         motion_path,
+        style,
     })
 }
 
@@ -693,6 +711,16 @@ pub fn apply_flame_state_to_world(
         effect.burnout_gain = flame.effect.burnout_gain;
         effect.noise_shaping_scale = flame.effect.noise_shaping_scale;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
+    }
+
+    if let Some(style) = &flame.style {
+        world.insert_component(
+            entity,
+            crate::ecs::component::AppliedFlameStyle {
+                name: style.name.clone(),
+                version: style.version,
+            },
+        );
     }
 
     crate::ecs::systems::write_flame_transform(
@@ -888,6 +916,24 @@ mod tests {
     }
 
     #[test]
+    fn test_flame_style_ref_scene_roundtrip() {
+        let scene = FlameSceneData {
+            effect: sample_flame_effect_data(),
+            channels: vec![],
+            motion_path: None,
+            style: Some(FlameStyleRefData {
+                name: "pillar-ref".to_string(),
+                version: 1,
+            }),
+        };
+        let json = serde_json::to_string(&scene).expect("serialize");
+        let restored: FlameSceneData = serde_json::from_str(&json).expect("deserialize");
+        let style = restored.style.expect("style ref survives");
+        assert_eq!(style.name, "pillar-ref");
+        assert_eq!(style.version, 1);
+    }
+
+    #[test]
     fn test_flame_effect_data_fields_match_parameter_ownership_table() {
         let value = serde_json::to_value(sample_flame_effect_data()).expect("serialize");
         let serde_fields: std::collections::BTreeSet<String> = value
@@ -930,6 +976,7 @@ mod tests {
                 ],
             }],
             motion_path: None,
+            style: None,
         };
 
         let json = serde_json::to_string(&scene).expect("Failed to serialize FlameSceneData");
@@ -1087,6 +1134,7 @@ mod tests {
                 ],
             }],
             motion_path: None,
+            style: None,
         };
 
         let json = serde_json::to_string(&scene).expect("Failed to serialize");

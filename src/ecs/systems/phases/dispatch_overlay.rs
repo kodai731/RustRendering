@@ -111,6 +111,16 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     },
                 );
             }
+            UIEvent::SaveFlameStyle { name } => {
+                if crate::ecs::systems::save_flame_style_of_selected(world, name).is_some() {
+                    if let Some(mut model_state) =
+                        world.get_resource_mut::<crate::ecs::resource::ModelState>()
+                    {
+                        model_state.flame_style_scan_done = false;
+                        model_state.flame_style_scan.clear();
+                    }
+                }
+            }
             UIEvent::UpdateFlameTrailEnabled(enabled) => {
                 let Some(target) = resolve_selected_flame(world) else {
                     continue;

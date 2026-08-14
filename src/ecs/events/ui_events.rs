@@ -419,6 +419,9 @@ pub enum UIEvent {
         path: String,
         groups: [bool; 3],
     },
+    SaveFlameStyle {
+        name: String,
+    },
     AddFlame,
     UpdateFlameRenderSettings(FlameRenderSettings),
     UpdateFlameTrailEnabled(bool),

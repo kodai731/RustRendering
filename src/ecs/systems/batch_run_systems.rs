@@ -37,6 +37,7 @@ const BATCH_FLAME_MOTION_FLAG: &str = "--batch-flame-motion";
 const BATCH_FLAME_SDF_FLAG: &str = "--batch-flame-sdf";
 const BATCH_FLAME_SET_FLAG: &str = "--batch-flame-set";
 const BATCH_FLAME_STYLE_FLAG: &str = "--batch-flame-style";
+const BATCH_FLAME_STYLE_DUMP_FLAG: &str = "--batch-flame-style-dump";
 const BATCH_FLAME_TEXTURE_FLAG: &str = "--batch-flame-texture";
 const BATCH_HEAT_PLUME_FLAG: &str = "--batch-heat-plume";
 const BATCH_PICK_FLAG: &str = "--batch-pick";
@@ -75,6 +76,7 @@ pub struct EngineCliOverrides {
     pub flame_bone: Option<String>,
     pub flame_texture_fit: Option<(String, f32, bool)>,
     pub flame_style: Option<(String, thyllore_effect_core::StyleGroups)>,
+    pub flame_style_dump: Option<String>,
     pub heat_plume: Option<(f32, f32)>,
     pub batch_play: bool,
     pub scene_path: Option<String>,
@@ -149,6 +151,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         flame_sdf: flame_sdf_resolve_from_args(args)?,
         flame_texture_fit: flame_texture_fit_resolve_from_args(args)?,
         flame_style: flame_style_resolve_from_args(args)?,
+        flame_style_dump: flag_value_resolve_from_args(args, BATCH_FLAME_STYLE_DUMP_FLAG)?,
         heat_plume: heat_plume_resolve_from_args(args)?,
         batch_play: args.iter().any(|a| a == "--batch-play"),
         scene_path: scene_path_resolve_from_args(args)?,
@@ -569,26 +572,55 @@ fn flame_style_resolve_from_args(
     Ok(Some((path, groups)))
 }
 
-pub fn apply_flame_style_from_path(
-    effect: &mut FlameEffect,
-    path: &str,
-    groups: thyllore_effect_core::StyleGroups,
-) {
+pub fn load_flame_style_from_path(path: &str) -> Option<thyllore_effect_core::FlameStyle> {
     let content = match std::fs::read_to_string(path) {
         Ok(content) => content,
         Err(e) => {
             eprintln!("warning: failed to read flame style '{}': {}", path, e);
-            return;
+            return None;
         }
     };
-    let style: thyllore_effect_core::FlameStyle = match ron::from_str(&content) {
-        Ok(style) => style,
+    match ron::from_str(&content) {
+        Ok(style) => Some(style),
         Err(e) => {
             eprintln!("warning: failed to parse flame style '{}': {}", path, e);
+            None
+        }
+    }
+}
+
+pub fn apply_flame_style_from_path(
+    effect: &mut FlameEffect,
+    path: &str,
+    groups: thyllore_effect_core::StyleGroups,
+) -> Option<thyllore_effect_core::FlameStyle> {
+    let style = load_flame_style_from_path(path)?;
+    thyllore_effect_core::apply_flame_style(effect, &style, groups);
+    Some(style)
+}
+
+pub fn dump_flame_style_to_path(effect: &FlameEffect, path: &str) {
+    let name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("style")
+        .trim_end_matches(".style.ron")
+        .trim_end_matches(".ron")
+        .to_string();
+    let style = thyllore_effect_core::flame_style_from_effect(effect, &name);
+    let content = match ron::ser::to_string_pretty(&style, ron::ser::PrettyConfig::default()) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("warning: failed to serialize flame style: {}", e);
             return;
         }
     };
-    thyllore_effect_core::apply_flame_style(effect, &style, groups);
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(path, content) {
+        eprintln!("warning: failed to write flame style '{}': {}", path, e);
+    }
 }
 
 fn flame_texture_fit_resolve_from_args(args: &[String]) -> Result<Option<(String, f32, bool)>> {
@@ -2460,6 +2492,20 @@ mod tests {
         assert_eq!(effect.meander_amp, 1.0);
         assert_eq!(effect.optical_depth, 4.0);
         assert_eq!(applied.len(), 3);
+    }
+
+    #[test]
+    fn flame_style_dump_load_roundtrip() {
+        let effect = FlameEffect::default();
+        let path = std::env::temp_dir().join("thyllore_style_test.style.ron");
+        let path_str = path.to_str().unwrap();
+        dump_flame_style_to_path(&effect, path_str);
+        let style = load_flame_style_from_path(path_str).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            style,
+            thyllore_effect_core::flame_style_from_effect(&effect, "thyllore_style_test")
+        );
     }
 
     #[test]

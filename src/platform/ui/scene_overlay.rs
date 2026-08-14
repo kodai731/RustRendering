@@ -34,6 +34,7 @@ pub struct SceneOverlayState {
     pub flame_style_scan: Vec<String>,
     pub flame_style_scan_done: bool,
     pub flame_style_groups: [bool; 3],
+    pub flame_style_save_name: String,
     #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
     #[cfg(feature = "auto-rig")]
@@ -776,6 +777,31 @@ fn build_flame_section(
                      dimensionless: lengths scale with the flame's radius, opacity \
                      via tau0). Fields the style leaves unset keep their current \
                      values",
+                );
+            }
+            if let Some(selected_flame) = selected_flame_entity {
+                if let Some(applied) = ecs_world
+                    .get_component::<crate::ecs::component::AppliedFlameStyle>(selected_flame)
+                {
+                    ui.same_line();
+                    ui.text_disabled(format!("applied: {} v{}", applied.name, applied.version));
+                }
+            }
+
+            ui.input_text("Save As##style", &mut overlay_state.flame_style_save_name)
+                .build();
+            ui.same_line();
+            if ui.small_button("Save Style") {
+                let name = overlay_state.flame_style_save_name.trim().to_string();
+                if !name.is_empty() && selected_flame_entity.is_some() {
+                    ui_events.send(UIEvent::SaveFlameStyle { name });
+                }
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text(
+                    "Save the selected flame's current look as \
+                     assets/flames/styles/<name>.style.ron (all Style-owned \
+                     parameters, lengths over r0, opacity as tau0)",
                 );
             }
 

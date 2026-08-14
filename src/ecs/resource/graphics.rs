@@ -58,6 +58,7 @@ pub struct ModelState {
     pub flame_style_scan: Vec<String>,
     pub flame_style_scan_done: bool,
     pub flame_style_groups: [bool; 3],
+    pub flame_style_save_name: String,
 }
 
 impl Default for ModelState {
@@ -84,6 +85,7 @@ impl Default for ModelState {
             flame_style_scan: Vec::new(),
             flame_style_scan_done: false,
             flame_style_groups: [true; 3],
+            flame_style_save_name: String::new(),
         }
     }
 }

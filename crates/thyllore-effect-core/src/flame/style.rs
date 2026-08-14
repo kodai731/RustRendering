@@ -94,6 +94,67 @@ impl Default for StyleGroups {
     }
 }
 
+/// Extract the effect's current look as a fully-populated style: the inverse
+/// of `apply_flame_style`, so hand-tuned parameters can be saved and reapplied
+/// to a flame of any size. tau0 falls back to sigma_t * radius when the
+/// optical_depth parameter is not in use.
+pub fn flame_style_from_effect(effect: &FlameEffect, name: &str) -> FlameStyle {
+    let radius = effect.radius.max(1e-4);
+    FlameStyle {
+        version: FLAME_STYLE_VERSION,
+        name: name.to_string(),
+        motion: FlameStyleMotion {
+            noise_scroll_speed: Some(effect.noise_scroll_speed),
+            rise_speed: Some(effect.rise_speed),
+            warp_amp: Some(effect.warp_amp),
+            warp_freq: Some(effect.warp_freq),
+            swirl_gain: Some(effect.swirl_gain),
+            swirl_speed: Some(effect.swirl_speed),
+            twist_gain: Some(effect.twist_gain),
+            twist_speed: Some(effect.twist_speed),
+            spread_gain: Some(effect.spread_gain),
+            meander_amp_over_r0: Some(effect.meander_amp / radius),
+            burnout_gain: Some(effect.burnout_gain),
+            aniso_axis_advect: Some(effect.aniso_axis_advect),
+        },
+        texture: FlameStyleTexture {
+            noise_amplitude: Some(effect.noise_amplitude),
+            noise_contrast: Some(effect.noise_contrast),
+            noise_frequency: Some(effect.noise_frequency),
+            noise_shaping_scale: Some(effect.noise_shaping_scale),
+            erosion_noise_gain: Some(effect.erosion_noise_gain),
+            support_margin: Some(effect.support_margin),
+            contour_wiggle_amp: Some(effect.contour_wiggle_amp),
+            edge_outer_sharpen: Some(effect.edge_outer_sharpen),
+            noise_scale_mode: Some(effect.noise_scale_mode),
+            edge_low: Some(effect.edge_low),
+            edge_high: Some(effect.edge_high),
+            tip_carve_depth: Some(effect.tip_carve_depth),
+            tip_carve_reach: Some(effect.tip_carve_reach),
+            warp_reach: Some(effect.warp_reach),
+        },
+        optics: FlameStyleOptics {
+            tau0: Some(if effect.optical_depth > 0.0 {
+                effect.optical_depth
+            } else {
+                effect.sigma_t * radius
+            }),
+            intensity: Some(effect.intensity),
+            temperature_base_k: Some(effect.temperature_base_k),
+            temperature_tip_k: Some(effect.temperature_tip_k),
+            use_blackbody: Some(effect.use_blackbody),
+            white_boost: Some(effect.white_boost),
+            self_shadow_strength: Some(effect.self_shadow_strength),
+            sigma_dispersion: Some(effect.sigma_dispersion),
+            rte_bands: Some(effect.rte_bands),
+            edge_temperature_blend: Some(effect.edge_temperature_blend),
+            occlusion_lum_ref: Some(effect.occlusion_lum_ref),
+            color_base: Some(effect.color_base),
+            color_tip: Some(effect.color_tip),
+        },
+    }
+}
+
 macro_rules! apply_style_param {
     ($applied:ident, $effect:ident, $source:expr, $field:ident) => {
         if let Some(value) = $source.$field {
@@ -301,6 +362,34 @@ mod tests {
         assert!(applied.contains(&"twist_gain"));
         assert!(!applied.contains(&"noise_amplitude"));
         assert!(!applied.contains(&"optical_depth"));
+    }
+
+    #[test]
+    fn test_extract_apply_roundtrip_preserves_the_look() {
+        let mut source = FlameEffect::default();
+        apply_flame_style(&mut source, &full_style(), StyleGroups::default());
+        let extracted = flame_style_from_effect(&source, "roundtrip");
+
+        let mut target = FlameEffect::default();
+        target.radius = source.radius;
+        apply_flame_style(&mut target, &extracted, StyleGroups::default());
+
+        let source_snapshot = flame_parameter_snapshot(&source);
+        let target_snapshot = flame_parameter_snapshot(&target);
+        for ((name, s), (_, t)) in source_snapshot.iter().zip(&target_snapshot) {
+            if parameter_owner(name) == Some(ParameterOwner::Style) && *name != "sigma_t" {
+                assert_eq!(s, t, "{name}");
+            }
+        }
+    }
+
+    #[test]
+    fn test_apply_extract_roundtrip_returns_the_style() {
+        let mut effect = FlameEffect::default();
+        apply_flame_style(&mut effect, &full_style(), StyleGroups::default());
+        let mut extracted = flame_style_from_effect(&effect, "test");
+        extracted.version = full_style().version;
+        assert_eq!(extracted, full_style());
     }
 
     #[test]
