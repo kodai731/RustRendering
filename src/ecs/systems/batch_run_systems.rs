@@ -36,6 +36,7 @@ const BATCH_FLAME_PRESET_FLAG: &str = "--batch-flame-preset";
 const BATCH_FLAME_MOTION_FLAG: &str = "--batch-flame-motion";
 const BATCH_FLAME_SDF_FLAG: &str = "--batch-flame-sdf";
 const BATCH_FLAME_SET_FLAG: &str = "--batch-flame-set";
+const BATCH_FLAME_STYLE_FLAG: &str = "--batch-flame-style";
 const BATCH_FLAME_TEXTURE_FLAG: &str = "--batch-flame-texture";
 const BATCH_HEAT_PLUME_FLAG: &str = "--batch-heat-plume";
 const BATCH_PICK_FLAG: &str = "--batch-pick";
@@ -73,6 +74,7 @@ pub struct EngineCliOverrides {
     pub pick_pixel: Option<(u32, u32)>,
     pub flame_bone: Option<String>,
     pub flame_texture_fit: Option<(String, f32, bool)>,
+    pub flame_style: Option<(String, thyllore_effect_core::StyleGroups)>,
     pub heat_plume: Option<(f32, f32)>,
     pub batch_play: bool,
     pub scene_path: Option<String>,
@@ -146,6 +148,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         pick_pixel: pick_pixel_resolve_from_args(args)?,
         flame_sdf: flame_sdf_resolve_from_args(args)?,
         flame_texture_fit: flame_texture_fit_resolve_from_args(args)?,
+        flame_style: flame_style_resolve_from_args(args)?,
         heat_plume: heat_plume_resolve_from_args(args)?,
         batch_play: args.iter().any(|a| a == "--batch-play"),
         scene_path: scene_path_resolve_from_args(args)?,
@@ -525,6 +528,67 @@ fn flame_preset_resolve_from_args(args: &[String]) -> Result<Option<String>> {
         );
     }
     Ok(Some(value.clone()))
+}
+
+fn flame_style_resolve_from_args(
+    args: &[String],
+) -> Result<Option<(String, thyllore_effect_core::StyleGroups)>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_STYLE_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1).filter(|v| !v.starts_with("--")) else {
+        bail!("{BATCH_FLAME_STYLE_FLAG} requires <path>[,motion][,texture][,optics]");
+    };
+
+    let mut parts = value.split(',');
+    let path = parts.next().unwrap_or_default().trim().to_string();
+    if path.is_empty() {
+        bail!("{BATCH_FLAME_STYLE_FLAG} requires a non-empty path");
+    }
+
+    let group_names: Vec<&str> = parts.map(str::trim).collect();
+    if group_names.is_empty() {
+        return Ok(Some((path, thyllore_effect_core::StyleGroups::default())));
+    }
+    let mut groups = thyllore_effect_core::StyleGroups {
+        motion: false,
+        texture: false,
+        optics: false,
+    };
+    for name in group_names {
+        match name {
+            "motion" => groups.motion = true,
+            "texture" => groups.texture = true,
+            "optics" => groups.optics = true,
+            other => bail!(
+                "unknown {BATCH_FLAME_STYLE_FLAG} group '{}'. Valid groups: motion, texture, optics",
+                other
+            ),
+        }
+    }
+    Ok(Some((path, groups)))
+}
+
+pub fn apply_flame_style_from_path(
+    effect: &mut FlameEffect,
+    path: &str,
+    groups: thyllore_effect_core::StyleGroups,
+) {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("warning: failed to read flame style '{}': {}", path, e);
+            return;
+        }
+    };
+    let style: thyllore_effect_core::FlameStyle = match ron::from_str(&content) {
+        Ok(style) => style,
+        Err(e) => {
+            eprintln!("warning: failed to parse flame style '{}': {}", path, e);
+            return;
+        }
+    };
+    thyllore_effect_core::apply_flame_style(effect, &style, groups);
 }
 
 fn flame_texture_fit_resolve_from_args(args: &[String]) -> Result<Option<(String, f32, bool)>> {
@@ -2350,6 +2414,52 @@ mod tests {
         let (ok, line) = batch_run_report(&batch);
         assert!(!ok);
         assert!(line.contains("before screenshot completed"));
+    }
+
+    #[test]
+    fn flame_style_path_only_defaults_to_all_groups() {
+        let args: Vec<String> = vec![
+            "--batch-flame-style".into(),
+            "assets/flames/styles/pillar.style.ron".into(),
+        ];
+        let (path, groups) = flame_style_resolve_from_args(&args).unwrap().unwrap();
+        assert_eq!(path, "assets/flames/styles/pillar.style.ron");
+        assert_eq!(groups, thyllore_effect_core::StyleGroups::default());
+    }
+
+    #[test]
+    fn flame_style_group_subset() {
+        let args: Vec<String> = vec!["--batch-flame-style".into(), "s.ron,motion,optics".into()];
+        let (_, groups) = flame_style_resolve_from_args(&args).unwrap().unwrap();
+        assert!(groups.motion && groups.optics && !groups.texture);
+    }
+
+    #[test]
+    fn flame_style_unknown_group_error() {
+        let args: Vec<String> = vec!["--batch-flame-style".into(), "s.ron,shape".into()];
+        assert!(flame_style_resolve_from_args(&args).is_err());
+    }
+
+    #[test]
+    fn flame_style_ron_roundtrip_applies() {
+        let ron_text = r#"FlameStyle(
+            version: 1,
+            name: "pillar-ref",
+            motion: (twist_gain: Some(6.0), meander_amp_over_r0: Some(0.5)),
+            optics: (tau0: Some(4.0)),
+        )"#;
+        let style: thyllore_effect_core::FlameStyle = ron::from_str(ron_text).unwrap();
+        let mut effect = FlameEffect::default();
+        effect.radius = 2.0;
+        let applied = thyllore_effect_core::apply_flame_style(
+            &mut effect,
+            &style,
+            thyllore_effect_core::StyleGroups::default(),
+        );
+        assert_eq!(effect.twist_gain, 6.0);
+        assert_eq!(effect.meander_amp, 1.0);
+        assert_eq!(effect.optical_depth, 4.0);
+        assert_eq!(applied.len(), 3);
     }
 
     #[test]

@@ -9,6 +9,7 @@ repository = "https://github.com/kodai731/Thyllore-Animation"
 
 [dependencies]
 cgmath = "0.18"
+serde = { version = "1", features = ["derive"] }
 thyllore-color-core = { path = "../thyllore-color-core" }
 thyllore-math-core = { path = "../thyllore-math-core" }
 thyllore-texture-fit-core = { path = "../thyllore-texture-fit-core" }

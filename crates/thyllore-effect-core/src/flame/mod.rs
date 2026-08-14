@@ -7,6 +7,7 @@ pub mod ownership;
 pub mod plume;
 mod presets;
 mod settings;
+mod style;
 mod temporal;
 pub mod trail;
 
@@ -18,6 +19,7 @@ pub use env::*;
 pub use ownership::*;
 pub use presets::*;
 pub use settings::*;
+pub use style::*;
 pub use temporal::*;
 pub use trail::*;
 
