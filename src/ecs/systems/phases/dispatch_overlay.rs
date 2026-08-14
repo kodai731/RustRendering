@@ -100,6 +100,17 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     "ui",
                 );
             }
+            UIEvent::ApplyFlameStyle { path, groups } => {
+                crate::ecs::systems::apply_flame_style_to_selected(
+                    world,
+                    path,
+                    thyllore_effect_core::StyleGroups {
+                        motion: groups[0],
+                        texture: groups[1],
+                        optics: groups[2],
+                    },
+                );
+            }
             UIEvent::UpdateFlameTrailEnabled(enabled) => {
                 let Some(target) = resolve_selected_flame(world) else {
                     continue;

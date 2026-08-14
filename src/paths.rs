@@ -2,6 +2,7 @@ pub const CURVE_COPILOT_MODEL_PREFIX: &str = "curve_copilot_";
 pub const CURVE_COPILOT_MODEL_SUFFIX: &str = ".onnx";
 
 pub const FLAMES_TEXTURE_DIR: &str = "assets/textures/flames";
+pub const FLAMES_STYLE_DIR: &str = "assets/flames/styles";
 
 #[cfg(feature = "ml")]
 pub use thyllore_ml_core::model_path::{

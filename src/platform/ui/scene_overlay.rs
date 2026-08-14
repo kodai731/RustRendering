@@ -30,6 +30,10 @@ pub struct SceneOverlayState {
     pub texture_fit_browser_show_hidden: bool,
     pub texture_fit_path_validated: String,
     pub texture_fit_path_info: String,
+    pub flame_style_index: usize,
+    pub flame_style_scan: Vec<String>,
+    pub flame_style_scan_done: bool,
+    pub flame_style_groups: [bool; 3],
     #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
     #[cfg(feature = "auto-rig")]
@@ -707,6 +711,72 @@ fn build_flame_section(
                     });
                     effect_applied_this_frame = true;
                 }
+            }
+
+            ui.separator();
+            ui.text("Style");
+
+            if !overlay_state.flame_style_scan_done {
+                let scan_dir = std::path::Path::new(crate::paths::FLAMES_STYLE_DIR);
+                if let Ok(entries) = std::fs::read_dir(scan_dir) {
+                    for entry in entries.flatten() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.ends_with(".style.ron") {
+                                overlay_state.flame_style_scan.push(name.to_string());
+                            }
+                        }
+                    }
+                    overlay_state.flame_style_scan.sort();
+                }
+                overlay_state.flame_style_scan_done = true;
+            }
+
+            if overlay_state.flame_style_scan.is_empty() {
+                ui.text_disabled(format!("no styles in {}", crate::paths::FLAMES_STYLE_DIR));
+            } else {
+                let mut style_index = overlay_state
+                    .flame_style_index
+                    .min(overlay_state.flame_style_scan.len() - 1);
+                ui.combo_simple_string(
+                    "Style File",
+                    &mut style_index,
+                    &overlay_state.flame_style_scan,
+                );
+                overlay_state.flame_style_index = style_index;
+            }
+            ui.same_line();
+            if ui.small_button("Rescan##style") {
+                overlay_state.flame_style_scan_done = false;
+                overlay_state.flame_style_scan.clear();
+            }
+
+            ui.checkbox("Motion##style", &mut overlay_state.flame_style_groups[0]);
+            ui.same_line();
+            ui.checkbox("Texture##style", &mut overlay_state.flame_style_groups[1]);
+            ui.same_line();
+            ui.checkbox("Optics##style", &mut overlay_state.flame_style_groups[2]);
+
+            if ui.button("Apply Style") {
+                if let Some(name) = overlay_state
+                    .flame_style_scan
+                    .get(overlay_state.flame_style_index)
+                {
+                    if selected_flame_entity.is_some() {
+                        ui_events.send(UIEvent::ApplyFlameStyle {
+                            path: format!("{}/{}", crate::paths::FLAMES_STYLE_DIR, name),
+                            groups: overlay_state.flame_style_groups,
+                        });
+                        effect_applied_this_frame = true;
+                    }
+                }
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text(
+                    "Apply the selected style file's parameters (Style-owned only, \
+                     dimensionless: lengths scale with the flame's radius, opacity \
+                     via tau0). Fields the style leaves unset keep their current \
+                     values",
+                );
             }
 
             if let Some(selected_flame) = selected_flame_entity {

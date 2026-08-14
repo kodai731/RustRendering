@@ -54,6 +54,10 @@ pub struct ModelState {
     pub texture_fit_browser_show_hidden: bool,
     pub texture_fit_path_validated: String,
     pub texture_fit_path_info: String,
+    pub flame_style_index: usize,
+    pub flame_style_scan: Vec<String>,
+    pub flame_style_scan_done: bool,
+    pub flame_style_groups: [bool; 3],
 }
 
 impl Default for ModelState {
@@ -76,6 +80,10 @@ impl Default for ModelState {
             texture_fit_browser_show_hidden: false,
             texture_fit_path_validated: String::new(),
             texture_fit_path_info: String::new(),
+            flame_style_index: 0,
+            flame_style_scan: Vec::new(),
+            flame_style_scan_done: false,
+            flame_style_groups: [true; 3],
         }
     }
 }

@@ -2463,6 +2463,18 @@ mod tests {
     }
 
     #[test]
+    fn shipped_style_assets_parse() {
+        for entry in std::fs::read_dir(crate::paths::FLAMES_STYLE_DIR).unwrap() {
+            let path = entry.unwrap().path();
+            if path.to_string_lossy().ends_with(".style.ron") {
+                let content = std::fs::read_to_string(&path).unwrap();
+                ron::from_str::<thyllore_effect_core::FlameStyle>(&content)
+                    .unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+            }
+        }
+    }
+
+    #[test]
     fn flame_set_combined_form() {
         let args: Vec<String> = vec!["--batch-flame-set=noise_amplitude=0.35".into()];
         let pairs = flame_set_resolve_from_args(&args).unwrap();
