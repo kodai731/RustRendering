@@ -151,7 +151,7 @@ pub fn flame_field_manifest_with(
                 source: FieldSourceKind::ErosionWaveTable,
                 target: FieldTargetKind::SilhouetteHeight,
                 parameter: "boundary_amp (low-octave tilt)",
-                active: unified && erosion && effect.boundary_amp != 0.0,
+                active: unified && erosion && effect.boundary.amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::ErosionWaveTable,
@@ -175,13 +175,13 @@ pub fn flame_field_manifest_with(
                 source: FieldSourceKind::BoundaryFbm,
                 target: FieldTargetKind::SilhouetteHeight,
                 parameter: "boundary_amp",
-                active: !unified && effect.boundary_amp != 0.0,
+                active: !unified && effect.boundary.amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::BoundaryFbm,
                 target: FieldTargetKind::SilhouetteRadius,
                 parameter: "boundary_amp",
-                active: !unified && effect.boundary_amp != 0.0,
+                active: !unified && effect.boundary.amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::PhaseJitterFields,
@@ -207,7 +207,7 @@ mod tests {
         e.noise_amplitude = 1.5;
         e.warp_amp = 1.4;
         e.contour_wiggle_amp = 0.3;
-        e.boundary_amp = 0.2;
+        e.boundary.amp = 0.2;
         let sources = flame_field_manifest_with(&e, false, 1.0).active_sources();
         assert!(sources.contains(&FieldSourceKind::ErosionWaveTable));
         assert!(sources.contains(&FieldSourceKind::WarpDisplacementTable));
@@ -215,7 +215,7 @@ mod tests {
         assert!(sources.contains(&FieldSourceKind::BoundaryFbm));
         assert!(sources.contains(&FieldSourceKind::PhaseJitterFields));
 
-        e.boundary_amp = 0.0;
+        e.boundary.amp = 0.0;
         e.contour_wiggle_amp = 0.0;
         let sources = flame_field_manifest_with(&e, false, 0.0).active_sources();
         assert!(!sources.contains(&FieldSourceKind::BoundaryFbm));
@@ -229,7 +229,7 @@ mod tests {
         e.noise_amplitude = 1.5;
         e.warp_amp = 1.4;
         e.contour_wiggle_amp = 0.3;
-        e.boundary_amp = 0.2;
+        e.boundary.amp = 0.2;
         let m = flame_field_manifest_with(&e, true, 1.0);
         assert_eq!(
             m.active_sources(),

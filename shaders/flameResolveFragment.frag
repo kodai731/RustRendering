@@ -21,6 +21,30 @@ layout(set = 0, binding = 0) uniform FrameUBO {
     vec4 light_color;
 } frame;
 
+struct FlameSupportMotion {
+    float supportMargin;
+    float meanderAmp;
+    float swirlSpeed;
+    float twistSpeed;
+};
+
+struct FlameTwistMode {
+    float kappa;
+    float omega;
+    float phase;
+    float amp;
+};
+
+struct FlameMeanderMode {
+    vec2 direction;
+    float kappa;
+    float omega;
+    float phase;
+    float pad0;
+    float pad1;
+    float pad2;
+};
+
 layout(set = 1, binding = 0) uniform FlameUBO {
     mat4 model;
     mat4 inverseModel;
@@ -60,8 +84,14 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     vec4 warpStrainParams;
     vec4 warpFormParams;
     vec4 unifiedParams;
-  vec4 spreadParams;
-    vec4 supportParams;
+    vec4 spreadParams;
+    FlameSupportMotion supportMotion;
+    FlameTwistMode twistModes[2];
+    float twistCoreRadiusSq;
+    float twistPad0;
+    float twistPad1;
+    float twistPad2;
+    FlameMeanderMode meanderModes[2];
     vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;
@@ -351,8 +381,8 @@ FlameRaySegment buildRaySegment() {
     // the trail proxy must not cut it, so its cone is padded by that bound. Non-trail
     // emitters keep the unpadded cone (their integrators bend per evaluation).
    float radiusPad = flame.trailMeta.x >= 1.0
-        ? length(flame.styleParams2.xy) * flame.styleParams2.z + 2.0 * flame.supportParams.y
-        : 2.0 * flame.supportParams.y;
+        ? length(flame.styleParams2.xy) * flame.styleParams2.z + 2.0 * flame.supportMotion.meanderAmp
+        : 2.0 * flame.supportMotion.meanderAmp;
     if (!clampToShellCone(segment.localOrigin, segment.localDir, radiusPad, segment.tNear, segment.tFar)) {
         segment.tNear = 1.0;
         segment.tFar = 0.0;

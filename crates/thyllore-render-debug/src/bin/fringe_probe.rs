@@ -150,7 +150,7 @@ fn main() {
         build_unified_erosion_modes(
             WAVE_K_RATIO,
             WAVE_ENV_MU,
-            effect.boundary_amp * thyllore_effect_core::read_env_unified_tilt_gain_b(),
+            effect.boundary.amp * thyllore_effect_core::read_env_unified_tilt_gain_b(),
             effect.contour_wiggle_amp * thyllore_effect_core::read_env_unified_tilt_gain_w(),
         )
     } else {

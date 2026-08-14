@@ -296,6 +296,8 @@ pub struct MotionPathData {
     pub enabled: bool,
 }
 
+// TODO(#132): replace this hand-written mirror struct with serialization
+// derived from the component itself (see the issue for the Bevy/Unity survey).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameEffectData {
     pub position: [f32; 3],
@@ -558,18 +560,18 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             aniso_axis_advect: effect.aniso_axis_advect,
             rte_bands: effect.rte_bands,
             sigma_dispersion: effect.sigma_dispersion,
-            tip_carve_depth: effect.tip_carve_depth,
-            tip_carve_reach: effect.tip_carve_reach,
+            tip_carve_depth: effect.tip_carve.depth,
+            tip_carve_reach: effect.tip_carve.reach,
             warp_reach: effect.warp_reach,
-            swirl_gain: effect.swirl_gain,
-            swirl_speed: effect.swirl_speed,
+            swirl_gain: effect.swirl.gain,
+            swirl_speed: effect.swirl.speed,
             spread_gain: effect.spread_gain,
             support_margin: effect.support_margin,
             edge_outer_sharpen: effect.edge_outer_sharpen,
             noise_scale_mode: effect.noise_scale_mode,
             erosion_noise_gain: effect.erosion_noise_gain,
-            twist_gain: effect.twist_gain,
-            twist_speed: effect.twist_speed,
+            twist_gain: effect.twist.gain,
+            twist_speed: effect.twist.speed,
             burnout_gain: effect.burnout_gain,
             noise_shaping_scale: effect.noise_shaping_scale,
             meander_amp: effect.meander_amp,
@@ -696,18 +698,18 @@ pub fn apply_flame_state_to_world(
         effect.aniso_axis_advect = flame.effect.aniso_axis_advect;
         effect.rte_bands = flame.effect.rte_bands;
         effect.sigma_dispersion = flame.effect.sigma_dispersion;
-        effect.tip_carve_depth = flame.effect.tip_carve_depth;
-        effect.tip_carve_reach = flame.effect.tip_carve_reach;
+        effect.tip_carve.depth = flame.effect.tip_carve_depth;
+        effect.tip_carve.reach = flame.effect.tip_carve_reach;
         effect.warp_reach = flame.effect.warp_reach;
-        effect.swirl_gain = flame.effect.swirl_gain;
-        effect.swirl_speed = flame.effect.swirl_speed;
+        effect.swirl.gain = flame.effect.swirl_gain;
+        effect.swirl.speed = flame.effect.swirl_speed;
         effect.support_margin = flame.effect.support_margin;
         effect.meander_amp = flame.effect.meander_amp;
         effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
         effect.noise_scale_mode = flame.effect.noise_scale_mode;
         effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
-        effect.twist_gain = flame.effect.twist_gain;
-        effect.twist_speed = flame.effect.twist_speed;
+        effect.twist.gain = flame.effect.twist_gain;
+        effect.twist.speed = flame.effect.twist_speed;
         effect.burnout_gain = flame.effect.burnout_gain;
         effect.noise_shaping_scale = flame.effect.noise_shaping_scale;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());

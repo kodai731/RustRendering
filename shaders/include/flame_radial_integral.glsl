@@ -151,7 +151,7 @@ bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
         * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
     float taperMax = max(1.0, flame.styleParams1.x);
-   float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim + 2.0 * flame.supportParams.y;
+   float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim + 2.0 * flame.supportMotion.meanderAmp;
 
     float a = dot(d.xz, d.xz);
     float b = 2.0 * dot(o.xz, d.xz);

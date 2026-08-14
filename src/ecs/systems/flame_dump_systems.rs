@@ -75,22 +75,22 @@ pub fn build_effect_json(
     value["rte_bands"] = json!(effect.rte_bands);
     value["sigma_dispersion"] = json!(effect.sigma_dispersion);
     value["edge_temperature_blend"] = json!(effect.edge_temperature_blend);
-    value["boundary_amp"] = json!(effect.boundary_amp);
-    value["boundary_freq"] = json!(effect.boundary_freq);
-    value["boundary_speed"] = json!(effect.boundary_speed);
-    value["boundary_radius_ratio"] = json!(effect.boundary_radius_ratio);
-    value["tip_carve_depth"] = json!(effect.tip_carve_depth);
-    value["tip_carve_reach"] = json!(effect.tip_carve_reach);
+    value["boundary_amp"] = json!(effect.boundary.amp);
+    value["boundary_freq"] = json!(effect.boundary.freq);
+    value["boundary_speed"] = json!(effect.boundary.speed);
+    value["boundary_radius_ratio"] = json!(effect.boundary.radius_ratio);
+    value["tip_carve_depth"] = json!(effect.tip_carve.depth);
+    value["tip_carve_reach"] = json!(effect.tip_carve.reach);
     value["warp_reach"] = json!(effect.warp_reach);
-    value["swirl_gain"] = json!(effect.swirl_gain);
-    value["swirl_speed"] = json!(effect.swirl_speed);
+    value["swirl_gain"] = json!(effect.swirl.gain);
+    value["swirl_speed"] = json!(effect.swirl.speed);
     value["spread_gain"] = json!(effect.spread_gain);
     value["support_margin"] = json!(effect.support_margin);
     value["edge_outer_sharpen"] = json!(effect.edge_outer_sharpen);
     value["noise_scale_mode"] = json!(effect.noise_scale_mode);
     value["erosion_noise_gain"] = json!(effect.erosion_noise_gain);
-    value["twist_gain"] = json!(effect.twist_gain);
-    value["twist_speed"] = json!(effect.twist_speed);
+    value["twist_gain"] = json!(effect.twist.gain);
+    value["twist_speed"] = json!(effect.twist.speed);
     value["burnout_gain"] = json!(effect.burnout_gain);
     value["noise_shaping_scale"] = json!(effect.noise_shaping_scale);
     value["optical_depth"] = json!(effect.optical_depth);
@@ -149,7 +149,12 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "light_data": [ubo.light_data.x, ubo.light_data.y, ubo.light_data.z, ubo.light_data.w],
         "unified_params": ubo.unified_params,
         "spread_params": ubo.spread_params,
-        "support_margin": ubo.support_margin,
+        "support_margin": [
+            ubo.support_motion.support_margin,
+            ubo.support_motion.meander_amp,
+            ubo.support_motion.swirl_speed,
+            ubo.support_motion.twist_speed,
+        ],
     })
 }
 
@@ -642,7 +647,7 @@ mod tests {
     fn field_manifest_json_names_sources_targets_and_parameters() {
         let mut effect = sample_effect();
         effect.noise_amplitude = 1.5;
-        effect.boundary_amp = 0.2;
+        effect.boundary.amp = 0.2;
         let manifest = thyllore_effect_core::flame_field_manifest(&effect);
         let value = build_field_manifest_json(&manifest);
         assert!(value["summary"]

@@ -200,7 +200,12 @@ fn test_flame_ubo_layout_is_std140_compatible() {
         784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
             + 48
             + 16
+            + std::mem::size_of::<FlameTwistField>()
+            + std::mem::size_of::<[FlameMeanderMode; 2]>()
     );
+    assert_eq!(std::mem::size_of::<FlameSupportMotion>(), 16);
+    assert_eq!(std::mem::size_of::<FlameTwistField>(), 48);
+    assert_eq!(std::mem::size_of::<[FlameMeanderMode; 2]>(), 64);
     assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
 }
 

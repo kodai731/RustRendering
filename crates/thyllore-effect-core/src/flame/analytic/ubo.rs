@@ -73,9 +73,43 @@ fn build_medium_spread_params(effect: &FlameEffect) -> [f32; 4] {
     [
         effect.spread_gain.max(0.0),
         effect.edge_outer_sharpen,
-        effect.twist_gain,
+        effect.twist.gain,
         effect.erosion_noise_gain,
     ]
+}
+
+/// The twist rate scale: twist speed owns the rate when positive, otherwise
+/// the rate delegates to the swirl speed.
+fn twist_rate_scale(effect: &FlameEffect) -> f32 {
+    if effect.twist.speed > 0.0 {
+        effect.twist.speed
+    } else {
+        effect.swirl.speed
+    }
+}
+
+fn build_twist_field(effect: &FlameEffect) -> FlameTwistField {
+    let rate_scale = twist_rate_scale(effect);
+    FlameTwistField {
+        modes: std::array::from_fn(|j| FlameTwistMode {
+            kappa: TWIST_MODE_KAPPA[j],
+            omega: TWIST_MODE_SPIN[j] * rate_scale * twist_mode_phase_rate(TWIST_MODE_KAPPA[j]),
+            phase: TWIST_MODE_PHASE[j],
+            amp: TWIST_MODE_AMP[j],
+        }),
+        core_radius_sq: TWIST_CORE_RADIUS_SQ,
+        _padding: [0.0; 3],
+    }
+}
+
+fn build_meander_modes(effect: &FlameEffect) -> [FlameMeanderMode; 2] {
+    std::array::from_fn(|j| FlameMeanderMode {
+        direction: MEANDER_MODE_DIRECTION[j],
+        kappa: MEANDER_MODE_KAPPA[j],
+        omega: effect.swirl.speed * MEANDER_MODE_RATE_SCALE[j],
+        phase: MEANDER_MODE_PHASE[j],
+        _padding: [0.0; 3],
+    })
 }
 
 /// waveCfParams: x = closed-form variant active, y = shear layer count.
@@ -141,7 +175,7 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         build_unified_erosion_modes(
             k_ratio,
             read_env_wave_env_mu(),
-            effect.boundary_amp * read_env_unified_tilt_gain_b(),
+            effect.boundary.amp * read_env_unified_tilt_gain_b(),
             effect.contour_wiggle_amp * read_env_unified_tilt_gain_w(),
         )
     } else {
@@ -249,7 +283,7 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         packed[2 * slot + 1] = [
             mode.phase,
             mode.curl_direction[0],
-            crate::flame_wave::medium_swirl_phase_rate(i, mode.k) * effect.swirl_speed.max(0.0),
+            crate::flame_wave::medium_swirl_phase_rate(i, mode.k) * effect.swirl.speed.max(0.0),
             mode.curl_direction[2],
         ];
     }
@@ -291,7 +325,7 @@ pub fn build_unified_field_params(effect: &FlameEffect) -> [f32; 4] {
     let std = crate::flame_wave::unified_noise_std(
         read_env_wave_k_ratio(),
         read_env_wave_env_mu(),
-        effect.boundary_amp * read_env_unified_tilt_gain_b(),
+        effect.boundary.amp * read_env_unified_tilt_gain_b(),
         effect.contour_wiggle_amp * read_env_unified_tilt_gain_w(),
     );
     let sigma_floor =
@@ -427,7 +461,7 @@ pub fn build_medium_swirl_modes(
 ) -> [crate::flame_wave::WaveWarpMode; crate::flame_wave::WAVE_MEDIUM_SWIRL_MODE_COUNT] {
     let base_norm = shear_strain_norm(&active_shear_table(warp_modes));
     crate::flame_wave::generate_medium_swirl_modes(
-        read_env_swirl_gain(effect.swirl_gain),
+        read_env_swirl_gain(effect.swirl.gain),
         base_norm,
     )
 }
@@ -478,8 +512,8 @@ fn build_tip_carve_params(effect: &FlameEffect) -> [f32; 4] {
     let total = at_top - at_base;
     let inv_total = if total.abs() > 1e-6 { 1.0 / total } else { 0.0 };
     [
-        effect.tip_carve_depth,
-        1.0 / effect.tip_carve_reach.max(1e-3),
+        effect.tip_carve.depth,
+        1.0 / effect.tip_carve.reach.max(1e-3),
         at_top,
         inv_total,
     ]
@@ -606,10 +640,10 @@ pub fn build_flame_ubo(
             params
         },
         boundary_params: [
-            effect.boundary_amp,
-            effect.boundary_freq,
-            effect.boundary_speed,
-            effect.boundary_radius_ratio,
+            effect.boundary.amp,
+            effect.boundary.freq,
+            effect.boundary.speed,
+            effect.boundary.radius_ratio,
         ],
         near_fade_params: {
             let (elo, ehi) = effective_edge_window(effect);
@@ -624,12 +658,14 @@ pub fn build_flame_ubo(
         warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
         spread_params: build_medium_spread_params(effect),
-        support_margin: [
-            effect.support_margin,
-            effect.meander_amp,
-            effect.swirl_speed,
-            effect.twist_speed,
-        ],
+        support_motion: FlameSupportMotion {
+            support_margin: effect.support_margin,
+            meander_amp: effect.meander_amp,
+            swirl_speed: effect.swirl.speed,
+            twist_speed: effect.twist.speed,
+        },
+        twist_field: build_twist_field(effect),
+        meander_modes: build_meander_modes(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1002,10 +1038,10 @@ pub fn build_flame_ubo_with_trail(
             params
         },
         boundary_params: [
-            effect.boundary_amp,
-            effect.boundary_freq,
-            effect.boundary_speed,
-            effect.boundary_radius_ratio,
+            effect.boundary.amp,
+            effect.boundary.freq,
+            effect.boundary.speed,
+            effect.boundary.radius_ratio,
         ],
         near_fade_params: {
             let (elo, ehi) = effective_edge_window(effect);
@@ -1020,15 +1056,54 @@ pub fn build_flame_ubo_with_trail(
         warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
         spread_params: build_medium_spread_params(effect),
-        support_margin: [
-            effect.support_margin,
-            effect.meander_amp,
-            effect.swirl_speed,
-            effect.twist_speed,
-        ],
+        support_motion: FlameSupportMotion {
+            support_margin: effect.support_margin,
+            meander_amp: effect.meander_amp,
+            swirl_speed: effect.swirl.speed,
+            twist_speed: effect.twist.speed,
+        },
+        twist_field: build_twist_field(effect),
+        meander_modes: build_meander_modes(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameSupportMotion {
+    pub support_margin: f32,
+    pub meander_amp: f32,
+    pub swirl_speed: f32,
+    /// 0 = delegate the twist rate to swirl_speed.
+    pub twist_speed: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameTwistMode {
+    pub kappa: f32,
+    pub omega: f32,
+    pub phase: f32,
+    pub amp: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameTwistField {
+    pub modes: [FlameTwistMode; 2],
+    pub core_radius_sq: f32,
+    pub _padding: [f32; 3],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameMeanderMode {
+    pub direction: [f32; 2],
+    pub kappa: f32,
+    pub omega: f32,
+    pub phase: f32,
+    pub _padding: [f32; 3],
 }
 
 #[repr(C)]
@@ -1073,9 +1148,9 @@ pub struct FlameUBO {
     pub warp_form_params: [f32; 4],
     pub unified_params: [f32; 4],
     pub spread_params: [f32; 4],
-    /// supportParams: x = support_margin, y = meander_amp, z = swirl_speed,
-    /// w = twist_speed (0 = delegate the twist rate to swirl_speed).
-    pub support_margin: [f32; 4],
+    pub support_motion: FlameSupportMotion,
+    pub twist_field: FlameTwistField,
+    pub meander_modes: [FlameMeanderMode; 2],
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }

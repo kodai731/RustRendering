@@ -13,66 +13,89 @@ pub enum ParameterOwner {
 
 use ParameterOwner::{Frame, Shape, Style};
 
-/// Persisted flame parameters (scene serde field names) mapped to their owner.
-/// Must stay 1:1 with `FlameEffectData` (coverage test in scene/format.rs)
-/// and with `flame_parameter_snapshot` (coverage test below).
-pub const PARAMETER_OWNERSHIP: &[(&str, ParameterOwner)] = &[
-    ("position", Frame),
-    ("rotation", Frame),
-    ("height", Frame),
-    ("radius", Frame),
-    ("sigma_t", Style),
-    ("intensity", Style),
-    ("color_base", Style),
-    ("color_tip", Style),
-    ("temperature_base_k", Style),
-    ("temperature_tip_k", Style),
-    ("use_blackbody", Style),
-    ("noise_amplitude", Style),
-    ("noise_contrast", Style),
-    ("noise_frequency", Style),
-    ("noise_scroll_speed", Style),
-    ("time_scale", Frame),
-    ("time_offset", Frame),
-    ("warp_amp", Style),
-    ("warp_freq", Style),
-    ("rise_speed", Style),
-    ("taper_power", Shape),
-    ("radius_tip_ratio", Shape),
-    ("edge_low", Style),
-    ("edge_high", Style),
-    ("white_boost", Style),
-    ("wind_direction", Frame),
-    ("bend_amount", Frame),
-    ("bend_power", Frame),
-    ("self_shadow_strength", Style),
-    ("envelope_peak", Shape),
-    ("envelope_base", Shape),
-    ("envelope_tail", Shape),
-    ("radial_sharpness", Shape),
-    ("occlusion_lum_ref", Style),
-    ("contour_wiggle_amp", Style),
-    ("aniso_axis_advect", Style),
-    ("rte_bands", Style),
-    ("sigma_dispersion", Style),
-    ("edge_temperature_blend", Style),
-    ("tip_carve_depth", Style),
-    ("tip_carve_reach", Style),
-    ("warp_reach", Style),
-    ("swirl_gain", Style),
-    ("swirl_speed", Style),
-    ("spread_gain", Style),
-    ("support_margin", Style),
-    ("meander_amp", Style),
-    ("edge_outer_sharpen", Style),
-    ("noise_scale_mode", Style),
-    ("erosion_noise_gain", Style),
-    ("twist_gain", Style),
-    ("twist_speed", Style),
-    ("burnout_gain", Style),
-    ("noise_shaping_scale", Style),
-    ("optical_depth", Style),
-];
+/// One declaration per persisted parameter (scene serde field name): its owner
+/// and its bit-exact value accessor. `PARAMETER_OWNERSHIP` and
+/// `flame_parameter_snapshot` are both generated from this single list, so the
+/// two cannot drift. Coverage against `FlameEffectData` is tested in
+/// scene/format.rs.
+macro_rules! declare_flame_parameters {
+    ($effect:ident => $( $name:ident : $owner:ident = [ $($value:expr),+ $(,)? ] ),+ $(,)?) => {
+        /// Persisted flame parameters (scene serde field names) mapped to their owner.
+        pub const PARAMETER_OWNERSHIP: &[(&str, ParameterOwner)] = &[
+            $( (stringify!($name), $owner) ),+
+        ];
+
+        /// Bit-exact value snapshot of every persisted parameter, keyed by the
+        /// same field names as `PARAMETER_OWNERSHIP`. Diffing two snapshots
+        /// yields the exact set of parameters a writer touched.
+        pub fn flame_parameter_snapshot($effect: &FlameEffect) -> Vec<(&'static str, Vec<f32>)> {
+            vec![ $( (stringify!($name), vec![$($value),+]) ),+ ]
+        }
+    };
+}
+
+declare_flame_parameters! { effect =>
+    position: Frame = [effect.position.x, effect.position.y, effect.position.z],
+    rotation: Frame = [
+        effect.rotation.s,
+        effect.rotation.v.x,
+        effect.rotation.v.y,
+        effect.rotation.v.z,
+    ],
+    height: Frame = [effect.height],
+    radius: Frame = [effect.radius],
+    sigma_t: Style = [effect.sigma_t],
+    intensity: Style = [effect.intensity],
+    color_base: Style = [effect.color_base[0], effect.color_base[1], effect.color_base[2]],
+    color_tip: Style = [effect.color_tip[0], effect.color_tip[1], effect.color_tip[2]],
+    temperature_base_k: Style = [effect.temperature_base_k],
+    temperature_tip_k: Style = [effect.temperature_tip_k],
+    use_blackbody: Style = [effect.use_blackbody as u8 as f32],
+    noise_amplitude: Style = [effect.noise_amplitude],
+    noise_contrast: Style = [effect.noise_contrast],
+    noise_frequency: Style = [effect.noise_frequency],
+    noise_scroll_speed: Style = [effect.noise_scroll_speed],
+    time_scale: Frame = [effect.time_scale],
+    time_offset: Frame = [effect.time_offset],
+    warp_amp: Style = [effect.warp_amp],
+    warp_freq: Style = [effect.warp_freq],
+    rise_speed: Style = [effect.rise_speed],
+    taper_power: Shape = [effect.taper_power],
+    radius_tip_ratio: Shape = [effect.radius_tip_ratio],
+    edge_low: Style = [effect.edge_low],
+    edge_high: Style = [effect.edge_high],
+    white_boost: Style = [effect.white_boost],
+    wind_direction: Frame = [effect.wind_direction.x, effect.wind_direction.y],
+    bend_amount: Frame = [effect.bend_amount],
+    bend_power: Frame = [effect.bend_power],
+    self_shadow_strength: Style = [effect.self_shadow_strength],
+    envelope_peak: Shape = [effect.envelope_peak],
+    envelope_base: Shape = [effect.envelope_base],
+    envelope_tail: Shape = [effect.envelope_tail],
+    radial_sharpness: Shape = [effect.radial_sharpness],
+    occlusion_lum_ref: Style = [effect.occlusion_lum_ref],
+    contour_wiggle_amp: Style = [effect.contour_wiggle_amp],
+    aniso_axis_advect: Style = [effect.aniso_axis_advect],
+    rte_bands: Style = [effect.rte_bands],
+    sigma_dispersion: Style = [effect.sigma_dispersion],
+    edge_temperature_blend: Style = [effect.edge_temperature_blend],
+    tip_carve_depth: Style = [effect.tip_carve.depth],
+    tip_carve_reach: Style = [effect.tip_carve.reach],
+    warp_reach: Style = [effect.warp_reach],
+    swirl_gain: Style = [effect.swirl.gain],
+    swirl_speed: Style = [effect.swirl.speed],
+    spread_gain: Style = [effect.spread_gain],
+    support_margin: Style = [effect.support_margin],
+    meander_amp: Style = [effect.meander_amp],
+    edge_outer_sharpen: Style = [effect.edge_outer_sharpen],
+    noise_scale_mode: Style = [effect.noise_scale_mode],
+    erosion_noise_gain: Style = [effect.erosion_noise_gain],
+    twist_gain: Style = [effect.twist.gain],
+    twist_speed: Style = [effect.twist.speed],
+    burnout_gain: Style = [effect.burnout_gain],
+    noise_shaping_scale: Style = [effect.noise_shaping_scale],
+    optical_depth: Style = [effect.optical_depth],
+}
 
 pub fn parameter_owner(field: &str) -> Option<ParameterOwner> {
     PARAMETER_OWNERSHIP
@@ -106,86 +129,6 @@ pub const TEXTURE_FIT_COLOR_PARAMETERS: &[&str] = &[
 /// documented exception where a fit writes Frame-owned parameters (user opt-in
 /// via the tilt group checkbox).
 pub const TEXTURE_FIT_TILT_PARAMETERS: &[&str] = &["wind_direction", "bend_amount"];
-
-/// Bit-exact value snapshot of every persisted parameter, keyed by the same field
-/// names as `PARAMETER_OWNERSHIP`. Diffing two snapshots yields the exact set of
-/// parameters a writer touched.
-pub fn flame_parameter_snapshot(effect: &FlameEffect) -> Vec<(&'static str, Vec<f32>)> {
-    vec![
-        (
-            "position",
-            vec![effect.position.x, effect.position.y, effect.position.z],
-        ),
-        (
-            "rotation",
-            vec![
-                effect.rotation.s,
-                effect.rotation.v.x,
-                effect.rotation.v.y,
-                effect.rotation.v.z,
-            ],
-        ),
-        ("height", vec![effect.height]),
-        ("radius", vec![effect.radius]),
-        ("sigma_t", vec![effect.sigma_t]),
-        ("intensity", vec![effect.intensity]),
-        ("color_base", effect.color_base.to_vec()),
-        ("color_tip", effect.color_tip.to_vec()),
-        ("temperature_base_k", vec![effect.temperature_base_k]),
-        ("temperature_tip_k", vec![effect.temperature_tip_k]),
-        ("use_blackbody", vec![effect.use_blackbody as u8 as f32]),
-        ("noise_amplitude", vec![effect.noise_amplitude]),
-        ("noise_contrast", vec![effect.noise_contrast]),
-        ("noise_frequency", vec![effect.noise_frequency]),
-        ("noise_scroll_speed", vec![effect.noise_scroll_speed]),
-        ("time_scale", vec![effect.time_scale]),
-        ("time_offset", vec![effect.time_offset]),
-        ("warp_amp", vec![effect.warp_amp]),
-        ("warp_freq", vec![effect.warp_freq]),
-        ("rise_speed", vec![effect.rise_speed]),
-        ("taper_power", vec![effect.taper_power]),
-        ("radius_tip_ratio", vec![effect.radius_tip_ratio]),
-        ("edge_low", vec![effect.edge_low]),
-        ("edge_high", vec![effect.edge_high]),
-        ("white_boost", vec![effect.white_boost]),
-        (
-            "wind_direction",
-            vec![effect.wind_direction.x, effect.wind_direction.y],
-        ),
-        ("bend_amount", vec![effect.bend_amount]),
-        ("bend_power", vec![effect.bend_power]),
-        ("self_shadow_strength", vec![effect.self_shadow_strength]),
-        ("envelope_peak", vec![effect.envelope_peak]),
-        ("envelope_base", vec![effect.envelope_base]),
-        ("envelope_tail", vec![effect.envelope_tail]),
-        ("radial_sharpness", vec![effect.radial_sharpness]),
-        ("occlusion_lum_ref", vec![effect.occlusion_lum_ref]),
-        ("contour_wiggle_amp", vec![effect.contour_wiggle_amp]),
-        ("aniso_axis_advect", vec![effect.aniso_axis_advect]),
-        ("rte_bands", vec![effect.rte_bands]),
-        ("sigma_dispersion", vec![effect.sigma_dispersion]),
-        (
-            "edge_temperature_blend",
-            vec![effect.edge_temperature_blend],
-        ),
-        ("tip_carve_depth", vec![effect.tip_carve_depth]),
-        ("tip_carve_reach", vec![effect.tip_carve_reach]),
-        ("warp_reach", vec![effect.warp_reach]),
-        ("swirl_gain", vec![effect.swirl_gain]),
-        ("swirl_speed", vec![effect.swirl_speed]),
-        ("spread_gain", vec![effect.spread_gain]),
-        ("support_margin", vec![effect.support_margin]),
-        ("meander_amp", vec![effect.meander_amp]),
-        ("edge_outer_sharpen", vec![effect.edge_outer_sharpen]),
-        ("noise_scale_mode", vec![effect.noise_scale_mode]),
-        ("erosion_noise_gain", vec![effect.erosion_noise_gain]),
-        ("twist_gain", vec![effect.twist_gain]),
-        ("twist_speed", vec![effect.twist_speed]),
-        ("burnout_gain", vec![effect.burnout_gain]),
-        ("noise_shaping_scale", vec![effect.noise_shaping_scale]),
-        ("optical_depth", vec![effect.optical_depth]),
-    ]
-}
 
 pub fn changed_parameters(
     before: &[(&'static str, Vec<f32>)],
@@ -268,14 +211,6 @@ mod tests {
         let len = names.len();
         names.dedup();
         assert_eq!(names.len(), len);
-    }
-
-    #[test]
-    fn test_snapshot_covers_ownership_table_exactly() {
-        let snapshot = flame_parameter_snapshot(&FlameEffect::default());
-        let snapshot_names: Vec<&str> = snapshot.iter().map(|(name, _)| *name).collect();
-        let table_names: Vec<&str> = PARAMETER_OWNERSHIP.iter().map(|(name, _)| *name).collect();
-        assert_eq!(snapshot_names, table_names);
     }
 
     #[test]

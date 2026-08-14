@@ -710,7 +710,7 @@ pub unsafe fn record_flame_passes(
         let support_scale = thyllore_effect_core::flame_shell_support_scale(
             ubo.emitter_params[0] as u32,
             ubo.emitter_params[1],
-            ubo.support_margin[0],
+            ubo.support_motion.support_margin,
         );
         let Some(scissor) = compute_flame_scissor(
             app,
@@ -718,7 +718,7 @@ pub unsafe fn record_flame_passes(
             &model_matrix,
             bend_offset,
             support_scale,
-            ubo.support_margin[0],
+            ubo.support_motion.support_margin,
         ) else {
             continue;
         };

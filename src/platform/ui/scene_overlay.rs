@@ -903,7 +903,7 @@ fn build_flame_section(
 
                     ui.slider_config("Swirl", 0.0, 1.5)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.swirl_gain);
+                        .build(&mut effect_copy.swirl.gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Medium swirl share: strain budget spent on azimuthal shear \
@@ -933,7 +933,7 @@ fn build_flame_section(
                         );
                     }
 
-                    let mut vortex = (effect_copy.twist_gain
+                    let mut vortex = (effect_copy.twist.gain
                         / thyllore_effect_core::VORTEX_MACRO_MAX_GAIN)
                         .clamp(0.0, 1.0);
                     if ui
@@ -942,8 +942,8 @@ fn build_flame_section(
                         .build(&mut vortex)
                     {
                         let (gain, speed) = thyllore_effect_core::vortex_macro_parameters(vortex);
-                        effect_copy.twist_gain = gain;
-                        effect_copy.twist_speed = speed;
+                        effect_copy.twist.gain = gain;
+                        effect_copy.twist.speed = speed;
                     }
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
@@ -955,7 +955,7 @@ fn build_flame_section(
 
                     ui.slider_config("Twist", 0.0, 8.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.twist_gain);
+                        .build(&mut effect_copy.twist.gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Azimuthal twist of the noise pattern around the axis \
@@ -966,7 +966,7 @@ fn build_flame_section(
 
                     ui.slider_config("Twist Speed", 0.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.twist_speed);
+                        .build(&mut effect_copy.twist.speed);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Twist rotation rate scale (0 = follow Swirl Speed; > 0 gives \
@@ -1008,7 +1008,7 @@ fn build_flame_section(
 
                     ui.slider_config("Swirl Speed", 0.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.swirl_speed);
+                        .build(&mut effect_copy.swirl.speed);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "How fast the swirl layers counter-rotate against the rise \

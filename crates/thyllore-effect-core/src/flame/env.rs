@@ -95,7 +95,7 @@ pub fn read_env_warp_form_displacement() -> bool {
 
 static SWIRL_GAIN_ENV: OnceLock<Option<f32>> = OnceLock::new();
 
-/// Calibration-only override of FlameEffect::swirl_gain (motion_design L2);
+/// Calibration-only override of the FlameEffect swirl gain (motion_design L2);
 /// removed once the adopted value is baked into the presets.
 pub fn read_env_swirl_gain(effect_value: f32) -> f32 {
     SWIRL_GAIN_ENV

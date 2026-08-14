@@ -2,6 +2,120 @@ use serde::{Deserialize, Serialize};
 
 use super::FlameEffect;
 
+pub const FLAME_STYLE_VERSION: u32 = 1;
+
+/// One declaration per style group: the serde struct, its extractor, and its
+/// applier are all generated from the same field list, so the three cannot
+/// drift. `direct` fields map 1:1 onto an effect field path; `custom` fields
+/// need a conversion and are handled by the callers in
+/// `flame_style_from_effect` / `apply_flame_style`.
+macro_rules! declare_style_group {
+    (
+        $(#[$doc:meta])*
+        $struct_name:ident, $extract_fn:ident, $apply_fn:ident, $effect:ident {
+            direct {
+                $( $field:ident : $ty:ty => $($path:ident).+ ),* $(,)?
+            }
+            custom {
+                $( $custom_field:ident : $custom_ty:ty ),* $(,)?
+            }
+        }
+    ) => {
+        $(#[$doc])*
+        #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+        #[serde(default)]
+        pub struct $struct_name {
+            $( pub $field: Option<$ty>, )*
+            $( pub $custom_field: Option<$custom_ty>, )*
+        }
+
+        fn $extract_fn($effect: &FlameEffect) -> $struct_name {
+            $struct_name {
+                $( $field: Some($effect.$($path).+), )*
+                ..Default::default()
+            }
+        }
+
+        fn $apply_fn(
+            $effect: &mut FlameEffect,
+            group: &$struct_name,
+            applied: &mut Vec<&'static str>,
+        ) {
+            $(
+                if let Some(value) = group.$field {
+                    $effect.$($path).+ = value;
+                    applied.push(stringify!($field));
+                }
+            )*
+        }
+    };
+}
+
+declare_style_group! {
+    FlameStyleMotion, extract_motion_style, apply_motion_style, effect {
+        direct {
+            noise_scroll_speed: f32 => noise_scroll_speed,
+            rise_speed: f32 => rise_speed,
+            warp_amp: f32 => warp_amp,
+            warp_freq: f32 => warp_freq,
+            swirl_gain: f32 => swirl.gain,
+            swirl_speed: f32 => swirl.speed,
+            twist_gain: f32 => twist.gain,
+            twist_speed: f32 => twist.speed,
+            spread_gain: f32 => spread_gain,
+            burnout_gain: f32 => burnout_gain,
+            aniso_axis_advect: f32 => aniso_axis_advect,
+        }
+        custom {
+            meander_amp_over_r0: f32,
+        }
+    }
+}
+
+declare_style_group! {
+    FlameStyleTexture, extract_texture_style, apply_texture_style, effect {
+        direct {
+            noise_amplitude: f32 => noise_amplitude,
+            noise_contrast: f32 => noise_contrast,
+            noise_frequency: f32 => noise_frequency,
+            noise_shaping_scale: f32 => noise_shaping_scale,
+            erosion_noise_gain: f32 => erosion_noise_gain,
+            support_margin: f32 => support_margin,
+            contour_wiggle_amp: f32 => contour_wiggle_amp,
+            edge_outer_sharpen: f32 => edge_outer_sharpen,
+            noise_scale_mode: f32 => noise_scale_mode,
+            edge_low: f32 => edge_low,
+            edge_high: f32 => edge_high,
+            tip_carve_depth: f32 => tip_carve.depth,
+            tip_carve_reach: f32 => tip_carve.reach,
+            warp_reach: f32 => warp_reach,
+        }
+        custom {}
+    }
+}
+
+declare_style_group! {
+    FlameStyleOptics, extract_optics_style, apply_optics_style, effect {
+        direct {
+            intensity: f32 => intensity,
+            temperature_base_k: f32 => temperature_base_k,
+            temperature_tip_k: f32 => temperature_tip_k,
+            use_blackbody: bool => use_blackbody,
+            white_boost: f32 => white_boost,
+            self_shadow_strength: f32 => self_shadow_strength,
+            sigma_dispersion: f32 => sigma_dispersion,
+            rte_bands: f32 => rte_bands,
+            edge_temperature_blend: f32 => edge_temperature_blend,
+            occlusion_lum_ref: f32 => occlusion_lum_ref,
+            color_base: [f32; 3] => color_base,
+            color_tip: [f32; 3] => color_tip,
+        }
+        custom {
+            tau0: f32,
+        }
+    }
+}
+
 /// A named, dimensionless look extracted from reference footage (design SSoT:
 /// style_preset.md). Every field is optional: `None` means "this reference did
 /// not determine the parameter" and the target keeps its current value.
@@ -19,62 +133,6 @@ pub struct FlameStyle {
     pub texture: FlameStyleTexture,
     #[serde(default)]
     pub optics: FlameStyleOptics,
-}
-
-pub const FLAME_STYLE_VERSION: u32 = 1;
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FlameStyleMotion {
-    pub noise_scroll_speed: Option<f32>,
-    pub rise_speed: Option<f32>,
-    pub warp_amp: Option<f32>,
-    pub warp_freq: Option<f32>,
-    pub swirl_gain: Option<f32>,
-    pub swirl_speed: Option<f32>,
-    pub twist_gain: Option<f32>,
-    pub twist_speed: Option<f32>,
-    pub spread_gain: Option<f32>,
-    pub meander_amp_over_r0: Option<f32>,
-    pub burnout_gain: Option<f32>,
-    pub aniso_axis_advect: Option<f32>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FlameStyleTexture {
-    pub noise_amplitude: Option<f32>,
-    pub noise_contrast: Option<f32>,
-    pub noise_frequency: Option<f32>,
-    pub noise_shaping_scale: Option<f32>,
-    pub erosion_noise_gain: Option<f32>,
-    pub support_margin: Option<f32>,
-    pub contour_wiggle_amp: Option<f32>,
-    pub edge_outer_sharpen: Option<f32>,
-    pub noise_scale_mode: Option<f32>,
-    pub edge_low: Option<f32>,
-    pub edge_high: Option<f32>,
-    pub tip_carve_depth: Option<f32>,
-    pub tip_carve_reach: Option<f32>,
-    pub warp_reach: Option<f32>,
-}
-
-#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct FlameStyleOptics {
-    pub tau0: Option<f32>,
-    pub intensity: Option<f32>,
-    pub temperature_base_k: Option<f32>,
-    pub temperature_tip_k: Option<f32>,
-    pub use_blackbody: Option<bool>,
-    pub white_boost: Option<f32>,
-    pub self_shadow_strength: Option<f32>,
-    pub sigma_dispersion: Option<f32>,
-    pub rte_bands: Option<f32>,
-    pub edge_temperature_blend: Option<f32>,
-    pub occlusion_lum_ref: Option<f32>,
-    pub color_base: Option<[f32; 3]>,
-    pub color_tip: Option<[f32; 3]>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -104,64 +162,19 @@ pub fn flame_style_from_effect(effect: &FlameEffect, name: &str) -> FlameStyle {
         version: FLAME_STYLE_VERSION,
         name: name.to_string(),
         motion: FlameStyleMotion {
-            noise_scroll_speed: Some(effect.noise_scroll_speed),
-            rise_speed: Some(effect.rise_speed),
-            warp_amp: Some(effect.warp_amp),
-            warp_freq: Some(effect.warp_freq),
-            swirl_gain: Some(effect.swirl_gain),
-            swirl_speed: Some(effect.swirl_speed),
-            twist_gain: Some(effect.twist_gain),
-            twist_speed: Some(effect.twist_speed),
-            spread_gain: Some(effect.spread_gain),
             meander_amp_over_r0: Some(effect.meander_amp / radius),
-            burnout_gain: Some(effect.burnout_gain),
-            aniso_axis_advect: Some(effect.aniso_axis_advect),
+            ..extract_motion_style(effect)
         },
-        texture: FlameStyleTexture {
-            noise_amplitude: Some(effect.noise_amplitude),
-            noise_contrast: Some(effect.noise_contrast),
-            noise_frequency: Some(effect.noise_frequency),
-            noise_shaping_scale: Some(effect.noise_shaping_scale),
-            erosion_noise_gain: Some(effect.erosion_noise_gain),
-            support_margin: Some(effect.support_margin),
-            contour_wiggle_amp: Some(effect.contour_wiggle_amp),
-            edge_outer_sharpen: Some(effect.edge_outer_sharpen),
-            noise_scale_mode: Some(effect.noise_scale_mode),
-            edge_low: Some(effect.edge_low),
-            edge_high: Some(effect.edge_high),
-            tip_carve_depth: Some(effect.tip_carve_depth),
-            tip_carve_reach: Some(effect.tip_carve_reach),
-            warp_reach: Some(effect.warp_reach),
-        },
+        texture: extract_texture_style(effect),
         optics: FlameStyleOptics {
             tau0: Some(if effect.optical_depth > 0.0 {
                 effect.optical_depth
             } else {
                 effect.sigma_t * radius
             }),
-            intensity: Some(effect.intensity),
-            temperature_base_k: Some(effect.temperature_base_k),
-            temperature_tip_k: Some(effect.temperature_tip_k),
-            use_blackbody: Some(effect.use_blackbody),
-            white_boost: Some(effect.white_boost),
-            self_shadow_strength: Some(effect.self_shadow_strength),
-            sigma_dispersion: Some(effect.sigma_dispersion),
-            rte_bands: Some(effect.rte_bands),
-            edge_temperature_blend: Some(effect.edge_temperature_blend),
-            occlusion_lum_ref: Some(effect.occlusion_lum_ref),
-            color_base: Some(effect.color_base),
-            color_tip: Some(effect.color_tip),
+            ..extract_optics_style(effect)
         },
     }
-}
-
-macro_rules! apply_style_param {
-    ($applied:ident, $effect:ident, $source:expr, $field:ident) => {
-        if let Some(value) = $source.$field {
-            $effect.$field = value;
-            $applied.push(stringify!($field));
-        }
-    };
 }
 
 /// Apply the style's `Some` fields onto the effect, returning the parameter
@@ -175,57 +188,20 @@ pub fn apply_flame_style(
     let mut applied = Vec::new();
 
     if groups.motion {
-        let motion = &style.motion;
-        apply_style_param!(applied, effect, motion, noise_scroll_speed);
-        apply_style_param!(applied, effect, motion, rise_speed);
-        apply_style_param!(applied, effect, motion, warp_amp);
-        apply_style_param!(applied, effect, motion, warp_freq);
-        apply_style_param!(applied, effect, motion, swirl_gain);
-        apply_style_param!(applied, effect, motion, swirl_speed);
-        apply_style_param!(applied, effect, motion, twist_gain);
-        apply_style_param!(applied, effect, motion, twist_speed);
-        apply_style_param!(applied, effect, motion, spread_gain);
-        apply_style_param!(applied, effect, motion, burnout_gain);
-        apply_style_param!(applied, effect, motion, aniso_axis_advect);
-        if let Some(amp_over_r0) = motion.meander_amp_over_r0 {
+        apply_motion_style(effect, &style.motion, &mut applied);
+        if let Some(amp_over_r0) = style.motion.meander_amp_over_r0 {
             effect.meander_amp = amp_over_r0 * effect.radius;
             applied.push("meander_amp");
         }
     }
 
     if groups.texture {
-        let texture = &style.texture;
-        apply_style_param!(applied, effect, texture, noise_amplitude);
-        apply_style_param!(applied, effect, texture, noise_contrast);
-        apply_style_param!(applied, effect, texture, noise_frequency);
-        apply_style_param!(applied, effect, texture, noise_shaping_scale);
-        apply_style_param!(applied, effect, texture, erosion_noise_gain);
-        apply_style_param!(applied, effect, texture, support_margin);
-        apply_style_param!(applied, effect, texture, contour_wiggle_amp);
-        apply_style_param!(applied, effect, texture, edge_outer_sharpen);
-        apply_style_param!(applied, effect, texture, noise_scale_mode);
-        apply_style_param!(applied, effect, texture, edge_low);
-        apply_style_param!(applied, effect, texture, edge_high);
-        apply_style_param!(applied, effect, texture, tip_carve_depth);
-        apply_style_param!(applied, effect, texture, tip_carve_reach);
-        apply_style_param!(applied, effect, texture, warp_reach);
+        apply_texture_style(effect, &style.texture, &mut applied);
     }
 
     if groups.optics {
-        let optics = &style.optics;
-        apply_style_param!(applied, effect, optics, intensity);
-        apply_style_param!(applied, effect, optics, temperature_base_k);
-        apply_style_param!(applied, effect, optics, temperature_tip_k);
-        apply_style_param!(applied, effect, optics, use_blackbody);
-        apply_style_param!(applied, effect, optics, white_boost);
-        apply_style_param!(applied, effect, optics, self_shadow_strength);
-        apply_style_param!(applied, effect, optics, sigma_dispersion);
-        apply_style_param!(applied, effect, optics, rte_bands);
-        apply_style_param!(applied, effect, optics, edge_temperature_blend);
-        apply_style_param!(applied, effect, optics, occlusion_lum_ref);
-        apply_style_param!(applied, effect, optics, color_base);
-        apply_style_param!(applied, effect, optics, color_tip);
-        if let Some(tau0) = optics.tau0 {
+        apply_optics_style(effect, &style.optics, &mut applied);
+        if let Some(tau0) = style.optics.tau0 {
             effect.optical_depth = tau0;
             applied.push("optical_depth");
         }

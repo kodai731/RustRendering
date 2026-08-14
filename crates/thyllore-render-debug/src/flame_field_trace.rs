@@ -240,20 +240,15 @@ impl<'a> UboCtx<'a> {
 
     /// flameMeanderOffsetAt mirror: animated meander displacement of the centerline.
     fn meander_offset(&self, h: f32) -> [f32; 2] {
-        let meander_amp = self.u.support_margin[1];
-        let swirl_speed = self.u.support_margin[2];
-        let omega1 = swirl_speed * 0.75;
-        let omega2 = swirl_speed * 1.15;
-        let kappa1 = 1.2;
-        let kappa2 = 2.1;
-        let phi1 = 0.0;
-        let phi2 = 2.4;
         let t = self.u.time;
-        let m = meander_amp * h;
-        [
-            m * (kappa1 * h - omega1 * t + phi1).sin(),
-            m * (kappa2 * h - omega2 * t + phi2).sin() * 0.8,
-        ]
+        let mut offset = [0.0f32; 2];
+        for mode in &self.u.meander_modes {
+            let wave = (mode.kappa * h - mode.omega * t + mode.phase).sin();
+            offset[0] += wave * mode.direction[0];
+            offset[1] += wave * mode.direction[1];
+        }
+        let amp = self.u.support_motion.meander_amp * h;
+        [amp * offset[0], amp * offset[1]]
     }
 
     /// flameMeanderShifted mirror: p shifted by meander offset at height h.
@@ -441,7 +436,7 @@ impl<'a> UboCtx<'a> {
     }
 
     fn radial_support_radius(&self) -> f32 {
-        self.u.support_margin[0]
+        self.u.support_motion.support_margin
             * (2.0 / self.u.radialSharpness.max(1e-3f32))
                 .sqrt()
                 .min(SUPPORT_HEADROOM)
@@ -539,7 +534,7 @@ impl<'a> UboCtx<'a> {
     /// Hermite smoothstep from inner (pre-expanded support edge in u^2 units) to 1.0.
     /// margin <= 1.0 returns 0.0 (no boost).
     fn flame_carve_residual_outer_gate(&self, u_squared: f32) -> f32 {
-        let margin = self.u.support_margin[0];
+        let margin = self.u.support_motion.support_margin;
         if margin <= 1.0 {
             return 0.0;
         }
@@ -551,7 +546,7 @@ impl<'a> UboCtx<'a> {
     /// flamePlateauCarveReach: erosion boost reach — absolute core-radius reach function.
     /// w = u_squared * margin * margin is core-radius squared; zero inside core, linear increase outside.
     fn flame_plateau_carve_reach(&self, u_squared: f32) -> f32 {
-        let margin = self.u.support_margin[0];
+        let margin = self.u.support_motion.support_margin;
         let w = u_squared * margin * margin;
         (w - 1.0).max(0.0)
     }
@@ -668,35 +663,23 @@ impl<'a> UboCtx<'a> {
         }
     }
 
-    /// Warped noise frame shared by the node argument and the segment mode
-    /// frame: bent point, warp image, noise coordinate, its rate along the
-    /// ray, and the jitter state.
     /// flameMediumTwistAngle mirror: node-frozen azimuthal twist of the noise
     /// coordinate (Lamb-Oseen radial profile x two counter-rotating axial modes).
     fn twist_angle(&self, r_squared: f32, h: f32) -> f32 {
-        const TWIST_CORE_R2: f32 = 0.49;
-        const TWIST_KAPPA1: f32 = 2.2;
-        const TWIST_KAPPA2: f32 = 3.6;
-        const TWIST_PSI1: f32 = 0.7;
-        const TWIST_PSI2: f32 = 2.9;
-        const TWIST_A1: f32 = 0.65;
-        const TWIST_A2: f32 = 0.35;
-        let rate_scale = if self.u.support_margin[3] > 0.0 {
-            self.u.support_margin[3]
-        } else {
-            self.u.support_margin[2]
-        };
-        let omega1 = rate_scale * 0.497;
-        let omega2 = rate_scale * 0.690;
+        let twist = &self.u.twist_field;
+        let radial = twist.core_radius_sq / (r_squared + twist.core_radius_sq);
         let t = self.u.time;
-        let radial = TWIST_CORE_R2 / (r_squared + TWIST_CORE_R2);
-        self.u.spread_params[2]
-            * radial
-            * h
-            * (TWIST_A1 * (TWIST_KAPPA1 * h - omega1 * t + TWIST_PSI1).cos()
-                + TWIST_A2 * (TWIST_KAPPA2 * h + omega2 * t + TWIST_PSI2).cos())
+        let wave: f32 = twist
+            .modes
+            .iter()
+            .map(|mode| mode.amp * (mode.kappa * h + mode.omega * t + mode.phase).cos())
+            .sum();
+        self.u.spread_params[2] * radial * h * wave
     }
 
+    /// Warped noise frame shared by the node argument and the segment mode
+    /// frame: bent point, warp image, noise coordinate, its rate along the
+    /// ray, and the jitter state.
     fn wave_frame(&self, p: [f32; 3], d: [f32; 3], h: f32) -> WaveFrame {
         let bend = self.bend_offset(h);
         let mut pbu = [p[0] - bend[0], p[1], p[2] - bend[1]];
@@ -1653,7 +1636,12 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "wave_cf_params": vec_json(&ubo.wave_cf_params),
             "unified_params": vec_json(&ubo.unified_params),
             "spread_params": vec_json(&ubo.spread_params),
-            "support_params": vec_json(&ubo.support_margin),
+            "support_params": vec_json(&[
+                ubo.support_motion.support_margin,
+                ubo.support_motion.meander_amp,
+                ubo.support_motion.swirl_speed,
+                ubo.support_motion.twist_speed,
+            ]),
             "boundary_params": vec_json(&ubo.boundary_params),
             "near_fade_params": vec_json(&ubo.near_fade_params),
             "profile_params": vec_json(&ubo.profile_params),
@@ -2223,21 +2211,21 @@ mod tests {
         let baked = Default::default();
         let trail = Default::default();
         let mut effect = FlameEffect::default();
-        effect.twist_gain = 2.0;
+        effect.twist.gain = 2.0;
         effect.time = 1.7;
 
-        effect.swirl_speed = 1.3;
-        effect.twist_speed = 0.0;
+        effect.swirl.speed = 1.3;
+        effect.twist.speed = 0.0;
         let ubo_delegate = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
         let delegate = UboCtx::new(&ubo_delegate, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
 
-        effect.swirl_speed = 0.4;
-        effect.twist_speed = 1.3;
+        effect.swirl.speed = 0.4;
+        effect.twist.speed = 1.3;
         let ubo_own = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
         let own = UboCtx::new(&ubo_own, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
         assert_eq!(delegate, own, "twist_speed must override the rate exactly");
 
-        effect.twist_speed = 2.6;
+        effect.twist.speed = 2.6;
         let ubo_fast = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
         let fast = UboCtx::new(&ubo_fast, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
         assert_ne!(
@@ -2273,7 +2261,7 @@ mod tests {
         );
         assert!(top <= effect.burnout_gain);
 
-        effect.tip_carve_reach *= 4.0;
+        effect.tip_carve.reach *= 4.0;
         let ubo_deep = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
         let deep = UboCtx::new(&ubo_deep, [0.0, 0.5, 3.0]);
         assert!(

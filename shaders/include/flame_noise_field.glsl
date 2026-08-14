@@ -32,10 +32,10 @@ float flameBiweight(float uSquared) {
 }
 
 // S1 plateaued radial factor: max(biweight(u^2 * margin^2), plateau(u^2, margin)).
-// margin comes from flame.supportParams.x (support_margin).
+// margin comes from flame.supportMotion.supportMargin (support_margin).
 // For margin == 1.0, plateau is zero and biweight(u^2 * 1) = biweight(u^2), so bit-identical.
 float flamePlateauRadialFactor(float uSquared) {
-    float margin = flame.supportParams.x;
+    float margin = flame.supportMotion.supportMargin;
     float core = flameBiweight(uSquared * margin * margin);
     if (margin <= 1.0) { return core; }
     const float PLATEAU_LEVEL = 0.35;
@@ -49,7 +49,7 @@ float flamePlateauRadialFactor(float uSquared) {
 // keeps its direction; the shell headroom bounds the support so the proxy never cuts.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (flame_radial_support_radius).
 float flameRadialSupportRadius() {
-  return flame.supportParams.x * min(sqrt(2.0 / max(flame.radialSharpness, 1e-3)), FLAME_SHELL_SUPPORT_HEADROOM);
+  return flame.supportMotion.supportMargin * min(sqrt(2.0 / max(flame.radialSharpness, 1e-3)), FLAME_SHELL_SUPPORT_HEADROOM);
 }
 
 // Internal helper: compute the advect vector from style params and time.
@@ -84,24 +84,16 @@ vec2 flameBendOffsetAt(float h) {
     return flame.styleParams2.xy * flame.styleParams2.z * pow(h, flame.styleParams2.w);
 }
 
-// Animated meander: time-varying horizontal displacement of the centerline at height h.
-// Two-mode sinusoidal sum with amplitude meander_amp (flame.supportParams.y),
-// frequencies derived from swirl_speed, and g(h) = h (base fixed, tip moves more).
+// Animated meander: time-varying horizontal displacement of the centerline at
+// height h, with g(h) = h (base fixed, tip moves more). The mode table comes
+// from Rust (flame/constants.rs) through the UBO.
 vec2 flameMeanderOffsetAt(float h) {
-    float meander_amp = flame.supportParams.y;
-    float swirl_speed = flame.supportParams.z;
-    float omega1 = swirl_speed * 0.75;
-    float omega2 = swirl_speed * 1.15;
-    vec2 dir1 = vec2(1.0, 0.0);
-    vec2 dir2 = vec2(0.6, 0.8);
-    float kappa1 = 1.2;
-    float kappa2 = 2.1;
-    float phi1 = 0.0;
-    float phi2 = 2.4;
-    return meander_amp * h * (
-        sin(kappa1 * h - omega1 * flame.time + phi1) * dir1 +
-        sin(kappa2 * h - omega2 * flame.time + phi2) * dir2
-    );
+    vec2 offset = vec2(0.0);
+    for (int j = 0; j < 2; ++j) {
+        FlameMeanderMode mode = flame.meanderModes[j];
+        offset += sin(mode.kappa * h - mode.omega * flame.time + mode.phase) * mode.direction;
+    }
+    return flame.supportMotion.meanderAmp * h * offset;
 }
 
 // Meander-only shifted position for density/support evaluation.
@@ -362,14 +354,14 @@ float flameEnvelopeFade(float dSmooth) {
 //   * D > edgeHigh with any erosion: occ >= beta > 0, so a hole is impossible.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (carve_residual_mix).
 float flameCarveResidualOuterGate(float uSquared) {
-    float margin = flame.supportParams.x;
+    float margin = flame.supportMotion.supportMargin;
     if (margin <= 1.0) { return 0.0; }
     float w = uSquared * margin * margin;
     return smoothstep(1.0, 1.5, w);
 }
 
 float flamePlateauCarveReach(float uSquared) {
-    float margin = flame.supportParams.x;
+    float margin = flame.supportMotion.supportMargin;
     float w = uSquared * margin * margin;
     return max(w - 1.0, 0.0);
 }
@@ -622,31 +614,19 @@ float flameMediumSpreadScale(float h) {
 }
 
 // Medium twist (V design): node-frozen azimuthal rotation of the noise
-// coordinate about the bend-removed axis. Lamb-Oseen radial profile keeps the
-// angle finite on the axis; two counter-rotating axial modes advance with
-// eddy-turnover rates (like L1) so depth layers swirl against each other.
-// A rotation is a per-shell bijection for ANY angle — no fold — so the gain
-// is not strain-capped (unlike the shear warp modes). g(h) = h anchors the
-// base, matching the meander convention. spreadParams.z = twist_gain,
-// 0 = bit-identical baseline. supportParams.w = twist_speed (plan D): its
-// own rate scale so amplitude and rate fit independently from reference
-// footage (F9c / F9); 0 delegates the rate to swirl_speed (supportParams.z).
+// coordinate about the bend-removed axis; the Lamb-Oseen radial profile keeps
+// the angle finite on the axis, and a rotation never folds so the gain
+// (spreadParams.z) is not strain-capped. Counter-rotating mode table and core
+// radius come from Rust (flame/constants.rs) through the UBO.
 // Mirrored in thyllore-render-debug/src/flame_field_trace.rs (twist_angle).
 float flameMediumTwistAngle(float rSquared, float h) {
-    const float TWIST_CORE_R2 = 0.49;
-    const float TWIST_KAPPA1 = 2.2;
-    const float TWIST_KAPPA2 = 3.6;
-    const float TWIST_PSI1 = 0.7;
-    const float TWIST_PSI2 = 2.9;
-    const float TWIST_A1 = 0.65;
-    const float TWIST_A2 = 0.35;
-    float rateScale = flame.supportParams.w > 0.0 ? flame.supportParams.w : flame.supportParams.z;
-    float omega1 = rateScale * 0.497;
-    float omega2 = rateScale * 0.690;
-    float radial = TWIST_CORE_R2 / (rSquared + TWIST_CORE_R2);
-    return flame.spreadParams.z * radial * h
-        * (TWIST_A1 * cos(TWIST_KAPPA1 * h - omega1 * flame.time + TWIST_PSI1)
-         + TWIST_A2 * cos(TWIST_KAPPA2 * h + omega2 * flame.time + TWIST_PSI2));
+    float radial = flame.twistCoreRadiusSq / (rSquared + flame.twistCoreRadiusSq);
+    float wave = 0.0;
+    for (int j = 0; j < 2; ++j) {
+        FlameTwistMode mode = flame.twistModes[j];
+        wave += mode.amp * cos(mode.kappa * h + mode.omega * flame.time + mode.phase);
+    }
+    return flame.spreadParams.z * radial * h * wave;
 }
 
 FlameWarpFrame flameBuildWarpFrame(vec3 p, vec3 d, float h) {
