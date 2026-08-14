@@ -94,7 +94,7 @@ pub fn profile_from_effect(effect: &FlameEffect, baked: &FlameBaked) -> FlamePro
     let baked_envelope = baked.envelope;
     let baked_blend = baked.blend;
     FlameProfile {
-        sigma_t: effect.sigma_t,
+        sigma_t: effective_sigma_t(effect),
         height_falloff: Box::new(move |h: f64| {
             if let Some(ref envelope) = baked_envelope {
                 if baked_blend > 0.0 {

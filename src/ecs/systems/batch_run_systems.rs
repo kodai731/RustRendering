@@ -464,6 +464,7 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "twist_speed",
     "burnout_gain",
     "noise_shaping_scale",
+    "optical_depth",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -857,6 +858,7 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "twist_speed" => effect.twist_speed = *value,
             "burnout_gain" => effect.burnout_gain = *value,
             "noise_shaping_scale" => effect.noise_shaping_scale = *value,
+            "optical_depth" => effect.optical_depth = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }

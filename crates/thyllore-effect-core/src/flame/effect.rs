@@ -8,6 +8,10 @@ pub struct FlameEffect {
     pub height: f32,
     pub radius: f32,
     pub sigma_t: f32,
+    /// Dimensionless line-of-sight optical thickness tau0 = sigma_t * radius:
+    /// > 0 derives the effective sigma_t as optical_depth / radius so resizing
+    /// the flame keeps its opacity; 0 = use sigma_t directly.
+    pub optical_depth: f32,
     pub intensity: f32,
     pub color_base: [f32; 3],
     pub color_tip: [f32; 3],
@@ -139,6 +143,7 @@ impl Default for FlameEffect {
             height: 1.6,
             radius: 0.6,
             sigma_t: 1.0,
+            optical_depth: 0.0,
             intensity: 2.2,
             color_base: [1.0, 0.45, 0.1],
             color_tip: [1.0, 0.1, 0.02],
@@ -256,6 +261,14 @@ pub fn shaping_scale_to_noise_sharpness(scale: f32) -> f32 {
 
 pub fn advance_flame_time(effect: &mut FlameEffect, delta_time: f32) {
     effect.time += delta_time.max(0.0);
+}
+
+pub fn effective_sigma_t(effect: &FlameEffect) -> f32 {
+    if effect.optical_depth > 0.0 {
+        effect.optical_depth / effect.radius.max(MIN_FLAME_EXTENT)
+    } else {
+        effect.sigma_t
+    }
 }
 
 pub fn flame_bounding_radius(effect: &FlameEffect) -> f32 {

@@ -56,6 +56,7 @@ pub fn flame_from_dump(
     apply_scalar!(height, "height");
     apply_scalar!(radius, "radius");
     apply_scalar!(sigma_t, "sigma_t");
+    apply_scalar!(optical_depth, "optical_depth");
     apply_scalar!(intensity, "intensity");
     apply_scalar!(noise_amplitude, "noise_amplitude");
     apply_scalar!(noise_contrast, "noise_contrast");

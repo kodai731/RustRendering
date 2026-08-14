@@ -368,6 +368,8 @@ pub struct FlameEffectData {
     pub burnout_gain: f32,
     #[serde(default)]
     pub noise_shaping_scale: f32,
+    #[serde(default)]
+    pub optical_depth: f32,
 }
 
 fn default_erosion_noise_gain() -> f32 {
@@ -505,6 +507,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             height: effect.height,
             radius: effect.radius,
             sigma_t: effect.sigma_t,
+            optical_depth: effect.optical_depth,
             intensity: effect.intensity,
             color_base: effect.color_base,
             color_tip: effect.color_tip,
@@ -639,6 +642,7 @@ pub fn apply_flame_state_to_world(
         effect.height = flame.effect.height;
         effect.radius = flame.effect.radius;
         effect.sigma_t = flame.effect.sigma_t;
+        effect.optical_depth = flame.effect.optical_depth;
         effect.intensity = flame.effect.intensity;
         effect.color_base = flame.effect.color_base;
         effect.color_tip = flame.effect.color_tip;
@@ -880,6 +884,7 @@ mod tests {
                 twist_speed: 0.0,
                 burnout_gain: 0.0,
                 noise_shaping_scale: 0.0,
+                optical_depth: 0.0,
                 meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {
@@ -1036,6 +1041,7 @@ mod tests {
                 twist_speed: 0.0,
                 burnout_gain: 0.0,
                 noise_shaping_scale: 0.0,
+                optical_depth: 0.0,
                 meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {

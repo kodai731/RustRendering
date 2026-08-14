@@ -6,7 +6,8 @@ use std::sync::OnceLock;
 use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
 
 use crate::flame::{
-    build_flame_inverse_model_matrix, build_flame_model_matrix, flame_bounding_radius, FlameEffect,
+    build_flame_inverse_model_matrix, build_flame_model_matrix, effective_sigma_t,
+    flame_bounding_radius, FlameEffect,
 };
 use crate::flame_radial::{
     build_height_series, evaluate_ring_smooth_density, ring_support_span, FlameRadialTaper,
@@ -294,7 +295,7 @@ pub fn probe_flame_wall(
                 ray.density_mean = density_sum / DENSITY_SAMPLES as f32;
                 ray.density_max = density_max;
                 ray.saturated_fraction = saturated as f32 / DENSITY_SAMPLES as f32;
-                ray.tau = effect.sigma_t * density_sum * dt * world_step;
+                ray.tau = effective_sigma_t(effect) * density_sum * dt * world_step;
                 ray.pixels_per_cell = pixels_per_world * cell_world;
                 ray.segment_dt = segment_dt;
                 ray.cells_per_segment = cells_per_segment;

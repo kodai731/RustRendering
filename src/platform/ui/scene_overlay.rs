@@ -763,6 +763,17 @@ fn build_flame_section(
                         });
                     }
 
+                    ui.slider_config("Optical Depth", 0.0, 16.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.optical_depth);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Line-of-sight optical thickness tau0 = sigma_t * radius: > 0 \
+                             derives sigma_t as tau0 / radius so resizing the flame keeps \
+                             its opacity (0 = use the raw sigma_t channel directly)",
+                        );
+                    }
+
                     ui.slider_config("Intensity", 0.0, 10.0)
                         .build(&mut effect_copy.intensity);
                     ui.same_line();
