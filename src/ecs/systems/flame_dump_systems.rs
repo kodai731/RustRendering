@@ -98,6 +98,11 @@ pub fn build_effect_json(
     value["meander_frequency"] = json!(effect.meander_frequency);
     value["glow_gain"] = json!(effect.glow_gain);
     value["glow_threshold"] = json!(effect.glow_threshold);
+    value["wave_segments"] = json!(effect.wave_segments);
+    value["density_map_gain"] = json!(effect.density_map_gain);
+    value["density_map_scale"] = json!(effect.density_map_scale);
+    value["soot_gain"] = json!(effect.soot_gain);
+    value["soot_threshold"] = json!(effect.soot_threshold);
     value["branch_period"] = json!(effect.branch.period);
     value["branch_life"] = json!(effect.branch.life);
     value["branch_gain"] = json!(effect.branch.gain);
@@ -167,6 +172,8 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
         "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
         "glow_params": [ubo.glow_params.gain, ubo.glow_params.threshold, ubo.glow_params.inv_carrier_std],
+        "segment_params": [ubo.segment_params.count],
+        "density_map": [ubo.density_map.gain, ubo.density_map.scale_ratio, ubo.density_map.soot_gain, ubo.density_map.soot_threshold],
         "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],
         "support_margin": [
             ubo.support_motion.support_margin,

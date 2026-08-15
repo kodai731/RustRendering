@@ -328,7 +328,7 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
 
 /// sigma_floor = relative-window floor coefficient (beta * |A| * shaped noise
 /// std; the shader multiplies by lambda * D_mid / 0.30 for the modulation std).
-/// Glow ramps linearly over one carrier std above the threshold; the shader
+/// Glow rises smoothly over two carrier std above the threshold; the shader
 /// reads the raw carrier in std units, so the threshold is spectrum-invariant.
 fn build_glow_params(effect: &FlameEffect, carrier_std: f32) -> FlameGlowParams {
     FlameGlowParams {
@@ -336,6 +336,30 @@ fn build_glow_params(effect: &FlameEffect, carrier_std: f32) -> FlameGlowParams 
         threshold: effect.glow_threshold,
         inv_carrier_std: 1.0 / carrier_std.max(1e-6),
         _padding: 0.0,
+    }
+}
+
+pub fn wave_segment_count(effect: &FlameEffect) -> u32 {
+    effect
+        .wave_segments
+        .clamp(WAVE_SEGMENTS_MIN, WAVE_SEGMENTS_MAX)
+}
+
+fn build_density_map_params(effect: &FlameEffect) -> FlameDensityMapParams {
+    FlameDensityMapParams {
+        gain: effect.density_map_gain.max(0.0),
+        scale_ratio: effect.density_map_scale.max(0.0) / effect.noise_frequency.abs().max(1e-4),
+        soot_gain: effect.soot_gain.clamp(0.0, 1.0),
+        soot_threshold: effect.soot_threshold,
+    }
+}
+
+fn build_segment_params(effect: &FlameEffect) -> FlameSegmentParams {
+    let count = wave_segment_count(effect);
+    FlameSegmentParams {
+        count: count as f32,
+        inv_count: 1.0 / count as f32,
+        _padding: [0.0; 2],
     }
 }
 
@@ -708,6 +732,8 @@ pub fn build_flame_ubo(
         warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
         glow_params: build_glow_params(effect, wave_fields.carrier_std),
+        segment_params: build_segment_params(effect),
+        density_map: build_density_map_params(effect),
         spread_params: build_medium_spread_params(effect),
         support_motion: FlameSupportMotion {
             support_margin: effect.support_margin,
@@ -1177,6 +1203,24 @@ pub struct FlameGlowParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct FlameDensityMapParams {
+    pub gain: f32,
+    /// Map lattice units per noise-coordinate unit (scale / noise_frequency).
+    pub scale_ratio: f32,
+    pub soot_gain: f32,
+    pub soot_threshold: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameSegmentParams {
+    pub count: f32,
+    pub inv_count: f32,
+    pub _padding: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct FlameSpreadParams {
     pub gain: f32,
     pub edge_outer_sharpen: f32,
@@ -1306,6 +1350,8 @@ pub struct FlameUBO {
     pub warp_form_params: FlameWarpFormParams,
     pub unified_params: FlameUnifiedParams,
     pub glow_params: FlameGlowParams,
+    pub segment_params: FlameSegmentParams,
+    pub density_map: FlameDensityMapParams,
     pub spread_params: FlameSpreadParams,
     pub support_motion: FlameSupportMotion,
     pub twist_field: FlameTwistField,

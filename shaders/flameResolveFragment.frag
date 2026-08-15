@@ -166,6 +166,20 @@ struct FlameGlowParams {
     float pad0;
 };
 
+struct FlameDensityMapParams {
+    float gain;
+    float scaleRatio;
+    float sootGain;
+    float sootThreshold;
+};
+
+struct FlameSegmentParams {
+    float count;
+    float invCount;
+    float pad0;
+    float pad1;
+};
+
 struct FlameSpreadParams {
     float gain;
     float edgeOuterSharpen;
@@ -274,6 +288,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     FlameWarpFormParams warpFormParams;
     FlameUnifiedParams unifiedParams;
     FlameGlowParams glowParams;
+    FlameSegmentParams segmentParams;
+    FlameDensityMapParams densityMap;
     FlameSpreadParams spreadParams;
     FlameSupportMotion supportMotion;
     FlameTwistMode twistModes[2];
@@ -706,14 +722,15 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
         // Segment grid geometry: R = node-grid phase (level sets are the
         // integrator's t-lattice — compare its arcs against the fringes),
         // G = segment length dt, B = interval entry phase in world t.
-        float dt = (tFar - tNear) / float(FLAME_WAVE_SEGMENTS);
+        float dt = (tFar - tNear) * flame.segmentParams.invCount;
         return vec4(fract(tNear / max(dt, 1e-6)), clamp(dt * 8.0, 0.0, 1.0),
             fract(tNear * 8.0), 1.0);
     }
-    float dt = (tFar - tNear) / float(FLAME_WAVE_SEGMENTS);
+    float dt = (tFar - tNear) * flame.segmentParams.invCount;
+    int segmentCount = int(flame.segmentParams.count);
     float bestT = tNear;
     float bestDensity = 0.0;
-    for (int i = 0; i <= FLAME_WAVE_SEGMENTS; ++i) {
+    for (int i = 0; i <= segmentCount; ++i) {
         float t = tNear + float(i) * dt;
         vec3 pNode = o + t * d;
         float density = flameWaveNodeDensity(pNode, clamp(pNode.y, 0.0, 1.0));
@@ -771,14 +788,9 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
     }
     float eddyTime = flame.noiseScrollSpeed * flame.time;
     int count = min(int(flame.waveParams.trackedCount), FLAME_WAVE_EROSION_SLOTS);
-    float shapedNoise;
-    float carrierZ;
-    float sigmaNoise;
-    float remapScale;
-    float argument = flameWaveNodeArgumentLocal(
-        p, d, h, bestDensity, dt, count, eddyTime, shapedNoise, carrierZ, sigmaNoise, remapScale);
+    FlameNodeSample node = flameWaveNodeSample(p, d, h, bestDensity, dt, count, eddyTime);
     if (push.debugView == 1) {
-        float v = (shapedNoise - 0.4375) / max(flame.waveParams.amplitude, 1e-4);
+        float v = (node.shapedNoise - 0.4375) / max(flame.waveParams.amplitude, 1e-4);
         return vec4(flameDebugDiverging(v), 1.0);
     }
   if (push.debugView == 2) {
@@ -797,13 +809,13 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
             float u = rn / flameRadialSupportRadius();
             uSquared = u * u;
         }
-        return vec4(flameDebugDiverging(flameNoiseErosionFromValue(shapedNoise, h, bestDensity, uSquared)), 1.0);
+        return vec4(flameDebugDiverging(flameNoiseErosionFromValue(node.shapedNoise, h, node.density, uSquared)), 1.0);
     }
     if (push.debugView == 3) {
-        return vec4(flameDebugDiverging(argument * 2.0), 1.0);
+        return vec4(flameDebugDiverging(node.argument * 2.0), 1.0);
     }
     if (push.debugView == 5) {
-        return vec4(flameDebugHeat(sigmaNoise * 4.0), 1.0);
+        return vec4(flameDebugHeat(node.sigmaNoise * 4.0), 1.0);
     }
     return vec4(flameDebugHeat(bestDensity), 1.0);
 }

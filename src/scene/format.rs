@@ -372,6 +372,18 @@ pub struct FlameEffectData {
     pub glow_gain: f32,
     #[serde(default = "default_glow_threshold")]
     pub glow_threshold: f32,
+    #[serde(default = "default_wave_segments")]
+    pub wave_segments: u32,
+    #[serde(default = "default_noise_aniso_y")]
+    pub noise_aniso_y: f32,
+    #[serde(default)]
+    pub density_map_gain: f32,
+    #[serde(default = "default_density_map_scale")]
+    pub density_map_scale: f32,
+    #[serde(default)]
+    pub soot_gain: f32,
+    #[serde(default = "default_soot_threshold")]
+    pub soot_threshold: f32,
     #[serde(default)]
     pub edge_outer_sharpen: f32,
     #[serde(default)]
@@ -424,6 +436,22 @@ fn default_meander_frequency() -> f32 {
 
 fn default_glow_threshold() -> f32 {
     1.0
+}
+
+fn default_wave_segments() -> u32 {
+    thyllore_effect_core::flame_wave::FLAME_WAVE_SEGMENTS as u32
+}
+
+fn default_density_map_scale() -> f32 {
+    1.0
+}
+
+fn default_soot_threshold() -> f32 {
+    1.0
+}
+
+fn default_noise_aniso_y() -> f32 {
+    thyllore_effect_core::FlameEffect::default().noise_aniso_y
 }
 
 fn default_branch_spawn_height() -> f32 {
@@ -636,6 +664,12 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             meander_frequency: effect.meander_frequency,
             glow_gain: effect.glow_gain,
             glow_threshold: effect.glow_threshold,
+            wave_segments: effect.wave_segments,
+            noise_aniso_y: effect.noise_aniso_y,
+            density_map_gain: effect.density_map_gain,
+            density_map_scale: effect.density_map_scale,
+            soot_gain: effect.soot_gain,
+            soot_threshold: effect.soot_threshold,
             edge_temperature_blend: effect.edge_temperature_blend,
             branch_period: effect.branch.period,
             branch_life: effect.branch.life,
@@ -779,6 +813,12 @@ pub fn apply_flame_state_to_world(
         effect.meander_frequency = flame.effect.meander_frequency;
         effect.glow_gain = flame.effect.glow_gain;
         effect.glow_threshold = flame.effect.glow_threshold;
+        effect.wave_segments = flame.effect.wave_segments;
+        effect.noise_aniso_y = flame.effect.noise_aniso_y;
+        effect.density_map_gain = flame.effect.density_map_gain;
+        effect.density_map_scale = flame.effect.density_map_scale;
+        effect.soot_gain = flame.effect.soot_gain;
+        effect.soot_threshold = flame.effect.soot_threshold;
         effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
         effect.noise_scale_mode = flame.effect.noise_scale_mode;
         effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
@@ -1001,6 +1041,12 @@ mod tests {
             meander_frequency: 1.0,
             glow_gain: 0.0,
             glow_threshold: 1.0,
+            wave_segments: 64,
+            noise_aniso_y: 0.35,
+            density_map_gain: 0.0,
+            density_map_scale: 1.0,
+            soot_gain: 0.0,
+            soot_threshold: 1.0,
             branch_period: 0.0,
             branch_life: 2.5,
             branch_gain: 0.0,
@@ -1213,6 +1259,12 @@ mod tests {
                 meander_frequency: 1.0,
                 glow_gain: 0.0,
                 glow_threshold: 1.0,
+                wave_segments: 64,
+                noise_aniso_y: 0.35,
+                density_map_gain: 0.0,
+                density_map_scale: 1.0,
+                soot_gain: 0.0,
+                soot_threshold: 1.0,
                 branch_period: 0.0,
                 branch_life: 2.5,
                 branch_gain: 0.0,

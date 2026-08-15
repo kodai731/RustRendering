@@ -894,9 +894,9 @@ fn build_flame_section(
                         .build(&mut effect_copy.glow_threshold);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Noise level (in std units) where the glow starts and ramps over one \
-                             std: lower lights more of the body, higher keeps only the densest \
-                             cores",
+                            "Noise level (in std units) where the glow starts, rising smoothly \
+                             over two std: lower lights more of the body, higher keeps only the \
+                             densest cores",
                         );
                     }
 
@@ -931,6 +931,16 @@ fn build_flame_section(
                         );
                     }
 
+                    ui.slider_config("Noise Aspect", 0.05, 1.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.noise_aniso_y);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Vertical scale of the noise cells: small = tall streaks, 1 = \
+                             isotropic puffs (in the height-scaled mode)",
+                        );
+                    }
+
                     let mut noise_sharpness =
                         thyllore_effect_core::shaping_scale_to_noise_sharpness(
                             effect_copy.noise_shaping_scale,
@@ -950,6 +960,65 @@ fn build_flame_section(
                              tanh into near-binary blobs; ~0.78 = scale 0.25, the measured \
                              perceptual sweet spot). Stateless — noise_shaping_scale stays \
                              the source of truth (0 = built-in 0.6)",
+                        );
+                    }
+
+                    ui.slider_config("Density Map Gain", 0.0, 2.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.density_map_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Log-density std of the medium (dense knots and thin veils) from a \
+                             lattice fbm riding the noise transport: 1 = one-sigma mass ratio \
+                             e; 0 = uniform medium",
+                        );
+                    }
+                    ui.slider_config("Density Map Scale", 0.1, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.density_map_scale);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Density map cells per radius: small = a few large lobes, large = \
+                             fine speckle",
+                        );
+                    }
+
+                    ui.slider_config("Soot Gain", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.soot_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Darkness of the soot clumps: where the density map noise passes \
+                             Soot Threshold the medium keeps its mass but loses this share of \
+                             its emission (dark dense clumps in a bright body); 0 = off",
+                        );
+                    }
+                    ui.slider_config("Soot Threshold", -1.0, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.soot_threshold);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Density map noise level (std units) where a clump starts, soft \
+                             over half a std: 1 = ~16% of the volume, 2 = ~2%",
+                        );
+                    }
+
+                    let mut wave_segments = effect_copy.wave_segments as i32;
+                    if ui
+                        .slider_config(
+                            "Noise Segments",
+                            thyllore_effect_core::WAVE_SEGMENTS_MIN as i32,
+                            thyllore_effect_core::WAVE_SEGMENTS_MAX as i32,
+                        )
+                        .build(&mut wave_segments)
+                    {
+                        effect_copy.wave_segments = wave_segments as u32;
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Closed-form segments per ray: the noise grid aliases into a \
+                             pixel hatch above Noise Frequency ~2 at 64; 128 resolves \
+                             frequency ~4 at twice the cost",
                         );
                     }
 

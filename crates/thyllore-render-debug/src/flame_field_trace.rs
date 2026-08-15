@@ -22,7 +22,6 @@ use thyllore_effect_core::{
 };
 use thyllore_math_core::{integrate_erf_response_linear, smooth_erf_response, ErfResponseModel};
 
-const SEGMENTS: usize = 64;
 const EROSION_SLOTS: usize = thyllore_effect_core::flame_wave::WAVE_EROSION_SLOTS;
 const WARP_BASE: usize = thyllore_effect_core::flame_wave::WAVE_WARP_BASE;
 const WARP_COUNT: usize = 16;
@@ -633,7 +632,7 @@ impl<'a> UboCtx<'a> {
             1.0
         };
         let material = -carve_sign * 0.5 * (carrier_start + carrier_end) * glow.inv_carrier_std;
-        let ramp = (material - glow.threshold).clamp(0.0, 1.0);
+        let ramp = smoothstep(glow.threshold, glow.threshold + 2.0, material);
         1.0 + glow.gain * ramp
     }
 
@@ -914,6 +913,10 @@ impl<'a> UboCtx<'a> {
         } else {
             0.4375 + z
         };
+        let map_noise = self.density_map_noise(w, rate, dt);
+        let map_factor = self.density_map_factor(map_noise);
+        let soot = self.soot_mask(map_noise);
+        let density = density * map_factor.min(1.0);
         let lambda = self.tip_carve_lambda(hs);
         let mu = self.envelope_remaining_mu(hs);
         let strain = self.warp_strain(hs);
@@ -942,9 +945,66 @@ impl<'a> UboCtx<'a> {
             erosion,
             envelope_fade: self.envelope_fade(density),
             argument,
+            density,
+            map_factor,
+            soot,
             mode_values,
             mode_weights,
         }
+    }
+
+    /// Mirror of flameDensityMapNoise (unit-std log-density noise).
+    fn density_map_noise(&self, w: [f32; 3], rate: [f32; 3], dt: f32) -> f32 {
+        let map = &self.u.density_map;
+        if map.gain <= 0.0 && map.soot_gain <= 0.0 {
+            return 0.0;
+        }
+        let m = [
+            w[0] * map.scale_ratio,
+            w[1] * map.scale_ratio,
+            w[2] * map.scale_ratio,
+        ];
+        let advance = (rate[0] * rate[0] + rate[1] * rate[1] + rate[2] * rate[2]).sqrt()
+            * map.scale_ratio
+            * dt;
+        let mut sum = 0.0f32;
+        let mut weight_sum = 0.0f32;
+        let mut amplitude = 1.0f32;
+        let mut frequency = 1.0f32;
+        for octave in 0..DENSITY_MAP_OCTAVES {
+            let beta = 2.0 * advance * frequency;
+            let b2 = beta * beta;
+            let resolved = (-b2 * b2).exp();
+            let offset = octave as f32 * 17.0;
+            let sample = lattice_value_noise([
+                m[0] * frequency + offset,
+                m[1] * frequency + offset,
+                m[2] * frequency + offset,
+            ]);
+            sum += amplitude * resolved * (2.0 * sample - 1.0);
+            weight_sum += amplitude;
+            amplitude *= 0.5;
+            frequency *= 2.0;
+        }
+        DENSITY_MAP_INV_STD * sum / weight_sum
+    }
+
+    /// Mirror of flameDensityMapFactor.
+    fn density_map_factor(&self, map_noise: f32) -> f32 {
+        let gain = self.u.density_map.gain;
+        if gain <= 0.0 {
+            return 1.0;
+        }
+        (gain * map_noise - 0.5 * gain * gain).exp()
+    }
+
+    /// Mirror of flameSootMask.
+    fn soot_mask(&self, map_noise: f32) -> f32 {
+        let map = &self.u.density_map;
+        if map.soot_gain <= 0.0 {
+            return 0.0;
+        }
+        map.soot_gain * smoothstep(map.soot_threshold, map.soot_threshold + 0.5, map_noise)
     }
 
     /// Carrier constants shared by every point of a ray: per-mode amplitude
@@ -1544,8 +1604,54 @@ struct NodeArgument {
     erosion: f32,
     envelope_fade: f32,
     argument: f32,
+    density: f32,
+    /// Density map mass ratio at the node; the segment mass scales with its mean.
+    map_factor: f32,
+    /// Soot mask at the node; the segment emission loses its mean.
+    soot: f32,
     mode_values: Vec<f32>,
     mode_weights: Vec<f32>,
+}
+
+const DENSITY_MAP_OCTAVES: usize = 3;
+const DENSITY_MAP_INV_STD: f32 = 1.0 / 0.262;
+
+/// Mirror of flameLatticeHash (u32 wrapping arithmetic, identical to the GLSL uint math).
+fn lattice_hash(v: [u32; 3]) -> u32 {
+    let mut x = v[0].wrapping_mul(1664525).wrapping_add(1013904223);
+    let mut y = v[1].wrapping_mul(1664525).wrapping_add(1013904223);
+    let mut z = v[2].wrapping_mul(1664525).wrapping_add(1013904223);
+    x = x.wrapping_add(y.wrapping_mul(z));
+    y = y.wrapping_add(z.wrapping_mul(x));
+    z = z.wrapping_add(x.wrapping_mul(y));
+    x ^= x >> 16;
+    y ^= y >> 16;
+    z ^= z >> 16;
+    x = x.wrapping_add(y.wrapping_mul(z));
+    y = y.wrapping_add(z.wrapping_mul(x));
+    z = z.wrapping_add(x.wrapping_mul(y));
+    let _ = (y, z);
+    x
+}
+
+fn lattice_value(cell: [i32; 3]) -> f32 {
+    (lattice_hash([cell[0] as u32, cell[1] as u32, cell[2] as u32]) & 0xFF_FFFF) as f32
+        * (1.0 / 16777216.0)
+}
+
+/// Mirror of flameValueNoise (quintic-blended lattice value noise).
+fn lattice_value_noise(m: [f32; 3]) -> f32 {
+    let cell_f = [m[0].floor(), m[1].floor(), m[2].floor()];
+    let f = [m[0] - cell_f[0], m[1] - cell_f[1], m[2] - cell_f[2]];
+    let fade = |t: f32| t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
+    let u = [fade(f[0]), fade(f[1]), fade(f[2])];
+    let c = [cell_f[0] as i32, cell_f[1] as i32, cell_f[2] as i32];
+    let at = |dx: i32, dy: i32, dz: i32| lattice_value([c[0] + dx, c[1] + dy, c[2] + dz]);
+    let x00 = mixf(at(0, 0, 0), at(1, 0, 0), u[0]);
+    let x10 = mixf(at(0, 1, 0), at(1, 1, 0), u[0]);
+    let x01 = mixf(at(0, 0, 1), at(1, 0, 1), u[0]);
+    let x11 = mixf(at(0, 1, 1), at(1, 1, 1), u[0]);
+    mixf(mixf(x00, x10, u[1]), mixf(x01, x11, u[1]), u[2])
 }
 
 fn slab_interval(origin_y: f32, dir_y: f32, y_top: f32, t_max: f32) -> Option<(f32, f32)> {
@@ -1648,7 +1754,10 @@ pub fn trace_flame_field(
 pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
     let cols = env_usize("THYLLORE_FLAME_TRACE_COLS", 13);
     let rows = env_usize("THYLLORE_FLAME_TRACE_ROWS", 49);
-    let segments = env_usize("THYLLORE_FLAME_TRACE_SEGMENTS", SEGMENTS);
+    let segments = env_usize(
+        "THYLLORE_FLAME_TRACE_SEGMENTS",
+        ubo.segment_params.count as usize,
+    );
     let integrator = SegmentIntegrator::from_env();
     let apply_jitter = env_usize("THYLLORE_FLAME_TRACE_JITTER", 1) != 0;
     let inverse_model = ubo.inverse_model;
@@ -1765,6 +1874,8 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "wave_cf_params": vec_json(&[ubo.wave_cf_params.enabled, ubo.wave_cf_params.shear_layer_count, ubo.wave_cf_params.skipped_power_plain, ubo.wave_cf_params.skipped_power_env]),
             "unified_params": vec_json(&[ubo.unified_params.enabled, ubo.unified_params.sigma_floor]),
             "glow_params": vec_json(&[ubo.glow_params.gain, ubo.glow_params.threshold, ubo.glow_params.inv_carrier_std]),
+            "segment_params": vec_json(&[ubo.segment_params.count]),
+            "density_map": vec_json(&[ubo.density_map.gain, ubo.density_map.scale_ratio, ubo.density_map.soot_gain, ubo.density_map.soot_threshold]),
             "spread_params": vec_json(&[ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain]),
             "support_params": vec_json(&[
                 ubo.support_motion.support_margin,
@@ -1811,7 +1922,12 @@ fn trace_ray(
     let dt = (t1 - t0) / segments as f32;
 
     if apply_jitter {
-        let jitter = interleaved_gradient_noise([col, row]);
+        let shift = if ctx.u.temporal_data.accum_weight > 0.0 {
+            ctx.u.temporal_data.frame_index * 5.588238
+        } else {
+            0.0
+        };
+        let jitter = interleaved_gradient_noise([col + shift, row + shift]);
         t0 += (jitter - 0.5) * dt;
     }
 
@@ -1924,8 +2040,6 @@ fn trace_ray(
             segments_json.push(json!(null));
             continue;
         }
-        let density_start = if entering { 0.0 } else { prev_density };
-        let density_end = if exiting { 0.0 } else { density };
         let start_arg = if entering {
             argument_at(seg_start, 0.0)
         } else {
@@ -1942,6 +2056,8 @@ fn trace_ray(
                 None => argument_at(t, density),
             }
         };
+        let density_start = start_arg.density;
+        let density_end = end_arg.density;
 
         let h_mid = (o[1] + (seg_start + 0.5 * span) * d[1]).clamp(0.0, 1.0);
         let fade_avg = 0.5 * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
@@ -2032,7 +2148,7 @@ fn trace_ray(
             integral += residual * (plain - integral);
             first_moment += residual * (plain_moment - first_moment);
         }
-        let emission = integral.max(0.0);
+        let emission = integral.max(0.0) * 0.5 * (start_arg.map_factor + end_arg.map_factor);
         let t_mean = if integral > 1e-6 {
             (first_moment / integral).clamp(seg_start, seg_end)
         } else {
@@ -2086,9 +2202,10 @@ fn trace_ray(
             sigma_rgb[2] * emission,
         ];
         let glow = ctx.segment_glow(start_arg.z, end_arg.z);
+        let luminous = 1.0 - 0.5 * (start_arg.soot + end_arg.soot);
         for c in 0..3 {
             let absorbed = 1.0 - (-tau[c]).exp();
-            radiance_pre[c] += transmittance[c] * color[c] * absorbed * glow;
+            radiance_pre[c] += transmittance[c] * color[c] * absorbed * glow * luminous;
             transmittance[c] *= (-tau[c]).exp();
         }
         let mean_trans = (transmittance[0] + transmittance[1] + transmittance[2]) / 3.0;
@@ -2299,6 +2416,9 @@ fn clone_argument(a: &NodeArgument) -> NodeArgument {
         erosion: a.erosion,
         envelope_fade: a.envelope_fade,
         argument: a.argument,
+        density: a.density,
+        map_factor: a.map_factor,
+        soot: a.soot,
         mode_values: a.mode_values.clone(),
         mode_weights: a.mode_weights.clone(),
     }

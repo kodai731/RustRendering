@@ -147,8 +147,24 @@ pub struct FlameEffect {
     /// Radiance gain of the un-eroded noise cores (bright filaments over a
     /// dim body); 0 = flat radiance, bit-identical to the ceiling model.
     pub glow_gain: f32,
-    /// Carrier level in std units above which the glow ramps in (over one std).
+    /// Carrier level in std units above which the glow rises (smoothly over two std).
     pub glow_threshold: f32,
+    /// Log-normal mass modulation of the medium (optical depth and emission,
+    /// the carved texture untouched) by a lattice fbm riding the noise
+    /// transport: the log-density std, exp(gain) = one-sigma mass ratio;
+    /// 0 = uniform, bit-identical.
+    pub density_map_gain: f32,
+    /// Lattice cells of the density map per flame-local unit (radius).
+    pub density_map_scale: f32,
+    /// Darkness of the soot clumps: where the density map noise exceeds
+    /// soot_threshold the medium keeps its mass but loses this share of its
+    /// emission; 0 = off, bit-identical.
+    pub soot_gain: f32,
+    /// Density map noise level (std units) where a soot clump starts.
+    pub soot_threshold: f32,
+    /// Closed-form segments per ray of the wave walk: finer noise needs more
+    /// (the segment grid aliases at noise_frequency > ~2 with 64); 64 = default.
+    pub wave_segments: u32,
     pub edge_outer_sharpen: f32,
     pub noise_scale_mode: f32,
     pub erosion_noise_gain: f32,
@@ -235,6 +251,11 @@ impl Default for FlameEffect {
             meander_frequency: 1.0,
             glow_gain: 0.0,
             glow_threshold: 1.0,
+            density_map_gain: 0.0,
+            density_map_scale: 1.0,
+            soot_gain: 0.0,
+            soot_threshold: 1.0,
+            wave_segments: crate::flame_wave::FLAME_WAVE_SEGMENTS as u32,
             edge_outer_sharpen: 0.0,
             noise_scale_mode: 0.0,
             erosion_noise_gain: 1.0,
