@@ -388,6 +388,8 @@ pub struct FlameEffectData {
     pub branch_life: f32,
     #[serde(default)]
     pub branch_gain: f32,
+    #[serde(default = "default_branch_core_radius")]
+    pub branch_core_radius: f32,
     #[serde(default = "default_branch_spread")]
     pub branch_spread: f32,
     #[serde(default = "default_branch_spawn_height")]
@@ -396,6 +398,10 @@ pub struct FlameEffectData {
     pub branch_spawn_range: f32,
     #[serde(default)]
     pub branch_seed: u32,
+}
+
+fn default_branch_core_radius() -> f32 {
+    0.35
 }
 
 fn default_branch_spawn_height() -> f32 {
@@ -609,6 +615,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             branch_period: effect.branch.period,
             branch_life: effect.branch.life,
             branch_gain: effect.branch.gain,
+            branch_core_radius: effect.branch.core_radius,
             branch_spread: effect.branch.spread,
             branch_spawn_height: effect.branch.spawn_height,
             branch_spawn_range: effect.branch.spawn_range,
@@ -752,6 +759,7 @@ pub fn apply_flame_state_to_world(
         effect.branch.period = flame.effect.branch_period;
         effect.branch.life = flame.effect.branch_life;
         effect.branch.gain = flame.effect.branch_gain;
+        effect.branch.core_radius = flame.effect.branch_core_radius;
         effect.branch.spread = flame.effect.branch_spread;
         effect.branch.spawn_height = flame.effect.branch_spawn_height;
         effect.branch.spawn_range = flame.effect.branch_spawn_range;
@@ -961,6 +969,7 @@ mod tests {
             branch_period: 0.0,
             branch_life: 2.5,
             branch_gain: 0.0,
+            branch_core_radius: 0.35,
             branch_spread: 0.3,
             branch_spawn_height: 0.35,
             branch_spawn_range: 0.4,
@@ -1167,6 +1176,7 @@ mod tests {
                 branch_period: 0.0,
                 branch_life: 2.5,
                 branch_gain: 0.0,
+                branch_core_radius: 0.35,
                 branch_spread: 0.3,
                 branch_spawn_height: 0.35,
                 branch_spawn_range: 0.4,

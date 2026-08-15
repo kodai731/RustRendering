@@ -696,7 +696,7 @@ pub fn build_flame_ubo(
         },
         twist_field: build_twist_field(effect),
         meander_modes: build_meander_modes(effect),
-        branch_field: build_branch_field(effect),
+        branch_field: build_branch_field(effect, baked),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1200,7 +1200,10 @@ pub struct FlameBranchElement {
     pub spawn_height: f32,
     pub kind: f32,
     pub hash01: f32,
-    pub _padding: [f32; 2],
+    /// Trunk support radius at the spawn height, in flame-local units; the
+    /// ring and core radii are ratios of it.
+    pub trunk_radius: f32,
+    pub _padding: f32,
 }
 
 /// Branch element table (newest first) with the per-effect age-profile
@@ -1216,13 +1219,13 @@ pub struct FlameBranchField {
     pub drift_rate: f32,
     pub aspect: f32,
     pub core_radius: f32,
-    pub ring_radius_start: f32,
-    pub ring_radius_end: f32,
+    pub reach_start: f32,
+    pub reach_end: f32,
     pub envelope_time: f32,
-    pub arc_half_width: f32,
+    pub _padding0: f32,
     pub bounding_pad: f32,
     pub bounding_pad_y: f32,
-    pub _padding: [f32; 2],
+    pub _padding1: [f32; 2],
     pub elements: [FlameBranchElement; BRANCH_MAX_ELEMENTS],
 }
 

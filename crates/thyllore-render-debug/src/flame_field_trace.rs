@@ -1548,13 +1548,22 @@ fn branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> Value {
         "drift_rate": round5(field.drift_rate),
         "aspect": round5(field.aspect),
         "core_radius": round5(field.core_radius),
-        "ring_radius": vec_json(&[field.ring_radius_start, field.ring_radius_end]),
+        "reach": vec_json(&[field.reach_start, field.reach_end]),
         "envelope_time": round5(field.envelope_time),
-        "arc_half_width": round5(field.arc_half_width),
         "bounding_pad": vec_json(&[field.bounding_pad, field.bounding_pad_y]),
         "elements": field.elements[..count]
             .iter()
-            .map(|e| vec_json(&[e.spawn_time, e.side, e.azimuth, e.spawn_height, e.kind, e.hash01]))
+            .map(|e| {
+                vec_json(&[
+                    e.spawn_time,
+                    e.side,
+                    e.azimuth,
+                    e.spawn_height,
+                    e.kind,
+                    e.hash01,
+                    e.trunk_radius,
+                ])
+            })
             .collect::<Vec<_>>(),
     })
 }
@@ -2313,8 +2322,14 @@ mod tests {
         let ubo_on = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
         assert!(ubo_on.branch_field.count > 0.0);
         let on = UboCtx::new(&ubo_on, [0.0, 0.5, 3.0]);
-        let moved = (0..12)
-            .map(|i| [0.2 + 0.1 * i as f32, 0.3 + 0.03 * i as f32, 0.0])
+        let moved = (0..64)
+            .map(|i| {
+                [
+                    0.05 + 0.07 * (i % 8) as f32,
+                    0.2 + 0.08 * (i / 8) as f32,
+                    0.0,
+                ]
+            })
             .any(|q| {
                 let (ps, hs) = on.support_position(q, q[1]);
                 assert_eq!(hs, ps[1].clamp(0.0, 1.0));

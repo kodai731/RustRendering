@@ -98,6 +98,7 @@ pub fn build_effect_json(
     value["branch_period"] = json!(effect.branch.period);
     value["branch_life"] = json!(effect.branch.life);
     value["branch_gain"] = json!(effect.branch.gain);
+    value["branch_core_radius"] = json!(effect.branch.core_radius);
     value["branch_spread"] = json!(effect.branch.spread);
     value["branch_spawn_height"] = json!(effect.branch.spawn_height);
     value["branch_spawn_range"] = json!(effect.branch.spawn_range);
@@ -182,9 +183,8 @@ fn build_branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> se
         "drift_rate": field.drift_rate,
         "aspect": field.aspect,
         "core_radius": field.core_radius,
-        "ring_radius": [field.ring_radius_start, field.ring_radius_end],
+        "reach": [field.reach_start, field.reach_end],
         "envelope_time": field.envelope_time,
-        "arc_half_width": field.arc_half_width,
         "bounding_pad": [field.bounding_pad, field.bounding_pad_y],
         "elements": field.elements[..count]
             .iter()
@@ -195,6 +195,7 @@ fn build_branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> se
                 element.spawn_height,
                 element.kind,
                 element.hash01,
+                element.trunk_radius,
             ]))
             .collect::<Vec<_>>(),
     })

@@ -128,7 +128,7 @@ pub fn intersect_flame_proxy(
             flame_bend_offset(effect),
             flame_support_scale(effect),
             effect.support_margin,
-            branch_proxy_pad(effect),
+            branch_proxy_pad(effect, &crate::flame::FlameBaked::default()),
         ),
         local_origin.truncate(),
         local_direction.truncate(),

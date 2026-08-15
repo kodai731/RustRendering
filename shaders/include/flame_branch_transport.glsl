@@ -1,19 +1,14 @@
 #ifndef FLAME_BRANCH_TRANSPORT_GLSL
 #define FLAME_BRANCH_TRANSPORT_GLSL
 
-// Branch element layer (A: vortex transport): every live element pulls the sample
-// back through a windowed Lamb-Oseen rotation of the meridional plane about its
-// ring core, compactly supported inside rho < ringRadius so the map is a bijection
-// for any gain. Mirrored in thyllore-effect-core/src/flame/branch.rs.
+// Branch element layer (A: vortex transport): every live element is a horizontal
+// vortex line; each perpendicular slice rotates about it by a windowed Lamb-Oseen
+// angle, compact inside rho < reach, so the map is a bijection for any gain.
+// Mirrored in thyllore-effect-core/src/flame/branch.rs.
 const float FLAME_BRANCH_TAU = 6.283185307;
-const float FLAME_BRANCH_PI = 3.141592654;
 
 bool flameBranchActive() {
     return flame.branchField.count > 0.5;
-}
-
-float flameBranchWrapAngle(float angle) {
-    return angle - FLAME_BRANCH_TAU * floor(angle / FLAME_BRANCH_TAU + 0.5);
 }
 
 float flameBranchSmoothstep(float edge0, float edge1, float x) {
@@ -45,8 +40,9 @@ vec2 flameBranchLambOseen(float rhoSq, float coreRadius) {
 
 struct FlameVortexElement {
     vec3 center;
-    float arcCenter;
-    float ringRadius;
+    vec2 inPlane;
+    float reach;
+    float coreRadius;
     float circulation;
 };
 
@@ -56,66 +52,57 @@ bool flameVortexElementAt(int index, out FlameVortexElement element) {
     if (age < 0.0 || age >= flame.branchField.life) {
         return false;
     }
-    element.arcCenter = spawn.azimuth + 0.5 * (1.0 - spawn.side) * FLAME_BRANCH_PI;
-    float lateral = flame.branchField.driftRate * age;
+    element.inPlane = vec2(cos(spawn.azimuth), sin(spawn.azimuth));
+    float lateral = spawn.side * flame.branchField.driftRate * spawn.trunkRadius * age;
     element.center = vec3(
-        lateral * cos(element.arcCenter),
+        lateral * element.inPlane.x,
         spawn.spawnHeight + flame.branchField.riseRate * age,
-        lateral * sin(element.arcCenter));
+        lateral * element.inPlane.y);
     float progress = age / flame.branchField.life;
-    element.ringRadius = flame.branchField.ringRadiusStart
-        + (flame.branchField.ringRadiusEnd - flame.branchField.ringRadiusStart) * progress;
-    element.circulation = flame.branchField.gain * flameBranchEnvelope(age);
+    float reachRatio = flame.branchField.reachStart
+        + (flame.branchField.reachEnd - flame.branchField.reachStart) * progress;
+    element.reach = reachRatio * spawn.trunkRadius;
+    element.coreRadius = flame.branchField.coreRadius * spawn.trunkRadius;
+    element.circulation = spawn.side * flame.branchField.gain * FLAME_BRANCH_TAU
+        * element.coreRadius * element.coreRadius * flameBranchEnvelope(age);
     return true;
 }
 
+// Each slice perpendicular to the horizontal vortex line rotates about the line
+// by the windowed Lamb-Oseen angle; compact inside rho < reach, unit determinant.
 vec3 flameVortexPullBackJvp(FlameVortexElement element, vec3 p, inout vec3 dir) {
     float aspect = flame.branchField.aspect;
+    float ex = element.inPlane.x;
+    float ez = element.inPlane.y;
     float qx = p.x - element.center.x;
     float qz = p.z - element.center.z;
-    float axial = (p.y - element.center.y) * aspect;
-    float dx = dir.x;
-    float dz = dir.z;
-    float dAxial = dir.y * aspect;
-
-    float distSq = qx * qx + qz * qz;
-    if (distSq < 1e-12) {
-        return p;
-    }
-    float dist = sqrt(distSq);
-    float invDist = 1.0 / dist;
-    float ex = qx * invDist;
-    float ez = qz * invDist;
-    float ringRadius = element.ringRadius;
-    float u = dist - ringRadius;
-    float v = axial;
+    float u = qx * ex + qz * ez;
+    float along = -qx * ez + qz * ex;
+    float v = (p.y - element.center.y) * aspect;
+    float reach = element.reach;
+    float reachSq = reach * reach;
     float rhoSq = u * u + v * v;
-    float ringSq = ringRadius * ringRadius;
-    if (rhoSq >= ringSq) {
+    if (rhoSq >= reachSq) {
         return p;
     }
-    float arcHalfWidth = flame.branchField.arcHalfWidth;
-    float x = flameBranchWrapAngle(atan(qz, qx) - element.arcCenter) / arcHalfWidth;
+    float x = along / reach;
     if (abs(x) >= 1.0) {
         return p;
     }
 
     float window = (1.0 - x * x) * (1.0 - x * x);
-    float s = rhoSq / ringSq;
+    float s = rhoSq / reachSq;
     float gate = (1.0 - s) * (1.0 - s);
-    vec2 profile = flameBranchLambOseen(rhoSq, flame.branchField.coreRadius);
+    vec2 profile = flameBranchLambOseen(rhoSq, element.coreRadius);
     float circulation = element.circulation;
     float psi = circulation * window * gate * profile.x;
 
-    float dDist = ex * dx + ez * dz;
-    float dex = (dx - dDist * ex) * invDist;
-    float dez = (dz - dDist * ez) * invDist;
-    float du = dDist;
-    float dv = dAxial;
+    float du = dir.x * ex + dir.z * ez;
+    float dAlong = -dir.x * ez + dir.z * ex;
+    float dv = dir.y * aspect;
     float dRhoSq = 2.0 * (u * du + v * dv);
-    float dTheta = (qx * dz - qz * dx) / distSq;
-    float dWindow = -4.0 * x * (1.0 - x * x) * dTheta / arcHalfWidth;
-    float dGate = -2.0 * (1.0 - s) * dRhoSq / ringSq;
+    float dWindow = -4.0 * x * (1.0 - x * x) * dAlong / reach;
+    float dGate = -2.0 * (1.0 - s) * dRhoSq / reachSq;
     float dPsi = circulation
         * (dWindow * gate * profile.x + window * dGate * profile.x + window * gate * profile.y * dRhoSq);
 
@@ -125,12 +112,11 @@ vec3 flameVortexPullBackJvp(FlameVortexElement element, vec3 p, inout vec3 dir) 
     float v1 = u * sn + v * cs;
     float du1 = du * cs - dv * sn - dPsi * v1;
     float dv1 = du * sn + dv * cs + dPsi * u1;
-    float dist1 = ringRadius + u1;
-    dir = vec3(dist1 * dex + du1 * ex, dv1 / aspect, dist1 * dez + du1 * ez);
+    dir = vec3(du1 * ex - dAlong * ez, dv1 / aspect, du1 * ez + dAlong * ex);
     return vec3(
-        element.center.x + dist1 * ex,
+        element.center.x + u1 * ex - along * ez,
         element.center.y + v1 / aspect,
-        element.center.z + dist1 * ez);
+        element.center.z + u1 * ez + along * ex);
 }
 
 // Composite pull-back through the live elements (table is newest first) with
@@ -162,6 +148,7 @@ vec3 flameBranchDebugColor(vec3 ps, float density) {
     int count = min(int(flame.branchField.count), FLAME_BRANCH_MAX_ELEMENTS);
     float bestDisplacement = 0.0;
     float bestHash = 0.0;
+    float bestCoreRadius = 1.0;
     bool insideCore = false;
     for (int i = 0; i < count; ++i) {
         FlameVortexElement element;
@@ -173,16 +160,17 @@ vec3 flameBranchDebugColor(vec3 ps, float density) {
         if (displacement > bestDisplacement) {
             bestDisplacement = displacement;
             bestHash = flame.branchField.elements[i].hash01;
-            float radial = length(ps.xz - element.center.xz) - element.ringRadius;
+            bestCoreRadius = element.coreRadius;
+            vec2 q = ps.xz - element.center.xz;
+            float radial = dot(q, element.inPlane);
             float axial = (ps.y - element.center.y) * flame.branchField.aspect;
-            insideCore = radial * radial + axial * axial
-                < flame.branchField.coreRadius * flame.branchField.coreRadius;
+            insideCore = radial * radial + axial * axial < element.coreRadius * element.coreRadius;
         }
     }
     if (bestDisplacement <= 1e-5) {
         return vec3(0.35 * clamp(density, 0.0, 1.0));
     }
-    float strength = clamp(bestDisplacement / flame.branchField.coreRadius, 0.0, 1.0);
+    float strength = clamp(bestDisplacement / bestCoreRadius, 0.0, 1.0);
     vec3 color = flameBranchDebugHue(bestHash) * mix(0.3, 1.0, strength);
     return insideCore ? mix(color, vec3(1.0), 0.6) : color;
 }

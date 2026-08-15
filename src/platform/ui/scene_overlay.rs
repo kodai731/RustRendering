@@ -1050,9 +1050,19 @@ fn build_flame_section(
                         .build(&mut effect_copy.branch.gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Vortex circulation of each element: how far the trunk medium \
-                             winds around the rising core (a compact rotation never folds, \
+                            "Peak rotation angle [rad] of each element's core: how far the \
+                             trunk medium winds around it (a compact rotation never folds, \
                              so any gain is structurally safe; 0 = off)",
+                        );
+                    }
+                    ui.slider_config("Branch Core", 0.05, 1.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.core_radius);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Vortex core radius as a ratio of the local trunk radius: small \
+                             values shear the medium into thin spirals, near 1 the whole \
+                             disc turns together and tongues keep the trunk's thickness",
                         );
                     }
                     ui.slider_config("Branch Spread", 0.0, 1.0)

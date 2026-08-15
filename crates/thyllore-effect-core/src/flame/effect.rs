@@ -27,8 +27,11 @@ pub struct FlameBranch {
     pub period: f32,
     /// Element lifetime in seconds.
     pub life: f32,
-    /// Vortex circulation at full envelope; 0 = identity transport.
+    /// Peak rotation angle of the vortex core in radians at full envelope; 0 = off.
     pub gain: f32,
+    /// Lamb-Oseen core radius as a ratio of the local trunk radius; near 1 the
+    /// whole disc turns coherently (fat tongues), small values shear thin spirals.
+    pub core_radius: f32,
     /// Scatter of azimuth, timing jitter and side alternation in [0, 1].
     pub spread: f32,
     /// Center of the spawn height band in local height units.
@@ -226,6 +229,7 @@ impl Default for FlameEffect {
                 period: 0.0,
                 life: 2.5,
                 gain: 0.0,
+                core_radius: 0.35,
                 spread: 0.3,
                 spawn_height: 0.35,
                 spawn_range: 0.4,

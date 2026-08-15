@@ -199,8 +199,8 @@ struct FlameBranchElement {
     float spawnHeight;
     float kind;
     float hash01;
+    float trunkRadius;
     float pad0;
-    float pad1;
 };
 
 struct FlameBranchField {
@@ -212,14 +212,14 @@ struct FlameBranchField {
     float driftRate;
     float aspect;
     float coreRadius;
-    float ringRadiusStart;
-    float ringRadiusEnd;
+    float reachStart;
+    float reachEnd;
     float envelopeTime;
-    float arcHalfWidth;
+    float pad0;
     float boundingPad;
     float boundingPadY;
-    float pad0;
     float pad1;
+    float pad2;
     FlameBranchElement elements[FLAME_BRANCH_MAX_ELEMENTS];
 };
 
