@@ -140,6 +140,15 @@ pub struct FlameEffect {
     pub support_margin: f32,
     /// Animated horizontal displacement amplitude of the centerline; 0 = off.
     pub meander_amp: f32,
+    /// Multiplier on the meander mode wavenumbers: 1 keeps the two long modes
+    /// (kappa 1.2 / 2.1 per height), larger values fold the centerline into a
+    /// shorter snake (the pillar reference sits near 12: ~4 bends over the height).
+    pub meander_frequency: f32,
+    /// Radiance gain of the un-eroded noise cores (bright filaments over a
+    /// dim body); 0 = flat radiance, bit-identical to the ceiling model.
+    pub glow_gain: f32,
+    /// Carrier level in std units above which the glow ramps in (over one std).
+    pub glow_threshold: f32,
     pub edge_outer_sharpen: f32,
     pub noise_scale_mode: f32,
     pub erosion_noise_gain: f32,
@@ -223,6 +232,9 @@ impl Default for FlameEffect {
             spread_gain: 0.0,
             support_margin: 1.0,
             meander_amp: 0.0,
+            meander_frequency: 1.0,
+            glow_gain: 0.0,
+            glow_threshold: 1.0,
             edge_outer_sharpen: 0.0,
             noise_scale_mode: 0.0,
             erosion_noise_gain: 1.0,

@@ -104,7 +104,7 @@ fn build_twist_field(effect: &FlameEffect) -> FlameTwistField {
 fn build_meander_modes(effect: &FlameEffect) -> [FlameMeanderMode; 2] {
     std::array::from_fn(|j| FlameMeanderMode {
         direction: MEANDER_MODE_DIRECTION[j],
-        kappa: MEANDER_MODE_KAPPA[j],
+        kappa: MEANDER_MODE_KAPPA[j] * effect.meander_frequency.max(0.0),
         omega: effect.swirl.speed * MEANDER_MODE_RATE_SCALE[j],
         phase: MEANDER_MODE_PHASE[j],
         _padding: [0.0; 3],
@@ -125,12 +125,15 @@ fn build_wave_cf_params() -> FlameWaveCfParams {
     }
 }
 
-type WaveUboFields = (
-    FlameWaveShaping,
-    [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
-    [f32; 2],
-    [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
-);
+struct WaveUboFields {
+    shaping: FlameWaveShaping,
+    packed: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
+    skipped_power: [f32; 2],
+    jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
+    /// Std of the raw erosion carrier z (sum of the sine modes), before the
+    /// tanh shaping; the glow threshold is expressed in these units.
+    carrier_std: f32,
+}
 
 /// Contrast-scaled base edge window: center is fixed, half-width divides by
 /// noise_contrast (higher contrast = narrower window = harder carving).
@@ -217,6 +220,11 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         let power = 0.5 * mode.amplitude * mode.amplitude;
         skipped_power[usize::from(mode.env_coeff != 0.0)] += power;
     }
+    let carrier_std = erosion_modes
+        .iter()
+        .map(|mode| 0.5 * mode.amplitude * mode.amplitude)
+        .sum::<f32>()
+        .sqrt();
 
     let warp_modes = generate_wave_warp_modes();
     let cf_active = read_env_wave_cf() && !unified;
@@ -304,8 +312,8 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         slot[2] = mode.jitter[2] * jitter_scale;
     }
     jitter[0][3] = crate::flame_wave::read_env_wave_jitter_freq();
-    (
-        FlameWaveShaping {
+    WaveUboFields {
+        shaping: FlameWaveShaping {
             tracked_count: tracked as f32,
             env_coeff,
             inverse_scale,
@@ -314,11 +322,23 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         packed,
         skipped_power,
         jitter,
-    )
+        carrier_std,
+    }
 }
 
 /// sigma_floor = relative-window floor coefficient (beta * |A| * shaped noise
 /// std; the shader multiplies by lambda * D_mid / 0.30 for the modulation std).
+/// Glow ramps linearly over one carrier std above the threshold; the shader
+/// reads the raw carrier in std units, so the threshold is spectrum-invariant.
+fn build_glow_params(effect: &FlameEffect, carrier_std: f32) -> FlameGlowParams {
+    FlameGlowParams {
+        gain: effect.glow_gain.max(0.0),
+        threshold: effect.glow_threshold,
+        inv_carrier_std: 1.0 / carrier_std.max(1e-6),
+        _padding: 0.0,
+    }
+}
+
 pub fn build_unified_field_params(effect: &FlameEffect) -> FlameUnifiedParams {
     let inactive = FlameUnifiedParams {
         enabled: 0.0,
@@ -660,8 +680,8 @@ pub fn build_flame_ubo(
             }
         },
         wave_cf_params: FlameWaveCfParams {
-            skipped_power_plain: wave_fields.2[0],
-            skipped_power_env: wave_fields.2[1],
+            skipped_power_plain: wave_fields.skipped_power[0],
+            skipped_power_env: wave_fields.skipped_power[1],
             ..build_wave_cf_params()
         },
         boundary_params: FlameBoundaryParams {
@@ -682,11 +702,12 @@ pub fn build_flame_ubo(
         radius_coefficients: effect.coefficients.radius_scale,
         color_ramp: build_color_ramp(effect, baked),
         profile_params: build_profile_params(effect, baked),
-        wave_params: wave_fields.0,
+        wave_params: wave_fields.shaping,
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
         warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
+        glow_params: build_glow_params(effect, wave_fields.carrier_std),
         spread_params: build_medium_spread_params(effect),
         support_motion: FlameSupportMotion {
             support_margin: effect.support_margin,
@@ -697,8 +718,8 @@ pub fn build_flame_ubo(
         twist_field: build_twist_field(effect),
         meander_modes: build_meander_modes(effect),
         branch_field: build_branch_field(effect, baked),
-        wave_modes: wave_fields.1,
-        wave_jitter: wave_fields.3,
+        wave_modes: wave_fields.packed,
+        wave_jitter: wave_fields.jitter,
     }
 }
 
@@ -1147,6 +1168,15 @@ pub struct FlameUnifiedParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct FlameGlowParams {
+    pub gain: f32,
+    pub threshold: f32,
+    pub inv_carrier_std: f32,
+    pub _padding: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct FlameSpreadParams {
     pub gain: f32,
     pub edge_outer_sharpen: f32,
@@ -1198,12 +1228,17 @@ pub struct FlameBranchElement {
     pub side: f32,
     pub azimuth: f32,
     pub spawn_height: f32,
-    pub kind: f32,
+    /// Size multiplier of reach and core (scatter lane).
+    pub size: f32,
+    /// Tilt of the vortex line out of the horizontal [rad] (scatter lane).
+    pub tilt: f32,
+    /// Window center shift along the line in reach units (scatter lane).
+    pub along_offset: f32,
     pub hash01: f32,
     /// Trunk support radius at the spawn height, in flame-local units; the
-    /// ring and core radii are ratios of it.
+    /// reach and core radii are ratios of it.
     pub trunk_radius: f32,
-    pub _padding: f32,
+    pub _padding: [f32; 3],
 }
 
 /// Branch element table (newest first) with the per-effect age-profile
@@ -1270,6 +1305,7 @@ pub struct FlameUBO {
     pub warp_strain_params: FlameWarpStrainParams,
     pub warp_form_params: FlameWarpFormParams,
     pub unified_params: FlameUnifiedParams,
+    pub glow_params: FlameGlowParams,
     pub spread_params: FlameSpreadParams,
     pub support_motion: FlameSupportMotion,
     pub twist_field: FlameTwistField,

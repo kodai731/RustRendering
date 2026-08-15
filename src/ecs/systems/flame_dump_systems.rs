@@ -95,6 +95,9 @@ pub fn build_effect_json(
     value["noise_shaping_scale"] = json!(effect.noise_shaping_scale);
     value["optical_depth"] = json!(effect.optical_depth);
     value["meander_amp"] = json!(effect.meander_amp);
+    value["meander_frequency"] = json!(effect.meander_frequency);
+    value["glow_gain"] = json!(effect.glow_gain);
+    value["glow_threshold"] = json!(effect.glow_threshold);
     value["branch_period"] = json!(effect.branch.period);
     value["branch_life"] = json!(effect.branch.life);
     value["branch_gain"] = json!(effect.branch.gain);
@@ -163,6 +166,7 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "color_tip": [ubo.color_tip.rgb[0], ubo.color_tip.rgb[1], ubo.color_tip.rgb[2], ubo.color_tip.edge_temperature_blend],
         "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
         "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
+        "glow_params": [ubo.glow_params.gain, ubo.glow_params.threshold, ubo.glow_params.inv_carrier_std],
         "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],
         "support_margin": [
             ubo.support_motion.support_margin,
@@ -196,7 +200,9 @@ fn build_branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> se
                 element.side,
                 element.azimuth,
                 element.spawn_height,
-                element.kind,
+                element.size,
+                element.tilt,
+                element.along_offset,
                 element.hash01,
                 element.trunk_radius,
             ]))

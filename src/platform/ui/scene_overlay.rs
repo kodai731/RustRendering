@@ -880,6 +880,26 @@ fn build_flame_section(
                         });
                     }
 
+                    ui.slider_config("Glow Gain", 0.0, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.glow_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Radiance gain of the un-eroded noise cores: bright filaments over \
+                             a dim body (0 = flat radiance ceiling)",
+                        );
+                    }
+                    ui.slider_config("Glow Threshold", -2.0, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.glow_threshold);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Noise level (in std units) where the glow starts and ramps over one \
+                             std: lower lights more of the body, higher keeps only the densest \
+                             cores",
+                        );
+                    }
+
                     let mut color_changed = false;
                     color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color_base);
                     color_changed |= ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
@@ -1005,6 +1025,16 @@ fn build_flame_section(
                     if ui.is_item_hovered() {
                         ui.tooltip_text("Horizontal meandering motion of the flame (0 = off)");
                     }
+                    ui.slider_config("Meander Frequency", 0.2, 30.0)
+                        .display_format("%.1f")
+                        .build(&mut effect_copy.meander_frequency);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Wavenumber multiplier of the meander modes: 1 = two long bends over \
+                             the height, ~12 folds the column into a snake with ~4 bends (pillar \
+                             reference)",
+                        );
+                    }
 
                     ui.slider_config("Swirl Speed", 0.0, 4.0)
                         .display_format("%.2f")
@@ -1032,8 +1062,9 @@ fn build_flame_section(
                         .build(&mut effect_copy.branch.period);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Spawn period [s] of the branch elements (vortex rings that wrap \
-                             the medium into side branches); 0 = no elements",
+                            "Spawn period [s] of the branch elements (vortex lines that roll \
+                             the medium into side tongues); raised to life/31 when the table \
+                             is full, so shorter periods never shrink the tongues; 0 = off",
                         );
                     }
                     ui.slider_config("Branch Life", 0.1, 6.0)
@@ -1041,8 +1072,8 @@ fn build_flame_section(
                         .build(&mut effect_copy.branch.life);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Lifetime [s] of one element (rise in, wind, fade out); clamped \
-                             to 31 periods so the element table never drops a live element",
+                            "Lifetime [s] of one element (wind out fast, hold, burn out); the \
+                             spawn period is raised to life/31 when the element table is full",
                         );
                     }
                     ui.slider_config("Branch Gain", -8.0, 8.0)
@@ -1092,8 +1123,9 @@ fn build_flame_section(
                         .build(&mut effect_copy.branch.spread);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Scatter of azimuth, timing jitter and left/right alternation \
-                             (0 = strictly alternating, one plane)",
+                            "Scatter of azimuth, timing jitter, left/right alternation, \
+                             element size, line tilt and window shift (0 = identical \
+                             elements strictly alternating in one plane)",
                         );
                     }
                     ui.slider_config("Branch Height", 0.0, 1.0)

@@ -276,11 +276,17 @@ impl<'a> UboCtx<'a> {
         let (ps, hs) = self.support_position(p, h);
         let mut node = self.node_density(ps, hs);
         if self.u.branch_field.count > 0.5 {
-            let mask = branch_burnout_mask(
-                &self.u.branch_field,
-                self.meander_shifted(p, h),
-                self.u.time,
-            );
+            let inside_slab = if (0.0..=1.0).contains(&ps[1]) {
+                1.0
+            } else {
+                0.0
+            };
+            let mask = inside_slab
+                * branch_burnout_mask(
+                    &self.u.branch_field,
+                    self.meander_shifted(p, h),
+                    self.u.time,
+                );
             node.burnout = mask;
             node.density *= mask;
         }
@@ -613,6 +619,22 @@ impl<'a> UboCtx<'a> {
 
     fn eroded_argument(&self, d_smooth: f32, erosion: f32) -> f32 {
         d_smooth - (erosion.max(0.0) + erosion.min(0.0) * self.envelope_fade(d_smooth))
+    }
+
+    /// Mirror of flameSegmentGlow: radiance gain of the un-eroded noise cores.
+    fn segment_glow(&self, carrier_start: f32, carrier_end: f32) -> f32 {
+        let glow = &self.u.glow_params;
+        if glow.gain <= 0.0 {
+            return 1.0;
+        }
+        let carve_sign = if self.u.noise_amplitude < 0.0 {
+            -1.0
+        } else {
+            1.0
+        };
+        let material = -carve_sign * 0.5 * (carrier_start + carrier_end) * glow.inv_carrier_std;
+        let ramp = (material - glow.threshold).clamp(0.0, 1.0);
+        1.0 + glow.gain * ramp
     }
 
     /// d(shaped)/dz of the tanh noise shaping, expressed through the shaped
@@ -1583,7 +1605,9 @@ fn branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> Value {
                     e.side,
                     e.azimuth,
                     e.spawn_height,
-                    e.kind,
+                    e.size,
+                    e.tilt,
+                    e.along_offset,
                     e.hash01,
                     e.trunk_radius,
                 ])
@@ -1740,6 +1764,7 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "erosion_response": vec_json(&[ubo.erosion_response.center, ubo.erosion_response.kappa, ubo.erosion_response.weight1, ubo.erosion_response.weight2]),
             "wave_cf_params": vec_json(&[ubo.wave_cf_params.enabled, ubo.wave_cf_params.shear_layer_count, ubo.wave_cf_params.skipped_power_plain, ubo.wave_cf_params.skipped_power_env]),
             "unified_params": vec_json(&[ubo.unified_params.enabled, ubo.unified_params.sigma_floor]),
+            "glow_params": vec_json(&[ubo.glow_params.gain, ubo.glow_params.threshold, ubo.glow_params.inv_carrier_std]),
             "spread_params": vec_json(&[ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain]),
             "support_params": vec_json(&[
                 ubo.support_motion.support_margin,
@@ -2060,9 +2085,10 @@ fn trace_ray(
             sigma_rgb[1] * emission,
             sigma_rgb[2] * emission,
         ];
+        let glow = ctx.segment_glow(start_arg.z, end_arg.z);
         for c in 0..3 {
             let absorbed = 1.0 - (-tau[c]).exp();
-            radiance_pre[c] += transmittance[c] * color[c] * absorbed;
+            radiance_pre[c] += transmittance[c] * color[c] * absorbed * glow;
             transmittance[c] *= (-tau[c]).exp();
         }
         let mean_trans = (transmittance[0] + transmittance[1] + transmittance[2]) / 3.0;

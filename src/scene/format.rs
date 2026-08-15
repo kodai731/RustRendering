@@ -366,6 +366,12 @@ pub struct FlameEffectData {
     pub support_margin: f32,
     #[serde(default)]
     pub meander_amp: f32,
+    #[serde(default = "default_meander_frequency")]
+    pub meander_frequency: f32,
+    #[serde(default)]
+    pub glow_gain: f32,
+    #[serde(default = "default_glow_threshold")]
+    pub glow_threshold: f32,
     #[serde(default)]
     pub edge_outer_sharpen: f32,
     #[serde(default)]
@@ -410,6 +416,14 @@ fn default_branch_core_radius() -> f32 {
 
 fn default_branch_reach() -> f32 {
     1.5
+}
+
+fn default_meander_frequency() -> f32 {
+    1.0
+}
+
+fn default_glow_threshold() -> f32 {
+    1.0
 }
 
 fn default_branch_spawn_height() -> f32 {
@@ -619,6 +633,9 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             burnout_gain: effect.burnout_gain,
             noise_shaping_scale: effect.noise_shaping_scale,
             meander_amp: effect.meander_amp,
+            meander_frequency: effect.meander_frequency,
+            glow_gain: effect.glow_gain,
+            glow_threshold: effect.glow_threshold,
             edge_temperature_blend: effect.edge_temperature_blend,
             branch_period: effect.branch.period,
             branch_life: effect.branch.life,
@@ -759,6 +776,9 @@ pub fn apply_flame_state_to_world(
         effect.swirl.speed = flame.effect.swirl_speed;
         effect.support_margin = flame.effect.support_margin;
         effect.meander_amp = flame.effect.meander_amp;
+        effect.meander_frequency = flame.effect.meander_frequency;
+        effect.glow_gain = flame.effect.glow_gain;
+        effect.glow_threshold = flame.effect.glow_threshold;
         effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
         effect.noise_scale_mode = flame.effect.noise_scale_mode;
         effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
@@ -978,6 +998,9 @@ mod tests {
             noise_shaping_scale: 0.0,
             optical_depth: 0.0,
             meander_amp: 0.0,
+            meander_frequency: 1.0,
+            glow_gain: 0.0,
+            glow_threshold: 1.0,
             branch_period: 0.0,
             branch_life: 2.5,
             branch_gain: 0.0,
@@ -1187,6 +1210,9 @@ mod tests {
                 noise_shaping_scale: 0.0,
                 optical_depth: 0.0,
                 meander_amp: 0.0,
+                meander_frequency: 1.0,
+                glow_gain: 0.0,
+                glow_threshold: 1.0,
                 branch_period: 0.0,
                 branch_life: 2.5,
                 branch_gain: 0.0,

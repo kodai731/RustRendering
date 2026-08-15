@@ -38,8 +38,11 @@ pub const BRANCH_MAX_ELEMENTS: usize = 32;
 pub const BRANCH_REACH_GROWTH_START: f32 = 0.6;
 pub const BRANCH_DRIFT_OVER_LIFE: f32 = 0.5;
 pub const BRANCH_ENVELOPE_FRACTION: f32 = 0.15;
-/// Age fraction where the tongue starts burning out (density fade outside the trunk).
-pub const BRANCH_BURNOUT_START_FRACTION: f32 = 0.5;
+/// Age fraction by which the core angle has fully wound (ease-out from birth).
+pub const BRANCH_WIND_FRACTION: f32 = 0.5;
+/// Age fraction where the tongue starts burning out (density fade outside the
+/// trunk); after the winding is complete so the tongue is seen at full extent.
+pub const BRANCH_BURNOUT_START_FRACTION: f32 = 0.6;
 /// Fraction of the unwind window over which the burnout mask releases, once the
 /// remaining rotation is negligible.
 pub const BRANCH_BURNOUT_RELEASE_FRACTION: f32 = 0.1;
@@ -50,3 +53,9 @@ pub const BRANCH_BURNOUT_TRUNK_INNER: f32 = 0.75;
 pub const BRANCH_AZIMUTH_RANGE: f32 = std::f32::consts::PI;
 /// Spawn-time jitter range as a fraction of the period; below 1 keeps spawn order.
 pub const BRANCH_JITTER_RANGE: f32 = 0.5;
+/// Per-element scatter driven by `spread`: size multiplier range (+-), line tilt
+/// out of the horizontal [rad], and window center shift along the line in reach
+/// units. Together they keep the tongues from reading as identical rotated slabs.
+pub const BRANCH_SIZE_SCATTER: f32 = 0.5;
+pub const BRANCH_TILT_RANGE: f32 = 0.5;
+pub const BRANCH_ALONG_OFFSET_RANGE: f32 = 0.5;

@@ -159,6 +159,13 @@ struct FlameUnifiedParams {
     float pad1;
 };
 
+struct FlameGlowParams {
+    float gain;
+    float threshold;
+    float invCarrierStd;
+    float pad0;
+};
+
 struct FlameSpreadParams {
     float gain;
     float edgeOuterSharpen;
@@ -197,10 +204,14 @@ struct FlameBranchElement {
     float side;
     float azimuth;
     float spawnHeight;
-    float kind;
+    float size;
+    float tilt;
+    float alongOffset;
     float hash01;
     float trunkRadius;
     float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct FlameBranchField {
@@ -262,6 +273,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     FlameWarpStrainParams warpStrainParams;
     FlameWarpFormParams warpFormParams;
     FlameUnifiedParams unifiedParams;
+    FlameGlowParams glowParams;
     FlameSpreadParams spreadParams;
     FlameSupportMotion supportMotion;
     FlameTwistMode twistModes[2];
@@ -760,10 +772,11 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
     float eddyTime = flame.noiseScrollSpeed * flame.time;
     int count = min(int(flame.waveParams.trackedCount), FLAME_WAVE_EROSION_SLOTS);
     float shapedNoise;
+    float carrierZ;
     float sigmaNoise;
     float remapScale;
     float argument = flameWaveNodeArgumentLocal(
-        p, d, h, bestDensity, dt, count, eddyTime, shapedNoise, sigmaNoise, remapScale);
+        p, d, h, bestDensity, dt, count, eddyTime, shapedNoise, carrierZ, sigmaNoise, remapScale);
     if (push.debugView == 1) {
         float v = (shapedNoise - 0.4375) / max(flame.waveParams.amplitude, 1e-4);
         return vec4(flameDebugDiverging(v), 1.0);

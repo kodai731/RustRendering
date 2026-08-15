@@ -2,7 +2,7 @@ use super::*;
 use crate::flame_radial::{
     flame_radial_radius_scale, flame_radial_support_radius, FlameRadialTaper,
 };
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::TAU;
 
 /// Proxy widening (radial and above the top) that keeps transported density inside
 /// the shell cone, in flame-local units.
@@ -12,16 +12,44 @@ pub struct FlameProxyPad {
     pub top: f32,
 }
 
-/// One vortex element resolved at a time: a horizontal vortex line through
-/// `center`, rotating the plane spanned by `in_plane` (xz direction) and y.
+/// One vortex element resolved at a time: a vortex line through `center` along
+/// `line`, rotating the plane spanned by `outward` and `up`. The frame is
+/// orthonormal in the isotropic coordinates (local y scaled by `aspect`);
+/// `line` is tilted out of the horizontal by the element's tilt lane.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct VortexElement {
     pub center: [f32; 3],
-    pub in_plane: [f32; 2],
+    pub outward: [f32; 3],
+    pub line: [f32; 3],
+    pub up: [f32; 3],
     pub reach: f32,
     pub core_radius: f32,
     pub circulation: f32,
     pub aspect: f32,
+    /// Window center along the line, in reach units.
+    pub along_offset: f32,
+}
+
+fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
+/// Isotropic offset of `p` from the element center (y scaled by aspect).
+fn vortex_isotropic_offset(element: &VortexElement, p: [f32; 3]) -> [f32; 3] {
+    [
+        p[0] - element.center[0],
+        (p[1] - element.center[1]) * element.aspect,
+        p[2] - element.center[2],
+    ]
+}
+
+/// (u, along, v) frame coordinates of an isotropic offset.
+fn vortex_frame_coordinates(element: &VortexElement, q: [f32; 3]) -> (f32, f32, f32) {
+    (
+        dot3(q, element.outward),
+        dot3(q, element.line) - element.along_offset * element.reach,
+        dot3(q, element.up),
+    )
 }
 
 fn hash_u32(mut x: u32) -> u32 {
@@ -44,14 +72,16 @@ fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     t * t * (3.0 - 2.0 * t)
 }
 
-/// Life clamped so at most `BRANCH_MAX_ELEMENTS` elements are ever alive; every
-/// element then fades out before it would leave the table.
-pub fn effective_branch_life(branch: &FlameBranch) -> f32 {
-    let life = branch.life.max(0.0);
+/// Spawn period raised so at most `BRANCH_MAX_ELEMENTS` elements are ever alive:
+/// a shorter period saturates the table instead of shortening every element's
+/// life, so the tongues keep their size and duration.
+pub fn effective_branch_period(branch: &FlameBranch) -> f32 {
     if branch.period <= 0.0 {
-        return life;
+        return branch.period;
     }
-    life.min((BRANCH_MAX_ELEMENTS as f32 - 1.0) * branch.period)
+    branch
+        .period
+        .max(branch.life.max(0.0) / (BRANCH_MAX_ELEMENTS as f32 - 1.0))
 }
 
 fn spawn_branch_element(
@@ -61,6 +91,7 @@ fn spawn_branch_element(
 ) -> FlameBranchElement {
     let spread = branch.spread.clamp(0.0, 1.0);
     let seed = branch.seed;
+    let period = effective_branch_period(branch);
     let jitter = spread * BRANCH_JITTER_RANGE * (hash01(seed, index, 0) - 0.5);
     let alternating = if index.rem_euclid(2) == 0 { 1.0 } else { -1.0 };
     let side = if hash01(seed, index, 1) < 0.5 * spread {
@@ -69,15 +100,18 @@ fn spawn_branch_element(
         alternating
     };
     let spawn_height = branch.spawn_height + branch.spawn_range * (hash01(seed, index, 3) - 0.5);
+    let scatter = |lane: u32, range: f32| spread * range * (2.0 * hash01(seed, index, lane) - 1.0);
     FlameBranchElement {
-        spawn_time: (index as f32 + jitter) * branch.period,
+        spawn_time: (index as f32 + jitter) * period,
         side,
         azimuth: spread * BRANCH_AZIMUTH_RANGE * (hash01(seed, index, 2) - 0.5),
         spawn_height,
-        kind: 0.0,
+        size: 1.0 + scatter(5, BRANCH_SIZE_SCATTER),
+        tilt: scatter(6, BRANCH_TILT_RANGE),
+        along_offset: scatter(7, BRANCH_ALONG_OFFSET_RANGE),
         hash01: hash01(seed, index, 4),
         trunk_radius: trunk_radius_at(spawn_height.clamp(0.0, 1.0)),
-        _padding: 0.0,
+        _padding: [0.0; 3],
     }
 }
 
@@ -102,13 +136,14 @@ pub fn active_branch_elements(
     if branch.period <= 0.0 || branch.gain == 0.0 {
         return Vec::new();
     }
-    let life = effective_branch_life(branch);
+    let life = branch.life.max(0.0);
     if life <= 0.0 {
         return Vec::new();
     }
 
-    let first = ((time - life) / branch.period).floor() as i64 - 1;
-    let last = (time / branch.period).ceil() as i64 + 1;
+    let period = effective_branch_period(branch);
+    let first = ((time - life) / period).floor() as i64 - 1;
+    let last = (time / period).ceil() as i64 + 1;
     let mut elements: Vec<FlameBranchElement> = (first..=last)
         .map(|index| spawn_branch_element(branch, index, trunk_radius_at))
         .filter(|element| {
@@ -134,12 +169,13 @@ pub fn branch_circulation(gain: f32, core_radius: f32) -> f32 {
     gain * TAU * core_radius * core_radius
 }
 
-/// Winding envelope: the core angle eases out over the winding time (fastest at
-/// birth, decelerating to rest), then unwinds over `envelope_time` so the map is
-/// the identity at death. The unwind is hidden outside the trunk by the burnout
-/// mask, so only the trunk gap is seen healing.
+/// Winding envelope: the core angle eases out over the first
+/// `BRANCH_WIND_FRACTION` of the life (fastest at birth, decelerating to rest),
+/// holds, then unwinds over `envelope_time` so the map is the identity at death.
+/// The unwind is hidden outside the trunk by the burnout mask, so only the trunk
+/// gap is seen healing.
 pub fn branch_envelope(age: f32, life: f32, envelope_time: f32) -> f32 {
-    let winding_time = (life - envelope_time).max(1e-3);
+    let winding_time = (BRANCH_WIND_FRACTION * life).max(1e-3);
     let t = (age / winding_time).clamp(0.0, 1.0);
     let ease_out = 1.0 - (1.0 - t) * (1.0 - t);
     ease_out * (1.0 - smoothstep(life - envelope_time, life, age))
@@ -165,17 +201,11 @@ pub fn vortex_burnout_mask(
     trunk_radius: f32,
     p: [f32; 3],
 ) -> f32 {
-    let [ex, ez] = element.in_plane;
-    let qx = p[0] - element.center[0];
-    let qz = p[2] - element.center[2];
-    let u = qx * ex + qz * ez;
-    let along = -qx * ez + qz * ex;
-    let v = (p[1] - element.center[1]) * element.aspect;
+    let (u, along, v) = vortex_frame_coordinates(element, vortex_isotropic_offset(element, p));
     let reach = element.reach.max(1e-4);
     let outer = 1.0 + BRANCH_BURNOUT_MARGIN;
-    let rho = (u * u + v * v).sqrt() / reach;
-    let plateau =
-        (1.0 - smoothstep(1.0, outer, rho)) * (1.0 - smoothstep(1.0, outer, along.abs() / reach));
+    let radius = (u * u + v * v + along * along).sqrt() / reach;
+    let plateau = 1.0 - smoothstep(1.0, outer, radius);
 
     let axis_radius = (p[0] * p[0] + p[2] * p[2]).sqrt() / trunk_radius.max(1e-4);
     let outside_trunk = smoothstep(BRANCH_BURNOUT_TRUNK_INNER, 1.0, axis_radius);
@@ -231,82 +261,92 @@ pub fn vortex_element_at(
         element.spawn_height + field.rise_rate * age,
         lateral * sin_az,
     ];
+    let (sin_tilt, cos_tilt) = element.tilt.sin_cos();
+    let horizontal_line = [-sin_az, 0.0, cos_az];
+    let line = [
+        cos_tilt * horizontal_line[0],
+        sin_tilt,
+        cos_tilt * horizontal_line[2],
+    ];
+    let up = [
+        -sin_tilt * horizontal_line[0],
+        cos_tilt,
+        -sin_tilt * horizontal_line[2],
+    ];
+
     let progress = age / field.life;
     let reach_ratio = field.reach_start + (field.reach_end - field.reach_start) * progress;
-    let core_radius = field.core_radius * element.trunk_radius;
+    let scale = element.trunk_radius * element.size;
+    let core_radius = field.core_radius * scale;
     Some(VortexElement {
         center,
-        in_plane: [cos_az, sin_az],
-        reach: reach_ratio * element.trunk_radius,
+        outward: [cos_az, 0.0, sin_az],
+        line,
+        up,
+        reach: reach_ratio * scale,
         core_radius,
         circulation: element.side
             * branch_circulation(field.gain, core_radius)
             * branch_envelope(age, field.life, field.envelope_time),
         aspect: field.aspect,
+        along_offset: element.along_offset,
     })
 }
 
 /// Pull-back through one element with its Jacobian-vector product along `dir`:
-/// each slice perpendicular to the horizontal vortex line rotates about the
-/// line by the windowed Lamb-Oseen angle, compactly supported inside rho < reach
-/// (a per-slice rotation, so the map is a bijection with unit determinant).
+/// each slice perpendicular to the vortex line rotates about the line by the
+/// Lamb-Oseen angle gated by a ball `rho^2 + along^2 < reach^2` around the
+/// element center (a per-slice rotation, so the map is a bijection with unit
+/// determinant; the ball keeps the tongue's boundary round from every view).
 pub fn vortex_pull_back_jvp(
     element: &VortexElement,
     p: [f32; 3],
     dir: [f32; 3],
 ) -> ([f32; 3], [f32; 3]) {
-    let center = element.center;
     let aspect = element.aspect;
-    let [ex, ez] = element.in_plane;
-    let qx = p[0] - center[0];
-    let qz = p[2] - center[2];
-    let u = qx * ex + qz * ez;
-    let along = -qx * ez + qz * ex;
-    let v = (p[1] - center[1]) * aspect;
+    let q = vortex_isotropic_offset(element, p);
+    let (u, along, v) = vortex_frame_coordinates(element, q);
     let reach = element.reach;
     let reach_sq = reach * reach;
     let rho_sq = u * u + v * v;
-    if rho_sq >= reach_sq {
-        return (p, dir);
-    }
-    let x = along / reach;
-    if x.abs() >= 1.0 {
+    let s = (rho_sq + along * along) / reach_sq;
+    if s >= 1.0 {
         return (p, dir);
     }
 
-    let window = (1.0 - x * x) * (1.0 - x * x);
-    let s = rho_sq / reach_sq;
     let gate = (1.0 - s) * (1.0 - s);
     let (profile, d_profile) = lamb_oseen(rho_sq, element.core_radius);
     let circulation = element.circulation;
-    let psi = circulation * window * gate * profile;
+    let psi = circulation * gate * profile;
 
-    let du = dir[0] * ex + dir[2] * ez;
-    let d_along = -dir[0] * ez + dir[2] * ex;
-    let dv = dir[1] * aspect;
+    let dq = [dir[0], dir[1] * aspect, dir[2]];
+    let du = dot3(dq, element.outward);
+    let d_along = dot3(dq, element.line);
+    let dv = dot3(dq, element.up);
     let d_rho_sq = 2.0 * (u * du + v * dv);
-    let d_window = -4.0 * x * (1.0 - x * x) * d_along / reach;
-    let d_gate = -2.0 * (1.0 - s) * d_rho_sq / reach_sq;
-    let d_psi = circulation
-        * (d_window * gate * profile
-            + window * d_gate * profile
-            + window * gate * d_profile * d_rho_sq);
+    let d_s = (d_rho_sq + 2.0 * along * d_along) / reach_sq;
+    let d_gate = -2.0 * (1.0 - s) * d_s;
+    let d_psi = circulation * (d_gate * profile + gate * d_profile * d_rho_sq);
 
     let (sn, cs) = psi.sin_cos();
     let u1 = u * cs - v * sn;
     let v1 = u * sn + v * cs;
     let du1 = du * cs - dv * sn - d_psi * v1;
     let dv1 = du * sn + dv * cs + d_psi * u1;
+    let along_total = along + element.along_offset * reach;
+    let [ex, ey, ez] = element.outward;
+    let [lx, ly, lz] = element.line;
+    let [vx, vy, vz] = element.up;
     (
         [
-            center[0] + u1 * ex - along * ez,
-            center[1] + v1 / aspect,
-            center[2] + u1 * ez + along * ex,
+            element.center[0] + u1 * ex + along_total * lx + v1 * vx,
+            element.center[1] + (u1 * ey + along_total * ly + v1 * vy) / aspect,
+            element.center[2] + u1 * ez + along_total * lz + v1 * vz,
         ],
         [
-            du1 * ex - d_along * ez,
-            dv1 / aspect,
-            du1 * ez + d_along * ex,
+            du1 * ex + d_along * lx + dv1 * vx,
+            (du1 * ey + d_along * ly + dv1 * vy) / aspect,
+            du1 * ez + d_along * lz + dv1 * vz,
         ],
     )
 }
@@ -335,38 +375,31 @@ pub fn branch_pull_back(field: &FlameBranchField, p: [f32; 3], time: f32) -> [f3
     branch_pull_back_jvp(field, p, [0.0; 3], time).0
 }
 
-/// Largest chord any point can move under one element: max over rho of
-/// 2 rho sin(min(pi, |Gamma| L(rho) g(rho)) / 2), sampled on the disc.
-pub fn vortex_displacement_bound(circulation: f32, core_radius: f32, reach: f32) -> f32 {
-    const SAMPLES: usize = 64;
-    (1..SAMPLES)
-        .map(|i| {
-            let rho = reach * i as f32 / SAMPLES as f32;
-            let s = rho * rho / (reach * reach);
-            let gate = (1.0 - s) * (1.0 - s);
-            let angle = (circulation.abs() * gate * lamb_oseen(rho * rho, core_radius).0).min(PI);
-            2.0 * rho * (0.5 * angle).sin()
-        })
-        .fold(0.0, f32::max)
+/// Radius of the ball one element can move medium within, at its largest
+/// (end of life, largest size lane), in flame-local units.
+fn branch_ball_radius_max(branch: &FlameBranch, trunk_radius: f32) -> f32 {
+    let size_max = 1.0 + branch.spread.clamp(0.0, 1.0) * BRANCH_SIZE_SCATTER;
+    branch.reach.max(1e-3) * size_max * trunk_radius
 }
 
+/// Proxy pad from the element geometry alone: transported density only appears
+/// inside an element's ball, so the widest lateral core position plus the ball
+/// radius bounds it sideways, and the highest core position plus the ball's
+/// height bounds it above the top.
 pub fn branch_proxy_pad(effect: &FlameEffect, baked: &FlameBaked) -> FlameProxyPad {
     let branch = &effect.branch;
     if branch.period <= 0.0 || branch.gain == 0.0 {
         return FlameProxyPad::default();
     }
     let trunk_radius = branch_trunk_radius_max(effect, baked);
-    let reach = branch.reach.max(1e-3) * trunk_radius;
-    let core_radius = branch.core_radius.max(1e-3) * trunk_radius;
-    let displacement = vortex_displacement_bound(
-        branch_circulation(branch.gain, core_radius),
-        core_radius,
-        reach,
-    )
-    .min(2.0 * reach);
+    let ball = branch_ball_radius_max(branch, trunk_radius);
+    let lateral = (branch.core_offset.abs() + BRANCH_DRIFT_OVER_LIFE) * trunk_radius;
+    let center_top = branch.spawn_height
+        + 0.5 * branch.spawn_range.abs()
+        + branch_rise_rate(effect) * branch.life.max(0.0);
     FlameProxyPad {
-        radial: (branch.core_offset.abs() + BRANCH_DRIFT_OVER_LIFE) * trunk_radius + displacement,
-        top: displacement / branch_aspect(effect),
+        radial: lateral + ball,
+        top: (center_top + ball / branch_aspect(effect) - 1.0).max(0.0),
     }
 }
 
@@ -378,7 +411,7 @@ pub fn branch_aspect(effect: &FlameEffect) -> f32 {
 
 pub fn build_branch_field(effect: &FlameEffect, baked: &FlameBaked) -> FlameBranchField {
     let branch = &effect.branch;
-    let life = effective_branch_life(branch);
+    let life = branch.life.max(0.0);
     let mut elements = [FlameBranchElement::default(); BRANCH_MAX_ELEMENTS];
     let trunk_radius_at = |height01: f32| branch_trunk_radius_at(effect, baked, height01);
     let active = active_branch_elements(branch, effect.time, &trunk_radius_at);
@@ -386,7 +419,7 @@ pub fn build_branch_field(effect: &FlameEffect, baked: &FlameBaked) -> FlameBran
     let pad = branch_proxy_pad(effect, baked);
     FlameBranchField {
         count: active.len() as f32,
-        period: branch.period,
+        period: effective_branch_period(branch),
         life,
         gain: branch.gain,
         rise_rate: branch_rise_rate(effect),
@@ -434,15 +467,31 @@ mod tests {
         effect
     }
 
-    fn sample_element() -> VortexElement {
+    fn frame_element(center: [f32; 3], azimuth: f32, tilt: f32, aspect: f32) -> VortexElement {
+        let (sin_az, cos_az) = azimuth.sin_cos();
+        let (sin_tilt, cos_tilt) = tilt.sin_cos();
+        let horizontal = [-sin_az, 0.0, cos_az];
         VortexElement {
-            center: [0.1, 0.5, -0.05],
-            in_plane: [0.3f32.cos(), 0.3f32.sin()],
+            center,
+            outward: [cos_az, 0.0, sin_az],
+            line: [cos_tilt * horizontal[0], sin_tilt, cos_tilt * horizontal[2]],
+            up: [
+                -sin_tilt * horizontal[0],
+                cos_tilt,
+                -sin_tilt * horizontal[2],
+            ],
             reach: 0.9,
             core_radius: 0.35,
             circulation: 2.0,
-            aspect: 2.5,
+            aspect,
+            along_offset: 0.0,
         }
+    }
+
+    fn sample_element() -> VortexElement {
+        let mut element = frame_element([0.1, 0.5, -0.05], 0.3, 0.35, 2.5);
+        element.along_offset = 0.2;
+        element
     }
 
     fn sample_points() -> Vec<[f32; 3]> {
@@ -499,27 +548,27 @@ mod tests {
             }
             for element in &once {
                 let age = time - element.spawn_time;
-                assert!(age >= 0.0 && age < effective_branch_life(&branch));
+                assert!(age >= 0.0 && age < branch.life);
                 assert!(element.side == 1.0 || element.side == -1.0);
             }
         }
     }
 
     #[test]
-    fn test_life_clamp_keeps_table_within_capacity_without_dropping() {
+    fn test_period_clamp_keeps_table_within_capacity_without_dropping() {
         let mut branch = branch_on();
         branch.period = 0.05;
         branch.life = 10.0;
         branch.spread = 1.0;
-        let life = effective_branch_life(&branch);
-        assert!((life - (BRANCH_MAX_ELEMENTS as f32 - 1.0) * 0.05).abs() < 1e-6);
+        let life = branch.life;
+        let period = effective_branch_period(&branch);
+        assert!((period - 10.0 / (BRANCH_MAX_ELEMENTS as f32 - 1.0)).abs() < 1e-6);
         let mut step = 0;
         while step < 400 {
             let time = step as f32 * 0.013;
             let elements = active_branch_elements(&branch, time, &unit_trunk);
             assert!(elements.len() <= BRANCH_MAX_ELEMENTS);
-            let alive = ((time - life) / branch.period).floor() as i64
-                ..=(time / branch.period).ceil() as i64;
+            let alive = ((time - life) / period).floor() as i64..=(time / period).ceil() as i64;
             let unclipped = alive
                 .map(|index| spawn_branch_element(&branch, index, &unit_trunk))
                 .filter(|e| time - e.spawn_time >= 0.0 && time - e.spawn_time < life)
@@ -563,10 +612,8 @@ mod tests {
             let mut element = sample_element();
             element.circulation = circulation;
             let dist = |q: [f32; 3]| {
-                let qx = q[0] - element.center[0];
-                let qz = q[2] - element.center[2];
-                let u = qx * element.in_plane[0] + qz * element.in_plane[1];
-                let v = (q[1] - element.center[1]) * element.aspect;
+                let (u, _, v) =
+                    vortex_frame_coordinates(&element, vortex_isotropic_offset(&element, q));
                 (u * u + v * v).sqrt()
             };
             for p in sample_points() {
@@ -633,21 +680,23 @@ mod tests {
     }
 
     #[test]
-    fn test_proxy_pad_grows_with_gain_and_stays_bounded() {
+    fn test_proxy_pad_covers_the_element_balls_and_ignores_gain() {
         let mut effect = effect_with_branches();
         let baked = FlameBaked::default();
-        let small = branch_proxy_pad(&effect, &baked);
+        let pad = branch_proxy_pad(&effect, &baked);
         effect.branch.gain = 30.0;
-        let large = branch_proxy_pad(&effect, &baked);
-        assert!(large.radial > small.radial);
+        assert_eq!(branch_proxy_pad(&effect, &baked), pad);
+
         let trunk = branch_trunk_radius_max(&effect, &baked);
-        assert!(
-            large.radial
-                <= (BRANCH_DRIFT_OVER_LIFE + effect.branch.core_offset + 2.0 * effect.branch.reach)
-                    * trunk
-                    + 1e-5
-        );
-        assert!(large.top > 0.0);
+        let ball = effect.branch.reach * (1.0 + effect.branch.spread * BRANCH_SIZE_SCATTER) * trunk;
+        let lateral = (effect.branch.core_offset + BRANCH_DRIFT_OVER_LIFE) * trunk;
+        assert!((pad.radial - lateral - ball).abs() < 1e-5);
+        assert!(pad.top >= 0.0);
+
+        effect.branch.reach *= 2.0;
+        assert!(branch_proxy_pad(&effect, &baked).radial > pad.radial);
+        effect.branch.period = 0.0;
+        assert_eq!(branch_proxy_pad(&effect, &baked), FlameProxyPad::default());
     }
 
     #[test]
@@ -681,6 +730,7 @@ mod tests {
         let vortex = vortex_element_at(&field, &element, effect.time).unwrap();
         let progress = (effect.time - element.spawn_time) / field.life;
         let expected = element.trunk_radius
+            * element.size
             * 2.0
             * (BRANCH_REACH_GROWTH_START + (1.0 - BRANCH_REACH_GROWTH_START) * progress);
         assert!((vortex.reach - expected).abs() < 1e-5);
@@ -692,8 +742,12 @@ mod tests {
         let envelope_time = BRANCH_ENVELOPE_FRACTION * life;
         assert_eq!(branch_envelope(0.0, life, envelope_time), 0.0);
         assert_eq!(branch_envelope(life, life, envelope_time), 0.0);
-        let winding_time = life - envelope_time;
+        let winding_time = BRANCH_WIND_FRACTION * life;
         assert!((branch_envelope(winding_time, life, envelope_time) - 1.0).abs() < 1e-6);
+        assert!(
+            (branch_envelope(0.7 * life, life, envelope_time) - 1.0).abs() < 1e-6,
+            "holds after winding"
+        );
         assert!(
             (branch_envelope(0.5 * winding_time, life, envelope_time) - 0.75).abs() < 1e-6,
             "ease-out: three quarters of the angle in the first half of the winding"
@@ -724,14 +778,9 @@ mod tests {
 
     #[test]
     fn test_burnout_mask_bites_only_the_tongue_outside_the_trunk() {
-        let element = VortexElement {
-            center: [0.8, 0.5, 0.0],
-            in_plane: [1.0, 0.0],
-            reach: 1.0,
-            core_radius: 0.5,
-            circulation: 2.0,
-            aspect: 2.0,
-        };
+        let mut element = frame_element([0.8, 0.5, 0.0], 0.0, 0.0, 2.0);
+        element.reach = 1.0;
+        element.core_radius = 0.5;
         let trunk_radius = 0.8;
         let inside_trunk = [0.3, 0.5, 0.0];
         let tongue = [1.4, 0.5, 0.0];

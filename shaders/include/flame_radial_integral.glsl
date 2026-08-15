@@ -219,7 +219,8 @@ float flameWaveNodeDensity(vec3 p, float h) {
 // locally stretched node does not smooth the whole ray.
 float flameWaveNodeArgumentLocal(
     vec3 p, vec3 d, float h, float density, float dt,
-    int count, float eddyTime, out float shapedNoise, out float sigmaNoise, out float remapScale) {
+    int count, float eddyTime, out float shapedNoise, out float carrierZ,
+    out float sigmaNoise, out float remapScale) {
     FlameWarpFrame warpFrame = flameBuildWarpFrame(p, d, h);
     float hs = warpFrame.h;
     FlameWaveModeSumResult sum = flameWaveModeSum(
@@ -236,6 +237,7 @@ float flameWaveNodeArgumentLocal(
     sigmaNoise = sqrt(unresolvedPower);
      float invScale = flame.waveParams.inverseScale;
     float amp = flame.waveParams.amplitude;
+    carrierZ = sum.z;
     shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(sum.z * invScale) : 0.4375 + sum.z;
    // Compute uSquared from normalized support radius for erosion boost
     float uSquared;
@@ -287,6 +289,8 @@ struct FlameSegmentNodes {
     float argumentEnd;
     float shapedStart;
     float shapedEnd;
+    float carrierStart;
+    float carrierEnd;
     float sigmaStart;
     float sigmaEnd;
     float remapStart;
@@ -341,6 +345,20 @@ vec2 flameWaveSegmentCarved(
     return carved;
 }
 
+// Radiance gain of the un-eroded noise cores: the raw carrier is read in
+// units of its own std with material-rich (low erosion) positive, and the gain
+// ramps linearly over one std above glowParams.threshold. gain 0 leaves the
+// ceiling model untouched.
+float flameSegmentGlow(float carrierStart, float carrierEnd) {
+    if (flame.glowParams.gain <= 0.0) {
+        return 1.0;
+    }
+    float carveSign = flame.noiseAmplitude < 0.0 ? -1.0 : 1.0;
+    float material = -carveSign * 0.5 * (carrierStart + carrierEnd) * flame.glowParams.invCarrierStd;
+    float ramp = clamp(material - flame.glowParams.threshold, 0.0, 1.0);
+    return 1.0 + flame.glowParams.gain * ramp;
+}
+
 // Streaming reduction of the segment walk. No per-segment arrays: the walk
 // below feeds each segment's (emission, tMean) straight into these
 // accumulators, so nothing spills to scratch memory. The RTE booster is a
@@ -385,6 +403,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
     float previousDensity = flameWaveNodeDensity(o + t0 * d, clamp(o.y + t0 * d.y, 0.0, 1.0));
     float previousArgument = 0.0;
     float previousShapedNoise = 0.4375;
+    float previousCarrier = 0.0;
     float previousSigma = 0.0;
     float previousRemapScale = 1.0;
     bool previousArgumentValid = false;
@@ -415,15 +434,16 @@ FlameWaveIntegral flameWaveOccupancySegments(
             vec3 pStart = o + segStart * d;
             previousArgument = flameWaveNodeArgumentLocal(
                 pStart, d, clamp(pStart.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
-                previousShapedNoise, previousSigma, previousRemapScale);
+                previousShapedNoise, previousCarrier, previousSigma, previousRemapScale);
         } else if (!previousArgumentValid) {
             vec3 pPrev = o + tPrev * d;
             float hPrev = clamp(pPrev.y, 0.0, 1.0);
             previousArgument = flameWaveNodeArgumentLocal(
                 pPrev, d, hPrev, previousDensity, dt, count, eddyTime,
-                previousShapedNoise, previousSigma, previousRemapScale);
+                previousShapedNoise, previousCarrier, previousSigma, previousRemapScale);
         }
         float currentShapedNoise;
+        float currentCarrier;
         float currentSigma;
         float currentRemapScale;
         float argument;
@@ -431,10 +451,10 @@ FlameWaveIntegral flameWaveOccupancySegments(
             vec3 pEnd = o + segEnd * d;
             argument = flameWaveNodeArgumentLocal(
                 pEnd, d, clamp(pEnd.y, 0.0, 1.0), 0.0, dt, count, eddyTime,
-                currentShapedNoise, currentSigma, currentRemapScale);
+                currentShapedNoise, currentCarrier, currentSigma, currentRemapScale);
         } else {
             argument = flameWaveNodeArgumentLocal(p, d, h, density, dt, count, eddyTime,
-                currentShapedNoise, currentSigma, currentRemapScale);
+                currentShapedNoise, currentCarrier, currentSigma, currentRemapScale);
         }
 
         FlameSegmentNodes nodes;
@@ -442,6 +462,8 @@ FlameWaveIntegral flameWaveOccupancySegments(
         nodes.argumentEnd = argument;
         nodes.shapedStart = previousShapedNoise;
         nodes.shapedEnd = currentShapedNoise;
+        nodes.carrierStart = previousCarrier;
+        nodes.carrierEnd = currentCarrier;
         nodes.sigmaStart = previousSigma;
         nodes.sigmaEnd = currentSigma;
         nodes.remapStart = previousRemapScale;
@@ -481,14 +503,16 @@ FlameWaveIntegral flameWaveOccupancySegments(
             vec3 tau = sigmaRgb * emission;
             vec3 absorbed = vec3(1.0) - exp(-tau);
             absorbed = mix(absorbed, absorbed * (vec3(1.0) - exp(-2.0 * tau)), FLAME_POWDER_STRENGTH);
+            float glow = flameSegmentGlow(nodes.carrierStart, nodes.carrierEnd);
             acc.radiancePre += acc.transmittance
-                * mix(flameRampColor(hMean), flame.colorTip.rgb, edge) * absorbed;
+                * mix(flameRampColor(hMean), flame.colorTip.rgb, edge) * absorbed * glow;
             acc.transmittance *= exp(-tau);
         }
 
         previousDensity = density;
         previousArgument = argument;
         previousShapedNoise = currentShapedNoise;
+        previousCarrier = currentCarrier;
         previousSigma = currentSigma;
         previousRemapScale = currentRemapScale;
         previousArgumentValid = !exiting;

@@ -111,13 +111,16 @@ vec3 flameMeanderShifted(vec3 p, float h) {
 
 // Trunk-local support coordinate: meander removed, then pulled back through the
 // branch elements; `h` becomes the height every downstream profile reads and
-// `burnout` the density mask of the branch elements at the un-pulled position.
+// `burnout` the density mask: the branch burnout at the un-pulled position times
+// the trunk slab (no medium is pulled from above the top or below the base, so a
+// padded y-slab never reads the clamped end profiles).
 vec3 flameSupportPositionBurnout(vec3 p, inout float h, out float burnout) {
     vec3 ps = flameMeanderShifted(p, h);
     burnout = 1.0;
     if (flameBranchActive()) {
         burnout = flameBranchBurnoutMask(ps);
         ps = flameBranchPullBack(ps);
+        burnout *= (ps.y >= 0.0 && ps.y <= 1.0) ? 1.0 : 0.0;
         h = clamp(ps.y, 0.0, 1.0);
     }
     return ps;
