@@ -11,7 +11,7 @@ use crate::ecs::World;
 use super::viewport_window::ViewportInfo;
 
 const OVERLAY_MARGIN: f32 = 8.0;
-const OVERLAY_WIDTH: f32 = 280.0;
+const OVERLAY_WIDTH: f32 = 420.0;
 
 pub struct SceneOverlayState {
     pub model_path: String,
@@ -1045,17 +1045,19 @@ fn build_flame_section(
                              to 31 periods so the element table never drops a live element",
                         );
                     }
-                    ui.slider_config("Branch Gain", 0.0, 8.0)
+                    ui.slider_config("Branch Gain", -8.0, 8.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.branch.gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Peak rotation angle [rad] of each element's core: how far the \
-                             trunk medium winds around it (a compact rotation never folds, \
-                             so any gain is structurally safe; 0 = off)",
+                            "Rotation angle [rad] the core reaches at the end of winding; the \
+                             medium flows along the arcs toward the tongue tip at a constant \
+                             rate. Positive rolls trunk material down-out-up (cap curling \
+                             inward), negative rolls it up-out-down (KH crest leaning \
+                             upward). A compact rotation never folds; 0 = off",
                         );
                     }
-                    ui.slider_config("Branch Core", 0.05, 1.5)
+                    ui.slider_config("Branch Core", 0.05, 3.0)
                         .display_format("%.2f")
                         .build(&mut effect_copy.branch.core_radius);
                     if ui.is_item_hovered() {
@@ -1063,6 +1065,26 @@ fn build_flame_section(
                             "Vortex core radius as a ratio of the local trunk radius: small \
                              values shear the medium into thin spirals, near 1 the whole \
                              disc turns together and tongues keep the trunk's thickness",
+                        );
+                    }
+                    ui.slider_config("Branch Core Offset", 0.0, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.core_offset);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Lateral position of the core at spawn as a ratio of the local \
+                             trunk radius: 0 on the axis tilts the whole slab, 1 on the shear \
+                             layer rolls trunk material outward as a billow",
+                        );
+                    }
+                    ui.slider_config("Branch Reach", 0.5, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.reach);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Compact reach of one element at the end of its life as a ratio \
+                             of the local trunk radius; nothing beyond it moves, so it bounds \
+                             how far tongues can extend sideways",
                         );
                     }
                     ui.slider_config("Branch Spread", 0.0, 1.0)

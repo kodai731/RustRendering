@@ -32,6 +32,13 @@ pub struct FlameBranch {
     /// Lamb-Oseen core radius as a ratio of the local trunk radius; near 1 the
     /// whole disc turns coherently (fat tongues), small values shear thin spirals.
     pub core_radius: f32,
+    /// Lateral position of the vortex core at spawn as a ratio of the local trunk
+    /// radius: 0 sits on the axis (the whole slab tilts), 1 sits on the shear
+    /// layer so trunk material rolls outward as a billow.
+    pub core_offset: f32,
+    /// Compact reach of one element at the end of its life as a ratio of the local
+    /// trunk radius; nothing beyond it moves, so it bounds the lateral extent.
+    pub reach: f32,
     /// Scatter of azimuth, timing jitter and side alternation in [0, 1].
     pub spread: f32,
     /// Center of the spawn height band in local height units.
@@ -230,6 +237,8 @@ impl Default for FlameEffect {
                 life: 2.5,
                 gain: 0.0,
                 core_radius: 0.35,
+                core_offset: 0.0,
+                reach: 1.5,
                 spread: 0.3,
                 spawn_height: 0.35,
                 spawn_range: 0.4,

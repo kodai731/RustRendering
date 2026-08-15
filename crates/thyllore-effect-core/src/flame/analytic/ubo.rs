@@ -1222,7 +1222,7 @@ pub struct FlameBranchField {
     pub reach_start: f32,
     pub reach_end: f32,
     pub envelope_time: f32,
-    pub _padding0: f32,
+    pub core_offset: f32,
     pub bounding_pad: f32,
     pub bounding_pad_y: f32,
     pub _padding1: [f32; 2],

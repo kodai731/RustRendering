@@ -63,13 +63,15 @@ float flameContourWiggle(vec3 p, float h) {
 // field the closed form approximates — true smoothstep, exact support membership.
 float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
     float hs = h;
-    vec3 ps = flameSupportPosition(p, hs);
+    float burnout;
+    vec3 ps = flameSupportPositionBurnout(p, hs, burnout);
     vec2 boundary = flameBoundaryDisplacement(ps.xz);
     float hb = clamp(hs / boundary.x, 0.0, 1.0);
     float wb = wiggle * boundary.y;
     float uSquared;
     float radial = flameRadialDensityFactor(vec3(ps.x / wb, ps.y, ps.z / wb), hb, uSquared);
-    float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(hs, boundary.x) * radial * flameNearCameraFade(p);
+    float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(hs, boundary.x) * radial
+        * flameNearCameraFade(p) * burnout;
    float erosion = flameNoiseErosionValue(p, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
        flameResponseOccupancy(dSmooth, erosion, hs, uSquared),
@@ -91,9 +93,11 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
 // the same field the node-based closed form approximates.
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
     float hs = h;
-    vec3 ps = flameSupportPosition(p, hs);
+    float burnout;
+    vec3 ps = flameSupportPositionBurnout(p, hs, burnout);
     float uSquared;
-  float dSmooth = flameEmitterSmoothDensityDisplacedAt(ps, hs, wiggle, flameBoundaryDisplacement(ps.xz), uSquared) * flameNearCameraFade(p);
+    float dSmooth = flameEmitterSmoothDensityDisplacedAt(ps, hs, wiggle, flameBoundaryDisplacement(ps.xz), uSquared)
+        * flameNearCameraFade(p) * burnout;
    float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h, dSmooth, uSquared) : 0.0;
     return flameApplyCarveResidual(
       flameResponseOccupancy(dSmooth, erosion, hs, uSquared),
@@ -196,7 +200,8 @@ const int FLAME_WAVE_SEGMENTS = 64;
 // noise basis never changes the flame silhouette; ring and SDF use the shared
 // emitter density like their raymarch pair.
 float flameWaveNodeDensity(vec3 p, float h) {
-    vec3 ps = flameSupportPosition(p, h);
+    float burnout;
+    vec3 ps = flameSupportPositionBurnout(p, h, burnout);
     float wiggle = flameContourWiggle(ps, h);
     vec2 boundary = flameBoundaryDisplacement(ps.xz);
     float dens;
@@ -208,7 +213,7 @@ float flameWaveNodeDensity(vec3 p, float h) {
     } else {
         dens = flameEmitterSmoothDensityDisplacedAt(ps, h, wiggle, boundary);
     }
-    return dens * flameNearCameraFade(p);
+    return dens * flameNearCameraFade(p) * burnout;
 }
 // Node-local low-pass: weights come from the warped rate at this node, so a
 // locally stretched node does not smooth the whole ray.

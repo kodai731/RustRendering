@@ -134,8 +134,67 @@ pub fn branch_circulation(gain: f32, core_radius: f32) -> f32 {
     gain * TAU * core_radius * core_radius
 }
 
+/// Winding envelope: the core angle eases out over the winding time (fastest at
+/// birth, decelerating to rest), then unwinds over `envelope_time` so the map is
+/// the identity at death. The unwind is hidden outside the trunk by the burnout
+/// mask, so only the trunk gap is seen healing.
 pub fn branch_envelope(age: f32, life: f32, envelope_time: f32) -> f32 {
-    smoothstep(0.0, envelope_time, age) * (1.0 - smoothstep(life - envelope_time, life, age))
+    let winding_time = (life - envelope_time).max(1e-3);
+    let t = (age / winding_time).clamp(0.0, 1.0);
+    let ease_out = 1.0 - (1.0 - t) * (1.0 - t);
+    ease_out * (1.0 - smoothstep(life - envelope_time, life, age))
+}
+
+/// Burnout strength: rises from `BRANCH_BURNOUT_START_FRACTION` of the life to 1
+/// when the unwind starts, and releases in the last part of the unwind, when the
+/// remaining rotation is negligible, so the mask never jumps at death.
+pub fn branch_burnout(age: f32, life: f32, envelope_time: f32) -> f32 {
+    let unwind_start = life - envelope_time;
+    let release_start = life - BRANCH_BURNOUT_RELEASE_FRACTION * envelope_time;
+    smoothstep(BRANCH_BURNOUT_START_FRACTION * life, unwind_start, age)
+        * (1.0 - smoothstep(release_start, life, age))
+}
+
+/// Density mask of one element at trunk-local `p` (before the pull-back): a
+/// plateau over the element's disc that only bites the medium outside the
+/// trunk (`r > BRANCH_BURNOUT_TRUNK_INNER * S`), so the tongue dims away in place
+/// while the trunk keeps its material.
+pub fn vortex_burnout_mask(
+    element: &VortexElement,
+    burnout: f32,
+    trunk_radius: f32,
+    p: [f32; 3],
+) -> f32 {
+    let [ex, ez] = element.in_plane;
+    let qx = p[0] - element.center[0];
+    let qz = p[2] - element.center[2];
+    let u = qx * ex + qz * ez;
+    let along = -qx * ez + qz * ex;
+    let v = (p[1] - element.center[1]) * element.aspect;
+    let reach = element.reach.max(1e-4);
+    let outer = 1.0 + BRANCH_BURNOUT_MARGIN;
+    let rho = (u * u + v * v).sqrt() / reach;
+    let plateau =
+        (1.0 - smoothstep(1.0, outer, rho)) * (1.0 - smoothstep(1.0, outer, along.abs() / reach));
+
+    let axis_radius = (p[0] * p[0] + p[2] * p[2]).sqrt() / trunk_radius.max(1e-4);
+    let outside_trunk = smoothstep(BRANCH_BURNOUT_TRUNK_INNER, 1.0, axis_radius);
+    1.0 - burnout * plateau * outside_trunk
+}
+
+/// Product of the burnout masks of every live element at trunk-local `p`.
+pub fn branch_burnout_mask(field: &FlameBranchField, p: [f32; 3], time: f32) -> f32 {
+    let count = (field.count as usize).min(BRANCH_MAX_ELEMENTS);
+    field.elements[..count]
+        .iter()
+        .filter_map(|element| {
+            vortex_element_at(field, element, time).map(|vortex| (element, vortex))
+        })
+        .fold(1.0, |mask, (element, vortex)| {
+            let age = time - element.spawn_time;
+            let burnout = branch_burnout(age, field.life, field.envelope_time);
+            mask * vortex_burnout_mask(&vortex, burnout, element.trunk_radius, p)
+        })
 }
 
 /// Lamb-Oseen angular displacement per unit circulation and its derivative in
@@ -165,7 +224,8 @@ pub fn vortex_element_at(
         return None;
     }
     let (sin_az, cos_az) = element.azimuth.sin_cos();
-    let lateral = element.side * field.drift_rate * element.trunk_radius * age;
+    let lateral =
+        element.side * element.trunk_radius * (field.core_offset + field.drift_rate * age);
     let center = [
         lateral * cos_az,
         element.spawn_height + field.rise_rate * age,
@@ -296,7 +356,7 @@ pub fn branch_proxy_pad(effect: &FlameEffect, baked: &FlameBaked) -> FlameProxyP
         return FlameProxyPad::default();
     }
     let trunk_radius = branch_trunk_radius_max(effect, baked);
-    let reach = BRANCH_REACH_END * trunk_radius;
+    let reach = branch.reach.max(1e-3) * trunk_radius;
     let core_radius = branch.core_radius.max(1e-3) * trunk_radius;
     let displacement = vortex_displacement_bound(
         branch_circulation(branch.gain, core_radius),
@@ -305,7 +365,7 @@ pub fn branch_proxy_pad(effect: &FlameEffect, baked: &FlameBaked) -> FlameProxyP
     )
     .min(2.0 * reach);
     FlameProxyPad {
-        radial: BRANCH_DRIFT_OVER_LIFE * trunk_radius + displacement,
+        radial: (branch.core_offset.abs() + BRANCH_DRIFT_OVER_LIFE) * trunk_radius + displacement,
         top: displacement / branch_aspect(effect),
     }
 }
@@ -333,10 +393,10 @@ pub fn build_branch_field(effect: &FlameEffect, baked: &FlameBaked) -> FlameBran
         drift_rate: BRANCH_DRIFT_OVER_LIFE / life.max(1e-3),
         aspect: branch_aspect(effect),
         core_radius: branch.core_radius.max(1e-3),
-        reach_start: BRANCH_REACH_START,
-        reach_end: BRANCH_REACH_END,
+        reach_start: BRANCH_REACH_GROWTH_START * branch.reach.max(1e-3),
+        reach_end: branch.reach.max(1e-3),
         envelope_time: BRANCH_ENVELOPE_FRACTION * life,
-        _padding0: 0.0,
+        core_offset: branch.core_offset,
         bounding_pad: pad.radial,
         bounding_pad_y: pad.top,
         _padding1: [0.0; 2],
@@ -358,6 +418,8 @@ mod tests {
             life: 2.5,
             gain: 1.5,
             core_radius: 0.35,
+            core_offset: 0.0,
+            reach: 1.5,
             spread: 0.3,
             spawn_height: 0.35,
             spawn_range: 0.4,
@@ -579,8 +641,49 @@ mod tests {
         let large = branch_proxy_pad(&effect, &baked);
         assert!(large.radial > small.radial);
         let trunk = branch_trunk_radius_max(&effect, &baked);
-        assert!(large.radial <= (BRANCH_DRIFT_OVER_LIFE + 2.0 * BRANCH_REACH_END) * trunk + 1e-5);
+        assert!(
+            large.radial
+                <= (BRANCH_DRIFT_OVER_LIFE + effect.branch.core_offset + 2.0 * effect.branch.reach)
+                    * trunk
+                    + 1e-5
+        );
         assert!(large.top > 0.0);
+    }
+
+    #[test]
+    fn test_core_offset_moves_the_core_to_the_shear_layer_and_widens_the_pad() {
+        let mut effect = effect_with_branches();
+        let baked = FlameBaked::default();
+        let centered = branch_proxy_pad(&effect, &baked);
+        effect.branch.core_offset = 1.0;
+        let offset = branch_proxy_pad(&effect, &baked);
+        let trunk = branch_trunk_radius_max(&effect, &baked);
+        assert!((offset.radial - centered.radial - trunk).abs() < 1e-5);
+
+        let field = build_branch_field(&effect, &baked);
+        let element = field.elements[0];
+        let vortex = vortex_element_at(&field, &element, effect.time).unwrap();
+        let age = effect.time - element.spawn_time;
+        let lateral =
+            (vortex.center[0] * vortex.center[0] + vortex.center[2] * vortex.center[2]).sqrt();
+        let expected = element.trunk_radius * (1.0 + field.drift_rate * age);
+        assert!((lateral - expected).abs() < 1e-5);
+    }
+
+    #[test]
+    fn test_reach_scales_the_compact_support_and_keeps_the_growth_ratio() {
+        let mut effect = effect_with_branches();
+        effect.branch.reach = 2.0;
+        let field = build_branch_field(&effect, &FlameBaked::default());
+        assert!((field.reach_end - 2.0).abs() < 1e-6);
+        assert!((field.reach_start - 2.0 * BRANCH_REACH_GROWTH_START).abs() < 1e-6);
+        let element = field.elements[0];
+        let vortex = vortex_element_at(&field, &element, effect.time).unwrap();
+        let progress = (effect.time - element.spawn_time) / field.life;
+        let expected = element.trunk_radius
+            * 2.0
+            * (BRANCH_REACH_GROWTH_START + (1.0 - BRANCH_REACH_GROWTH_START) * progress);
+        assert!((vortex.reach - expected).abs() < 1e-5);
     }
 
     #[test]
@@ -589,6 +692,66 @@ mod tests {
         let envelope_time = BRANCH_ENVELOPE_FRACTION * life;
         assert_eq!(branch_envelope(0.0, life, envelope_time), 0.0);
         assert_eq!(branch_envelope(life, life, envelope_time), 0.0);
-        assert!((branch_envelope(1.0, life, envelope_time) - 1.0).abs() < 1e-6);
+        let winding_time = life - envelope_time;
+        assert!((branch_envelope(winding_time, life, envelope_time) - 1.0).abs() < 1e-6);
+        assert!(
+            (branch_envelope(0.5 * winding_time, life, envelope_time) - 0.75).abs() < 1e-6,
+            "ease-out: three quarters of the angle in the first half of the winding"
+        );
+        let early = branch_envelope(0.1 * winding_time, life, envelope_time);
+        let late = branch_envelope(0.9 * winding_time, life, envelope_time)
+            - branch_envelope(0.8 * winding_time, life, envelope_time);
+        assert!(early > late, "the medium moves fastest early");
+    }
+
+    #[test]
+    fn test_burnout_rises_before_the_unwind_and_releases_at_death() {
+        let life = 2.0;
+        let envelope_time = BRANCH_ENVELOPE_FRACTION * life;
+        assert_eq!(branch_burnout(0.0, life, envelope_time), 0.0);
+        assert_eq!(
+            branch_burnout(BRANCH_BURNOUT_START_FRACTION * life, life, envelope_time),
+            0.0
+        );
+        let unwind_start = life - envelope_time;
+        assert!((branch_burnout(unwind_start, life, envelope_time) - 1.0).abs() < 1e-6);
+        assert!(
+            (branch_burnout(unwind_start + 0.5 * envelope_time, life, envelope_time) - 1.0).abs()
+                < 1e-6
+        );
+        assert_eq!(branch_burnout(life, life, envelope_time), 0.0);
+    }
+
+    #[test]
+    fn test_burnout_mask_bites_only_the_tongue_outside_the_trunk() {
+        let element = VortexElement {
+            center: [0.8, 0.5, 0.0],
+            in_plane: [1.0, 0.0],
+            reach: 1.0,
+            core_radius: 0.5,
+            circulation: 2.0,
+            aspect: 2.0,
+        };
+        let trunk_radius = 0.8;
+        let inside_trunk = [0.3, 0.5, 0.0];
+        let tongue = [1.4, 0.5, 0.0];
+        let far = [4.0, 0.5, 0.0];
+        assert!(
+            (vortex_burnout_mask(&element, 1.0, trunk_radius, inside_trunk) - 1.0).abs() < 1e-6
+        );
+        assert!(vortex_burnout_mask(&element, 1.0, trunk_radius, tongue) < 1e-6);
+        assert!((vortex_burnout_mask(&element, 1.0, trunk_radius, far) - 1.0).abs() < 1e-6);
+        assert!((vortex_burnout_mask(&element, 0.0, trunk_radius, tongue) - 1.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_composite_burnout_mask_is_one_without_burning_elements() {
+        let effect = effect_with_branches();
+        let field = build_branch_field(&effect, &FlameBaked::default());
+        let p = [1.2, 0.5, 0.0];
+        let mask = branch_burnout_mask(&field, p, effect.time);
+        assert!((0.0..=1.0).contains(&mask));
+        let after_life = effect.time + field.life + 1.0;
+        assert_eq!(branch_burnout_mask(&field, p, after_life), 1.0);
     }
 }

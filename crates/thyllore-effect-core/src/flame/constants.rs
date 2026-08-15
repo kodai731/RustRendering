@@ -34,11 +34,19 @@ pub const MEANDER_MODE_RATE_SCALE: [f32; 2] = [0.75, 1.15];
 /// Branch element layer (flame_branch_elements design): element table size and
 /// the age-profile constants of the vortex transport, in trunk-local radius units.
 pub const BRANCH_MAX_ELEMENTS: usize = 32;
-/// Compact reach of one vortex line over its life, as a ratio of the local trunk radius.
-pub const BRANCH_REACH_START: f32 = 0.9;
-pub const BRANCH_REACH_END: f32 = 1.5;
+/// Reach at spawn as a ratio of the element's final reach (entrainment growth).
+pub const BRANCH_REACH_GROWTH_START: f32 = 0.6;
 pub const BRANCH_DRIFT_OVER_LIFE: f32 = 0.5;
 pub const BRANCH_ENVELOPE_FRACTION: f32 = 0.15;
+/// Age fraction where the tongue starts burning out (density fade outside the trunk).
+pub const BRANCH_BURNOUT_START_FRACTION: f32 = 0.5;
+/// Fraction of the unwind window over which the burnout mask releases, once the
+/// remaining rotation is negligible.
+pub const BRANCH_BURNOUT_RELEASE_FRACTION: f32 = 0.1;
+/// Burnout plateau extends this ratio beyond the element reach before fading out.
+pub const BRANCH_BURNOUT_MARGIN: f32 = 0.5;
+/// Trunk radius ratio inside which the burnout never touches the medium.
+pub const BRANCH_BURNOUT_TRUNK_INNER: f32 = 0.75;
 pub const BRANCH_AZIMUTH_RANGE: f32 = std::f32::consts::PI;
 /// Spawn-time jitter range as a fraction of the period; below 1 keeps spawn order.
 pub const BRANCH_JITTER_RANGE: f32 = 0.5;

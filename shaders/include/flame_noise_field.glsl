@@ -110,14 +110,22 @@ vec3 flameMeanderShifted(vec3 p, float h) {
 }
 
 // Trunk-local support coordinate: meander removed, then pulled back through the
-// branch elements; `h` becomes the height every downstream profile reads.
-vec3 flameSupportPosition(vec3 p, inout float h) {
+// branch elements; `h` becomes the height every downstream profile reads and
+// `burnout` the density mask of the branch elements at the un-pulled position.
+vec3 flameSupportPositionBurnout(vec3 p, inout float h, out float burnout) {
     vec3 ps = flameMeanderShifted(p, h);
+    burnout = 1.0;
     if (flameBranchActive()) {
+        burnout = flameBranchBurnoutMask(ps);
         ps = flameBranchPullBack(ps);
         h = clamp(ps.y, 0.0, 1.0);
     }
     return ps;
+}
+
+vec3 flameSupportPosition(vec3 p, inout float h) {
+    float burnout;
+    return flameSupportPositionBurnout(p, h, burnout);
 }
 
 // Total centerline offset = static bend + animated meander.

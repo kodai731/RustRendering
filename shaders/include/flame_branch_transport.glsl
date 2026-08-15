@@ -6,6 +6,11 @@
 // angle, compact inside rho < reach, so the map is a bijection for any gain.
 // Mirrored in thyllore-effect-core/src/flame/branch.rs.
 const float FLAME_BRANCH_TAU = 6.283185307;
+// Age-profile constants, mirrored from flame/constants.rs (BRANCH_BURNOUT_*).
+const float FLAME_BRANCH_BURNOUT_START_FRACTION = 0.5;
+const float FLAME_BRANCH_BURNOUT_RELEASE_FRACTION = 0.1;
+const float FLAME_BRANCH_BURNOUT_MARGIN = 0.5;
+const float FLAME_BRANCH_BURNOUT_TRUNK_INNER = 0.75;
 
 bool flameBranchActive() {
     return flame.branchField.count > 0.5;
@@ -16,11 +21,27 @@ float flameBranchSmoothstep(float edge0, float edge1, float x) {
     return t * t * (3.0 - 2.0 * t);
 }
 
+// Ease-out winding (fastest at birth, decelerating to rest), then an unwind over
+// envelopeTime so the map is the identity at death; the unwind is hidden outside
+// the trunk by the burnout mask.
 float flameBranchEnvelope(float age) {
     float life = flame.branchField.life;
     float envelopeTime = flame.branchField.envelopeTime;
-    return flameBranchSmoothstep(0.0, envelopeTime, age)
-        * (1.0 - flameBranchSmoothstep(life - envelopeTime, life, age));
+    float t = clamp(age / max(life - envelopeTime, 1e-3), 0.0, 1.0);
+    float easeOut = 1.0 - (1.0 - t) * (1.0 - t);
+    return easeOut * (1.0 - flameBranchSmoothstep(life - envelopeTime, life, age));
+}
+
+// Burnout strength: rises from half the life to 1 when the unwind starts and
+// releases in the last part of the unwind, when the remaining rotation is
+// negligible, so the mask never jumps at death.
+float flameBranchBurnout(float age) {
+    float life = flame.branchField.life;
+    float envelopeTime = flame.branchField.envelopeTime;
+    float unwindStart = life - envelopeTime;
+    float releaseStart = life - FLAME_BRANCH_BURNOUT_RELEASE_FRACTION * envelopeTime;
+    return flameBranchSmoothstep(FLAME_BRANCH_BURNOUT_START_FRACTION * life, unwindStart, age)
+        * (1.0 - flameBranchSmoothstep(releaseStart, life, age));
 }
 
 // (1 - exp(-rho^2 / rc^2)) / (2 pi rho^2) and its derivative in rho^2.
@@ -53,7 +74,8 @@ bool flameVortexElementAt(int index, out FlameVortexElement element) {
         return false;
     }
     element.inPlane = vec2(cos(spawn.azimuth), sin(spawn.azimuth));
-    float lateral = spawn.side * flame.branchField.driftRate * spawn.trunkRadius * age;
+    float lateral = spawn.side * spawn.trunkRadius
+        * (flame.branchField.coreOffset + flame.branchField.driftRate * age);
     element.center = vec3(
         lateral * element.inPlane.x,
         spawn.spawnHeight + flame.branchField.riseRate * age,
@@ -117,6 +139,43 @@ vec3 flameVortexPullBackJvp(FlameVortexElement element, vec3 p, inout vec3 dir) 
         element.center.x + u1 * ex - along * ez,
         element.center.y + v1 / aspect,
         element.center.z + u1 * ez + along * ex);
+}
+
+// Density mask of one element at trunk-local p (before the pull-back): a plateau
+// over the element's disc that only bites the medium outside the trunk, so the
+// tongue dims away in place while the trunk keeps its material.
+float flameVortexBurnoutMask(FlameVortexElement element, float burnout, float trunkRadius, vec3 p) {
+    float ex = element.inPlane.x;
+    float ez = element.inPlane.y;
+    float qx = p.x - element.center.x;
+    float qz = p.z - element.center.z;
+    float u = qx * ex + qz * ez;
+    float along = -qx * ez + qz * ex;
+    float v = (p.y - element.center.y) * flame.branchField.aspect;
+    float reach = max(element.reach, 1e-4);
+    float outer = 1.0 + FLAME_BRANCH_BURNOUT_MARGIN;
+    float rho = sqrt(u * u + v * v) / reach;
+    float plateau = (1.0 - flameBranchSmoothstep(1.0, outer, rho))
+        * (1.0 - flameBranchSmoothstep(1.0, outer, abs(along) / reach));
+
+    float axisRadius = length(p.xz) / max(trunkRadius, 1e-4);
+    float outsideTrunk = flameBranchSmoothstep(FLAME_BRANCH_BURNOUT_TRUNK_INNER, 1.0, axisRadius);
+    return 1.0 - burnout * plateau * outsideTrunk;
+}
+
+// Product of the burnout masks of every live element at trunk-local p.
+float flameBranchBurnoutMask(vec3 p) {
+    int count = min(int(flame.branchField.count), FLAME_BRANCH_MAX_ELEMENTS);
+    float mask = 1.0;
+    for (int i = 0; i < count; ++i) {
+        FlameVortexElement element;
+        if (flameVortexElementAt(i, element)) {
+            FlameBranchElement spawn = flame.branchField.elements[i];
+            float burnout = flameBranchBurnout(flame.time - spawn.spawnTime);
+            mask *= flameVortexBurnoutMask(element, burnout, spawn.trunkRadius, p);
+        }
+    }
+    return mask;
 }
 
 // Composite pull-back through the live elements (table is newest first) with

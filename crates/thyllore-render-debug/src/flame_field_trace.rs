@@ -17,8 +17,8 @@ use serde_json::{json, Value};
 use thyllore_effect_core::flame_wave::{WAVE_JITTER_K, WAVE_JITTER_PHASE, WAVE_JITTER_RANK};
 use thyllore_effect_core::WallProbeView;
 use thyllore_effect_core::{
-    branch_pull_back, branch_pull_back_jvp, build_flame_ubo, FlameBaked, FlameEffect,
-    FlameTemporalAccum, FlameUBO,
+    branch_burnout_mask, branch_pull_back, branch_pull_back_jvp, build_flame_ubo, FlameBaked,
+    FlameEffect, FlameTemporalAccum, FlameUBO,
 };
 use thyllore_math_core::{integrate_erf_response_linear, smooth_erf_response, ErfResponseModel};
 
@@ -267,6 +267,24 @@ impl<'a> UboCtx<'a> {
             return (pulled, pulled[1].clamp(0.0, 1.0));
         }
         (ps, h)
+    }
+
+    /// flameWaveNodeDensity through flameSupportPositionBurnout: the smooth
+    /// density at the pulled-back coordinate times the branch burnout mask at
+    /// the un-pulled trunk-local position.
+    fn support_density(&self, p: [f32; 3], h: f32) -> NodeDensity {
+        let (ps, hs) = self.support_position(p, h);
+        let mut node = self.node_density(ps, hs);
+        if self.u.branch_field.count > 0.5 {
+            let mask = branch_burnout_mask(
+                &self.u.branch_field,
+                self.meander_shifted(p, h),
+                self.u.time,
+            );
+            node.burnout = mask;
+            node.density *= mask;
+        }
+        node
     }
 
     fn wave_mode(&self, slot: usize) -> ([f32; 4], [f32; 4]) {
@@ -655,6 +673,7 @@ impl<'a> UboCtx<'a> {
                 cap_fade,
                 radial,
                 near_fade,
+                burnout: 1.0,
                 density: height_falloff * cap_fade * radial * near_fade,
             }
         } else {
@@ -681,6 +700,7 @@ impl<'a> UboCtx<'a> {
                 cap_fade,
                 radial,
                 near_fade,
+                burnout: 1.0,
                 density: height_falloff * radial * cap_fade * near_fade,
             }
         }
@@ -1170,6 +1190,7 @@ struct NodeDensity {
     cap_fade: f32,
     radial: f32,
     near_fade: f32,
+    burnout: f32,
     density: f32,
 }
 
@@ -1238,7 +1259,7 @@ struct SegmentEstimate {
 fn mean_argument_at(ctx: &UboCtx, o: [f32; 3], d: [f32; 3], t: f32) -> f32 {
     let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
     let (ps, hs) = ctx.support_position(p, p[1].clamp(0.0, 1.0));
-    let density = ctx.node_density(ps, hs).density;
+    let density = ctx.support_density(p, p[1].clamp(0.0, 1.0)).density;
     // Compute u_squared (normalized radius squared) for plateau boost.
     let boundary = ctx.boundary_displacement(ps[0], ps[2]);
     let hb = (hs / boundary[0]).clamp(0.0, 1.0);
@@ -1361,8 +1382,10 @@ fn solve_reference_cutoff(
                 o[1] + t_star * d[1],
                 o[2] + t_star * d[2],
             ];
-            let (ps_star, h_star) = ctx.support_position(p_star, p_star[1].clamp(0.0, 1.0));
-            let density = ctx.node_density(ps_star, h_star).density;
+            let (_, h_star) = ctx.support_position(p_star, p_star[1].clamp(0.0, 1.0));
+            let density = ctx
+                .support_density(p_star, p_star[1].clamp(0.0, 1.0))
+                .density;
             if density > 0.0 {
                 let fade = ctx.envelope_fade(density);
                 let geometry = ctx.u.noise_amplitude
@@ -1548,6 +1571,7 @@ fn branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> Value {
         "drift_rate": round5(field.drift_rate),
         "aspect": round5(field.aspect),
         "core_radius": round5(field.core_radius),
+        "core_offset": round5(field.core_offset),
         "reach": vec_json(&[field.reach_start, field.reach_end]),
         "envelope_time": round5(field.envelope_time),
         "bounding_pad": vec_json(&[field.bounding_pad, field.bounding_pad_y]),
@@ -1772,9 +1796,7 @@ fn trace_ray(
         let t = t0 + node as f32 * dt;
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
         let h = p[1].clamp(0.0, 1.0);
-        // Use meander-shifted p for density-side coordinate, matching the shader.
-        let (ps, hs) = ctx.support_position(p, h);
-        let nd = ctx.node_density(ps, hs);
+        let nd = ctx.support_density(p, h);
         let arg = if nd.density > 0.0 {
             Some(ctx.node_argument(p, d, h, nd.density, dt))
         } else {
@@ -1786,9 +1808,7 @@ fn trace_ray(
     let density_at = |t: f32| -> f32 {
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
         let h = p[1].clamp(0.0, 1.0);
-        // Use meander-shifted p for density-side coordinate, matching the shader.
-        let (ps, hs) = ctx.support_position(p, h);
-        ctx.node_density(ps, hs).density
+        ctx.support_density(p, h).density
     };
     let support_crossing = |t_dead: f32, t_live: f32| -> f32 {
         let (mut t_dead, mut t_live) = (t_dead, t_live);
@@ -2128,9 +2148,7 @@ fn trace_ray(
         Some(tf) => {
             let p = [o[0] + tf * d[0], o[1] + tf * d[1], o[2] + tf * d[2]];
             let h = p[1].clamp(0.0, 1.0);
-            // Use meander-shifted p for density-side coordinate, matching the shader.
-            let (ps, hs) = ctx.support_position(p, h);
-            let nd = ctx.node_density(ps, hs);
+            let nd = ctx.support_density(p, h);
             let a = ctx.node_argument(p, d, h, nd.density, dt);
             json!({
                 "t": round5(tf),
@@ -2171,6 +2189,7 @@ fn trace_ray(
         "cap_fade": node_arr!(|(_, nd, _)| round5(nd.cap_fade)),
         "radial_factor": node_arr!(|(_, nd, _)| round5(nd.radial)),
         "near_fade": node_arr!(|(_, nd, _)| round5(nd.near_fade)),
+        "branch_burnout": node_arr!(|(_, nd, _)| round5(nd.burnout)),
         "w_x": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.w[0]))),
         "w_y": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.w[1]))),
         "w_z": node_arr!(|(_, _, a)| a.as_ref().map_or(json!(null), |a| round5(a.w[2]))),

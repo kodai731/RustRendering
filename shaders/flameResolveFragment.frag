@@ -215,7 +215,7 @@ struct FlameBranchField {
     float reachStart;
     float reachEnd;
     float envelopeTime;
-    float pad0;
+    float coreOffset;
     float boundingPad;
     float boundingPadY;
     float pad1;
