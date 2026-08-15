@@ -248,4 +248,55 @@ mod tests {
             assert!(allowed.contains(name), "statistics fit wrote {name}");
         }
     }
+
+    /// Shape fit and Style apply must commute on every parameter outside the
+    /// fit's declared Style-owned exceptions (color / turbulence groups).
+    #[test]
+    fn test_shape_fit_and_style_apply_do_not_interfere() {
+        use crate::flame::{apply_flame_style, flame_style_from_effect, StyleGroups};
+
+        let mut donor = FlameEffect::default();
+        donor.noise_amplitude = 6.0;
+        donor.rise_speed = 2.5;
+        donor.swirl.gain = 0.7;
+        donor.twist.gain = 4.0;
+        donor.intensity = 1.7;
+        donor.edge_low = 0.2;
+        donor.edge_high = 0.8;
+        let style = flame_style_from_effect(&donor, "non-interference");
+
+        let apply_fit = |effect: &mut FlameEffect| {
+            let mut baked = FlameBaked::default();
+            apply_texture_fit(
+                effect,
+                &mut baked,
+                &extreme_fit(),
+                TextureFitGroups::default(),
+                1.0,
+                true,
+            );
+        };
+
+        let mut fit_then_style = FlameEffect::default();
+        apply_fit(&mut fit_then_style);
+        apply_flame_style(&mut fit_then_style, &style, StyleGroups::default());
+
+        let mut style_then_fit = FlameEffect::default();
+        apply_flame_style(&mut style_then_fit, &style, StyleGroups::default());
+        apply_fit(&mut style_then_fit);
+
+        let fit_style_exceptions: HashSet<&str> = TEXTURE_FIT_COLOR_PARAMETERS
+            .iter()
+            .chain(TEXTURE_FIT_TURBULENCE_PARAMETERS)
+            .copied()
+            .collect();
+        let snapshot_a = flame_parameter_snapshot(&fit_then_style);
+        let snapshot_b = flame_parameter_snapshot(&style_then_fit);
+        for ((name, values_a), (_, values_b)) in snapshot_a.iter().zip(&snapshot_b) {
+            if fit_style_exceptions.contains(name) {
+                continue;
+            }
+            assert_eq!(values_a, values_b, "{name} depends on writer order");
+        }
+    }
 }
