@@ -390,8 +390,20 @@ pub struct FlameEffectData {
     pub branch_gain: f32,
     #[serde(default = "default_branch_spread")]
     pub branch_spread: f32,
+    #[serde(default = "default_branch_spawn_height")]
+    pub branch_spawn_height: f32,
+    #[serde(default = "default_branch_spawn_range")]
+    pub branch_spawn_range: f32,
     #[serde(default)]
     pub branch_seed: u32,
+}
+
+fn default_branch_spawn_height() -> f32 {
+    0.35
+}
+
+fn default_branch_spawn_range() -> f32 {
+    0.4
 }
 
 fn default_branch_life() -> f32 {
@@ -598,6 +610,8 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             branch_life: effect.branch.life,
             branch_gain: effect.branch.gain,
             branch_spread: effect.branch.spread,
+            branch_spawn_height: effect.branch.spawn_height,
+            branch_spawn_range: effect.branch.spawn_range,
             branch_seed: effect.branch.seed,
         },
         channels,
@@ -739,6 +753,8 @@ pub fn apply_flame_state_to_world(
         effect.branch.life = flame.effect.branch_life;
         effect.branch.gain = flame.effect.branch_gain;
         effect.branch.spread = flame.effect.branch_spread;
+        effect.branch.spawn_height = flame.effect.branch_spawn_height;
+        effect.branch.spawn_range = flame.effect.branch_spawn_range;
         effect.branch.seed = flame.effect.branch_seed;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
@@ -946,6 +962,8 @@ mod tests {
             branch_life: 2.5,
             branch_gain: 0.0,
             branch_spread: 0.3,
+            branch_spawn_height: 0.35,
+            branch_spawn_range: 0.4,
             branch_seed: 0,
         }
     }
@@ -1150,6 +1168,8 @@ mod tests {
                 branch_life: 2.5,
                 branch_gain: 0.0,
                 branch_spread: 0.3,
+                branch_spawn_height: 0.35,
+                branch_spawn_range: 0.4,
                 branch_seed: 0,
             },
             channels: vec![FlameChannelData {

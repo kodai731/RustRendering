@@ -475,6 +475,8 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "branch_life",
     "branch_gain",
     "branch_spread",
+    "branch_spawn_height",
+    "branch_spawn_range",
     "branch_seed",
 ];
 
@@ -964,6 +966,8 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "branch_life" => effect.branch.life = *value,
             "branch_gain" => effect.branch.gain = *value,
             "branch_spread" => effect.branch.spread = *value,
+            "branch_spawn_height" => effect.branch.spawn_height = *value,
+            "branch_spawn_range" => effect.branch.spawn_range = *value,
             "branch_seed" => effect.branch.seed = value.max(0.0) as u32,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }

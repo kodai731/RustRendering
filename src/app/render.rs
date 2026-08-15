@@ -437,6 +437,7 @@ impl App {
             .unwrap_or(false);
 
         if !needs_resize {
+            self.attach_gbuffer_depth_to_hdr()?;
             return Ok(());
         }
 
@@ -456,16 +457,7 @@ impl App {
         let albedo_view = gbuffer.albedo_image_view;
         let object_id_view = gbuffer.object_id_image_view;
         self.recreate_gbuffer_framebuffer()?;
-
-        {
-            let depth_view = {
-                let rt = self.resource::<RenderTargets>();
-                rt.render.gbuffer_depth_image_view
-            };
-            if let Some(hdr_buffer) = &mut self.data.viewport.hdr_buffer {
-                hdr_buffer.attach_depth(&self.rrdevice, depth_view)?;
-            }
-        }
+        self.attach_gbuffer_depth_to_hdr()?;
 
         self.update_gbuffer_descriptors(
             position_view,
@@ -477,6 +469,22 @@ impl App {
         self.recreate_onion_skin_on_resize()?;
         self.recreate_flame_on_resize()?;
         log!("G-Buffer resized to: {}x{}", new_width, new_height);
+        Ok(())
+    }
+
+    /// The HDR framebuffer borrows the G-buffer depth view; a resized HDR
+    /// buffer has no framebuffer until the current depth is attached here.
+    unsafe fn attach_gbuffer_depth_to_hdr(&mut self) -> Result<()> {
+        let depth_view = {
+            let rt = self.resource::<RenderTargets>();
+            rt.render.gbuffer_depth_image_view
+        };
+        if depth_view == vk::ImageView::null() {
+            return Ok(());
+        }
+        if let Some(hdr_buffer) = &mut self.data.viewport.hdr_buffer {
+            hdr_buffer.attach_depth(&self.rrdevice, depth_view)?;
+        }
         Ok(())
     }
 

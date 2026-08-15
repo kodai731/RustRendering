@@ -1042,7 +1042,7 @@ fn build_flame_section(
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Lifetime [s] of one element (rise in, wind, fade out); clamped \
-                             to 11 periods so the element table never drops a live element",
+                             to 31 periods so the element table never drops a live element",
                         );
                     }
                     ui.slider_config("Branch Gain", 0.0, 8.0)
@@ -1060,8 +1060,23 @@ fn build_flame_section(
                         .build(&mut effect_copy.branch.spread);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Scatter of spawn height, azimuth, timing jitter and left/right \
-                             alternation (0 = strictly alternating, one plane)",
+                            "Scatter of azimuth, timing jitter and left/right alternation \
+                             (0 = strictly alternating, one plane)",
+                        );
+                    }
+                    ui.slider_config("Branch Height", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.spawn_height);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text("Center of the spawn height band (0 = base, 1 = top)");
+                    }
+                    ui.slider_config("Branch Height Range", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.spawn_range);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Full width of the spawn height band; 1.0 with center 0.5 spawns \
+                             elements over the whole trunk",
                         );
                     }
                     let mut branch_seed = effect_copy.branch.seed as i32;

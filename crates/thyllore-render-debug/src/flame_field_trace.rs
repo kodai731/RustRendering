@@ -1537,6 +1537,28 @@ fn outer_cylinder_interval(
     (hi > lo).then_some((lo, hi))
 }
 
+fn branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> Value {
+    let count = (field.count as usize).min(thyllore_effect_core::BRANCH_MAX_ELEMENTS);
+    json!({
+        "count": field.count,
+        "period": round5(field.period),
+        "life": round5(field.life),
+        "gain": round5(field.gain),
+        "rise_rate": round5(field.rise_rate),
+        "drift_rate": round5(field.drift_rate),
+        "aspect": round5(field.aspect),
+        "core_radius": round5(field.core_radius),
+        "ring_radius": vec_json(&[field.ring_radius_start, field.ring_radius_end]),
+        "envelope_time": round5(field.envelope_time),
+        "arc_half_width": round5(field.arc_half_width),
+        "bounding_pad": vec_json(&[field.bounding_pad, field.bounding_pad_y]),
+        "elements": field.elements[..count]
+            .iter()
+            .map(|e| vec_json(&[e.spawn_time, e.side, e.azimuth, e.spawn_height, e.kind, e.hash01]))
+            .collect::<Vec<_>>(),
+    })
+}
+
 fn round5(x: f32) -> Value {
     if !x.is_finite() {
         return json!(null);
@@ -1696,6 +1718,7 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "near_fade_params": vec_json(&[ubo.near_fade_params.radius, ubo.near_fade_params.carve_residual, ubo.near_fade_params.edge_low, ubo.near_fade_params.edge_high]),
             "profile_params": vec_json(&[ubo.profile_params.radius_active, ubo.profile_params.radius_max, ubo.profile_params.color_active]),
             "wave_params": vec_json(&[ubo.wave_params.tracked_count, ubo.wave_params.env_coeff, ubo.wave_params.inverse_scale, ubo.wave_params.amplitude]),
+            "branch_field": branch_field_json(&ubo.branch_field),
             "jitter_kappa_scale": round5(ctx.jitter_scale),
             "advect": vec_json(&ctx.advect),
             "aniso_axis": vec_json(&ctx.aniso_axis),

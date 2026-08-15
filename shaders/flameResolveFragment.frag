@@ -190,7 +190,7 @@ struct FlameMeanderMode {
     float pad2;
 };
 
-const int FLAME_BRANCH_MAX_ELEMENTS = 12;
+const int FLAME_BRANCH_MAX_ELEMENTS = 32;
 
 struct FlameBranchElement {
     float spawnTime;
@@ -717,6 +717,9 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
     float h = clamp(p.y, 0.0, 1.0);
     if (push.debugView == 4) {
         return vec4(flameDebugHeat(bestDensity), 1.0);
+    }
+    if (push.debugView == 12) {
+        return vec4(flameBranchDebugColor(flameMeanderShifted(p, h), bestDensity), 1.0);
     }
     if (push.debugView == 7 || push.debugView == 8) {
         vec3 w = flameBuildWarpFrame(p, vec3(0.0), h).w;

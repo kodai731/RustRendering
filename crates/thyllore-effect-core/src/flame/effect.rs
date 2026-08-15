@@ -29,8 +29,12 @@ pub struct FlameBranch {
     pub life: f32,
     /// Vortex circulation at full envelope; 0 = identity transport.
     pub gain: f32,
-    /// Scatter of spawn height, azimuth, jitter and side alternation in [0, 1].
+    /// Scatter of azimuth, timing jitter and side alternation in [0, 1].
     pub spread: f32,
+    /// Center of the spawn height band in local height units.
+    pub spawn_height: f32,
+    /// Full width of the spawn height band; 1 with center 0.5 covers the trunk.
+    pub spawn_range: f32,
     pub seed: u32,
 }
 
@@ -223,6 +227,8 @@ impl Default for FlameEffect {
                 life: 2.5,
                 gain: 0.0,
                 spread: 0.3,
+                spawn_height: 0.35,
+                spawn_range: 0.4,
                 seed: 0,
             },
         };

@@ -69,6 +69,8 @@ declare_style_group! {
             branch_life: f32 => branch.life,
             branch_gain: f32 => branch.gain,
             branch_spread: f32 => branch.spread,
+            branch_spawn_height: f32 => branch.spawn_height,
+            branch_spawn_range: f32 => branch.spawn_range,
         }
         custom {
             meander_amp_over_r0: f32,
@@ -243,6 +245,8 @@ mod tests {
                 branch_life: Some(2.0),
                 branch_gain: Some(1.5),
                 branch_spread: Some(0.4),
+                branch_spawn_height: Some(0.5),
+                branch_spawn_range: Some(1.0),
             },
             texture: FlameStyleTexture {
                 noise_amplitude: Some(6.0),

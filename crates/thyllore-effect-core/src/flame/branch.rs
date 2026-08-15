@@ -70,8 +70,7 @@ fn spawn_branch_element(branch: &FlameBranch, index: i64) -> FlameBranchElement 
         spawn_time: (index as f32 + jitter) * branch.period,
         side,
         azimuth: spread * BRANCH_AZIMUTH_RANGE * (hash01(seed, index, 2) - 0.5),
-        spawn_height: BRANCH_SPAWN_HEIGHT
-            + spread * BRANCH_SPAWN_HEIGHT_RANGE * (hash01(seed, index, 3) - 0.5),
+        spawn_height: branch.spawn_height + branch.spawn_range * (hash01(seed, index, 3) - 0.5),
         kind: 0.0,
         hash01: hash01(seed, index, 4),
         _padding: [0.0; 2],
@@ -329,6 +328,8 @@ mod tests {
             life: 2.5,
             gain: 1.5,
             spread: 0.3,
+            spawn_height: 0.35,
+            spawn_range: 0.4,
             seed: 7,
         }
     }
@@ -413,7 +414,7 @@ mod tests {
         branch.life = 10.0;
         branch.spread = 1.0;
         let life = effective_branch_life(&branch);
-        assert!((life - 11.0 * 0.05).abs() < 1e-6);
+        assert!((life - (BRANCH_MAX_ELEMENTS as f32 - 1.0) * 0.05).abs() < 1e-6);
         let mut step = 0;
         while step < 400 {
             let time = step as f32 * 0.013;

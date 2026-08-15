@@ -99,6 +99,8 @@ declare_flame_parameters! { effect =>
     branch_life: Style = [effect.branch.life],
     branch_gain: Style = [effect.branch.gain],
     branch_spread: Style = [effect.branch.spread],
+    branch_spawn_height: Style = [effect.branch.spawn_height],
+    branch_spawn_range: Style = [effect.branch.spawn_range],
     branch_seed: Frame = [effect.branch.seed as f32],
 }
 

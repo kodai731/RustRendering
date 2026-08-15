@@ -33,15 +33,13 @@ pub const MEANDER_MODE_RATE_SCALE: [f32; 2] = [0.75, 1.15];
 
 /// Branch element layer (flame_branch_elements design): element table size and
 /// the age-profile constants of the vortex transport, in trunk-local radius units.
-pub const BRANCH_MAX_ELEMENTS: usize = 12;
+pub const BRANCH_MAX_ELEMENTS: usize = 32;
 pub const BRANCH_CORE_RADIUS: f32 = 0.35;
 pub const BRANCH_RING_RADIUS_START: f32 = 0.6;
 pub const BRANCH_RING_RADIUS_END: f32 = 1.2;
 pub const BRANCH_DRIFT_OVER_LIFE: f32 = 0.5;
 pub const BRANCH_ENVELOPE_FRACTION: f32 = 0.15;
 pub const BRANCH_ARC_HALF_WIDTH: f32 = std::f32::consts::FRAC_PI_2;
-pub const BRANCH_SPAWN_HEIGHT: f32 = 0.35;
-pub const BRANCH_SPAWN_HEIGHT_RANGE: f32 = 0.4;
 pub const BRANCH_AZIMUTH_RANGE: f32 = std::f32::consts::PI;
 /// Spawn-time jitter range as a fraction of the period; below 1 keeps spawn order.
 pub const BRANCH_JITTER_RANGE: f32 = 0.5;

@@ -151,4 +151,40 @@ vec3 flameBranchPullBack(vec3 p) {
     return flameBranchPullBackJvp(p, dir);
 }
 
+vec3 flameBranchDebugHue(float t) {
+    return clamp(abs(fract(t + vec3(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0);
+}
+
+// Debug view: the element displacing this trunk-local sample the most, hued by
+// its stable hash, brightened by the displacement (in core radii) and whitened
+// inside the ring core; untouched samples show the smooth density in grey.
+vec3 flameBranchDebugColor(vec3 ps, float density) {
+    int count = min(int(flame.branchField.count), FLAME_BRANCH_MAX_ELEMENTS);
+    float bestDisplacement = 0.0;
+    float bestHash = 0.0;
+    bool insideCore = false;
+    for (int i = 0; i < count; ++i) {
+        FlameVortexElement element;
+        if (!flameVortexElementAt(i, element)) {
+            continue;
+        }
+        vec3 dir = vec3(0.0);
+        float displacement = length(flameVortexPullBackJvp(element, ps, dir) - ps);
+        if (displacement > bestDisplacement) {
+            bestDisplacement = displacement;
+            bestHash = flame.branchField.elements[i].hash01;
+            float radial = length(ps.xz - element.center.xz) - element.ringRadius;
+            float axial = (ps.y - element.center.y) * flame.branchField.aspect;
+            insideCore = radial * radial + axial * axial
+                < flame.branchField.coreRadius * flame.branchField.coreRadius;
+        }
+    }
+    if (bestDisplacement <= 1e-5) {
+        return vec3(0.35 * clamp(density, 0.0, 1.0));
+    }
+    float strength = clamp(bestDisplacement / flame.branchField.coreRadius, 0.0, 1.0);
+    vec3 color = flameBranchDebugHue(bestHash) * mix(0.3, 1.0, strength);
+    return insideCore ? mix(color, vec3(1.0), 0.6) : color;
+}
+
 #endif

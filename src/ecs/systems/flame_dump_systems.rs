@@ -99,6 +99,8 @@ pub fn build_effect_json(
     value["branch_life"] = json!(effect.branch.life);
     value["branch_gain"] = json!(effect.branch.gain);
     value["branch_spread"] = json!(effect.branch.spread);
+    value["branch_spawn_height"] = json!(effect.branch.spawn_height);
+    value["branch_spawn_range"] = json!(effect.branch.spawn_range);
     value["branch_seed"] = json!(effect.branch.seed);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!([
