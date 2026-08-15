@@ -96,15 +96,20 @@ pub fn build_effect_json(
     value["optical_depth"] = json!(effect.optical_depth);
     value["meander_amp"] = json!(effect.meander_amp);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
-    value["warp_strain_params"] = json!(strain);
+    value["warp_strain_params"] = json!([
+        strain.strain_base,
+        strain.strain_tip,
+        strain.inv_reach,
+        strain.inv_strain_norm,
+    ]);
     value["warp_strain_cap"] = json!(thyllore_effect_core::flame_wave::WARP_STRAIN_CAP);
     value["warp_form"] = json!(if thyllore_effect_core::read_env_warp_form_displacement() {
         "disp"
     } else {
         "seq"
     });
-    value["warp_strain_norm"] = json!(if strain[3] > 0.0 {
-        1.0 / strain[3]
+    value["warp_strain_norm"] = json!(if strain.inv_strain_norm > 0.0 {
+        1.0 / strain.inv_strain_norm
     } else {
         0.0
     });
@@ -143,12 +148,12 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "noise_amplitude": ubo.noise_amplitude,
         "noise_frequency": ubo.noise_frequency,
         "noise_scroll_speed": ubo.noise_scroll_speed,
-        "color_base": [ubo.color_base.x, ubo.color_base.y, ubo.color_base.z, ubo.color_base.w],
-        "color_mid": [ubo.color_mid.x, ubo.color_mid.y, ubo.color_mid.z, ubo.color_mid.w],
-        "color_tip": [ubo.color_tip.x, ubo.color_tip.y, ubo.color_tip.z, ubo.color_tip.w],
-        "light_data": [ubo.light_data.x, ubo.light_data.y, ubo.light_data.z, ubo.light_data.w],
-        "unified_params": ubo.unified_params,
-        "spread_params": ubo.spread_params,
+        "color_base": [ubo.color_base.rgb[0], ubo.color_base.rgb[1], ubo.color_base.rgb[2], ubo.color_base.occlusion_lum_ref],
+        "color_mid": ubo.color_mid.rgb,
+        "color_tip": [ubo.color_tip.rgb[0], ubo.color_tip.rgb[1], ubo.color_tip.rgb[2], ubo.color_tip.edge_temperature_blend],
+        "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
+        "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
+        "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],
         "support_margin": [
             ubo.support_motion.support_margin,
             ubo.support_motion.meander_amp,

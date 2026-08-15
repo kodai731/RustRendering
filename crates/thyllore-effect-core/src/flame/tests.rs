@@ -257,8 +257,8 @@ fn test_build_flame_ubo_large_frame_index_precision() {
     let ubo = build_flame_ubo(&effect, &FlameBaked::default(), &temporal);
     let expected_y = (frame_index % 16384) as f32;
     assert_eq!(
-        ubo.temporal_data.y, expected_y,
-        "temporal_data.y should be (frame_index %% 16384) as f32 to avoid precision loss"
+        ubo.temporal_data.frame_index, expected_y,
+        "temporal_data.frame_index should be (frame_index %% 16384) as f32 to avoid precision loss"
     );
 }
 

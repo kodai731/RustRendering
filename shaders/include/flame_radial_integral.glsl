@@ -24,15 +24,15 @@
 const float FLAME_POWDER_STRENGTH = 0.0;
 
 // Radius R(h) of the radial density profile, in flame-local units. Texture fit
-// bakes an arbitrary R(h) curve (profileParams.x flags it); the parametric taper
+// bakes an arbitrary R(h) curve (profileParams.radiusActive flags it); the parametric taper
 // stays the default.
 float flameRadialRadiusScale(float height01) {
-    if (flame.profileParams.x > 0.5) {
+    if (flame.profileParams.radiusActive > 0.5) {
         return FLAME_SHELL_BASE_RADIUS
             * max(evaluateChebyshev8(flame.radiusCoefficients[0], flame.radiusCoefficients[1], height01), 0.05);
     }
     return FLAME_SHELL_BASE_RADIUS
-        * mix(1.0, flame.styleParams1.x, pow(height01, flame.styleParams0.w));
+        * mix(1.0, flame.edgeStyle.radiusTipRatio, pow(height01, flame.warpStyle.taperPower));
 }
 
 // Squared reciprocal of the support radius S * R(h), which is what u^2 scales by.
@@ -52,11 +52,11 @@ float flameRadialDensityFactor(vec3 p, float height01) {
 }
 
 // Contour wiggle: per-band field quantity from fbm at the actual 3D point.
-// Returns 1.0 when contourParams.x == 0 (identity, matches old path).
+// Returns 1.0 when the contour wiggle amp is 0 (identity, matches old path).
 float flameContourWiggle(vec3 p, float h) {
-    if (flame.contourParams.x == 0.0 || flame.unifiedParams.x > 0.5) { return 1.0; }
-    vec3 q = vec3(p.x, h - flame.styleParams0.z * flame.time, p.z) * flame.noiseFrequency;
-    return 1.0 + flame.contourParams.x * flameDetailNoise(q);
+    if (flame.contourParams.wiggleAmp == 0.0 || flame.unifiedParams.enabled > 0.5) { return 1.0; }
+    vec3 q = vec3(p.x, h - flame.warpStyle.riseSpeed * flame.time, p.z) * flame.noiseFrequency;
+    return 1.0 + flame.contourParams.wiggleAmp * flameDetailNoise(q);
 }
 
 // Pointwise field for the reference raymarch (mode 1): the same eroded threshold
@@ -111,7 +111,7 @@ float integrateRadialEmission(vec3 o, vec3 d, float tNear, float tFar) {
 }
 
 vec3 flameRampColor(float h) {
-    if (flame.profileParams.z > 0.5) {
+    if (flame.profileParams.colorActive > 0.5) {
         float u = clamp(h, 0.0, 1.0) * 8.0 - 0.5;
         int i0 = int(clamp(floor(u), 0.0, 7.0));
         int i1 = min(i0 + 1, 7);
@@ -146,11 +146,11 @@ vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
 // false when the ray misses the support entirely.
 // Mirrored in thyllore-render-core/src/flame_radial.rs (ring_support_span).
 bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
-    float rm = flame.emitterParams.y;
+    float rm = flame.emitterParams.ringMajorRatio;
     float minorScale = max(1.0 - rm, 1e-3);
-    float wTrim = (1.0 + max(flame.contourParams.x, 0.0))
-        * (1.0 + 3.0 * abs(flame.boundaryParams.x) * max(flame.boundaryParams.w, 0.0));
-    float taperMax = max(1.0, flame.styleParams1.x);
+    float wTrim = (1.0 + max(flame.contourParams.wiggleAmp, 0.0))
+        * (1.0 + 3.0 * abs(flame.boundaryParams.amp) * max(flame.boundaryParams.radiusRatio, 0.0));
+    float taperMax = max(1.0, flame.edgeStyle.radiusTipRatio);
    float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim + 2.0 * flame.supportMotion.meanderAmp;
 
     float a = dot(d.xz, d.xz);
@@ -198,7 +198,7 @@ float flameWaveNodeDensity(vec3 p, float h) {
     float wiggle = flameContourWiggle(ps, h);
     vec2 boundary = flameBoundaryDisplacement(ps.xz);
     float dens;
-    if (flame.emitterParams.x < 0.5) {
+    if (flame.emitterParams.kind < 0.5) {
         float hb = clamp(h / boundary.x, 0.0, 1.0);
         float wb = max(wiggle * boundary.y, 1e-4);
         dens = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x)
@@ -217,30 +217,30 @@ float flameWaveNodeArgumentLocal(
     FlameWaveModeSumResult sum = flameWaveModeSum(
         warpFrame.w, warpFrame.rate, warpFrame.pb, d, h, dt, count, eddyTime);
 
-    // 5.1 probabilistic reduction: erosion modes past waveParams.x (sorted by
+    // 5.1 probabilistic reduction: erosion modes past the tracked count (sorted by
     // |k| ascending on the CPU) are not tracked; their full variance enters the
     // response as blur. The skipped high-octave power rides the same low-octave
-    // envelope as the tracked high modes (uniform coefficient in waveParams.y).
-    float unresolvedPower = sum.unresolvedPower + flame.waveCfParams.z;
-    float envSkip = 1.0 + flame.waveParams.y * sum.zLow;
-    unresolvedPower += flame.waveCfParams.w * envSkip * envSkip;
+    // envelope as the tracked high modes (uniform waveParams.envCoeff).
+    float unresolvedPower = sum.unresolvedPower + flame.waveCfParams.skippedPowerPlain;
+    float envSkip = 1.0 + flame.waveParams.envCoeff * sum.zLow;
+    unresolvedPower += flame.waveCfParams.skippedPowerEnv * envSkip * envSkip;
 
     sigmaNoise = sqrt(unresolvedPower);
-     float invScale = flame.waveParams.z;
-    float amp = flame.waveParams.w;
+     float invScale = flame.waveParams.inverseScale;
+    float amp = flame.waveParams.amplitude;
     shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(sum.z * invScale) : 0.4375 + sum.z;
    // Compute uSquared from normalized support radius for erosion boost
     float uSquared;
-    if (flame.emitterParams.x >= 1.5) {
+    if (flame.emitterParams.kind >= 1.5) {
         uSquared = 0.0;
     } else {
         vec3 ps = flameMeanderShifted(p, h);
         float wiggle = flameContourWiggle(ps, h);
         vec2 boundary = flameBoundaryDisplacement(ps.xz);
         float hb = clamp(h / boundary.x, 0.0, 1.0);
-        float taperR = mix(1.0, flame.styleParams1.x, pow(hb, flame.styleParams0.w));
-        float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
-        float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+        float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hb, flame.warpStyle.taperPower));
+        float rm = flame.emitterParams.kind >= 0.5 ? flame.emitterParams.ringMajorRatio : 0.0;
+        float minorScale = flame.emitterParams.kind >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
         float rho = (length(ps.xz) - rm) / minorScale;
         float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
         float u = rn / flameRadialSupportRadius();
@@ -307,16 +307,16 @@ vec2 flameWaveSegmentCarved(
     }
 
     float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
-    float sigmaEff = flame.spreadParams.w * 0.5 * (nodes.sigmaStart + nodes.sigmaEnd) * shapingDerivAvg * abs(flame.noiseAmplitude)
+    float sigmaEff = flame.spreadParams.erosionNoiseGain * 0.5 * (nodes.sigmaStart + nodes.sigmaEnd) * shapingDerivAvg * abs(flame.noiseAmplitude)
         * flameTipCarveLambda(hMid) * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
         * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd))
         * 0.5 * (nodes.remapStart + nodes.remapEnd);
     float slope = (nodes.argumentEnd - nodes.argumentStart) / span;
-    if (flame.unifiedParams.x > 0.5) {
-        float sigmaFloor = flame.unifiedParams.y * flameTipCarveLambda(hMid)
+    if (flame.unifiedParams.enabled > 0.5) {
+        float sigmaFloor = flame.unifiedParams.sigmaFloor * flameTipCarveLambda(hMid)
             * (0.5 * (nodes.densityStart + nodes.densityEnd) / FLAME_EROSION_SHELL_REF)
             * 0.5 * (flameEnvelopeFade(nodes.densityStart) + flameEnvelopeFade(nodes.densityEnd));
-        sigmaFloor *= mix(1.0, 1.0 - flame.spreadParams.y, flameCarveResidualOuterGate(uSquared));
+        sigmaFloor *= mix(1.0, 1.0 - flame.spreadParams.edgeOuterSharpen, flameCarveResidualOuterGate(uSquared));
         sigmaEff = max(sigmaEff, sigmaFloor);
     }
     FlameSmoothedResponse response = flameSmoothErosionResponse(sigmaEff);
@@ -359,10 +359,10 @@ FlameWaveIntegral flameWaveOccupancySegments(
         return acc;
     }
     vec3 sigmaRgb = flame.sigmaT
-        * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
+        * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.sigmaDispersion, 0.0, 1.0));
 
     float eddyTime = flame.noiseScrollSpeed * flame.time;
-    int count = min(int(flame.waveParams.x), FLAME_WAVE_EROSION_SLOTS);
+    int count = min(int(flame.waveParams.trackedCount), FLAME_WAVE_EROSION_SLOTS);
 
     // Streaming node walk: density first, the mode sum only at nodes touching
     // support (empty segments cost no mode evaluation), one node carried
@@ -372,8 +372,8 @@ FlameWaveIntegral flameWaveOccupancySegments(
     // crossing instead of extrapolated from the dead node, so the silhouette
     // edge resolves independently of the segment count and nothing is emitted
     // outside the support the raymarch pair masks to zero.
-    float invScale = flame.waveParams.z;
-    float amp = flame.waveParams.w;
+    float invScale = flame.waveParams.inverseScale;
+    float amp = flame.waveParams.amplitude;
     float previousDensity = flameWaveNodeDensity(o + t0 * d, clamp(o.y + t0 * d.y, 0.0, 1.0));
     float previousArgument = 0.0;
     float previousShapedNoise = 0.4375;
@@ -443,7 +443,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
         float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
         vec3 pMid = o + (segStart + 0.5 * span) * d;
         float uSquared;
-        if (flame.emitterParams.x < 0.5) {
+        if (flame.emitterParams.kind < 0.5) {
             float wb = max(flameContourWiggle(pMid, hMid) * flameBoundaryDisplacement(pMid.xz).y, 1e-4);
             flameRadialDensityFactor(pMid / wb, hMid, uSquared);
         } else {
@@ -463,12 +463,12 @@ FlameWaveIntegral flameWaveOccupancySegments(
             float hMean = clamp(pMean.y, 0.0, 1.0);
             acc.heightMeanNum += emission * hMean;
             float edge = 0.0;
-            if (flame.emitterParams.x < 1.5) {
-                float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
-                float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
-                float taperR = mix(1.0, flame.styleParams1.x, pow(hMean, flame.styleParams0.w));
+            if (flame.emitterParams.kind < 1.5) {
+                float rm = flame.emitterParams.kind >= 0.5 ? flame.emitterParams.ringMajorRatio : 0.0;
+                float minorScale = flame.emitterParams.kind >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+                float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hMean, flame.warpStyle.taperPower));
                 float rhoNorm = abs((length(pMean.xz) - rm) / minorScale) / max(taperR, 1e-4);
-                edge = clamp(flame.colorTip.w * smoothstep(0.6, 1.2, rhoNorm), 0.0, 1.0);
+                edge = clamp(flame.colorTip.edgeTemperatureBlend * smoothstep(0.6, 1.2, rhoNorm), 0.0, 1.0);
             }
             vec3 tau = sigmaRgb * emission;
             vec3 absorbed = vec3(1.0) - exp(-tau);
@@ -493,7 +493,7 @@ FlameWaveIntegral flameWaveOccupancySegments(
 // cylinder like the band path; cylinder and SDF keep the proxy interval
 // (empty segments are gated by the node densities).
 bool flameWaveSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
-    bool ringEmitter = flame.emitterParams.x >= 0.5 && flame.emitterParams.x < 1.5;
+    bool ringEmitter = flame.emitterParams.kind >= 0.5 && flame.emitterParams.kind < 1.5;
     if (ringEmitter) {
         return flameRingSupportSpan(o, d, tNear, tFar);
     }
@@ -517,7 +517,7 @@ vec4 integrateWaveOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {
 
     float heightMean = acc.total > 1e-6 ? acc.heightMeanNum / acc.total : 0.0;
     float tempNorm = clamp(acc.total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
-    float boost = 1.0 + flame.styleParams1.w * tempNorm * tempNorm;
+    float boost = 1.0 + flame.edgeStyle.whiteBoost * tempNorm * tempNorm;
 
     vec3 radiance = acc.radiancePre * flame.intensity * boost;
     return vec4(radiance, 1.0 - dot(acc.transmittance, vec3(1.0 / 3.0)));

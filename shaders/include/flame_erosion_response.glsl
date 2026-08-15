@@ -22,15 +22,15 @@ struct FlameSmoothedResponse {
 };
 
 FlameSmoothedResponse flameSmoothErosionResponse(float sigma) {
-    float kappa = flame.erosionResponse.y;
+    float kappa = flame.erosionResponse.kappa;
     float tauSquared = kappa * sigma * kappa * sigma;
     float r1 = inversesqrt(1.0 + 2.0 * tauSquared);
     float r2 = inversesqrt(1.0 + 0.5 * tauSquared);
     FlameSmoothedResponse response;
-    response.center = flame.erosionResponse.x;
+    response.center = flame.erosionResponse.center;
     response.kappaEff = kappa * r1;
-    response.weight1 = flame.erosionResponse.z * r1 * r1;
-    response.weight2 = flame.erosionResponse.w * r2 * r2;
+    response.weight1 = flame.erosionResponse.weight1 * r1 * r1;
+    response.weight2 = flame.erosionResponse.weight2 * r2 * r2;
     response.kappa2 = 0.5 * kappa * r2;
     return response;
 }

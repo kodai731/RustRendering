@@ -1,6 +1,6 @@
 use crate::flame::*;
 use crate::flame_trail::{FlameTrailSample, FlameTrailState};
-use cgmath::{InnerSpace, Matrix3, Matrix4, Vector3, Vector4};
+use cgmath::{InnerSpace, Matrix3, Matrix4, Vector3};
 use thyllore_color_core::blackbody_rgb;
 use thyllore_math_core::{evaluate_chebyshev, fit_erf_response};
 
@@ -66,16 +66,15 @@ pub fn effective_noise_aniso_y(effect: &FlameEffect) -> f32 {
     }
 }
 
-/// spreadParams: x = medium spread gain alpha (motion_design L3); the reach
-/// shares tipCarveParams.y in the shader. y = edge_outer_sharpen,
-/// z = twist_gain (V design), w = erosion_noise_gain.
-fn build_medium_spread_params(effect: &FlameEffect) -> [f32; 4] {
-    [
-        effect.spread_gain.max(0.0),
-        effect.edge_outer_sharpen,
-        effect.twist.gain,
-        effect.erosion_noise_gain,
-    ]
+/// Medium spread gain alpha (motion_design L3); the reach shares the tip
+/// carve inv_reach in the shader.
+fn build_medium_spread_params(effect: &FlameEffect) -> FlameSpreadParams {
+    FlameSpreadParams {
+        gain: effect.spread_gain.max(0.0),
+        edge_outer_sharpen: effect.edge_outer_sharpen,
+        twist_gain: effect.twist.gain,
+        erosion_noise_gain: effect.erosion_noise_gain,
+    }
 }
 
 /// The twist rate scale: twist speed owns the rate when positive, otherwise
@@ -112,23 +111,22 @@ fn build_meander_modes(effect: &FlameEffect) -> [FlameMeanderMode; 2] {
     })
 }
 
-/// waveCfParams: x = closed-form variant active, y = shear layer count.
-fn build_wave_cf_params() -> [f32; 4] {
+fn build_wave_cf_params() -> FlameWaveCfParams {
     let cf_active = read_env_wave_cf();
-    [
-        if cf_active { 1.0 } else { 0.0 },
-        if cf_active {
+    FlameWaveCfParams {
+        enabled: if cf_active { 1.0 } else { 0.0 },
+        shear_layer_count: if cf_active {
             read_env_wave_cf_layers() as f32
         } else {
             0.0
         },
-        0.0,
-        0.0,
-    ]
+        skipped_power_plain: 0.0,
+        skipped_power_env: 0.0,
+    }
 }
 
 type WaveUboFields = (
-    [f32; 4],
+    FlameWaveShaping,
     [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     [f32; 2],
     [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
@@ -307,19 +305,28 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     }
     jitter[0][3] = crate::flame_wave::read_env_wave_jitter_freq();
     (
-        [tracked as f32, env_coeff, inverse_scale, amplitude],
+        FlameWaveShaping {
+            tracked_count: tracked as f32,
+            env_coeff,
+            inverse_scale,
+            amplitude,
+        },
         packed,
         skipped_power,
         jitter,
     )
 }
 
-/// unifiedParams: x = unified field active, y = relative-window sigma floor
-/// coefficient (beta * |A| * shaped noise std; the shader multiplies by
-/// lambda * D_mid / 0.30 for the local modulation std).
-pub fn build_unified_field_params(effect: &FlameEffect) -> [f32; 4] {
+/// sigma_floor = relative-window floor coefficient (beta * |A| * shaped noise
+/// std; the shader multiplies by lambda * D_mid / 0.30 for the modulation std).
+pub fn build_unified_field_params(effect: &FlameEffect) -> FlameUnifiedParams {
+    let inactive = FlameUnifiedParams {
+        enabled: 0.0,
+        sigma_floor: 0.0,
+        _padding: [0.0; 2],
+    };
     if !read_env_wave_unified() {
-        return [0.0; 4];
+        return inactive;
     }
     let amplitude_ratio = (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
     let std = crate::flame_wave::unified_noise_std(
@@ -330,17 +337,22 @@ pub fn build_unified_field_params(effect: &FlameEffect) -> [f32; 4] {
     );
     let sigma_floor =
         read_env_unified_beta() * effect.noise_amplitude.abs() * std * amplitude_ratio;
-    [1.0, sigma_floor, 0.0, 0.0]
+    FlameUnifiedParams {
+        enabled: 1.0,
+        sigma_floor,
+        _padding: [0.0; 2],
+    }
 }
 
-fn build_profile_params(effect: &FlameEffect, baked: &FlameBaked) -> [f32; 4] {
-    let flag = if baked.radius.is_some() && baked.blend > 0.0 {
-        1.0
-    } else {
-        0.0
+fn build_profile_params(effect: &FlameEffect, baked: &FlameBaked) -> FlameProfileParams {
+    let inactive = FlameProfileParams {
+        radius_active: 0.0,
+        radius_max: 0.0,
+        color_active: 0.0,
+        _padding: 0.0,
     };
-    if flag == 0.0 {
-        return [0.0; 4];
+    if baked.radius.is_none() || baked.blend <= 0.0 {
+        return inactive;
     }
     let series = thyllore_math_core::ChebyshevSeries::new(
         effect
@@ -365,7 +377,12 @@ fn build_profile_params(effect: &FlameEffect, baked: &FlameBaked) -> [f32; 4] {
     } else {
         0.0
     };
-    [flag, max_val.max(0.05), color_flag, 0.0]
+    FlameProfileParams {
+        radius_active: 1.0,
+        radius_max: max_val.max(0.05),
+        color_active: color_flag,
+        _padding: 0.0,
+    }
 }
 
 /// Build the color ramp array for the UBO.
@@ -466,38 +483,41 @@ pub fn build_medium_swirl_modes(
     )
 }
 
-/// [s_base, s_tip, 1/mu_w, 1/K] for the asymptotic warp-strain profile. K is
-/// taken over the combined table the warp map evaluates — the active shear
-/// table plus the medium swirl modes — so the swirl joins the fixed strain
-/// budget: raising swirl_gain thins the carve warp instead of exceeding the
-/// cap.
-pub fn build_warp_strain_params(effect: &FlameEffect) -> [f32; 4] {
+/// Asymptotic warp-strain profile. The strain norm is taken over the combined
+/// table the warp map evaluates — the active shear table plus the medium swirl
+/// modes — so the swirl joins the fixed strain budget: raising the swirl gain
+/// thins the carve warp instead of exceeding the cap.
+pub fn build_warp_strain_params(effect: &FlameEffect) -> FlameWarpStrainParams {
     let warp_modes = crate::flame_wave::generate_wave_warp_modes();
     let mut table = active_shear_table(&warp_modes);
     table.extend_from_slice(&build_medium_swirl_modes(effect, &warp_modes));
-    crate::flame_wave::warp_strain_params(
-        effect.warp_amp,
-        effect.warp_reach,
-        shear_strain_norm(&table),
-    )
+    let [strain_base, strain_tip, inv_reach, inv_strain_norm] =
+        crate::flame_wave::warp_strain_params(
+            effect.warp_amp,
+            effect.warp_reach,
+            shear_strain_norm(&table),
+        );
+    FlameWarpStrainParams {
+        strain_base,
+        strain_tip,
+        inv_reach,
+        inv_strain_norm,
+    }
 }
 
-/// x = 1 for the displacement form, 0 for the sequential composition,
-/// y = burnout_gain (D design: age-driven erosion mean deepening); zw spare.
-fn build_warp_form_params(effect: &FlameEffect) -> [f32; 4] {
-    [
-        if read_env_warp_form_displacement() {
+fn build_warp_form_params(effect: &FlameEffect) -> FlameWarpFormParams {
+    FlameWarpFormParams {
+        displacement_form: if read_env_warp_form_displacement() {
             1.0
         } else {
             0.0
         },
-        effect.burnout_gain,
-        0.0,
-        0.0,
-    ]
+        burnout_gain: effect.burnout_gain,
+        _padding: [0.0; 2],
+    }
 }
 
-fn build_tip_carve_params(effect: &FlameEffect) -> [f32; 4] {
+fn build_tip_carve_params(effect: &FlameEffect) -> FlameTipCarveParams {
     let primitive = thyllore_math_core::ChebyshevSeries::new(
         effect
             .coefficients
@@ -511,12 +531,12 @@ fn build_tip_carve_params(effect: &FlameEffect) -> [f32; 4] {
     let (at_base, at_top) = thyllore_math_core::chebyshev_endpoint_values(&primitive);
     let total = at_top - at_base;
     let inv_total = if total.abs() > 1e-6 { 1.0 / total } else { 0.0 };
-    [
-        effect.tip_carve.depth,
-        1.0 / effect.tip_carve.reach.max(1e-3),
-        at_top,
-        inv_total,
-    ]
+    FlameTipCarveParams {
+        depth: effect.tip_carve.depth,
+        inv_reach: 1.0 / effect.tip_carve.reach.max(1e-3),
+        primitive_top: at_top,
+        inv_primitive_range: inv_total,
+    }
 }
 
 pub fn build_flame_ubo(
@@ -563,91 +583,101 @@ pub fn build_flame_ubo(
         noise_amplitude: effect.noise_amplitude,
         noise_frequency: effect.noise_frequency,
         noise_scroll_speed: effect.noise_scroll_speed,
-        radialSharpness: effect.radial_sharpness,
-        color_base: Vector4::new(
-            color_base[0],
-            color_base[1],
-            color_base[2],
-            effect.occlusion_lum_ref,
-        ),
-        color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
-        color_tip: Vector4::new(
-            color_tip[0],
-            color_tip[1],
-            color_tip[2],
-            effect.edge_temperature_blend,
-        ),
-        temporal_data: Vector4::new(
-            temporal.weight,
-            (temporal.frame_index % 16384) as f32,
-            effective_noise_aniso_y(effect),
-            effect.warp_y_scale,
-        ),
-        light_data: Vector4::new(
-            norm_dir.x,
-            norm_dir.y,
-            norm_dir.z,
-            effect.self_shadow_strength,
-        ),
-        style_params0: [
-            effect.warp_amp,
-            effect.warp_freq,
-            effect.rise_speed,
-            effect.taper_power,
-        ],
-        style_params1: {
-            let (edge_lo, edge_hi) = contrast_scaled_edges(effect);
-            [
-                effect.radius_tip_ratio,
-                edge_lo,
-                edge_hi,
-                effect.white_boost,
-            ]
+        radial_sharpness: effect.radial_sharpness,
+        color_base: FlameColorBase {
+            rgb: color_base,
+            occlusion_lum_ref: effect.occlusion_lum_ref,
         },
-        style_params2: [
-            effect.wind_direction.x,
-            effect.wind_direction.y,
-            effect.bend_amount,
-            effect.bend_power,
-        ],
+        color_mid: FlameColorMid {
+            rgb: color_mid,
+            _padding: 1.0,
+        },
+        color_tip: FlameColorTip {
+            rgb: color_tip,
+            edge_temperature_blend: effect.edge_temperature_blend,
+        },
+        temporal_data: FlameTemporalParams {
+            accum_weight: temporal.weight,
+            frame_index: (temporal.frame_index % 16384) as f32,
+            noise_aniso_y: effective_noise_aniso_y(effect),
+            warp_y_scale: effect.warp_y_scale,
+        },
+        light_data: FlameLightParams {
+            direction: [norm_dir.x, norm_dir.y, norm_dir.z],
+            self_shadow_strength: effect.self_shadow_strength,
+        },
+        warp_style: FlameWarpStyle {
+            warp_amp: effect.warp_amp,
+            warp_freq: effect.warp_freq,
+            rise_speed: effect.rise_speed,
+            taper_power: effect.taper_power,
+        },
+        edge_style: {
+            let (edge_low, edge_high) = contrast_scaled_edges(effect);
+            FlameEdgeStyle {
+                radius_tip_ratio: effect.radius_tip_ratio,
+                edge_low,
+                edge_high,
+                white_boost: effect.white_boost,
+            }
+        },
+        wind_bend: FlameWindBend {
+            wind_direction: [effect.wind_direction.x, effect.wind_direction.y],
+            bend_amount: effect.bend_amount,
+            bend_power: effect.bend_power,
+        },
         trail_unit_inverse: Matrix4::<f32>::from_scale(1.0),
-        trail_meta: Vector4::new(0.0, 0.0, 0.0, 0.0),
+        trail_meta: FlameTrailMeta {
+            sample_count: 0.0,
+            max_age: 0.0,
+            _padding: [0.0; 2],
+        },
         trail_coefficients: [[0.0; 4]; 4],
-        emitter_params: Vector4::new(
-            effect.emitter_kind as f32,
-            if effect.emitter_kind == 1 {
+        emitter_params: FlameEmitterParams {
+            kind: effect.emitter_kind as f32,
+            ring_major_ratio: if effect.emitter_kind == 1 {
                 effect.ring_major_radius / flame_bounding_radius(effect)
             } else {
                 0.0
             },
-            effect.ring_angular_speed,
-            if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
-        ),
-        contour_params: [
-            effect.contour_wiggle_amp,
-            effect.aniso_axis_advect,
-            effect.rte_bands,
-            effect.sigma_dispersion,
-        ],
+            ring_angular_speed: effect.ring_angular_speed,
+            sdf_slab_depth: if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
+        },
+        contour_params: FlameContourParams {
+            wiggle_amp: effect.contour_wiggle_amp,
+            aniso_axis_advect: effect.aniso_axis_advect,
+            rte_bands: effect.rte_bands,
+            sigma_dispersion: effect.sigma_dispersion,
+        },
         erosion_response: {
-            let (elo, ehi) = effective_edge_window(effect);
-            fit_erf_response(elo, ehi).pack()
+            let (edge_low, edge_high) = effective_edge_window(effect);
+            let model = fit_erf_response(edge_low, edge_high);
+            FlameErosionResponse {
+                center: model.center,
+                kappa: model.kappa,
+                weight1: model.gaussian_weights[0],
+                weight2: model.gaussian_weights[1],
+            }
         },
-        wave_cf_params: {
-            let mut params = build_wave_cf_params();
-            params[2] = wave_fields.2[0];
-            params[3] = wave_fields.2[1];
-            params
+        wave_cf_params: FlameWaveCfParams {
+            skipped_power_plain: wave_fields.2[0],
+            skipped_power_env: wave_fields.2[1],
+            ..build_wave_cf_params()
         },
-        boundary_params: [
-            effect.boundary.amp,
-            effect.boundary.freq,
-            effect.boundary.speed,
-            effect.boundary.radius_ratio,
-        ],
+        boundary_params: FlameBoundaryParams {
+            amp: effect.boundary.amp,
+            freq: effect.boundary.freq,
+            speed: effect.boundary.speed,
+            radius_ratio: effect.boundary.radius_ratio,
+        },
         near_fade_params: {
-            let (elo, ehi) = effective_edge_window(effect);
-            [effect.near_fade_radius, effect.carve_residual, elo, ehi]
+            let (edge_low, edge_high) = effective_edge_window(effect);
+            FlameNearFadeParams {
+                radius: effect.near_fade_radius,
+                carve_residual: effect.carve_residual,
+                edge_low,
+                edge_high,
+            }
         },
         radius_coefficients: effect.coefficients.radius_scale,
         color_ramp: build_color_ramp(effect, baked),
@@ -731,21 +761,24 @@ pub fn build_flame_trail_expanded_matrix(
         * Matrix4::from_nonuniform_scale(extension_radius, extension_height, extension_radius)
 }
 
-/// Build trail UBO fields: (trailUnitInverse, trailMeta, trailSamples).
+/// Build trail UBO fields: (trailUnitInverse, trailMeta, trailCoefficients).
 /// trailUnitInverse = inverse of the unit model matrix (without expansion).
 /// For each sample i: localDelta_i = trailUnitInverse.linear_part * (sample.position - effect.position), w = fade weight.
-/// meta = (count as f32, 0.0, 0.0, 0.0).
 /// If count is 0, trailUnitInverse = identity matrix.
 pub fn build_flame_trail_ubo_fields(
     effect: &FlameEffect,
     trail: &FlameTrailState,
-) -> (Matrix4<f32>, Vector4<f32>, [[f32; 4]; 4]) {
+) -> (Matrix4<f32>, FlameTrailMeta, [[f32; 4]; 4]) {
     let count = trail.samples.len();
 
     if count == 0 {
         return (
             Matrix4::<f32>::from_scale(1.0),
-            Vector4::new(0.0, 0.0, 0.0, 0.0),
+            FlameTrailMeta {
+                sample_count: 0.0,
+                max_age: 0.0,
+                _padding: [0.0; 2],
+            },
             [[0.0; 4]; 4],
         );
     }
@@ -886,7 +919,11 @@ pub fn build_flame_trail_ubo_fields(
         coefficients[r] = [sum_x, sum_y, sum_z, 0.0];
     }
 
-    let meta = Vector4::new(count as f32, max_u, 0.0, 0.0);
+    let meta = FlameTrailMeta {
+        sample_count: count as f32,
+        max_age: max_u,
+        _padding: [0.0; 2],
+    };
 
     (trail_unit_inverse, meta, coefficients)
 }
@@ -908,165 +945,212 @@ pub fn build_flame_ubo_with_trail(
         _ => return build_flame_ubo(effect, baked, temporal),
     };
 
-    // Build expanded model matrix
-    let model = build_flame_trail_expanded_matrix(effect, &trail.samples);
     // Expanded matrix is T*S (translation*scale), so inverse is S^-1 * T^-1
+    let model = build_flame_trail_expanded_matrix(effect, &trail.samples);
     let inverse_model =
         Matrix4::from_nonuniform_scale(1.0 / model[0][0], 1.0 / model[1][1], 1.0 / model[2][2])
             * Matrix4::from_translation(-Vector3::new(model[3][0], model[3][1], model[3][2]));
 
-    // Build trail fields
     let (trail_unit_inverse, trail_meta, trail_coefficients) =
         build_flame_trail_ubo_fields(effect, trail);
-
-    // Color computation same as build_flame_ubo
-    let (color_base, color_mid, color_tip) = if effect.use_blackbody {
-        let base = blackbody_rgb(effect.temperature_base_k);
-        let tip = blackbody_rgb(effect.temperature_tip_k);
-        let mid_temp = (effect.temperature_base_k + effect.temperature_tip_k) / 2.0;
-        let mid = blackbody_rgb(mid_temp);
-        (base, mid, tip)
-    } else {
-        let base = effect.color_base;
-        let tip = effect.color_tip;
-        let mid = [
-            (base[0] + tip[0]) / 2.0,
-            (base[1] + tip[1]) / 2.0,
-            (base[2] + tip[2]) / 2.0,
-        ];
-        (base, mid, tip)
-    };
-
-    let radius = flame_bounding_radius(effect).max(MIN_FLAME_EXTENT);
-    let height = effect.height.max(MIN_FLAME_EXTENT);
-    let rel = effect.light_position_world - effect.position;
-    let dir = Vector3::new(rel.x / radius, rel.y / height, rel.z / radius);
-    let norm_dir = if dir.dot(dir) < 1e-6 {
-        Vector3::new(0.0, 1.0, 0.0)
-    } else {
-        dir.normalize()
-    };
-
-    let wave_fields = build_wave_ubo_fields(effect);
     FlameUBO {
         model,
         inverse_model,
-        height_primitive_coefficients: effect.coefficients.height_primitive,
-        radial_coefficients: effect.coefficients.radial,
-        height_coefficients: effect.coefficients.height,
-        time: effect.time,
-        sigma_t: effective_sigma_t(effect),
-        intensity: effect.intensity,
-        height_axis_scale: 1.0,
-        noise_amplitude: effect.noise_amplitude,
-        noise_frequency: effect.noise_frequency,
-        noise_scroll_speed: effect.noise_scroll_speed,
-        radialSharpness: effect.radial_sharpness,
-        color_base: Vector4::new(
-            color_base[0],
-            color_base[1],
-            color_base[2],
-            effect.occlusion_lum_ref,
-        ),
-        color_mid: Vector4::new(color_mid[0], color_mid[1], color_mid[2], 1.0),
-        color_tip: Vector4::new(
-            color_tip[0],
-            color_tip[1],
-            color_tip[2],
-            effect.edge_temperature_blend,
-        ),
-        temporal_data: Vector4::new(
-            temporal.weight,
-            (temporal.frame_index % 16384) as f32,
-            effective_noise_aniso_y(effect),
-            effect.warp_y_scale,
-        ),
-        light_data: Vector4::new(
-            norm_dir.x,
-            norm_dir.y,
-            norm_dir.z,
-            effect.self_shadow_strength,
-        ),
-        style_params0: [
-            effect.warp_amp,
-            effect.warp_freq,
-            effect.rise_speed,
-            effect.taper_power,
-        ],
-        style_params1: {
-            let (edge_lo, edge_hi) = contrast_scaled_edges(effect);
-            [
-                effect.radius_tip_ratio,
-                edge_lo,
-                edge_hi,
-                effect.white_boost,
-            ]
-        },
-        style_params2: [
-            effect.wind_direction.x,
-            effect.wind_direction.y,
-            effect.bend_amount,
-            effect.bend_power,
-        ],
         trail_unit_inverse,
         trail_meta,
         trail_coefficients,
-        emitter_params: Vector4::new(
-            effect.emitter_kind as f32,
-            if effect.emitter_kind == 1 {
-                effect.ring_major_radius / flame_bounding_radius(effect)
-            } else {
-                0.0
-            },
-            effect.ring_angular_speed,
-            if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
-        ),
-        contour_params: [
-            effect.contour_wiggle_amp,
-            effect.aniso_axis_advect,
-            effect.rte_bands,
-            effect.sigma_dispersion,
-        ],
-        erosion_response: {
-            let (elo, ehi) = effective_edge_window(effect);
-            fit_erf_response(elo, ehi).pack()
-        },
-        wave_cf_params: {
-            let mut params = build_wave_cf_params();
-            params[2] = wave_fields.2[0];
-            params[3] = wave_fields.2[1];
-            params
-        },
-        boundary_params: [
-            effect.boundary.amp,
-            effect.boundary.freq,
-            effect.boundary.speed,
-            effect.boundary.radius_ratio,
-        ],
-        near_fade_params: {
-            let (elo, ehi) = effective_edge_window(effect);
-            [effect.near_fade_radius, effect.carve_residual, elo, ehi]
-        },
-        radius_coefficients: effect.coefficients.radius_scale,
-        color_ramp: build_color_ramp(effect, baked),
-        profile_params: build_profile_params(effect, baked),
-        wave_params: wave_fields.0,
-        tip_carve_params: build_tip_carve_params(effect),
-        warp_strain_params: build_warp_strain_params(effect),
-        warp_form_params: build_warp_form_params(effect),
-        unified_params: build_unified_field_params(effect),
-        spread_params: build_medium_spread_params(effect),
-        support_motion: FlameSupportMotion {
-            support_margin: effect.support_margin,
-            meander_amp: effect.meander_amp,
-            swirl_speed: effect.swirl.speed,
-            twist_speed: effect.twist.speed,
-        },
-        twist_field: build_twist_field(effect),
-        meander_modes: build_meander_modes(effect),
-        wave_modes: wave_fields.1,
-        wave_jitter: wave_fields.3,
+        ..build_flame_ubo(effect, baked, temporal)
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameColorBase {
+    pub rgb: [f32; 3],
+    pub occlusion_lum_ref: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameColorMid {
+    pub rgb: [f32; 3],
+    pub _padding: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameColorTip {
+    pub rgb: [f32; 3],
+    pub edge_temperature_blend: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameTemporalParams {
+    pub accum_weight: f32,
+    pub frame_index: f32,
+    pub noise_aniso_y: f32,
+    pub warp_y_scale: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameLightParams {
+    pub direction: [f32; 3],
+    pub self_shadow_strength: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameWarpStyle {
+    pub warp_amp: f32,
+    pub warp_freq: f32,
+    pub rise_speed: f32,
+    pub taper_power: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameEdgeStyle {
+    pub radius_tip_ratio: f32,
+    pub edge_low: f32,
+    pub edge_high: f32,
+    pub white_boost: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameWindBend {
+    pub wind_direction: [f32; 2],
+    pub bend_amount: f32,
+    pub bend_power: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameTrailMeta {
+    pub sample_count: f32,
+    pub max_age: f32,
+    pub _padding: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameEmitterParams {
+    pub kind: f32,
+    pub ring_major_ratio: f32,
+    pub ring_angular_speed: f32,
+    /// Gaussian half-depth of the SDF billboard slab (emitter kind 2).
+    pub sdf_slab_depth: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameContourParams {
+    pub wiggle_amp: f32,
+    pub aniso_axis_advect: f32,
+    pub rte_bands: f32,
+    pub sigma_dispersion: f32,
+}
+
+/// Bridge model of smoothstep(edge_low, edge_high, x): two gaussians around a
+/// center (thyllore_math_core::ErfResponseModel).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameErosionResponse {
+    pub center: f32,
+    pub kappa: f32,
+    pub weight1: f32,
+    pub weight2: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameWaveCfParams {
+    pub enabled: f32,
+    pub shear_layer_count: f32,
+    pub skipped_power_plain: f32,
+    pub skipped_power_env: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameBoundaryParams {
+    pub amp: f32,
+    pub freq: f32,
+    pub speed: f32,
+    pub radius_ratio: f32,
+}
+
+/// Near fade plus the amplitude-scaled effective erosion edge window.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameNearFadeParams {
+    pub radius: f32,
+    pub carve_residual: f32,
+    pub edge_low: f32,
+    pub edge_high: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameProfileParams {
+    pub radius_active: f32,
+    pub radius_max: f32,
+    pub color_active: f32,
+    pub _padding: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameWaveShaping {
+    pub tracked_count: f32,
+    pub env_coeff: f32,
+    pub inverse_scale: f32,
+    pub amplitude: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameTipCarveParams {
+    pub depth: f32,
+    pub inv_reach: f32,
+    pub primitive_top: f32,
+    pub inv_primitive_range: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameWarpStrainParams {
+    pub strain_base: f32,
+    pub strain_tip: f32,
+    pub inv_reach: f32,
+    pub inv_strain_norm: f32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameWarpFormParams {
+    pub displacement_form: f32,
+    pub burnout_gain: f32,
+    pub _padding: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameUnifiedParams {
+    pub enabled: f32,
+    pub sigma_floor: f32,
+    pub _padding: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct FlameSpreadParams {
+    pub gain: f32,
+    pub edge_outer_sharpen: f32,
+    pub twist_gain: f32,
+    pub erosion_noise_gain: f32,
 }
 
 #[repr(C)]
@@ -1121,33 +1205,33 @@ pub struct FlameUBO {
     pub noise_amplitude: f32,
     pub noise_frequency: f32,
     pub noise_scroll_speed: f32,
-    pub radialSharpness: f32,
-    pub color_base: Vector4<f32>,
-    pub color_mid: Vector4<f32>,
-    pub color_tip: Vector4<f32>,
-    pub temporal_data: Vector4<f32>,
-    pub light_data: Vector4<f32>,
-    pub style_params0: [f32; 4],
-    pub style_params1: [f32; 4],
-    pub style_params2: [f32; 4],
+    pub radial_sharpness: f32,
+    pub color_base: FlameColorBase,
+    pub color_mid: FlameColorMid,
+    pub color_tip: FlameColorTip,
+    pub temporal_data: FlameTemporalParams,
+    pub light_data: FlameLightParams,
+    pub warp_style: FlameWarpStyle,
+    pub edge_style: FlameEdgeStyle,
+    pub wind_bend: FlameWindBend,
     pub trail_unit_inverse: Matrix4<f32>,
-    pub trail_meta: Vector4<f32>,
+    pub trail_meta: FlameTrailMeta,
     pub trail_coefficients: [[f32; 4]; 4],
-    pub emitter_params: Vector4<f32>,
-    pub contour_params: [f32; 4],
-    pub erosion_response: [f32; 4],
-    pub wave_cf_params: [f32; 4],
-    pub boundary_params: [f32; 4],
-    pub near_fade_params: [f32; 4],
+    pub emitter_params: FlameEmitterParams,
+    pub contour_params: FlameContourParams,
+    pub erosion_response: FlameErosionResponse,
+    pub wave_cf_params: FlameWaveCfParams,
+    pub boundary_params: FlameBoundaryParams,
+    pub near_fade_params: FlameNearFadeParams,
     pub radius_coefficients: [[f32; 4]; 2],
     pub color_ramp: [[f32; 4]; 8],
-    pub profile_params: [f32; 4],
-    pub wave_params: [f32; 4],
-    pub tip_carve_params: [f32; 4],
-    pub warp_strain_params: [f32; 4],
-    pub warp_form_params: [f32; 4],
-    pub unified_params: [f32; 4],
-    pub spread_params: [f32; 4],
+    pub profile_params: FlameProfileParams,
+    pub wave_params: FlameWaveShaping,
+    pub tip_carve_params: FlameTipCarveParams,
+    pub warp_strain_params: FlameWarpStrainParams,
+    pub warp_form_params: FlameWarpFormParams,
+    pub unified_params: FlameUnifiedParams,
+    pub spread_params: FlameSpreadParams,
     pub support_motion: FlameSupportMotion,
     pub twist_field: FlameTwistField,
     pub meander_modes: [FlameMeanderMode; 2],

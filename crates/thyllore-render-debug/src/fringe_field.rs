@@ -17,16 +17,16 @@ pub struct FieldSample {
 /// Warp parameters for [`flow_warp_with_rate`].
 #[derive(Clone, Copy, Debug)]
 pub struct WarpParams {
-    /// FlameUBO.warp_strain_params [s_base, s_tip, 1/mu_w, 1/K].
+    /// FlameUBO.warp_strain_params [strain_base, strain_tip, inv_reach, inv_strain_norm].
     pub strain_params: [f32; 4],
     pub warp_freq: f32,
     pub advect: [f32; 3],
     pub aniso_axis_advect: f32,
     /// FlameUBO.height_primitive_coefficients, for mu(h).
     pub height_primitive: [[f32; 4]; 3],
-    /// FlameUBO.tip_carve_params zw: [primitive at h=1, 1 / total envelope mass].
+    /// FlameUBO.tip_carve_params [primitive_top, inv_primitive_range].
     pub mu_zw: [f32; 2],
-    /// FlameUBO.warp_form_params.x > 0.5: displacement sum instead of the
+    /// FlameUBO.warp_form_params displacement_form > 0.5: displacement sum instead of the
     /// sequential shear composition.
     pub displacement_form: bool,
 }
