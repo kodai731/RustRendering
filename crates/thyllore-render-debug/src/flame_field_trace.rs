@@ -172,9 +172,9 @@ struct UboCtx<'a> {
 
 impl<'a> UboCtx<'a> {
     fn new(u: &'a FlameUBO, camera_world: [f32; 3]) -> Self {
-        let sp0 = u.style_params0;
-        let sp2 = u.style_params2;
-        let adv_dir = [sp2[0], sp0[2], sp2[1]];
+        let sp0 = u.warp_style;
+        let sp2 = u.wind_bend;
+        let adv_dir = [sp2.wind_direction[0], sp0.rise_speed, sp2.wind_direction[1]];
         let advect = [
             adv_dir[0] * u.time,
             adv_dir[1] * u.time,
@@ -182,10 +182,10 @@ impl<'a> UboCtx<'a> {
         ];
         let mut axis = [0.0, 1.0, 0.0];
         let adv_sq = dot3(adv_dir, adv_dir);
-        if u.contour_params[1] > 0.0 && adv_sq > 1e-8 {
+        if u.contour_params.aniso_axis_advect > 0.0 && adv_sq > 1e-8 {
             let inv = 1.0 / adv_sq.sqrt();
             let n = [adv_dir[0] * inv, adv_dir[1] * inv, adv_dir[2] * inv];
-            let t = u.contour_params[1].clamp(0.0, 1.0);
+            let t = u.contour_params.aniso_axis_advect.clamp(0.0, 1.0);
             let m = [
                 mixf(axis[0], n[0], t),
                 mixf(axis[1], n[1], t),
@@ -200,9 +200,9 @@ impl<'a> UboCtx<'a> {
             1.0
         };
         let erf = ErfResponseModel {
-            center: u.erosion_response[0],
-            kappa: u.erosion_response[1],
-            gaussian_weights: [u.erosion_response[2], u.erosion_response[3]],
+            center: u.erosion_response.center,
+            kappa: u.erosion_response.kappa,
+            gaussian_weights: [u.erosion_response.weight1, u.erosion_response.weight2],
         };
         Self {
             u,
@@ -233,27 +233,22 @@ impl<'a> UboCtx<'a> {
     }
 
     fn bend_offset(&self, h: f32) -> [f32; 2] {
-        let sp2 = self.u.style_params2;
-        let s = sp2[2] * h.powf(sp2[3]);
-        [sp2[0] * s, sp2[1] * s]
+        let sp2 = self.u.wind_bend;
+        let s = sp2.bend_amount * h.powf(sp2.bend_power);
+        [sp2.wind_direction[0] * s, sp2.wind_direction[1] * s]
     }
 
     /// flameMeanderOffsetAt mirror: animated meander displacement of the centerline.
     fn meander_offset(&self, h: f32) -> [f32; 2] {
-        let meander_amp = self.u.support_margin[1];
-        let swirl_speed = self.u.support_margin[2];
-        let omega1 = swirl_speed * 0.75;
-        let omega2 = swirl_speed * 1.15;
-        let kappa1 = 1.2;
-        let kappa2 = 2.1;
-        let phi1 = 0.0;
-        let phi2 = 2.4;
         let t = self.u.time;
-        let m = meander_amp * h;
-        [
-            m * (kappa1 * h - omega1 * t + phi1).sin(),
-            m * (kappa2 * h - omega2 * t + phi2).sin() * 0.8,
-        ]
+        let mut offset = [0.0f32; 2];
+        for mode in &self.u.meander_modes {
+            let wave = (mode.kappa * h - mode.omega * t + mode.phase).sin();
+            offset[0] += wave * mode.direction[0];
+            offset[1] += wave * mode.direction[1];
+        }
+        let amp = self.u.support_motion.meander_amp * h;
+        [amp * offset[0], amp * offset[1]]
     }
 
     /// flameMeanderShifted mirror: p shifted by meander offset at height h.
@@ -295,7 +290,7 @@ impl<'a> UboCtx<'a> {
     /// or the legacy sequential shear composition, with the Jacobian-vector
     /// product on v.
     fn warp_map_jvp(&self, z: &mut [f32; 3], v: &mut [f32; 3], strength: f32) {
-        if self.u.warp_form_params[0] > 0.5 {
+        if self.u.warp_form_params.displacement_form > 0.5 {
             let z0 = *z;
             let v0 = *v;
             let mut displacement = [0.0f32; 3];
@@ -351,26 +346,34 @@ impl<'a> UboCtx<'a> {
 
     /// flameWaveFlowWarpRate: returns (warped point q, rate dq/dt along dir).
     fn flow_warp_rate(&self, pb: [f32; 3], dir: [f32; 3], h: f32) -> ([f32; 3], [f32; 3]) {
-        let sp0 = self.u.style_params0;
+        let sp0 = self.u.warp_style;
         let strength = self.warp_strength(h);
         if strength == 0.0 {
             return (pb, dir);
         }
         let c = self.aniso_compress(pb, 0.35);
         let mut z = [
-            c[0] * sp0[1] - self.advect[0],
-            c[1] * sp0[1] - self.advect[1],
-            c[2] * sp0[1] - self.advect[2],
+            c[0] * sp0.warp_freq - self.advect[0],
+            c[1] * sp0.warp_freq - self.advect[1],
+            c[2] * sp0.warp_freq - self.advect[2],
         ];
         let cv = self.aniso_compress(dir, 0.35);
-        let mut v = [cv[0] * sp0[1], cv[1] * sp0[1], cv[2] * sp0[1]];
+        let mut v = [
+            cv[0] * sp0.warp_freq,
+            cv[1] * sp0.warp_freq,
+            cv[2] * sp0.warp_freq,
+        ];
         self.warp_map_jvp(&mut z, &mut v, strength);
         let q_pre = [
-            z[0] / sp0[1] + self.advect[0] / sp0[1],
-            z[1] / sp0[1] + self.advect[1] / sp0[1],
-            z[2] / sp0[1] + self.advect[2] / sp0[1],
+            z[0] / sp0.warp_freq + self.advect[0] / sp0.warp_freq,
+            z[1] / sp0.warp_freq + self.advect[1] / sp0.warp_freq,
+            z[2] / sp0.warp_freq + self.advect[2] / sp0.warp_freq,
         ];
-        let rate_pre = [v[0] / sp0[1], v[1] / sp0[1], v[2] / sp0[1]];
+        let rate_pre = [
+            v[0] / sp0.warp_freq,
+            v[1] / sp0.warp_freq,
+            v[2] / sp0.warp_freq,
+        ];
         (
             self.aniso_expand(q_pre, 0.35),
             self.aniso_expand(rate_pre, 0.35),
@@ -399,34 +402,34 @@ impl<'a> UboCtx<'a> {
     }
 
     fn contour_wiggle(&self, p: [f32; 3], h: f32) -> f32 {
-        if self.u.contour_params[0] == 0.0 || self.unified() {
+        if self.u.contour_params.wiggle_amp == 0.0 || self.unified() {
             return 1.0;
         }
         let q = [
             p[0] * self.u.noise_frequency,
-            (h - self.u.style_params0[2] * self.u.time) * self.u.noise_frequency,
+            (h - self.u.warp_style.rise_speed * self.u.time) * self.u.noise_frequency,
             p[2] * self.u.noise_frequency,
         ];
-        1.0 + self.u.contour_params[0] * self.detail_noise(q)
+        1.0 + self.u.contour_params.wiggle_amp * self.detail_noise(q)
     }
 
     fn boundary_displacement(&self, x: f32, z: f32) -> [f32; 2] {
         let bp = self.u.boundary_params;
-        if bp[0] == 0.0 || self.unified() {
+        if bp.amp == 0.0 || self.unified() {
             return [1.0, 1.0];
         }
-        let q = [x * bp[1], -bp[2] * self.u.time, z * bp[1]];
+        let q = [x * bp.freq, -bp.speed * self.u.time, z * bp.freq];
         let height_noise = ((fbm3(q) * (2.0 / 0.875) - 1.0) * 3.0).min(1.0);
         let radius_noise =
             (fbm3([q[0] + 13.7, q[1] + 41.3, q[2] + 7.9]) * (2.0 / 0.875) - 1.0) * 3.0;
         [
-            (1.0 + bp[0] * height_noise).max(0.2),
-            (1.0 + bp[0] * bp[3] * radius_noise).max(0.2),
+            (1.0 + bp.amp * height_noise).max(0.2),
+            (1.0 + bp.amp * bp.radius_ratio * radius_noise).max(0.2),
         ]
     }
 
     fn cap_fade(&self, h: f32, bx: f32) -> f32 {
-        if self.u.boundary_params[0] == 0.0 || bx <= 1.0 {
+        if self.u.boundary_params.amp == 0.0 || bx <= 1.0 {
             return 1.0;
         }
         smoothstep(1.0, 2.0 - bx, h)
@@ -441,14 +444,14 @@ impl<'a> UboCtx<'a> {
     }
 
     fn radial_support_radius(&self) -> f32 {
-        self.u.support_margin[0]
-            * (2.0 / self.u.radialSharpness.max(1e-3f32))
+        self.u.support_motion.support_margin
+            * (2.0 / self.u.radial_sharpness.max(1e-3f32))
                 .sqrt()
                 .min(SUPPORT_HEADROOM)
     }
 
     fn radial_radius_scale(&self, hb: f32) -> f32 {
-        if self.u.profile_params[0] > 0.5 {
+        if self.u.profile_params.radius_active > 0.5 {
             SHELL_BASE_RADIUS
                 * cheb8(
                     self.u.radius_coefficients[0],
@@ -460,8 +463,8 @@ impl<'a> UboCtx<'a> {
             SHELL_BASE_RADIUS
                 * mixf(
                     1.0,
-                    self.u.style_params1[0],
-                    hb.powf(self.u.style_params0[3]),
+                    self.u.edge_style.radius_tip_ratio,
+                    hb.powf(self.u.warp_style.taper_power),
                 )
         }
     }
@@ -474,7 +477,7 @@ impl<'a> UboCtx<'a> {
     }
 
     fn near_camera_fade(&self, p_local: [f32; 3]) -> f32 {
-        let radius = self.u.near_fade_params[0];
+        let radius = self.u.near_fade_params.radius;
         if radius <= 0.0 {
             return 1.0;
         }
@@ -488,7 +491,7 @@ impl<'a> UboCtx<'a> {
     }
 
     fn envelope_fade(&self, d_smooth: f32) -> f32 {
-        (d_smooth / self.u.style_params1[2].max(1e-3)).min(1.0)
+        (d_smooth / self.u.edge_style.edge_high.max(1e-3)).min(1.0)
     }
 
     /// flameEnvelopeRemainingMu: the flame's own height scale shared by the
@@ -501,30 +504,46 @@ impl<'a> UboCtx<'a> {
             h,
         );
         let tc = self.u.tip_carve_params;
-        ((tc[2] - primitive) * tc[3]).clamp(0.0, 1.0)
+        ((tc.primitive_top - primitive) * tc.inv_primitive_range).clamp(0.0, 1.0)
     }
 
     fn unified(&self) -> bool {
-        self.u.unified_params[0] > 0.5
+        self.u.unified_params.enabled > 0.5
     }
 
-    fn unified_sigma_floor(&self, h: f32, density: f32) -> f32 {
+    fn unified_sigma_floor(&self, h: f32, density: f32, u_squared: f32) -> f32 {
         if !self.unified() {
             return 0.0;
         }
-        self.u.unified_params[1] * self.tip_carve_lambda(h) * density / EROSION_SHELL_REF
+        let mut sigma_floor =
+            self.u.unified_params.sigma_floor * self.tip_carve_lambda(h) * density
+                / EROSION_SHELL_REF;
+        sigma_floor *= mixf(
+            1.0,
+            1.0 - self.u.spread_params.edge_outer_sharpen,
+            self.flame_carve_residual_outer_gate(u_squared),
+        );
+        sigma_floor
     }
 
     fn tip_carve_lambda(&self, h: f32) -> f32 {
         let tc = self.u.tip_carve_params;
-        1.0 + tc[0] * (-self.envelope_remaining_mu(h) * tc[1]).exp()
+        1.0 + tc.depth * (-self.envelope_remaining_mu(h) * tc.inv_reach).exp()
+    }
+
+    /// Mirror of flameBurnoutBoost (D design): remaining-luminous-fraction
+    /// deepening factor of the deterministic erosion mean shrink.
+    /// warp_form_params.y = burnout gain, tip_carve_params.y = 1/reach.
+    fn burnout_boost(&self, h: f32) -> f32 {
+        self.u.warp_form_params.burnout_gain
+            * (-self.envelope_remaining_mu(h) * self.u.tip_carve_params.inv_reach).exp()
     }
 
     /// Mirror of flameCarveResidualOuterGate in flame_noise_field.glsl:
     /// Hermite smoothstep from inner (pre-expanded support edge in u^2 units) to 1.0.
     /// margin <= 1.0 returns 0.0 (no boost).
     fn flame_carve_residual_outer_gate(&self, u_squared: f32) -> f32 {
-        let margin = self.u.support_margin[0];
+        let margin = self.u.support_motion.support_margin;
         if margin <= 1.0 {
             return 0.0;
         }
@@ -536,7 +555,7 @@ impl<'a> UboCtx<'a> {
     /// flamePlateauCarveReach: erosion boost reach — absolute core-radius reach function.
     /// w = u_squared * margin * margin is core-radius squared; zero inside core, linear increase outside.
     fn flame_plateau_carve_reach(&self, u_squared: f32) -> f32 {
-        let margin = self.u.support_margin[0];
+        let margin = self.u.support_motion.support_margin;
         let w = u_squared * margin * margin;
         (w - 1.0).max(0.0)
     }
@@ -544,19 +563,21 @@ impl<'a> UboCtx<'a> {
     /// flameWarpStrain: asymptotic dimensionless strain of the flow warp.
     fn warp_strain(&self, h: f32) -> f32 {
         let ws = self.u.warp_strain_params;
-        ws[0] + (ws[1] - ws[0]) * (-self.envelope_remaining_mu(h) * ws[2]).exp()
+        ws.strain_base
+            + (ws.strain_tip - ws.strain_base)
+                * (-self.envelope_remaining_mu(h) * ws.inv_reach).exp()
     }
 
     /// flameWarpStrength: strain(h) / K.
     fn warp_strength(&self, h: f32) -> f32 {
-        self.warp_strain(h) * self.u.warp_strain_params[3]
+        self.warp_strain(h) * self.u.warp_strain_params.inv_strain_norm
     }
 
     /// flameMediumSpreadScale mirror: age-coordinate radial contraction of the
     /// noise sampling toward the luminous tip (reach shares the tip carve).
     fn medium_spread_scale(&self, h: f32) -> f32 {
-        let sigma = self.u.spread_params[0]
-            * (-self.envelope_remaining_mu(h) * self.u.tip_carve_params[1]).exp();
+        let sigma = self.u.spread_params.gain
+            * (-self.envelope_remaining_mu(h) * self.u.tip_carve_params.inv_reach).exp();
         (-sigma * h).exp()
     }
 
@@ -567,8 +588,8 @@ impl<'a> UboCtx<'a> {
     /// d(shaped)/dz of the tanh noise shaping, expressed through the shaped
     /// value itself (the chain-rule scale from z units to argument units).
     fn shaping_deriv(&self, shaped: f32) -> f32 {
-        let inv_scale = self.u.wave_params[2];
-        let amp = self.u.wave_params[3];
+        let inv_scale = self.u.wave_params.inverse_scale;
+        let amp = self.u.wave_params.amplitude;
         if inv_scale > 0.0 {
             let tval = (shaped - 0.4375) / amp;
             amp * inv_scale * (1.0 - tval * tval)
@@ -584,8 +605,8 @@ impl<'a> UboCtx<'a> {
     /// the true +-amp swing — the raw origin slope amp*inv_scale does not and
     /// inflates sigma by orders of magnitude (P1b diagnosis, 2026-08-09).
     fn shaping_statistical_gain(&self, sigma_z: f32) -> (f32, f32) {
-        let inv_scale = self.u.wave_params[2];
-        let amp = self.u.wave_params[3];
+        let inv_scale = self.u.wave_params.inverse_scale;
+        let amp = self.u.wave_params.amplitude;
         if inv_scale <= 0.0 {
             return (1.0, 0.0);
         }
@@ -607,7 +628,7 @@ impl<'a> UboCtx<'a> {
     fn node_density(&self, p: [f32; 3], h: f32) -> NodeDensity {
         let wiggle = self.contour_wiggle(p, h);
         let boundary = self.boundary_displacement(p[0], p[2]);
-        let emitter = self.u.emitter_params.x;
+        let emitter = self.u.emitter_params.kind;
         let near_fade = self.near_camera_fade(p);
         if emitter < 0.5 {
             let hb = (h / boundary[0]).clamp(0.0, 1.0);
@@ -629,10 +650,10 @@ impl<'a> UboCtx<'a> {
             let hb = (h / boundary[0]).clamp(0.0, 1.0);
             let taper_r = mixf(
                 1.0,
-                self.u.style_params1[0],
-                hb.powf(self.u.style_params0[3]),
+                self.u.edge_style.radius_tip_ratio,
+                hb.powf(self.u.warp_style.taper_power),
             );
-            let rm = self.u.emitter_params.y;
+            let rm = self.u.emitter_params.ring_major_ratio;
             let minor = (1.0 - rm).max(1e-3);
             let rho = ((p[0] * p[0] + p[2] * p[2]).sqrt() - rm) / minor;
             let rn = rho.abs() / (taper_r * wiggle * boundary[1]).max(1e-4);
@@ -653,27 +674,46 @@ impl<'a> UboCtx<'a> {
         }
     }
 
+    /// flameMediumTwistAngle mirror: node-frozen azimuthal twist of the noise
+    /// coordinate (Lamb-Oseen radial profile x two counter-rotating axial modes).
+    fn twist_angle(&self, r_squared: f32, h: f32) -> f32 {
+        let twist = &self.u.twist_field;
+        let radial = twist.core_radius_sq / (r_squared + twist.core_radius_sq);
+        let t = self.u.time;
+        let wave: f32 = twist
+            .modes
+            .iter()
+            .map(|mode| mode.amp * (mode.kappa * h + mode.omega * t + mode.phase).cos())
+            .sum();
+        self.u.spread_params.twist_gain * radial * h * wave
+    }
+
     /// Warped noise frame shared by the node argument and the segment mode
     /// frame: bent point, warp image, noise coordinate, its rate along the
     /// ray, and the jitter state.
     fn wave_frame(&self, p: [f32; 3], d: [f32; 3], h: f32) -> WaveFrame {
         let bend = self.bend_offset(h);
+        let mut pbu = [p[0] - bend[0], p[1], p[2] - bend[1]];
+        let mut du = d;
+        if self.u.spread_params.twist_gain != 0.0 {
+            let r_squared = pbu[0] * pbu[0] + pbu[2] * pbu[2];
+            let phi = self.twist_angle(r_squared, h);
+            let (sp, cp) = phi.sin_cos();
+            pbu = [cp * pbu[0] - sp * pbu[2], pbu[1], sp * pbu[0] + cp * pbu[2]];
+            du = [cp * d[0] - sp * d[2], d[1], sp * d[0] + cp * d[2]];
+        }
         let spread = self.medium_spread_scale(h);
         let spread_y = 1.0 / (spread * spread);
-        let pb = [
-            (p[0] - bend[0]) * spread,
-            p[1] * spread_y,
-            (p[2] - bend[1]) * spread,
-        ];
-        let ds = [d[0] * spread, d[1] * spread_y, d[2] * spread];
+        let pb = [pbu[0] * spread, pbu[1] * spread_y, pbu[2] * spread];
+        let ds = [du[0] * spread, du[1] * spread_y, du[2] * spread];
         let (q, rate_raw) = self.flow_warp_rate(pb, ds, h);
-        let cw = self.aniso_compress(q, self.u.temporal_data.z);
+        let cw = self.aniso_compress(q, self.u.temporal_data.noise_aniso_y);
         let w = [
             cw[0] * self.u.noise_frequency - self.advect[0],
             cw[1] * self.u.noise_frequency - self.advect[1],
             cw[2] * self.u.noise_frequency - self.advect[2],
         ];
-        let cr = self.aniso_compress(rate_raw, self.u.temporal_data.z);
+        let cr = self.aniso_compress(rate_raw, self.u.temporal_data.noise_aniso_y);
         let rate = [
             cr[0] * self.u.noise_frequency,
             cr[1] * self.u.noise_frequency,
@@ -713,14 +753,14 @@ impl<'a> UboCtx<'a> {
         let ps = self.meander_shifted(p, h);
         let boundary = self.boundary_displacement(ps[0], ps[2]);
         let hb = (h / boundary[0]).clamp(0.0, 1.0);
-        let emitter = self.u.emitter_params.x;
+        let emitter = self.u.emitter_params.kind;
         let u_squared = if emitter < 0.5 {
             // Cylinder: normalized radius squared from radial_factor scale
             let scale = (self.radial_support_radius() * self.radial_radius_scale(hb)).max(1e-4);
             (ps[0] * ps[0] + ps[2] * ps[2]) / (scale * scale)
         } else {
             // Ring: from radial distance normalized by support radius
-            let rm = self.u.emitter_params.y;
+            let rm = self.u.emitter_params.ring_major_ratio;
             let minor = (1.0 - rm).max(1e-3);
             let rho = ((ps[0] * ps[0] + ps[2] * ps[2]).sqrt() - rm) / minor;
             let rn = rho.abs() / (boundary[1]).max(1e-4);
@@ -734,7 +774,7 @@ impl<'a> UboCtx<'a> {
         let mut mode_values = Vec::new();
         let mut mode_weights = Vec::new();
         let record_modes = dt > 0.0;
-        let count = (self.u.wave_params[0] as usize).min(EROSION_SLOTS);
+        let count = (self.u.wave_params.tracked_count as usize).min(EROSION_SLOTS);
         for pass in 0..2 {
             let mut z_acc = 0.0f32;
             for n in 0..count {
@@ -798,13 +838,13 @@ impl<'a> UboCtx<'a> {
             z_low_only += weight * kv[3] * angle.sin();
         }
 
-        let mut unresolved_total = unresolved + self.u.wave_cf_params[2];
-        let env_skip = 1.0 + self.u.wave_params[1] * z_low_only;
-        unresolved_total += self.u.wave_cf_params[3] * env_skip * env_skip;
+        let mut unresolved_total = unresolved + self.u.wave_cf_params.skipped_power_plain;
+        let env_skip = 1.0 + self.u.wave_params.env_coeff * z_low_only;
+        unresolved_total += self.u.wave_cf_params.skipped_power_env * env_skip * env_skip;
 
         let sigma_noise = unresolved_total.sqrt();
-        let inv_scale = self.u.wave_params[2];
-        let amp = self.u.wave_params[3];
+        let inv_scale = self.u.wave_params.inverse_scale;
+        let amp = self.u.wave_params.amplitude;
         let shaped = if inv_scale > 0.0 {
             0.4375 + amp * (z * inv_scale).tanh()
         } else {
@@ -814,9 +854,12 @@ impl<'a> UboCtx<'a> {
         let mu = self.envelope_remaining_mu(h);
         let strain = self.warp_strain(h);
         let erosion = self.u.noise_amplitude
-            * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+            * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + self.burnout_boost(h))
                 + PLATEAU_CARVE_BOOST * self.flame_plateau_carve_reach(u_squared)
-                + lambda * (density / EROSION_SHELL_REF) * (shaped - 0.4375));
+                + self.u.spread_params.erosion_noise_gain
+                    * lambda
+                    * (density / EROSION_SHELL_REF)
+                    * (shaped - 0.4375));
         let argument = self.eroded_argument(density, erosion);
         NodeArgument {
             pb,
@@ -845,7 +888,7 @@ impl<'a> UboCtx<'a> {
     /// realized value would re-imprint the sampling lattice), the non-modal
     /// unresolved std and the total carrier std (both z units).
     fn carrier_amplitudes(&self) -> CarrierAmplitudes {
-        let count = (self.u.wave_params[0] as usize).min(EROSION_SLOTS);
+        let count = (self.u.wave_params.tracked_count as usize).min(EROSION_SLOTS);
 
         let mut low_power = 0.0f32;
         for n in 0..count {
@@ -874,8 +917,10 @@ impl<'a> UboCtx<'a> {
             k_min = 1.0;
         }
 
-        let env_skip_power = 1.0 + self.u.wave_params[1] * self.u.wave_params[1] * low_power;
-        let sigma_base = (self.u.wave_cf_params[2] + self.u.wave_cf_params[3] * env_skip_power)
+        let env_skip_power =
+            1.0 + self.u.wave_params.env_coeff * self.u.wave_params.env_coeff * low_power;
+        let sigma_base = (self.u.wave_cf_params.skipped_power_plain
+            + self.u.wave_cf_params.skipped_power_env * env_skip_power)
             .max(0.0)
             .sqrt();
         let sigma_z = (modal_power + sigma_base * sigma_base).sqrt();
@@ -903,7 +948,7 @@ impl<'a> UboCtx<'a> {
     ) -> CarrierSlowState {
         let frame = self.wave_frame(p, d, h);
         let eddy_time = self.u.noise_scroll_speed * self.u.time;
-        let count = (self.u.wave_params[0] as usize).min(EROSION_SLOTS);
+        let count = (self.u.wave_params.tracked_count as usize).min(EROSION_SLOTS);
 
         let rate_len = dot3(frame.rate, frame.rate).sqrt();
         let omega0 = (carrier.k_min * rate_len).max(1e-3) * 0.5;
@@ -952,8 +997,8 @@ impl<'a> UboCtx<'a> {
     /// `sigma_fast` (both z units). The saturation of the slow swing — the
     /// dominant nonlinearity at production modulation depth — is kept exact.
     fn shaped_delta_mean(&self, u: f32, sigma_fast: f32) -> f32 {
-        let inv_scale = self.u.wave_params[2];
-        let amp = self.u.wave_params[3];
+        let inv_scale = self.u.wave_params.inverse_scale;
+        let amp = self.u.wave_params.amplitude;
         if inv_scale <= 0.0 {
             return u;
         }
@@ -968,7 +1013,7 @@ impl<'a> UboCtx<'a> {
     }
 
     fn ramp_color(&self, h: f32) -> [f32; 3] {
-        if self.u.profile_params[2] > 0.5 {
+        if self.u.profile_params.color_active > 0.5 {
             let u = h.clamp(0.0, 1.0) * 8.0 - 0.5;
             let i0 = (u.floor().clamp(0.0, 7.0)) as usize;
             let i1 = (i0 + 1).min(7);
@@ -979,17 +1024,29 @@ impl<'a> UboCtx<'a> {
         } else if h < 0.5 {
             mix3(
                 [
-                    self.u.color_base.x,
-                    self.u.color_base.y,
-                    self.u.color_base.z,
+                    self.u.color_base.rgb[0],
+                    self.u.color_base.rgb[1],
+                    self.u.color_base.rgb[2],
                 ],
-                [self.u.color_mid.x, self.u.color_mid.y, self.u.color_mid.z],
+                [
+                    self.u.color_mid.rgb[0],
+                    self.u.color_mid.rgb[1],
+                    self.u.color_mid.rgb[2],
+                ],
                 h * 2.0,
             )
         } else {
             mix3(
-                [self.u.color_mid.x, self.u.color_mid.y, self.u.color_mid.z],
-                [self.u.color_tip.x, self.u.color_tip.y, self.u.color_tip.z],
+                [
+                    self.u.color_mid.rgb[0],
+                    self.u.color_mid.rgb[1],
+                    self.u.color_mid.rgb[2],
+                ],
+                [
+                    self.u.color_tip.rgb[0],
+                    self.u.color_tip.rgb[1],
+                    self.u.color_tip.rgb[2],
+                ],
                 (h - 0.5) * 2.0,
             )
         }
@@ -1146,6 +1203,8 @@ struct SegmentEstimate {
     sigma: f32,
     shaping_deriv: f32,
     linear_correction: f32,
+    sigma_eff_raw: f32,
+    sigma_floor: f32,
 }
 
 /// Faddeeva estimator v3 (continuous ray integrator P1b, deep-modulation
@@ -1162,13 +1221,17 @@ fn mean_argument_at(ctx: &UboCtx, o: [f32; 3], d: [f32; 3], t: f32) -> f32 {
     // Compute u_squared (normalized radius squared) for plateau boost.
     let boundary = ctx.boundary_displacement(ps[0], ps[2]);
     let hb = (h / boundary[0]).clamp(0.0, 1.0);
-    let emitter = ctx.u.emitter_params.x;
+    let emitter = ctx.u.emitter_params.kind;
     let u_squared = if emitter < 0.5 {
         let scale = (ctx.radial_support_radius() * ctx.radial_radius_scale(hb)).max(1e-4);
         (ps[0] * ps[0] + ps[2] * ps[2]) / (scale * scale)
     } else if emitter < 1.5 {
-        let taper_r = mixf(1.0, ctx.u.style_params1[0], hb.powf(ctx.u.style_params0[3]));
-        let rm = ctx.u.emitter_params.y;
+        let taper_r = mixf(
+            1.0,
+            ctx.u.edge_style.radius_tip_ratio,
+            hb.powf(ctx.u.warp_style.taper_power),
+        );
+        let rm = ctx.u.emitter_params.ring_major_ratio;
         let minor = (1.0 - rm).max(1e-3);
         let rho = ((ps[0] * ps[0] + ps[2] * ps[2]).sqrt() - rm) / minor;
         let rn = rho.abs() / (taper_r * boundary[1]).max(1e-4);
@@ -1178,7 +1241,7 @@ fn mean_argument_at(ctx: &UboCtx, o: [f32; 3], d: [f32; 3], t: f32) -> f32 {
         0.0
     };
     let mean_erosion = ctx.u.noise_amplitude
-        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + ctx.burnout_boost(h))
             + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared));
     ctx.eroded_argument(density, mean_erosion)
 }
@@ -1212,12 +1275,12 @@ fn argument_with_slow(
     let h = p[1].clamp(0.0, 1.0);
     let boundary = ctx.boundary_displacement(p[0], p[2]);
     let hb = (h / boundary[0]).clamp(0.0, 1.0);
-    let emitter = ctx.u.emitter_params.x;
+    let emitter = ctx.u.emitter_params.kind;
     let u_squared = if emitter < 0.5 {
         let scale = (ctx.radial_support_radius() * ctx.radial_radius_scale(hb)).max(1e-4);
         (p[0] * p[0] + p[2] * p[2]) / (scale * scale)
     } else {
-        let rm = ctx.u.emitter_params.y;
+        let rm = ctx.u.emitter_params.ring_major_ratio;
         let minor = (1.0 - rm).max(1e-3);
         let rho = ((p[0] * p[0] + p[2] * p[2]).sqrt() - rm) / minor;
         let rn = rho.abs() / (boundary[1]).max(1e-4);
@@ -1226,9 +1289,12 @@ fn argument_with_slow(
     };
     let shaped_delta = ctx.shaped_delta_mean(z_slow, sigma_fast);
     let erosion = ctx.u.noise_amplitude
-        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK
+        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + ctx.burnout_boost(h))
             + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared)
-            + ctx.tip_carve_lambda(h) * (density / EROSION_SHELL_REF) * shaped_delta);
+            + ctx.u.spread_params.erosion_noise_gain
+                * ctx.tip_carve_lambda(h)
+                * (density / EROSION_SHELL_REF)
+                * shaped_delta);
     ctx.eroded_argument(density, erosion)
 }
 
@@ -1284,7 +1350,8 @@ fn solve_reference_cutoff(
                     * ctx.tip_carve_lambda(h_star)
                     * (density / EROSION_SHELL_REF)
                     * fade;
-                let sigma_floor = ctx.unified_sigma_floor(h_star, density) * fade;
+                let u_squared = (h_star - 1.0).powi(2);
+                let sigma_floor = ctx.unified_sigma_floor(h_star, density, u_squared) * fade;
                 let sigma_full =
                     folded_sigma_argument(geometry, gain, distortion, carrier, carrier.modal_power)
                         .max(sigma_floor);
@@ -1331,7 +1398,8 @@ fn faddeeva_segment_estimate(
         * ctx.tip_carve_lambda(h_mid)
         * (density_avg / EROSION_SHELL_REF)
         * fade_avg;
-    let sigma_floor = ctx.unified_sigma_floor(h_mid, density_avg) * fade_avg;
+    let u_squared = (h_mid - 1.0).powi(2);
+    let sigma_floor = ctx.unified_sigma_floor(h_mid, density_avg, u_squared) * fade_avg;
 
     let captured_ref =
         0.5 * (state_start.captured_power(alpha_ref) + state_end.captured_power(alpha_ref));
@@ -1357,14 +1425,13 @@ fn faddeeva_segment_estimate(
         sigma_fast,
     );
     let slope = (arg_end - arg_start) / span;
-
     // Segment-local sigma: fold everything the local realized slope cannot
     // resolve. Two fixed-point iterations settle sigma <-> alpha.
     let mut folded = (carrier.modal_power - captured_ref).max(0.0);
     let mut sigma_smooth = 0.0;
     for _ in 0..2 {
-        sigma_smooth =
-            folded_sigma_argument(geometry, gain, distortion, carrier, folded).max(sigma_floor);
+        let sigma_raw = folded_sigma_argument(geometry, gain, distortion, carrier, folded);
+        sigma_smooth = sigma_raw.max(sigma_floor);
         let kappa_eff = smooth_erf_response(&ctx.erf, sigma_smooth).kappa_eff;
         let shell_width = 1.0 / (std::f32::consts::SQRT_2 * kappa_eff);
         let alpha_local = if slope.abs() > 1e-6 {
@@ -1391,6 +1458,8 @@ fn faddeeva_segment_estimate(
         sigma: sigma_smooth,
         shaping_deriv: gain,
         linear_correction: 0.0,
+        sigma_eff_raw: folded_sigma_argument(geometry, gain, distortion, carrier, folded),
+        sigma_floor,
     }
 }
 
@@ -1495,14 +1564,14 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
     let camera_local = transform_point(&inverse_model, view.position);
     let t_max = dot3(camera_local, camera_local).sqrt() + 4.0;
 
-    let wiggle_trim = 1.0 + ctx.u.contour_params[0].max(0.0);
+    let wiggle_trim = 1.0 + ctx.u.contour_params.wiggle_amp.max(0.0);
     let boundary_trim =
-        1.0 + 3.0 * ctx.u.boundary_params[0].abs() * ctx.u.boundary_params[3].max(0.0);
-    let taper_max = ctx.u.style_params1[0].max(1.0);
+        1.0 + 3.0 * ctx.u.boundary_params.amp.abs() * ctx.u.boundary_params.radius_ratio.max(0.0);
+    let taper_max = ctx.u.edge_style.radius_tip_ratio.max(1.0);
     let r_out = SHELL_BASE_RADIUS * SUPPORT_HEADROOM * taper_max * wiggle_trim * boundary_trim;
 
     let sigma_rgb = {
-        let t = ctx.u.contour_params[3].clamp(0.0, 1.0);
+        let t = ctx.u.contour_params.sigma_dispersion.clamp(0.0, 1.0);
         [
             ctx.u.sigma_t * mixf(1.0, 1.0, t),
             ctx.u.sigma_t * mixf(1.0, 1.091, t),
@@ -1577,33 +1646,41 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "intensity": round5(ubo.intensity),
             "height_axis_scale": round5(ubo.height_axis_scale),
             "noise_amplitude": round5(ubo.noise_amplitude),
-            "tip_carve_params": vec_json(&ubo.tip_carve_params),
-            "warp_strain_params": vec_json(&ubo.warp_strain_params),
-            "warp_form_params": vec_json(&ubo.warp_form_params),
+            "tip_carve_params": vec_json(&[ubo.tip_carve_params.depth, ubo.tip_carve_params.inv_reach, ubo.tip_carve_params.primitive_top, ubo.tip_carve_params.inv_primitive_range]),
+            "warp_strain_params": vec_json(&[ubo.warp_strain_params.strain_base, ubo.warp_strain_params.strain_tip, ubo.warp_strain_params.inv_reach, ubo.warp_strain_params.inv_strain_norm]),
+            "warp_form_params": vec_json(&[ubo.warp_form_params.displacement_form, ubo.warp_form_params.burnout_gain]),
             "height_primitive_coefficients": Value::Array(
                 ubo.height_primitive_coefficients.iter().map(|s| vec_json(s)).collect()),
             "noise_frequency": round5(ubo.noise_frequency),
             "noise_scroll_speed": round5(ubo.noise_scroll_speed),
-            "radial_sharpness": round5(ubo.radialSharpness),
-            "style_params0": vec_json(&ubo.style_params0),
-            "style_params1": vec_json(&ubo.style_params1),
-            "style_params2": vec_json(&ubo.style_params2),
-            "temporal_data": vec_json(&[ubo.temporal_data.x, ubo.temporal_data.y, ubo.temporal_data.z, ubo.temporal_data.w]),
-            "light_data": vec_json(&[ubo.light_data.x, ubo.light_data.y, ubo.light_data.z, ubo.light_data.w]),
-            "emitter_params": vec_json(&[ubo.emitter_params.x, ubo.emitter_params.y, ubo.emitter_params.z, ubo.emitter_params.w]),
-            "contour_params": vec_json(&ubo.contour_params),
-            "erosion_response": vec_json(&ubo.erosion_response),
-            "wave_cf_params": vec_json(&ubo.wave_cf_params),
-            "boundary_params": vec_json(&ubo.boundary_params),
-            "near_fade_params": vec_json(&ubo.near_fade_params),
-            "profile_params": vec_json(&ubo.profile_params),
-            "wave_params": vec_json(&ubo.wave_params),
+            "radial_sharpness": round5(ubo.radial_sharpness),
+            "style_params0": vec_json(&[ubo.warp_style.warp_amp, ubo.warp_style.warp_freq, ubo.warp_style.rise_speed, ubo.warp_style.taper_power]),
+            "style_params1": vec_json(&[ubo.edge_style.radius_tip_ratio, ubo.edge_style.edge_low, ubo.edge_style.edge_high, ubo.edge_style.white_boost]),
+            "style_params2": vec_json(&[ubo.wind_bend.wind_direction[0], ubo.wind_bend.wind_direction[1], ubo.wind_bend.bend_amount, ubo.wind_bend.bend_power]),
+            "temporal_data": vec_json(&[ubo.temporal_data.accum_weight, ubo.temporal_data.frame_index, ubo.temporal_data.noise_aniso_y, ubo.temporal_data.warp_y_scale]),
+            "light_data": vec_json(&[ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength]),
+            "emitter_params": vec_json(&[ubo.emitter_params.kind, ubo.emitter_params.ring_major_ratio, ubo.emitter_params.ring_angular_speed, ubo.emitter_params.sdf_slab_depth]),
+            "contour_params": vec_json(&[ubo.contour_params.wiggle_amp, ubo.contour_params.aniso_axis_advect, ubo.contour_params.rte_bands, ubo.contour_params.sigma_dispersion]),
+            "erosion_response": vec_json(&[ubo.erosion_response.center, ubo.erosion_response.kappa, ubo.erosion_response.weight1, ubo.erosion_response.weight2]),
+            "wave_cf_params": vec_json(&[ubo.wave_cf_params.enabled, ubo.wave_cf_params.shear_layer_count, ubo.wave_cf_params.skipped_power_plain, ubo.wave_cf_params.skipped_power_env]),
+            "unified_params": vec_json(&[ubo.unified_params.enabled, ubo.unified_params.sigma_floor]),
+            "spread_params": vec_json(&[ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain]),
+            "support_params": vec_json(&[
+                ubo.support_motion.support_margin,
+                ubo.support_motion.meander_amp,
+                ubo.support_motion.swirl_speed,
+                ubo.support_motion.twist_speed,
+            ]),
+            "boundary_params": vec_json(&[ubo.boundary_params.amp, ubo.boundary_params.freq, ubo.boundary_params.speed, ubo.boundary_params.radius_ratio]),
+            "near_fade_params": vec_json(&[ubo.near_fade_params.radius, ubo.near_fade_params.carve_residual, ubo.near_fade_params.edge_low, ubo.near_fade_params.edge_high]),
+            "profile_params": vec_json(&[ubo.profile_params.radius_active, ubo.profile_params.radius_max, ubo.profile_params.color_active]),
+            "wave_params": vec_json(&[ubo.wave_params.tracked_count, ubo.wave_params.env_coeff, ubo.wave_params.inverse_scale, ubo.wave_params.amplitude]),
             "jitter_kappa_scale": round5(ctx.jitter_scale),
             "advect": vec_json(&ctx.advect),
             "aniso_axis": vec_json(&ctx.aniso_axis),
         },
         "not_replayed": [
-            "temporal history blend (temporal_data.x)",
+            "temporal history blend (temporal_data.accum_weight)",
             "auto exposure / scene composite",
             "proxy raster interval (slab + outer cylinder approximation)",
             "mode 3 IGN jitter",
@@ -1716,7 +1793,7 @@ fn trace_ray(
             .collect(),
         SegmentIntegrator::Legacy => Vec::new(),
     };
-    let residual = ctx.u.near_fade_params[1].clamp(0.0, 1.0);
+    let residual = ctx.u.near_fade_params.carve_residual.clamp(0.0, 1.0);
     let mut total = 0.0f32;
     let mut height_mean_num = 0.0f32;
     let mut radiance_pre = [0.0f32; 3];
@@ -1774,7 +1851,8 @@ fn trace_ray(
             SegmentIntegrator::Legacy => {
                 let shaping_deriv_avg =
                     0.5 * (ctx.shaping_deriv(start_arg.shaped) + ctx.shaping_deriv(end_arg.shaped));
-                let mut sigma_eff = 0.5
+                let sigma_eff_raw = ctx.u.spread_params.erosion_noise_gain
+                    * 0.5
                     * (start_arg.sigma_noise + end_arg.sigma_noise)
                     * shaping_deriv_avg
                     * ctx.u.noise_amplitude.abs()
@@ -1783,9 +1861,11 @@ fn trace_ray(
                     * 0.5
                     * (ctx.envelope_fade(density_start) + ctx.envelope_fade(density_end));
                 let slope = (end_arg.argument - start_arg.argument) / span;
-                sigma_eff = sigma_eff.max(
-                    ctx.unified_sigma_floor(h_mid, 0.5 * (density_start + density_end)) * fade_avg,
-                );
+                let u_squared = (h_mid - 1.0).powi(2);
+                let sigma_floor =
+                    ctx.unified_sigma_floor(h_mid, 0.5 * (density_start + density_end), u_squared)
+                        * fade_avg;
+                let sigma_eff = sigma_eff_raw.max(sigma_floor);
                 let (integral, first_moment) = integrate_erf_response_linear(
                     &ctx.erf,
                     sigma_eff,
@@ -1800,6 +1880,8 @@ fn trace_ray(
                     sigma: sigma_eff,
                     shaping_deriv: shaping_deriv_avg,
                     linear_correction: 0.0,
+                    sigma_eff_raw,
+                    sigma_floor,
                 }
             }
             SegmentIntegrator::Faddeeva => {
@@ -1868,31 +1950,36 @@ fn trace_ray(
         let h_mean = p_mean[1].clamp(0.0, 1.0);
         height_mean_num += emission * h_mean;
         let mut edge = 0.0;
-        if ctx.u.emitter_params.x < 1.5 {
-            let rm = if ctx.u.emitter_params.x >= 0.5 {
-                ctx.u.emitter_params.y
+        if ctx.u.emitter_params.kind < 1.5 {
+            let rm = if ctx.u.emitter_params.kind >= 0.5 {
+                ctx.u.emitter_params.ring_major_ratio
             } else {
                 0.0
             };
-            let minor = if ctx.u.emitter_params.x >= 0.5 {
+            let minor = if ctx.u.emitter_params.kind >= 0.5 {
                 (1.0 - rm).max(1e-3)
             } else {
                 1.0
             };
             let taper_r = mixf(
                 1.0,
-                ctx.u.style_params1[0],
-                h_mean.powf(ctx.u.style_params0[3]),
+                ctx.u.edge_style.radius_tip_ratio,
+                h_mean.powf(ctx.u.warp_style.taper_power),
             );
             let rho_norm = (((p_mean[0] * p_mean[0] + p_mean[2] * p_mean[2]).sqrt() - rm) / minor)
                 .abs()
                 / taper_r.max(1e-4);
-            edge = (ctx.u.color_tip.w * smoothstep(0.6, 1.2, rho_norm)).clamp(0.0, 1.0);
+            edge = (ctx.u.color_tip.edge_temperature_blend * smoothstep(0.6, 1.2, rho_norm))
+                .clamp(0.0, 1.0);
         }
         let ramp = ctx.ramp_color(h_mean);
         let color = mix3(
             ramp,
-            [ctx.u.color_tip.x, ctx.u.color_tip.y, ctx.u.color_tip.z],
+            [
+                ctx.u.color_tip.rgb[0],
+                ctx.u.color_tip.rgb[1],
+                ctx.u.color_tip.rgb[2],
+            ],
             edge,
         );
         let tau = [
@@ -1915,6 +2002,8 @@ fn trace_ray(
             "exiting": exiting,
             "arg_start": round5(start_arg.argument),
             "arg_end": round5(end_arg.argument),
+            "sigma_eff_raw": round5(estimate.sigma_eff_raw),
+            "sigma_floor": round5(estimate.sigma_floor),
             "sigma_eff": round5(estimate.sigma),
             "shaping_deriv_avg": round5(estimate.shaping_deriv),
             "linear_correction": round5(estimate.linear_correction),
@@ -1933,7 +2022,7 @@ fn trace_ray(
         0.0
     };
     let temp_norm = (total * 2.0).clamp(0.0, 1.0) * (1.0 - 0.55 * height_mean);
-    let boost = 1.0 + ctx.u.style_params1[3] * temp_norm * temp_norm;
+    let boost = 1.0 + ctx.u.edge_style.white_boost * temp_norm * temp_norm;
     let mut radiance = [
         radiance_pre[0] * ctx.u.intensity * boost,
         radiance_pre[1] * ctx.u.intensity * boost,
@@ -1944,17 +2033,25 @@ fn trace_ray(
     // Self shadow at the interval midpoint (lightData.w gate).
     let mut self_shadow_tau = 0.0f32;
     let mut self_shadow_factor = 1.0f32;
-    if ctx.u.light_data.w > 0.0 {
+    if ctx.u.light_data.self_shadow_strength > 0.0 {
         let t_mid = 0.5 * (t0 + t1);
         let p_mid = [
             o[0] + t_mid * d[0],
             o[1] + t_mid * d[1],
             o[2] + t_mid * d[2],
         ];
-        let l =
-            Vector3::new(ctx.u.light_data.x, ctx.u.light_data.y, ctx.u.light_data.z).normalize();
+        let l = Vector3::new(
+            ctx.u.light_data.direction[0],
+            ctx.u.light_data.direction[1],
+            ctx.u.light_data.direction[2],
+        )
+        .normalize();
         self_shadow_tau = ctx.self_shadow_tau(p_mid, [l.x, l.y, l.z]);
-        self_shadow_factor = mixf(1.0, (-self_shadow_tau).exp(), ctx.u.light_data.w);
+        self_shadow_factor = mixf(
+            1.0,
+            (-self_shadow_tau).exp(),
+            ctx.u.light_data.self_shadow_strength,
+        );
         for c in &mut radiance {
             *c *= self_shadow_factor;
         }
@@ -1963,7 +2060,7 @@ fn trace_ray(
     let luma = radiance[0] * LUMA_WEIGHTS[0]
         + radiance[1] * LUMA_WEIGHTS[1]
         + radiance[2] * LUMA_WEIGHTS[2];
-    let alpha_final = alpha_rte * smoothstep(0.0, ctx.u.color_base.w, luma);
+    let alpha_final = alpha_rte * smoothstep(0.0, ctx.u.color_base.occlusion_lum_ref, luma);
 
     // Optical front: the t where the accumulated opacity first reaches half
     // of its final value — the slice the RTE composite weights most, i.e.
@@ -2148,6 +2245,71 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// twist_speed = 0 delegates the twist rate to swirl_speed; > 0 owns it.
+    #[test]
+    fn test_twist_speed_delegates_to_swirl_speed_at_zero() {
+        let baked = Default::default();
+        let trail = Default::default();
+        let mut effect = FlameEffect::default();
+        effect.twist.gain = 2.0;
+        effect.time = 1.7;
+
+        effect.swirl.speed = 1.3;
+        effect.twist.speed = 0.0;
+        let ubo_delegate = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let delegate = UboCtx::new(&ubo_delegate, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
+
+        effect.swirl.speed = 0.4;
+        effect.twist.speed = 1.3;
+        let ubo_own = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let own = UboCtx::new(&ubo_own, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
+        assert_eq!(delegate, own, "twist_speed must override the rate exactly");
+
+        effect.twist.speed = 2.6;
+        let ubo_fast = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let fast = UboCtx::new(&ubo_fast, [0.0, 0.5, 3.0]).twist_angle(0.09, 0.6);
+        assert_ne!(
+            delegate, fast,
+            "a different twist_speed must change the angle"
+        );
+    }
+
+    /// Burnout (D design): gain 0 leaves the boost at exactly 0, a positive
+    /// gain deepens the mean shrink toward the luminous top (mu asymptote,
+    /// near-zero at the base), and a larger tip_carve_reach descends deeper.
+    #[test]
+    fn test_burnout_boost_zero_off_and_mu_monotone() {
+        let baked = Default::default();
+        let trail = Default::default();
+        let mut effect = FlameEffect::default();
+        let ubo_off = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let off = UboCtx::new(&ubo_off, [0.0, 0.5, 3.0]);
+        for h in [0.0, 0.5, 1.0] {
+            assert_eq!(off.burnout_boost(h), 0.0);
+        }
+
+        effect.burnout_gain = 2.0;
+        let ubo_on = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let on = UboCtx::new(&ubo_on, [0.0, 0.5, 3.0]);
+        let base = on.burnout_boost(0.0);
+        let mid = on.burnout_boost(0.5);
+        let top = on.burnout_boost(1.0);
+        assert!(base < 0.05, "the base must stay essentially untouched");
+        assert!(
+            top > mid && mid > base,
+            "boost must deepen toward the luminous top"
+        );
+        assert!(top <= effect.burnout_gain);
+
+        effect.tip_carve.reach *= 4.0;
+        let ubo_deep = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let deep = UboCtx::new(&ubo_deep, [0.0, 0.5, 3.0]);
+        assert!(
+            deep.burnout_boost(0.5) > mid,
+            "a larger reach must burn deeper down the column"
+        );
     }
 
     /// The Faddeeva estimator must produce finite, non-trivial emission on

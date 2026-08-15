@@ -704,13 +704,13 @@ pub unsafe fn record_flame_passes(
 
         // Compute per-instance scissor using the model matrix
         let bend_offset = [
-            ubo.style_params2[0] * ubo.style_params2[2],
-            ubo.style_params2[1] * ubo.style_params2[2],
+            ubo.wind_bend.wind_direction[0] * ubo.wind_bend.bend_amount,
+            ubo.wind_bend.wind_direction[1] * ubo.wind_bend.bend_amount,
         ];
         let support_scale = thyllore_effect_core::flame_shell_support_scale(
-            ubo.emitter_params[0] as u32,
-            ubo.emitter_params[1],
-            ubo.support_margin[0],
+            ubo.emitter_params.kind as u32,
+            ubo.emitter_params.ring_major_ratio,
+            ubo.support_motion.support_margin,
         );
         let Some(scissor) = compute_flame_scissor(
             app,
@@ -718,7 +718,7 @@ pub unsafe fn record_flame_passes(
             &model_matrix,
             bend_offset,
             support_scale,
-            ubo.support_margin[0],
+            ubo.support_motion.support_margin,
         ) else {
             continue;
         };

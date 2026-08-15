@@ -150,7 +150,7 @@ fn main() {
         build_unified_erosion_modes(
             WAVE_K_RATIO,
             WAVE_ENV_MU,
-            effect.boundary_amp * thyllore_effect_core::read_env_unified_tilt_gain_b(),
+            effect.boundary.amp * thyllore_effect_core::read_env_unified_tilt_gain_b(),
             effect.contour_wiggle_amp * thyllore_effect_core::read_env_unified_tilt_gain_w(),
         )
     } else {
@@ -255,19 +255,27 @@ fn main() {
 
                 // Flow warp with rate (strain params from the exact UBO packing)
                 let warp_params = WarpParams {
-                    strain_params: ubo.warp_strain_params,
+                    strain_params: [
+                        ubo.warp_strain_params.strain_base,
+                        ubo.warp_strain_params.strain_tip,
+                        ubo.warp_strain_params.inv_reach,
+                        ubo.warp_strain_params.inv_strain_norm,
+                    ],
                     warp_freq: effect.warp_freq,
                     advect,
                     aniso_axis_advect: effect.aniso_axis_advect,
                     height_primitive: ubo.height_primitive_coefficients,
-                    mu_zw: [ubo.tip_carve_params[2], ubo.tip_carve_params[3]],
-                    displacement_form: ubo.warp_form_params[0] > 0.5,
+                    mu_zw: [
+                        ubo.tip_carve_params.primitive_top,
+                        ubo.tip_carve_params.inv_primitive_range,
+                    ],
+                    displacement_form: ubo.warp_form_params.displacement_form > 0.5,
                 };
-                let spread_sigma = ubo.spread_params[0]
+                let spread_sigma = ubo.spread_params.gain
                     * (-thyllore_render_debug::fringe_field::envelope_remaining_mu(
                         &warp_params,
                         h,
-                    ) * ubo.tip_carve_params[1])
+                    ) * ubo.tip_carve_params.inv_reach)
                         .exp();
                 let spread = (-spread_sigma * h).exp();
                 let spread_y = 1.0 / (spread * spread);

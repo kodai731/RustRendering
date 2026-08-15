@@ -30,6 +30,11 @@ pub struct SceneOverlayState {
     pub texture_fit_browser_show_hidden: bool,
     pub texture_fit_path_validated: String,
     pub texture_fit_path_info: String,
+    pub flame_style_index: usize,
+    pub flame_style_scan: Vec<String>,
+    pub flame_style_scan_done: bool,
+    pub flame_style_groups: [bool; 3],
+    pub flame_style_save_name: String,
     #[cfg(feature = "auto-rig")]
     pub open_text_to_mesh_dialog: bool,
     #[cfg(feature = "auto-rig")]
@@ -657,7 +662,17 @@ fn build_flame_section(
             ui.slider("Fit Blend", 0.0, 1.0, &mut overlay_state.texture_fit_blend);
             ui.checkbox("Silhouette", &mut overlay_state.texture_fit_groups[0]);
             ui.checkbox("Color", &mut overlay_state.texture_fit_groups[1]);
-            ui.checkbox("Turbulence", &mut overlay_state.texture_fit_groups[2]);
+            {
+                let _disabled = ui.begin_disabled(overlay_state.texture_fit_profile);
+                ui.checkbox("Turbulence", &mut overlay_state.texture_fit_groups[2]);
+            }
+            if overlay_state.texture_fit_profile && ui.is_item_hovered() {
+                ui.tooltip_text(
+                    "Ignored in profile (reproduction) mode: the turbulence \
+                     estimate is far below the calibrated pattern amplitude \
+                     and would crush the noise",
+                );
+            }
             ui.checkbox("Tilt", &mut overlay_state.texture_fit_groups[3]);
 
             // Fidelity radio button
@@ -697,6 +712,97 @@ fn build_flame_section(
                     });
                     effect_applied_this_frame = true;
                 }
+            }
+
+            ui.separator();
+            ui.text("Style");
+
+            if !overlay_state.flame_style_scan_done {
+                let scan_dir = std::path::Path::new(crate::paths::FLAMES_STYLE_DIR);
+                if let Ok(entries) = std::fs::read_dir(scan_dir) {
+                    for entry in entries.flatten() {
+                        if let Some(name) = entry.file_name().to_str() {
+                            if name.ends_with(".style.ron") {
+                                overlay_state.flame_style_scan.push(name.to_string());
+                            }
+                        }
+                    }
+                    overlay_state.flame_style_scan.sort();
+                }
+                overlay_state.flame_style_scan_done = true;
+            }
+
+            if overlay_state.flame_style_scan.is_empty() {
+                ui.text_disabled(format!("no styles in {}", crate::paths::FLAMES_STYLE_DIR));
+            } else {
+                let mut style_index = overlay_state
+                    .flame_style_index
+                    .min(overlay_state.flame_style_scan.len() - 1);
+                ui.combo_simple_string(
+                    "Style File",
+                    &mut style_index,
+                    &overlay_state.flame_style_scan,
+                );
+                overlay_state.flame_style_index = style_index;
+            }
+            ui.same_line();
+            if ui.small_button("Rescan##style") {
+                overlay_state.flame_style_scan_done = false;
+                overlay_state.flame_style_scan.clear();
+            }
+
+            ui.checkbox("Motion##style", &mut overlay_state.flame_style_groups[0]);
+            ui.same_line();
+            ui.checkbox("Texture##style", &mut overlay_state.flame_style_groups[1]);
+            ui.same_line();
+            ui.checkbox("Optics##style", &mut overlay_state.flame_style_groups[2]);
+
+            if ui.button("Apply Style") {
+                if let Some(name) = overlay_state
+                    .flame_style_scan
+                    .get(overlay_state.flame_style_index)
+                {
+                    if selected_flame_entity.is_some() {
+                        ui_events.send(UIEvent::ApplyFlameStyle {
+                            path: format!("{}/{}", crate::paths::FLAMES_STYLE_DIR, name),
+                            groups: overlay_state.flame_style_groups,
+                        });
+                        effect_applied_this_frame = true;
+                    }
+                }
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text(
+                    "Apply the selected style file's parameters (Style-owned only, \
+                     dimensionless: lengths scale with the flame's radius, opacity \
+                     via tau0). Fields the style leaves unset keep their current \
+                     values",
+                );
+            }
+            if let Some(selected_flame) = selected_flame_entity {
+                if let Some(applied) = ecs_world
+                    .get_component::<crate::ecs::component::AppliedFlameStyle>(selected_flame)
+                {
+                    ui.same_line();
+                    ui.text_disabled(format!("applied: {} v{}", applied.name, applied.version));
+                }
+            }
+
+            ui.input_text("Save As##style", &mut overlay_state.flame_style_save_name)
+                .build();
+            ui.same_line();
+            if ui.small_button("Save Style") {
+                let name = overlay_state.flame_style_save_name.trim().to_string();
+                if !name.is_empty() && selected_flame_entity.is_some() {
+                    ui_events.send(UIEvent::SaveFlameStyle { name });
+                }
+            }
+            if ui.is_item_hovered() {
+                ui.tooltip_text(
+                    "Save the selected flame's current look as \
+                     assets/flames/styles/<name>.style.ron (all Style-owned \
+                     parameters, lengths over r0, opacity as tau0)",
+                );
             }
 
             if let Some(selected_flame) = selected_flame_entity {
@@ -753,6 +859,17 @@ fn build_flame_section(
                         });
                     }
 
+                    ui.slider_config("Optical Depth", 0.0, 16.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.optical_depth);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Line-of-sight optical thickness tau0 = sigma_t * radius: > 0 \
+                             derives sigma_t as tau0 / radius so resizing the flame keeps \
+                             its opacity (0 = use the raw sigma_t channel directly)",
+                        );
+                    }
+
                     ui.slider_config("Intensity", 0.0, 10.0)
                         .build(&mut effect_copy.intensity);
                     ui.same_line();
@@ -786,11 +903,99 @@ fn build_flame_section(
 
                     ui.slider_config("Swirl", 0.0, 1.5)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.swirl_gain);
+                        .build(&mut effect_copy.swirl.gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Medium swirl share: strain budget spent on azimuthal shear \
                              (0 = off; raising it thins the carve warp)",
+                        );
+                    }
+
+                    let mut noise_sharpness =
+                        thyllore_effect_core::shaping_scale_to_noise_sharpness(
+                            effect_copy.noise_shaping_scale,
+                        );
+                    if ui
+                        .slider_config("Noise Sharpness", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut noise_sharpness)
+                    {
+                        effect_copy.noise_shaping_scale =
+                            thyllore_effect_core::noise_sharpness_to_shaping_scale(noise_sharpness);
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Crispness of the noise pattern: log remap of the tanh shaping \
+                             scale, harder edges to the right (small scale saturates the \
+                             tanh into near-binary blobs; ~0.78 = scale 0.25, the measured \
+                             perceptual sweet spot). Stateless — noise_shaping_scale stays \
+                             the source of truth (0 = built-in 0.6)",
+                        );
+                    }
+
+                    let mut vortex = (effect_copy.twist.gain
+                        / thyllore_effect_core::VORTEX_MACRO_MAX_GAIN)
+                        .clamp(0.0, 1.0);
+                    if ui
+                        .slider_config("Vortex", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut vortex)
+                    {
+                        let (gain, speed) = thyllore_effect_core::vortex_macro_parameters(vortex);
+                        effect_copy.twist.gain = gain;
+                        effect_copy.twist.speed = speed;
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Vortex macro: one knob writing both twist parameters along a \
+                             faster-and-deeper curve (stateless; the fine sliders below \
+                             stay the source of truth)",
+                        );
+                    }
+
+                    ui.slider_config("Twist", 0.0, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.twist.gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Azimuthal twist of the noise pattern around the axis \
+                             (radians at the tip; a rotation never folds, so any \
+                             amplitude is structurally safe; 0 = off)",
+                        );
+                    }
+
+                    ui.slider_config("Twist Speed", 0.0, 4.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.twist.speed);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Twist rotation rate scale (0 = follow Swirl Speed; > 0 gives \
+                             the twist its own rate so depth and speed tune independently)",
+                        );
+                    }
+
+                    ui.slider_config("Burnout", 0.0, 32.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.burnout_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Age-driven burnout of the rising material: deepens the erosion \
+                             mean toward the flame top so noise troughs sever the column \
+                             (base shedding) and detached tongues dissolve (0 = off; \
+                             the range above ~8 is debug headroom for making the severing \
+                             obvious, pair with Carve Residual 0)",
+                        );
+                    }
+
+                    ui.slider_config("Carve Residual", 0.0, 0.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.carve_residual);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Translucent floor left where the noise carves the medium away. \
+                             0 = fully carved spans become hard holes — the severing moment \
+                             of Burnout is only visible near 0 (debug); the product look \
+                             keeps ~0.12",
                         );
                     }
 
@@ -803,7 +1008,7 @@ fn build_flame_section(
 
                     ui.slider_config("Swirl Speed", 0.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.swirl_speed);
+                        .build(&mut effect_copy.swirl.speed);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "How fast the swirl layers counter-rotate against the rise \

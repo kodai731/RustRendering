@@ -286,6 +286,11 @@ fn handle_redraw_requested(
         texture_fit_browser_show_hidden: model_state.texture_fit_browser_show_hidden,
         texture_fit_path_validated: model_state.texture_fit_path_validated.clone(),
         texture_fit_path_info: model_state.texture_fit_path_info.clone(),
+        flame_style_index: model_state.flame_style_index,
+        flame_style_scan: model_state.flame_style_scan.clone(),
+        flame_style_scan_done: model_state.flame_style_scan_done,
+        flame_style_groups: model_state.flame_style_groups,
+        flame_style_save_name: model_state.flame_style_save_name.clone(),
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
         #[cfg(feature = "auto-rig")]
@@ -334,6 +339,16 @@ fn handle_redraw_requested(
         .texture_fit_scan = overlay_state.texture_fit_scan;
     app.resource_mut::<crate::ecs::ModelState>()
         .texture_fit_scan_done = overlay_state.texture_fit_scan_done;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_index = overlay_state.flame_style_index;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_scan = overlay_state.flame_style_scan;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_scan_done = overlay_state.flame_style_scan_done;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_groups = overlay_state.flame_style_groups;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_save_name = overlay_state.flame_style_save_name;
 
     #[cfg(debug_assertions)]
     {

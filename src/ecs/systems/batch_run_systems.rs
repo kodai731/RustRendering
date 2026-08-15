@@ -36,11 +36,15 @@ const BATCH_FLAME_PRESET_FLAG: &str = "--batch-flame-preset";
 const BATCH_FLAME_MOTION_FLAG: &str = "--batch-flame-motion";
 const BATCH_FLAME_SDF_FLAG: &str = "--batch-flame-sdf";
 const BATCH_FLAME_SET_FLAG: &str = "--batch-flame-set";
+const BATCH_FLAME_STYLE_FLAG: &str = "--batch-flame-style";
+const BATCH_FLAME_STYLE_DUMP_FLAG: &str = "--batch-flame-style-dump";
 const BATCH_FLAME_TEXTURE_FLAG: &str = "--batch-flame-texture";
 const BATCH_HEAT_PLUME_FLAG: &str = "--batch-heat-plume";
 const BATCH_PICK_FLAG: &str = "--batch-pick";
 const BATCH_ANIM_EDIT_FLAG: &str = "--batch-anim-edit";
 const BATCH_ANIM_DUMP_FLAG: &str = "--batch-anim-dump";
+const BATCH_FLAME_TRACE_FLAG: &str = "--batch-flame-trace";
+const BATCH_WALL_PROBE_FLAG: &str = "--batch-wall-probe";
 const BATCH_DEBUG_ACTION_FLAG: &str = "--batch-debug-action";
 pub const BATCH_LIST_DEBUG_ACTIONS_FLAG: &str = "--batch-list-debug-actions";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
@@ -71,14 +75,17 @@ pub struct EngineCliOverrides {
     pub pick_pixel: Option<(u32, u32)>,
     pub flame_bone: Option<String>,
     pub flame_texture_fit: Option<(String, f32, bool)>,
+    pub flame_style: Option<(String, thyllore_effect_core::StyleGroups)>,
+    pub flame_style_dump: Option<String>,
     pub heat_plume: Option<(f32, f32)>,
     pub batch_play: bool,
     pub scene_path: Option<String>,
     pub anim_edits: Vec<BatchAnimEdit>,
     pub anim_dump_path: Option<String>,
     pub debug_actions: Vec<BatchDebugAction>,
+    pub flame_trace_path: Option<String>,
+    pub wall_probe_path: Option<String>,
 }
-
 #[derive(Clone, Debug, PartialEq)]
 pub enum BatchAnimEdit {
     DebugKeys {
@@ -143,12 +150,16 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         pick_pixel: pick_pixel_resolve_from_args(args)?,
         flame_sdf: flame_sdf_resolve_from_args(args)?,
         flame_texture_fit: flame_texture_fit_resolve_from_args(args)?,
+        flame_style: flame_style_resolve_from_args(args)?,
+        flame_style_dump: flag_value_resolve_from_args(args, BATCH_FLAME_STYLE_DUMP_FLAG)?,
         heat_plume: heat_plume_resolve_from_args(args)?,
         batch_play: args.iter().any(|a| a == "--batch-play"),
         scene_path: scene_path_resolve_from_args(args)?,
         anim_edits: anim_edits_resolve_from_args(args)?,
         anim_dump_path: flag_value_resolve_from_args(args, BATCH_ANIM_DUMP_FLAG)?,
         debug_actions: debug_actions_resolve_from_args(args)?,
+        flame_trace_path: flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?,
+        wall_probe_path: flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?,
     })
 }
 
@@ -248,6 +259,10 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
         batch.stride = stride;
         batch.sequence_dir = Some(PathBuf::from(dir));
         batch.total_count = count;
+        batch.flame_trace_path =
+            flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
+        batch.wall_probe_path =
+            flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?.map(PathBuf::from);
         Ok(Some(batch))
     } else {
         // Single-shot mode (existing behavior)
@@ -285,6 +300,10 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
 
         let mut batch = BatchRun::new(output, screenshot_frame, flame_set);
         batch.dump_wall_probe = dump_wall_probe;
+        batch.flame_trace_path =
+            flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
+        batch.wall_probe_path =
+            flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?.map(PathBuf::from);
         Ok(Some(batch))
     }
 }
@@ -444,6 +463,14 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "boundary_freq",
     "boundary_speed",
     "boundary_radius_ratio",
+    "edge_outer_sharpen",
+    "noise_scale_mode",
+    "erosion_noise_gain",
+    "twist_gain",
+    "twist_speed",
+    "burnout_gain",
+    "noise_shaping_scale",
+    "optical_depth",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -504,6 +531,96 @@ fn flame_preset_resolve_from_args(args: &[String]) -> Result<Option<String>> {
         );
     }
     Ok(Some(value.clone()))
+}
+
+fn flame_style_resolve_from_args(
+    args: &[String],
+) -> Result<Option<(String, thyllore_effect_core::StyleGroups)>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_FLAME_STYLE_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1).filter(|v| !v.starts_with("--")) else {
+        bail!("{BATCH_FLAME_STYLE_FLAG} requires <path>[,motion][,texture][,optics]");
+    };
+
+    let mut parts = value.split(',');
+    let path = parts.next().unwrap_or_default().trim().to_string();
+    if path.is_empty() {
+        bail!("{BATCH_FLAME_STYLE_FLAG} requires a non-empty path");
+    }
+
+    let group_names: Vec<&str> = parts.map(str::trim).collect();
+    if group_names.is_empty() {
+        return Ok(Some((path, thyllore_effect_core::StyleGroups::default())));
+    }
+    let mut groups = thyllore_effect_core::StyleGroups {
+        motion: false,
+        texture: false,
+        optics: false,
+    };
+    for name in group_names {
+        match name {
+            "motion" => groups.motion = true,
+            "texture" => groups.texture = true,
+            "optics" => groups.optics = true,
+            other => bail!(
+                "unknown {BATCH_FLAME_STYLE_FLAG} group '{}'. Valid groups: motion, texture, optics",
+                other
+            ),
+        }
+    }
+    Ok(Some((path, groups)))
+}
+
+pub fn load_flame_style_from_path(path: &str) -> Option<thyllore_effect_core::FlameStyle> {
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("warning: failed to read flame style '{}': {}", path, e);
+            return None;
+        }
+    };
+    match ron::from_str(&content) {
+        Ok(style) => Some(style),
+        Err(e) => {
+            eprintln!("warning: failed to parse flame style '{}': {}", path, e);
+            None
+        }
+    }
+}
+
+pub fn apply_flame_style_from_path(
+    effect: &mut FlameEffect,
+    path: &str,
+    groups: thyllore_effect_core::StyleGroups,
+) -> Option<thyllore_effect_core::FlameStyle> {
+    let style = load_flame_style_from_path(path)?;
+    thyllore_effect_core::apply_flame_style(effect, &style, groups);
+    Some(style)
+}
+
+pub fn dump_flame_style_to_path(effect: &FlameEffect, path: &str) {
+    let name = std::path::Path::new(path)
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("style")
+        .trim_end_matches(".style.ron")
+        .trim_end_matches(".ron")
+        .to_string();
+    let style = thyllore_effect_core::flame_style_from_effect(effect, &name);
+    let content = match ron::ser::to_string_pretty(&style, ron::ser::PrettyConfig::default()) {
+        Ok(content) => content,
+        Err(e) => {
+            eprintln!("warning: failed to serialize flame style: {}", e);
+            return;
+        }
+    };
+    if let Some(parent) = std::path::Path::new(path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(e) = std::fs::write(path, content) {
+        eprintln!("warning: failed to write flame style '{}': {}", path, e);
+    }
 }
 
 fn flame_texture_fit_resolve_from_args(args: &[String]) -> Result<Option<(String, f32, bool)>> {
@@ -816,20 +933,28 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "rte_bands" => effect.rte_bands = *value,
             "sigma_dispersion" => effect.sigma_dispersion = *value,
             "edge_temperature_blend" => effect.edge_temperature_blend = *value,
-            "boundary_amp" => effect.boundary_amp = *value,
+            "boundary_amp" => effect.boundary.amp = *value,
             "near_fade_radius" => effect.near_fade_radius = *value,
             "carve_residual" => effect.carve_residual = *value,
-            "tip_carve_depth" => effect.tip_carve_depth = *value,
-            "tip_carve_reach" => effect.tip_carve_reach = *value,
+            "tip_carve_depth" => effect.tip_carve.depth = *value,
+            "tip_carve_reach" => effect.tip_carve.reach = *value,
             "warp_reach" => effect.warp_reach = *value,
-            "swirl_gain" => effect.swirl_gain = *value,
-            "swirl_speed" => effect.swirl_speed = *value,
+            "swirl_gain" => effect.swirl.gain = *value,
+            "swirl_speed" => effect.swirl.speed = *value,
             "support_margin" => effect.support_margin = *value,
             "spread_gain" => effect.spread_gain = *value,
             "meander_amp" => effect.meander_amp = *value,
-            "boundary_freq" => effect.boundary_freq = *value,
-            "boundary_speed" => effect.boundary_speed = *value,
-            "boundary_radius_ratio" => effect.boundary_radius_ratio = *value,
+            "boundary_freq" => effect.boundary.freq = *value,
+            "boundary_speed" => effect.boundary.speed = *value,
+            "boundary_radius_ratio" => effect.boundary.radius_ratio = *value,
+            "edge_outer_sharpen" => effect.edge_outer_sharpen = *value,
+            "noise_scale_mode" => effect.noise_scale_mode = *value,
+            "erosion_noise_gain" => effect.erosion_noise_gain = *value,
+            "twist_gain" => effect.twist.gain = *value,
+            "twist_speed" => effect.twist.speed = *value,
+            "burnout_gain" => effect.burnout_gain = *value,
+            "noise_shaping_scale" => effect.noise_shaping_scale = *value,
+            "optical_depth" => effect.optical_depth = *value,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }
@@ -959,7 +1084,94 @@ pub fn batch_run_record_screenshot(world: &World, save_result: Result<String, St
 
     // Single-shot mode (existing behavior)
     let result = save_result.and_then(|saved| move_screenshot_to_output(&saved, &batch.output));
+
+    // Flame trace / wall probe dumps: if paths are set, dump synchronously
+    // at the same frame/time as the screenshot.
+    let flame_trace_path = batch.flame_trace_path.clone();
+    let wall_probe_path = batch.wall_probe_path.clone();
+    if flame_trace_path.is_some() || wall_probe_path.is_some() {
+        crate::ecs::systems::batch_run_flame_dump(
+            world,
+            flame_trace_path.as_deref(),
+            wall_probe_path.as_deref(),
+        );
+    }
+
     batch.state = BatchRunState::Completed { result };
+}
+
+pub fn batch_run_flame_dump(
+    world: &World,
+    flame_trace_path: Option<&std::path::Path>,
+    wall_probe_path: Option<&std::path::Path>,
+) {
+    use crate::ecs::systems::camera_systems::{
+        compute_camera_direction, compute_camera_position, compute_camera_right, compute_camera_up,
+    };
+
+    let camera = (*world.resource::<crate::ecs::resource::Camera>()).clone();
+    let settings = world
+        .get_resource::<crate::ecs::resource::FlameRenderSettings>()
+        .map(|s| *s)
+        .unwrap_or_default();
+    let view = thyllore_effect_core::WallProbeView {
+        position: compute_camera_position(&camera).into(),
+        forward: compute_camera_direction(&camera).into(),
+        right: compute_camera_right(&camera).into(),
+        up: compute_camera_up(&camera).into(),
+        fov_y_radians: camera.fov_y.0.to_radians(),
+        viewport_size_px: [1680.0, 840.0],
+    };
+
+    let flames: Vec<_> = world
+        .query_flames()
+        .into_iter()
+        .filter_map(|entity| {
+            let effect = world.get_component::<crate::ecs::component::FlameEffect>(entity)?;
+            let baked = world
+                .get_component::<crate::ecs::component::FlameBaked>(entity)
+                .cloned()
+                .unwrap_or_default();
+            let temporal = world
+                .get_component::<crate::ecs::component::FlameTemporalAccum>(entity)
+                .cloned()
+                .unwrap_or_default();
+            let report = thyllore_effect_core::probe_flame_wall(&effect, &baked, &view);
+            Some((effect.clone(), baked, temporal, report))
+        })
+        .collect();
+    if flames.is_empty() {
+        log_warn!("batch flame dump skipped: no flame entity");
+        return;
+    }
+
+    if let Some(path) = wall_probe_path {
+        match crate::ecs::systems::flame_dump_systems::write_flame_wall_probe_dump(
+            &camera,
+            &settings,
+            [1680.0, 840.0],
+            &flames,
+            Some(path),
+        ) {
+            Ok(p) => log!("wall probe dumped to {}", p.display()),
+            Err(e) => log_warn!("wall probe dump failed: {}", e),
+        }
+    }
+
+    if let Some(path) = flame_trace_path {
+        match crate::ecs::systems::flame_dump_systems::write_flame_field_traces(
+            &view,
+            &flames,
+            Some(path),
+        ) {
+            Ok(paths) => {
+                for p in paths {
+                    log!("flame field trace dumped to {}", p.display());
+                }
+            }
+            Err(e) => log_warn!("flame field trace dump failed: {}", e),
+        }
+    }
 }
 
 fn move_screenshot_to_output(saved: &str, output: &Path) -> Result<String, String> {
@@ -2234,6 +2446,78 @@ mod tests {
         let (ok, line) = batch_run_report(&batch);
         assert!(!ok);
         assert!(line.contains("before screenshot completed"));
+    }
+
+    #[test]
+    fn flame_style_path_only_defaults_to_all_groups() {
+        let args: Vec<String> = vec![
+            "--batch-flame-style".into(),
+            "assets/flames/styles/pillar.style.ron".into(),
+        ];
+        let (path, groups) = flame_style_resolve_from_args(&args).unwrap().unwrap();
+        assert_eq!(path, "assets/flames/styles/pillar.style.ron");
+        assert_eq!(groups, thyllore_effect_core::StyleGroups::default());
+    }
+
+    #[test]
+    fn flame_style_group_subset() {
+        let args: Vec<String> = vec!["--batch-flame-style".into(), "s.ron,motion,optics".into()];
+        let (_, groups) = flame_style_resolve_from_args(&args).unwrap().unwrap();
+        assert!(groups.motion && groups.optics && !groups.texture);
+    }
+
+    #[test]
+    fn flame_style_unknown_group_error() {
+        let args: Vec<String> = vec!["--batch-flame-style".into(), "s.ron,shape".into()];
+        assert!(flame_style_resolve_from_args(&args).is_err());
+    }
+
+    #[test]
+    fn flame_style_ron_roundtrip_applies() {
+        let ron_text = r#"FlameStyle(
+            version: 1,
+            name: "pillar-ref",
+            motion: (twist_gain: Some(6.0), meander_amp_over_r0: Some(0.5)),
+            optics: (tau0: Some(4.0)),
+        )"#;
+        let style: thyllore_effect_core::FlameStyle = ron::from_str(ron_text).unwrap();
+        let mut effect = FlameEffect::default();
+        effect.radius = 2.0;
+        let applied = thyllore_effect_core::apply_flame_style(
+            &mut effect,
+            &style,
+            thyllore_effect_core::StyleGroups::default(),
+        );
+        assert_eq!(effect.twist.gain, 6.0);
+        assert_eq!(effect.meander_amp, 1.0);
+        assert_eq!(effect.optical_depth, 4.0);
+        assert_eq!(applied.len(), 3);
+    }
+
+    #[test]
+    fn flame_style_dump_load_roundtrip() {
+        let effect = FlameEffect::default();
+        let path = std::env::temp_dir().join("thyllore_style_test.style.ron");
+        let path_str = path.to_str().unwrap();
+        dump_flame_style_to_path(&effect, path_str);
+        let style = load_flame_style_from_path(path_str).unwrap();
+        let _ = std::fs::remove_file(&path);
+        assert_eq!(
+            style,
+            thyllore_effect_core::flame_style_from_effect(&effect, "thyllore_style_test")
+        );
+    }
+
+    #[test]
+    fn shipped_style_assets_parse() {
+        for entry in std::fs::read_dir(crate::paths::FLAMES_STYLE_DIR).unwrap() {
+            let path = entry.unwrap().path();
+            if path.to_string_lossy().ends_with(".style.ron") {
+                let content = std::fs::read_to_string(&path).unwrap();
+                ron::from_str::<thyllore_effect_core::FlameStyle>(&content)
+                    .unwrap_or_else(|e| panic!("{}: {}", path.display(), e));
+            }
+        }
     }
 
     #[test]

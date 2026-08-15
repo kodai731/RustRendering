@@ -75,28 +75,41 @@ pub fn build_effect_json(
     value["rte_bands"] = json!(effect.rte_bands);
     value["sigma_dispersion"] = json!(effect.sigma_dispersion);
     value["edge_temperature_blend"] = json!(effect.edge_temperature_blend);
-    value["boundary_amp"] = json!(effect.boundary_amp);
-    value["boundary_freq"] = json!(effect.boundary_freq);
-    value["boundary_speed"] = json!(effect.boundary_speed);
-    value["boundary_radius_ratio"] = json!(effect.boundary_radius_ratio);
-    value["tip_carve_depth"] = json!(effect.tip_carve_depth);
-    value["tip_carve_reach"] = json!(effect.tip_carve_reach);
+    value["boundary_amp"] = json!(effect.boundary.amp);
+    value["boundary_freq"] = json!(effect.boundary.freq);
+    value["boundary_speed"] = json!(effect.boundary.speed);
+    value["boundary_radius_ratio"] = json!(effect.boundary.radius_ratio);
+    value["tip_carve_depth"] = json!(effect.tip_carve.depth);
+    value["tip_carve_reach"] = json!(effect.tip_carve.reach);
     value["warp_reach"] = json!(effect.warp_reach);
-    value["swirl_gain"] = json!(effect.swirl_gain);
-    value["swirl_speed"] = json!(effect.swirl_speed);
+    value["swirl_gain"] = json!(effect.swirl.gain);
+    value["swirl_speed"] = json!(effect.swirl.speed);
     value["spread_gain"] = json!(effect.spread_gain);
     value["support_margin"] = json!(effect.support_margin);
+    value["edge_outer_sharpen"] = json!(effect.edge_outer_sharpen);
+    value["noise_scale_mode"] = json!(effect.noise_scale_mode);
+    value["erosion_noise_gain"] = json!(effect.erosion_noise_gain);
+    value["twist_gain"] = json!(effect.twist.gain);
+    value["twist_speed"] = json!(effect.twist.speed);
+    value["burnout_gain"] = json!(effect.burnout_gain);
+    value["noise_shaping_scale"] = json!(effect.noise_shaping_scale);
+    value["optical_depth"] = json!(effect.optical_depth);
     value["meander_amp"] = json!(effect.meander_amp);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
-    value["warp_strain_params"] = json!(strain);
+    value["warp_strain_params"] = json!([
+        strain.strain_base,
+        strain.strain_tip,
+        strain.inv_reach,
+        strain.inv_strain_norm,
+    ]);
     value["warp_strain_cap"] = json!(thyllore_effect_core::flame_wave::WARP_STRAIN_CAP);
     value["warp_form"] = json!(if thyllore_effect_core::read_env_warp_form_displacement() {
         "disp"
     } else {
         "seq"
     });
-    value["warp_strain_norm"] = json!(if strain[3] > 0.0 {
-        1.0 / strain[3]
+    value["warp_strain_norm"] = json!(if strain.inv_strain_norm > 0.0 {
+        1.0 / strain.inv_strain_norm
     } else {
         0.0
     });
@@ -135,10 +148,18 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "noise_amplitude": ubo.noise_amplitude,
         "noise_frequency": ubo.noise_frequency,
         "noise_scroll_speed": ubo.noise_scroll_speed,
-        "color_base": [ubo.color_base.x, ubo.color_base.y, ubo.color_base.z, ubo.color_base.w],
-        "color_mid": [ubo.color_mid.x, ubo.color_mid.y, ubo.color_mid.z, ubo.color_mid.w],
-        "color_tip": [ubo.color_tip.x, ubo.color_tip.y, ubo.color_tip.z, ubo.color_tip.w],
-        "light_data": [ubo.light_data.x, ubo.light_data.y, ubo.light_data.z, ubo.light_data.w]
+        "color_base": [ubo.color_base.rgb[0], ubo.color_base.rgb[1], ubo.color_base.rgb[2], ubo.color_base.occlusion_lum_ref],
+        "color_mid": ubo.color_mid.rgb,
+        "color_tip": [ubo.color_tip.rgb[0], ubo.color_tip.rgb[1], ubo.color_tip.rgb[2], ubo.color_tip.edge_temperature_blend],
+        "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
+        "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
+        "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],
+        "support_margin": [
+            ubo.support_motion.support_margin,
+            ubo.support_motion.meander_amp,
+            ubo.support_motion.swirl_speed,
+            ubo.support_motion.twist_speed,
+        ],
     })
 }
 
@@ -314,7 +335,7 @@ pub fn build_wall_probe_json(report: &thyllore_effect_core::WallProbeReport) -> 
     })
 }
 
-/// Declared field composition for the dump: which noise was active, driving what, gated by which lever.
+/// Declared field composition for the dump: which noise was active, driving what, gated by which parameter.
 pub fn build_field_manifest_json(manifest: &thyllore_effect_core::FieldManifest) -> Value {
     json!({
         "summary": manifest.summary(),
@@ -331,7 +352,7 @@ pub fn build_field_manifest_json(manifest: &thyllore_effect_core::FieldManifest)
         "influences": manifest.influences.iter().map(|i| json!({
             "source": i.source.as_str(),
             "target": i.target.as_str(),
-            "lever": i.lever,
+            "parameter": i.parameter,
             "active": i.active,
         })).collect::<Vec<_>>(),
     })
@@ -384,6 +405,7 @@ pub fn write_flame_wall_probe_dump(
         FlameTemporalAccum,
         thyllore_effect_core::WallProbeReport,
     )],
+    output_path: Option<&std::path::Path>,
 ) -> std::io::Result<std::path::PathBuf> {
     let unix_time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
@@ -391,9 +413,16 @@ pub fn write_flame_wall_probe_dump(
         .unwrap_or(0);
     let record = build_wall_probe_dump_record(camera, settings, viewport_size, flames, unix_time);
 
-    let directory = std::path::Path::new("log/flame");
-    std::fs::create_dir_all(directory)?;
-    let path = directory.join(format!("wall_probe_{}.json", unix_time));
+    let path = if let Some(output_path) = output_path {
+        if let Some(parent) = output_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        output_path.to_path_buf()
+    } else {
+        let directory = std::path::Path::new("log/flame");
+        std::fs::create_dir_all(directory)?;
+        directory.join(format!("wall_probe_{}.json", unix_time))
+    };
     std::fs::write(&path, serde_json::to_string_pretty(&record)?)?;
     Ok(path)
 }
@@ -410,24 +439,32 @@ pub fn write_flame_field_traces(
         FlameTemporalAccum,
         thyllore_effect_core::WallProbeReport,
     )],
+    output_path: Option<&std::path::Path>,
 ) -> std::io::Result<Vec<std::path::PathBuf>> {
     let unix_time = std::time::SystemTime::now()
         .duration_since(std::time::SystemTime::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
-    let directory = std::path::Path::new("log/flame");
-    std::fs::create_dir_all(directory)?;
     let mut paths = Vec::new();
     for (index, (effect, baked, temporal, _)) in flames.iter().enumerate() {
         let trace = thyllore_render_debug::flame_field_trace::trace_flame_field(
             effect, baked, temporal, view,
         );
-        let name = if flames.len() > 1 {
-            format!("flame_trace_{}_{}.json", unix_time, index)
+        let path = if let Some(output_path) = output_path {
+            if let Some(parent) = output_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            output_path.to_path_buf()
         } else {
-            format!("flame_trace_{}.json", unix_time)
+            let directory = std::path::Path::new("log/flame");
+            std::fs::create_dir_all(directory)?;
+            let name = if flames.len() > 1 {
+                format!("flame_trace_{}_{}.json", unix_time, index)
+            } else {
+                format!("flame_trace_{}.json", unix_time)
+            };
+            directory.join(name)
         };
-        let path = directory.join(name);
         std::fs::write(&path, serde_json::to_string(&trace)?)?;
         paths.push(path);
     }
@@ -612,10 +649,10 @@ mod tests {
     }
 
     #[test]
-    fn field_manifest_json_names_sources_targets_and_levers() {
+    fn field_manifest_json_names_sources_targets_and_parameters() {
         let mut effect = sample_effect();
         effect.noise_amplitude = 1.5;
-        effect.boundary_amp = 0.2;
+        effect.boundary.amp = 0.2;
         let manifest = thyllore_effect_core::flame_field_manifest(&effect);
         let value = build_field_manifest_json(&manifest);
         assert!(value["summary"]
@@ -630,7 +667,7 @@ mod tests {
         let first = &value["influences"][0];
         assert!(first["source"].is_string());
         assert!(first["target"].is_string());
-        assert!(first["lever"].is_string());
+        assert!(first["parameter"].is_string());
         assert!(first["active"].is_boolean());
     }
 

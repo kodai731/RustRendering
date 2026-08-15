@@ -167,6 +167,32 @@ fn test_flame_ubo_default_matches_effect_default() {
 }
 
 #[test]
+fn test_effective_sigma_t_zero_optical_depth_uses_sigma_t() {
+    let mut effect = FlameEffect::default();
+    effect.sigma_t = 2.5;
+    effect.radius = 1.7;
+    assert_eq!(effective_sigma_t(&effect), 2.5);
+    let ubo = build_flame_ubo(
+        &effect,
+        &FlameBaked::default(),
+        &FlameTemporalAccum::default(),
+    );
+    assert_eq!(ubo.sigma_t, 2.5);
+}
+
+#[test]
+fn test_effective_sigma_t_keeps_optical_depth_across_radius() {
+    let mut effect = FlameEffect::default();
+    effect.sigma_t = 4.0;
+    effect.optical_depth = 4.0;
+    for radius in [0.5, 1.0, 2.43] {
+        effect.radius = radius;
+        let tau = effective_sigma_t(&effect) * radius;
+        assert!((tau - 4.0).abs() < 1e-5, "radius {radius}: tau {tau}");
+    }
+}
+
+#[test]
 fn test_flame_ubo_layout_is_std140_compatible() {
     // trail_coefficients is [[f32; 4]; 4] (64 bytes) instead of [f32; 4] (16 bytes)
     assert_eq!(
@@ -174,7 +200,12 @@ fn test_flame_ubo_layout_is_std140_compatible() {
         784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
             + 48
             + 16
+            + std::mem::size_of::<FlameTwistField>()
+            + std::mem::size_of::<[FlameMeanderMode; 2]>()
     );
+    assert_eq!(std::mem::size_of::<FlameSupportMotion>(), 16);
+    assert_eq!(std::mem::size_of::<FlameTwistField>(), 48);
+    assert_eq!(std::mem::size_of::<[FlameMeanderMode; 2]>(), 64);
     assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
 }
 
@@ -226,8 +257,8 @@ fn test_build_flame_ubo_large_frame_index_precision() {
     let ubo = build_flame_ubo(&effect, &FlameBaked::default(), &temporal);
     let expected_y = (frame_index % 16384) as f32;
     assert_eq!(
-        ubo.temporal_data.y, expected_y,
-        "temporal_data.y should be (frame_index %% 16384) as f32 to avoid precision loss"
+        ubo.temporal_data.frame_index, expected_y,
+        "temporal_data.frame_index should be (frame_index %% 16384) as f32 to avoid precision loss"
     );
 }
 

@@ -46,9 +46,9 @@ pub fn flame_from_dump(
 
     // scalar fields
     macro_rules! apply_scalar {
-        ($field:ident, $json_field:expr) => {
+        ($($field:ident).+, $json_field:expr) => {
             if let Some(v) = flame_json.get($json_field).and_then(|f| f.as_f64()) {
-                effect.$field = v as f32;
+                effect.$($field).+ = v as f32;
             }
         };
     }
@@ -56,6 +56,7 @@ pub fn flame_from_dump(
     apply_scalar!(height, "height");
     apply_scalar!(radius, "radius");
     apply_scalar!(sigma_t, "sigma_t");
+    apply_scalar!(optical_depth, "optical_depth");
     apply_scalar!(intensity, "intensity");
     apply_scalar!(noise_amplitude, "noise_amplitude");
     apply_scalar!(noise_contrast, "noise_contrast");
@@ -70,15 +71,15 @@ pub fn flame_from_dump(
     apply_scalar!(aniso_axis_advect, "aniso_axis_advect");
     apply_scalar!(rte_bands, "rte_bands");
     apply_scalar!(edge_temperature_blend, "edge_temperature_blend");
-    apply_scalar!(boundary_amp, "boundary_amp");
-    apply_scalar!(boundary_freq, "boundary_freq");
-    apply_scalar!(boundary_speed, "boundary_speed");
-    apply_scalar!(boundary_radius_ratio, "boundary_radius_ratio");
-    apply_scalar!(tip_carve_depth, "tip_carve_depth");
-    apply_scalar!(tip_carve_reach, "tip_carve_reach");
+    apply_scalar!(boundary.amp, "boundary_amp");
+    apply_scalar!(boundary.freq, "boundary_freq");
+    apply_scalar!(boundary.speed, "boundary_speed");
+    apply_scalar!(boundary.radius_ratio, "boundary_radius_ratio");
+    apply_scalar!(tip_carve.depth, "tip_carve_depth");
+    apply_scalar!(tip_carve.reach, "tip_carve_reach");
     apply_scalar!(warp_reach, "warp_reach");
-    apply_scalar!(swirl_gain, "swirl_gain");
-    apply_scalar!(swirl_speed, "swirl_speed");
+    apply_scalar!(swirl.gain, "swirl_gain");
+    apply_scalar!(swirl.speed, "swirl_speed");
     apply_scalar!(spread_gain, "spread_gain");
     apply_scalar!(support_margin, "support_margin");
     if let Some(v) = flame_json.get("baked_blend").and_then(|f| f.as_f64()) {

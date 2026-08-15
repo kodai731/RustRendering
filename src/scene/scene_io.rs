@@ -580,6 +580,25 @@ mod tests {
     }
 
     #[test]
+    fn default_scene_asset_parses_with_recovered_flame() {
+        let content = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/default.scene.ron"),
+        )
+        .expect("default scene asset readable");
+        let scene: SceneFile = ron::from_str(&content).expect("default scene asset parses");
+
+        let flame = scene.flame.expect("recovered flame section present");
+        assert_eq!(flame.effect.height, 8.0);
+        assert_eq!(flame.effect.radius, 1.0);
+        assert_eq!(flame.effect.radius_tip_ratio, 1.0);
+        assert_eq!(flame.effect.temperature_base_k, 1900.0);
+        assert_eq!(flame.effect.temperature_tip_k, 1350.0);
+        assert_eq!(flame.effect.white_boost, 0.0);
+        assert_eq!(flame.effect.noise_scale_mode, 1.0);
+        assert!(flame.effect.meander_amp > 0.0);
+    }
+
+    #[test]
     fn scene_resolves_an_existing_model_file() {
         let dir = temp_dir("present");
         fs::create_dir_all(dir.join("models")).unwrap();

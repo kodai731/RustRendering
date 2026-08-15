@@ -1,6 +1,43 @@
 use super::*;
 use cgmath::{Matrix4, Quaternion, Vector2, Vector3};
 
+/// Azimuthal swirl-shear of the RTE medium (differential rotation).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameSwirl {
+    /// Share of the fixed strain budget spent on the swirl modes; 0 = off.
+    pub gain: f32,
+    /// Phase-drift rate multiplier of the counter-rotating shear layers.
+    pub speed: f32,
+}
+
+/// Node-frozen azimuthal rotation of the noise coordinate (V design).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameTwist {
+    /// Rotation amplitude in radians at the axis tip; rotation never folds, so no strain cap.
+    pub gain: f32,
+    /// Own phase rate scale; 0 delegates the rate to swirl speed.
+    pub speed: f32,
+}
+
+/// Sinusoidal displacement of the density boundary; amp 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameBoundary {
+    pub amp: f32,
+    pub freq: f32,
+    pub speed: f32,
+    pub radius_ratio: f32,
+}
+
+/// Carve deepening toward the flame's own luminous tip:
+/// relative carve scales as 1 + depth * exp(-mu / reach).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameTipCarve {
+    /// Asymptotic extra depth kappa; 0 = uniform depth.
+    pub depth: f32,
+    /// Reach mu0 in remaining-luminous-fraction units (scale-free).
+    pub reach: f32,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct FlameEffect {
     pub position: Vector3<f32>,
@@ -8,6 +45,9 @@ pub struct FlameEffect {
     pub height: f32,
     pub radius: f32,
     pub sigma_t: f32,
+    /// Line-of-sight optical thickness tau0 = sigma_t * radius; > 0 derives
+    /// sigma_t as optical_depth / radius, 0 = use sigma_t directly.
+    pub optical_depth: f32,
     pub intensity: f32,
     pub color_base: [f32; 3],
     pub color_tip: [f32; 3],
@@ -15,9 +55,7 @@ pub struct FlameEffect {
     pub temperature_tip_k: f32,
     pub use_blackbody: bool,
     pub noise_amplitude: f32,
-    /// Relative contrast of the noise carving: scales the edge smoothstep
-    /// window half-width as hw0 / noise_contrast around a fixed center.
-    /// 1.0 keeps the authored edge_low/edge_high window untouched.
+    /// Scales the edge smoothstep window half-width as hw0 / contrast; 1.0 keeps the authored window.
     pub noise_contrast: f32,
     pub noise_frequency: f32,
     pub noise_scroll_speed: f32,
@@ -49,57 +87,39 @@ pub struct FlameEffect {
     pub ring_angular_speed: f32,
     pub occlusion_lum_ref: f32,
     pub contour_wiggle_amp: f32,
-    /// 0=world-Y axis (current) / 1=advect direction axis
+    /// 0 = world-Y anisotropy axis, 1 = advect direction axis.
     pub aniso_axis_advect: f32,
-    /// mode0 の RTE 離散化帯数。1 以下 = legacy 線形放射経路、2 以上 = 帯ごと Beer-Lambert 合成
+    /// RTE band count in mode 0: <= 1 legacy linear path, >= 2 per-band Beer-Lambert.
     pub rte_bands: f32,
-    /// RTE 吸収の波長分散。0=グレー体 (旧一致)、1=Rayleigh 1/λ 比
+    /// RTE absorption wavelength dispersion: 0 = grey body, 1 = Rayleigh 1/lambda.
     pub sigma_dispersion: f32,
-    /// RTE 帯色を外縁 (r̂≈1) で tip 色へ寄せる薄い項。0=現行
+    /// Blend of the outer-rim RTE band color toward the tip color; 0 = off.
     pub edge_temperature_blend: f32,
-    /// 境界変位 amp。0 = off (変位前と bit 一致)
-    pub boundary_amp: f32,
-    pub boundary_freq: f32,
-    pub boundary_speed: f32,
-    pub boundary_radius_ratio: f32,
+    pub boundary: FlameBoundary,
     pub near_fade_radius: f32,
-    /// Residual (un-carved) medium fraction left where turbulence carves the
-    /// emitting soot away — the floor that makes a fully carved ray span
-    /// translucent instead of a hard hole. 0 restores the pre-floor field.
+    /// Residual medium fraction left where turbulence carves the soot away; 0 = no floor.
     pub carve_residual: f32,
-    /// Tip-carve asymptotic depth kappa: relative carve deepens toward the
-    /// flame's own luminous tip as 1 + kappa * exp(-mu/mu0). 0 = uniform depth.
-    pub tip_carve_depth: f32,
-    /// Tip-carve reach mu0 in remaining-luminous-fraction units (scale-free).
-    pub tip_carve_reach: f32,
-    /// Warp strain reach mu_w: how deep the tip-asymptotic warp strain
-    /// penetrates, in remaining-luminous-fraction units (same scale as
-    /// tip_carve_reach).
+    pub tip_carve: FlameTipCarve,
+    /// Warp strain reach: penetration depth of the tip-asymptotic warp strain,
+    /// in the same remaining-luminous-fraction units as tip carve reach.
     pub warp_reach: f32,
-    /// Medium swirl share: fraction weight of the strain budget spent on the
-    /// azimuthal swirl-shear modes (differential rotation of the RTE medium
-    /// density). 0 = off, bit-identical to the pre-swirl field; raising it
-    /// thins the carve warp (total strain budget is fixed).
-    pub swirl_gain: f32,
-    /// Multiplier on the swirl phase-drift rate: how fast the shear layers
-    /// counter-rotate relative to the rising material. Time-only, so it costs
-    /// no strain budget and cannot fold the field — the lever for "how alive"
-    /// the vortices look, independent of their strength.
-    pub swirl_speed: f32,
-    /// Medium spread (motion_design L3): age-coordinate radial opening of the
-    /// RTE medium toward the luminous tip. The noise sampling contracts toward
-    /// the axis as the material rises, so carved features enlarge, drift
-    /// outward and dissolve instead of scrolling up unchanged. 0 = off,
-    /// bit-identical to the unspread field. Reach shares tip_carve_reach.
+    pub swirl: FlameSwirl,
+    /// Age-coordinate radial opening of the medium toward the tip; 0 = off.
     pub spread_gain: f32,
-    /// Multiplier on the support radius (FLAME_SHELL_SUPPORT_HEADROOM = 1.5): how wide the
-    /// flame's density support extends relative to the shell proxy. Scales the support radius
-    /// across all three systems (density support, proxy shape, and analytic integration) so
-    /// they stay matched. 1.0 = default (unchanged behavior).
+    /// Multiplier on the shell support radius, kept matched across density
+    /// support, proxy shape, and analytic integration; 1.0 = default.
     pub support_margin: f32,
-    /// Animated meander amplitude: time-varying horizontal displacement of the centerline.
-    /// 0 = off (bit-identical to pre-meander field).
+    /// Animated horizontal displacement amplitude of the centerline; 0 = off.
     pub meander_amp: f32,
+    pub edge_outer_sharpen: f32,
+    pub noise_scale_mode: f32,
+    pub erosion_noise_gain: f32,
+    pub twist: FlameTwist,
+    /// Deepening of the erosion mean shrink toward the luminous top, sharing
+    /// the tip carve reach as mu0; 0 = off.
+    pub burnout_gain: f32,
+    /// tanh shaping scale override for the wave noise; 0 = built-in default.
+    pub noise_shaping_scale: f32,
 }
 
 impl Default for FlameEffect {
@@ -110,6 +130,7 @@ impl Default for FlameEffect {
             height: 1.6,
             radius: 0.6,
             sigma_t: 1.0,
+            optical_depth: 0.0,
             intensity: 2.2,
             color_base: [1.0, 0.45, 0.1],
             color_tip: [1.0, 0.1, 0.02],
@@ -152,30 +173,79 @@ impl Default for FlameEffect {
             rte_bands: 4.0,
             sigma_dispersion: 1.0,
             edge_temperature_blend: 0.0,
-            boundary_amp: 0.2,
-            boundary_freq: 1.6,
-            boundary_speed: 0.8,
-            boundary_radius_ratio: 0.2,
+            boundary: FlameBoundary {
+                amp: 0.2,
+                freq: 1.6,
+                speed: 0.8,
+                radius_ratio: 0.2,
+            },
             near_fade_radius: 0.0,
             carve_residual: 0.12,
-            tip_carve_depth: 1.0,
-            tip_carve_reach: 0.2,
+            tip_carve: FlameTipCarve {
+                depth: 1.0,
+                reach: 0.2,
+            },
             warp_reach: crate::flame_wave::WARP_REACH_DEFAULT,
-            swirl_gain: 0.0,
-            swirl_speed: 1.0,
+            swirl: FlameSwirl {
+                gain: 0.0,
+                speed: 1.0,
+            },
             spread_gain: 0.0,
             support_margin: 1.0,
             meander_amp: 0.0,
+            edge_outer_sharpen: 0.0,
+            noise_scale_mode: 0.0,
+            erosion_noise_gain: 1.0,
+            twist: FlameTwist {
+                gain: 0.0,
+                speed: 0.0,
+            },
+            burnout_gain: 0.0,
+            noise_shaping_scale: 0.0,
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect
     }
 }
 
-pub(crate) const MIN_FLAME_EXTENT: f32 = 1e-3;
+/// Stateless write-through of the Vortex macro knob onto (twist gain, twist
+/// speed); the two parameters stay the single source of truth.
+pub fn vortex_macro_parameters(v: f32) -> (f32, f32) {
+    let v = v.clamp(0.0, 1.0);
+    (VORTEX_MACRO_MAX_GAIN * v, VORTEX_MACRO_MAX_SPEED * v)
+}
+
+/// Noise Sharpness knob in [0, 1] to tanh shaping scale, log curve, crisper to
+/// the right; `noise_shaping_scale` stays the single source of truth.
+pub fn noise_sharpness_to_shaping_scale(v: f32) -> f32 {
+    let v = v.clamp(0.0, 1.0);
+    NOISE_SHARPNESS_SCALE_SOFT * (NOISE_SHARPNESS_SCALE_SHARP / NOISE_SHARPNESS_SCALE_SOFT).powf(v)
+}
+
+/// Inverse of [`noise_sharpness_to_shaping_scale`]. A non-positive scale means
+/// "delegate to the built-in default" and derives the knob position from
+/// [`crate::flame_wave::WAVE_TANH_SCALE`].
+pub fn shaping_scale_to_noise_sharpness(scale: f32) -> f32 {
+    let scale = if scale > 0.0 {
+        scale
+    } else {
+        crate::flame_wave::WAVE_TANH_SCALE
+    };
+    let sharpness = (scale / NOISE_SHARPNESS_SCALE_SOFT).ln()
+        / (NOISE_SHARPNESS_SCALE_SHARP / NOISE_SHARPNESS_SCALE_SOFT).ln();
+    sharpness.clamp(0.0, 1.0)
+}
 
 pub fn advance_flame_time(effect: &mut FlameEffect, delta_time: f32) {
     effect.time += delta_time.max(0.0);
+}
+
+pub fn effective_sigma_t(effect: &FlameEffect) -> f32 {
+    if effect.optical_depth > 0.0 {
+        effect.optical_depth / effect.radius.max(MIN_FLAME_EXTENT)
+    } else {
+        effect.sigma_t
+    }
 }
 
 pub fn flame_bounding_radius(effect: &FlameEffect) -> f32 {
@@ -200,4 +270,66 @@ pub fn build_flame_inverse_model_matrix(effect: &FlameEffect) -> Matrix4<f32> {
     Matrix4::from_nonuniform_scale(1.0 / radius, 1.0 / height, 1.0 / radius)
         * Matrix4::from(effect.rotation.conjugate())
         * Matrix4::from_translation(-effect.position)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_vortex_macro_is_monotone_and_off_at_zero() {
+        assert_eq!(vortex_macro_parameters(0.0), (0.0, 0.0));
+        assert_eq!(
+            vortex_macro_parameters(1.0),
+            (VORTEX_MACRO_MAX_GAIN, VORTEX_MACRO_MAX_SPEED)
+        );
+        assert_eq!(vortex_macro_parameters(2.0), vortex_macro_parameters(1.0));
+        assert_eq!(vortex_macro_parameters(-1.0), vortex_macro_parameters(0.0));
+        let mut previous = vortex_macro_parameters(0.0);
+        for step in 1..=10 {
+            let current = vortex_macro_parameters(step as f32 / 10.0);
+            assert!(current.0 > previous.0 && current.1 > previous.1);
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn test_noise_sharpness_endpoints_and_monotone() {
+        assert!((noise_sharpness_to_shaping_scale(0.0) - NOISE_SHARPNESS_SCALE_SOFT).abs() < 1e-5);
+        assert!((noise_sharpness_to_shaping_scale(1.0) - NOISE_SHARPNESS_SCALE_SHARP).abs() < 1e-5);
+        assert_eq!(
+            noise_sharpness_to_shaping_scale(2.0),
+            noise_sharpness_to_shaping_scale(1.0)
+        );
+        assert_eq!(
+            noise_sharpness_to_shaping_scale(-1.0),
+            noise_sharpness_to_shaping_scale(0.0)
+        );
+        let mut previous = noise_sharpness_to_shaping_scale(0.0);
+        for step in 1..=10 {
+            let current = noise_sharpness_to_shaping_scale(step as f32 / 10.0);
+            assert!(current < previous);
+            previous = current;
+        }
+    }
+
+    #[test]
+    fn test_noise_sharpness_round_trip() {
+        for scale in [0.1_f32, 0.25, 0.6, 1.0, 3.0, 6.0] {
+            let recovered =
+                noise_sharpness_to_shaping_scale(shaping_scale_to_noise_sharpness(scale));
+            assert!(
+                (recovered - scale).abs() / scale < 1e-3,
+                "scale {scale} round-tripped to {recovered}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_noise_sharpness_delegation_matches_builtin_default() {
+        assert_eq!(
+            shaping_scale_to_noise_sharpness(0.0),
+            shaping_scale_to_noise_sharpness(crate::flame_wave::WAVE_TANH_SCALE)
+        );
+    }
 }

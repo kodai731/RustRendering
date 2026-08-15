@@ -100,6 +100,27 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                     "ui",
                 );
             }
+            UIEvent::ApplyFlameStyle { path, groups } => {
+                crate::ecs::systems::apply_flame_style_to_selected(
+                    world,
+                    path,
+                    thyllore_effect_core::StyleGroups {
+                        motion: groups[0],
+                        texture: groups[1],
+                        optics: groups[2],
+                    },
+                );
+            }
+            UIEvent::SaveFlameStyle { name } => {
+                if crate::ecs::systems::save_flame_style_of_selected(world, name).is_some() {
+                    if let Some(mut model_state) =
+                        world.get_resource_mut::<crate::ecs::resource::ModelState>()
+                    {
+                        model_state.flame_style_scan_done = false;
+                        model_state.flame_style_scan.clear();
+                    }
+                }
+            }
             UIEvent::UpdateFlameTrailEnabled(enabled) => {
                 let Some(target) = resolve_selected_flame(world) else {
                     continue;

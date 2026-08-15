@@ -123,7 +123,12 @@ fn compute_normalization_coordinates(
     // Solid rows by mask pixel count (geometric): saturation-robust, unlike a
     // luminance-mass floor which lets a bright base starve the dimmer column.
     let mask_counts: Vec<usize> = (0..height)
-        .map(|row| mask[row * width..(row + 1) * width].iter().filter(|&&b| b).count())
+        .map(|row| {
+            mask[row * width..(row + 1) * width]
+                .iter()
+                .filter(|&&b| b)
+                .count()
+        })
         .collect();
     // Floor from the 75th percentile of positive-count rows (column-width order),
     // not the max row: a wide pool/ground-glow row would otherwise starve the

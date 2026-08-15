@@ -7,10 +7,10 @@
 // cylinder support 0.75, and a proxy that stops there slices the torus flat.
 // Mirrored in thyllore-render-core/src/flame_shell.rs (flame_shell_support_scale).
 float flameShellSupportScale() {
-    if (flame.emitterParams.x >= 0.5 && flame.emitterParams.x < 1.5) {
-        float rm = flame.emitterParams.y;
+    if (flame.emitterParams.kind >= 0.5 && flame.emitterParams.kind < 1.5) {
+        float rm = flame.emitterParams.ringMajorRatio;
         return max(
-          (rm + FLAME_SHELL_SUPPORT_HEADROOM * flame.supportParams.x * (1.0 - rm)) / (FLAME_SHELL_BASE_RADIUS * FLAME_SHELL_SUPPORT_HEADROOM * flame.supportParams.x),
+          (rm + FLAME_SHELL_SUPPORT_HEADROOM * flame.supportMotion.supportMargin * (1.0 - rm)) / (FLAME_SHELL_BASE_RADIUS * FLAME_SHELL_SUPPORT_HEADROOM * flame.supportMotion.supportMargin),
             1.0);
     }
     return 1.0;

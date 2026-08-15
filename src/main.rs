@@ -14,10 +14,10 @@ use thyllore_animation::ecs::resource::{
     GpuTimingsSink,
 };
 use thyllore_animation::ecs::systems::{
-    apply_flame_overrides, apply_texture_fit_from_path, batch_anim_dump_write,
-    batch_apply_anim_edits, batch_apply_debug_actions, batch_run_report, debug_actions_json,
-    resolve_engine_cli_overrides, run_sequence_analyze_from_args, BatchDebugAction,
-    BATCH_LIST_DEBUG_ACTIONS_FLAG,
+    apply_flame_overrides, apply_flame_style_from_path, apply_texture_fit_from_path,
+    batch_anim_dump_write, batch_apply_anim_edits, batch_apply_debug_actions, batch_run_report,
+    debug_actions_json, dump_flame_style_to_path, resolve_engine_cli_overrides,
+    run_sequence_analyze_from_args, BatchDebugAction, BATCH_LIST_DEBUG_ACTIONS_FLAG,
 };
 use thyllore_animation::platform;
 
@@ -133,6 +133,9 @@ fn main() -> Result<()> {
                         "cli",
                     );
                 }
+                if let Some((ref path, groups)) = overrides.flame_style {
+                    apply_flame_style_from_path(&mut effect, path, groups);
+                }
                 apply_flame_overrides(&mut effect, &overrides.flame_set);
                 thyllore_effect_core::refresh_flame_coefficients(&mut effect, &baked);
                 let entity = thyllore_animation::ecs::systems::spawn_flame_with_clip(
@@ -176,8 +179,14 @@ fn main() -> Result<()> {
                     "cli",
                 );
             }
+            if let Some((ref path, groups)) = overrides.flame_style {
+                apply_flame_style_from_path(&mut effect, path, groups);
+            }
             apply_flame_overrides(&mut effect, &overrides.flame_set);
             thyllore_effect_core::refresh_flame_coefficients(&mut effect, &baked);
+            if let Some(ref path) = overrides.flame_style_dump {
+                dump_flame_style_to_path(&effect, path);
+            }
             app.data.ecs_world.insert_component(e, effect);
             app.data.ecs_world.insert_component(e, baked);
         }

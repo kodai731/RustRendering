@@ -69,12 +69,12 @@ impl FieldTargetKind {
     }
 }
 
-/// One declared edge: source drives target, gated by lever.
+/// One declared edge: source drives target, gated by parameter.
 #[derive(Clone, Debug)]
 pub struct FieldInfluence {
     pub source: FieldSourceKind,
     pub target: FieldTargetKind,
-    pub lever: &'static str,
+    pub parameter: &'static str,
     pub active: bool,
 }
 
@@ -120,8 +120,8 @@ impl FieldManifest {
 }
 
 /// Derives the manifest from the same values the UBO packer reads (jitter and
-/// the unified switch via the shared levers). Under the unified field the old
-/// boundary/wiggle/jitter sources are inert; their levers become spectral-tilt
+/// the unified switch via the shared parameters). Under the unified field the old
+/// boundary/wiggle/jitter sources are inert; their parameters become spectral-tilt
 /// edges of the one broadband table.
 pub fn flame_field_manifest(effect: &FlameEffect) -> FieldManifest {
     flame_field_manifest_with(
@@ -131,7 +131,7 @@ pub fn flame_field_manifest(effect: &FlameEffect) -> FieldManifest {
     )
 }
 
-/// Pure derivation for a given unified switch and jitter lever value.
+/// Pure derivation for a given unified switch and jitter parameter value.
 pub fn flame_field_manifest_with(
     effect: &FlameEffect,
     unified: bool,
@@ -144,49 +144,49 @@ pub fn flame_field_manifest_with(
             FieldInfluence {
                 source: FieldSourceKind::ErosionWaveTable,
                 target: FieldTargetKind::InteriorErosion,
-                lever: "noise_amplitude",
+                parameter: "noise_amplitude",
                 active: erosion,
             },
             FieldInfluence {
                 source: FieldSourceKind::ErosionWaveTable,
                 target: FieldTargetKind::SilhouetteHeight,
-                lever: "boundary_amp (low-octave tilt)",
-                active: unified && erosion && effect.boundary_amp != 0.0,
+                parameter: "boundary_amp (low-octave tilt)",
+                active: unified && erosion && effect.boundary.amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::ErosionWaveTable,
                 target: FieldTargetKind::SilhouetteRadius,
-                lever: "contour_wiggle_amp (mid-octave tilt)",
+                parameter: "contour_wiggle_amp (mid-octave tilt)",
                 active: unified && erosion && effect.contour_wiggle_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::WarpDisplacementTable,
                 target: FieldTargetKind::SampleCoordinates,
-                lever: "warp_amp",
+                parameter: "warp_amp",
                 active: effect.warp_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::ContourWiggleTable,
                 target: FieldTargetKind::SilhouetteRadius,
-                lever: "contour_wiggle_amp",
+                parameter: "contour_wiggle_amp",
                 active: !unified && effect.contour_wiggle_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::BoundaryFbm,
                 target: FieldTargetKind::SilhouetteHeight,
-                lever: "boundary_amp",
-                active: !unified && effect.boundary_amp != 0.0,
+                parameter: "boundary_amp",
+                active: !unified && effect.boundary.amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::BoundaryFbm,
                 target: FieldTargetKind::SilhouetteRadius,
-                lever: "boundary_amp",
-                active: !unified && effect.boundary_amp != 0.0,
+                parameter: "boundary_amp",
+                active: !unified && effect.boundary.amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::PhaseJitterFields,
                 target: FieldTargetKind::CarrierPhase,
-                lever: "THYLLORE_FLAME_WAVE_JITTER",
+                parameter: "THYLLORE_FLAME_WAVE_JITTER",
                 active: jitter,
             },
         ],
@@ -202,12 +202,12 @@ mod tests {
     }
 
     #[test]
-    fn legacy_manifest_follows_the_levers() {
+    fn legacy_manifest_follows_the_parameters() {
         let mut e = effect();
         e.noise_amplitude = 1.5;
         e.warp_amp = 1.4;
         e.contour_wiggle_amp = 0.3;
-        e.boundary_amp = 0.2;
+        e.boundary.amp = 0.2;
         let sources = flame_field_manifest_with(&e, false, 1.0).active_sources();
         assert!(sources.contains(&FieldSourceKind::ErosionWaveTable));
         assert!(sources.contains(&FieldSourceKind::WarpDisplacementTable));
@@ -215,7 +215,7 @@ mod tests {
         assert!(sources.contains(&FieldSourceKind::BoundaryFbm));
         assert!(sources.contains(&FieldSourceKind::PhaseJitterFields));
 
-        e.boundary_amp = 0.0;
+        e.boundary.amp = 0.0;
         e.contour_wiggle_amp = 0.0;
         let sources = flame_field_manifest_with(&e, false, 0.0).active_sources();
         assert!(!sources.contains(&FieldSourceKind::BoundaryFbm));
@@ -224,12 +224,12 @@ mod tests {
     }
 
     #[test]
-    fn unified_manifest_has_no_pending_sources_and_absorbs_the_levers() {
+    fn unified_manifest_has_no_pending_sources_and_absorbs_the_parameters() {
         let mut e = effect();
         e.noise_amplitude = 1.5;
         e.warp_amp = 1.4;
         e.contour_wiggle_amp = 0.3;
-        e.boundary_amp = 0.2;
+        e.boundary.amp = 0.2;
         let m = flame_field_manifest_with(&e, true, 1.0);
         assert_eq!(
             m.active_sources(),

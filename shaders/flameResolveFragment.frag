@@ -21,6 +21,175 @@ layout(set = 0, binding = 0) uniform FrameUBO {
     vec4 light_color;
 } frame;
 
+struct FlameColorBase {
+    vec3 rgb;
+    float occlusionLumRef;
+};
+
+struct FlameColorMid {
+    vec3 rgb;
+    float pad0;
+};
+
+struct FlameColorTip {
+    vec3 rgb;
+    float edgeTemperatureBlend;
+};
+
+struct FlameTemporalParams {
+    float accumWeight;
+    float frameIndex;
+    float noiseAnisoY;
+    float warpYScale;
+};
+
+struct FlameLightParams {
+    vec3 direction;
+    float selfShadowStrength;
+};
+
+struct FlameWarpStyle {
+    float warpAmp;
+    float warpFreq;
+    float riseSpeed;
+    float taperPower;
+};
+
+struct FlameEdgeStyle {
+    float radiusTipRatio;
+    float edgeLow;
+    float edgeHigh;
+    float whiteBoost;
+};
+
+struct FlameWindBend {
+    vec2 windDirection;
+    float bendAmount;
+    float bendPower;
+};
+
+struct FlameTrailMeta {
+    float sampleCount;
+    float maxAge;
+    float pad0;
+    float pad1;
+};
+
+struct FlameEmitterParams {
+    float kind;
+    float ringMajorRatio;
+    float ringAngularSpeed;
+    float sdfSlabDepth;
+};
+
+struct FlameContourParams {
+    float wiggleAmp;
+    float anisoAxisAdvect;
+    float rteBands;
+    float sigmaDispersion;
+};
+
+struct FlameErosionResponse {
+    float center;
+    float kappa;
+    float weight1;
+    float weight2;
+};
+
+struct FlameWaveCfParams {
+    float enabled;
+    float shearLayerCount;
+    float skippedPowerPlain;
+    float skippedPowerEnv;
+};
+
+struct FlameBoundaryParams {
+    float amp;
+    float freq;
+    float speed;
+    float radiusRatio;
+};
+
+struct FlameNearFadeParams {
+    float radius;
+    float carveResidual;
+    float edgeLow;
+    float edgeHigh;
+};
+
+struct FlameProfileParams {
+    float radiusActive;
+    float radiusMax;
+    float colorActive;
+    float pad0;
+};
+
+struct FlameWaveShaping {
+    float trackedCount;
+    float envCoeff;
+    float inverseScale;
+    float amplitude;
+};
+
+struct FlameTipCarveParams {
+    float depth;
+    float invReach;
+    float primitiveTop;
+    float invPrimitiveRange;
+};
+
+struct FlameWarpStrainParams {
+    float strainBase;
+    float strainTip;
+    float invReach;
+    float invStrainNorm;
+};
+
+struct FlameWarpFormParams {
+    float displacementForm;
+    float burnoutGain;
+    float pad0;
+    float pad1;
+};
+
+struct FlameUnifiedParams {
+    float enabled;
+    float sigmaFloor;
+    float pad0;
+    float pad1;
+};
+
+struct FlameSpreadParams {
+    float gain;
+    float edgeOuterSharpen;
+    float twistGain;
+    float erosionNoiseGain;
+};
+
+struct FlameSupportMotion {
+    float supportMargin;
+    float meanderAmp;
+    float swirlSpeed;
+    float twistSpeed;
+};
+
+struct FlameTwistMode {
+    float kappa;
+    float omega;
+    float phase;
+    float amp;
+};
+
+struct FlameMeanderMode {
+    vec2 direction;
+    float kappa;
+    float omega;
+    float phase;
+    float pad0;
+    float pad1;
+    float pad2;
+};
+
 layout(set = 1, binding = 0) uniform FlameUBO {
     mat4 model;
     mat4 inverseModel;
@@ -35,33 +204,39 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     float noiseFrequency;
     float noiseScrollSpeed;
     float radialSharpness;
-    vec4 colorBase;
-    vec4 colorMid;
-    vec4 colorTip;
-    vec4 temporalData;
-    vec4 lightData;
-    vec4 styleParams0;
-    vec4 styleParams1;
-    vec4 styleParams2;
+    FlameColorBase colorBase;
+    FlameColorMid colorMid;
+    FlameColorTip colorTip;
+    FlameTemporalParams temporalData;
+    FlameLightParams lightData;
+    FlameWarpStyle warpStyle;
+    FlameEdgeStyle edgeStyle;
+    FlameWindBend windBend;
     mat4 trailUnitInverse;
-    vec4 trailMeta;
+    FlameTrailMeta trailMeta;
     vec4 trail_coefficients[4];
-    vec4 emitterParams;
-    vec4 contourParams;
-    vec4 erosionResponse;
-    vec4 waveCfParams;
-    vec4 boundaryParams;
-    vec4 nearFadeParams;
+    FlameEmitterParams emitterParams;
+    FlameContourParams contourParams;
+    FlameErosionResponse erosionResponse;
+    FlameWaveCfParams waveCfParams;
+    FlameBoundaryParams boundaryParams;
+    FlameNearFadeParams nearFadeParams;
     vec4 radiusCoefficients[2];
     vec4 colorRamp[8];
-    vec4 profileParams;
-    vec4 waveParams;
-    vec4 tipCarveParams;
-    vec4 warpStrainParams;
-    vec4 warpFormParams;
-    vec4 unifiedParams;
-  vec4 spreadParams;
-    vec4 supportParams;
+    FlameProfileParams profileParams;
+    FlameWaveShaping waveParams;
+    FlameTipCarveParams tipCarveParams;
+    FlameWarpStrainParams warpStrainParams;
+    FlameWarpFormParams warpFormParams;
+    FlameUnifiedParams unifiedParams;
+    FlameSpreadParams spreadParams;
+    FlameSupportMotion supportMotion;
+    FlameTwistMode twistModes[2];
+    float twistCoreRadiusSq;
+    float twistPad0;
+    float twistPad1;
+    float twistPad2;
+    FlameMeanderMode meanderModes[2];
     vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;
@@ -237,7 +412,7 @@ struct FlameRaySegment {
 // bend per band (flameCenterlineOffsetAt), so bent flames stay on this path instead
 // of falling back to the boundary integral, which cuts flat from above.
 bool isCylinderDomain() {
-    return flame.emitterParams.x < 0.5 && flame.trailMeta.x < 1.0;
+    return flame.emitterParams.kind < 0.5 && flame.trailMeta.sampleCount < 1.0;
 }
 
 bool clampToShellCone(vec3 o, vec3 d, float radiusPad, inout float tNear, inout float tFar) {
@@ -350,9 +525,9 @@ FlameRaySegment buildRaySegment() {
     // Wind bend shifts the density sideways by at most |wind| * bendAmount (h^p <= 1);
     // the trail proxy must not cut it, so its cone is padded by that bound. Non-trail
     // emitters keep the unpadded cone (their integrators bend per evaluation).
-   float radiusPad = flame.trailMeta.x >= 1.0
-        ? length(flame.styleParams2.xy) * flame.styleParams2.z + 2.0 * flame.supportParams.y
-        : 2.0 * flame.supportParams.y;
+   float radiusPad = flame.trailMeta.sampleCount >= 1.0
+        ? length(flame.windBend.windDirection) * flame.windBend.bendAmount + 2.0 * flame.supportMotion.meanderAmp
+        : 2.0 * flame.supportMotion.meanderAmp;
     if (!clampToShellCone(segment.localOrigin, segment.localDir, radiusPad, segment.tNear, segment.tFar)) {
         segment.tNear = 1.0;
         segment.tFar = 0.0;
@@ -399,7 +574,7 @@ float integrateEmissionAnalytic(FlameRaySegment segment) {
         return max(integrateRadialEmission(
             segment.localOrigin, segment.localDir, segment.tNear, segment.tFar), 0.0);
     }
-    if (flame.trailMeta.x < 1.0) {
+    if (flame.trailMeta.sampleCount < 1.0) {
         return integrateEmitterOccupancy(
             segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
     }
@@ -446,7 +621,7 @@ vec4 shadeEmission(FlameRaySegment segment, float emission) {
     }
 
     float tempNorm = clamp(emission * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMid);
-    vec3 radiance = rampColor * flame.intensity * (1.0 + flame.styleParams1.w * pow(tempNorm, 2.0)) * emission;
+    vec3 radiance = rampColor * flame.intensity * (1.0 + flame.edgeStyle.whiteBoost * pow(tempNorm, 2.0)) * emission;
     float alpha = 1.0 - exp(-flame.sigmaT * emission);
     return vec4(radiance, alpha);
 }
@@ -544,27 +719,27 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
         return vec4(c, 1.0);
     }
     float eddyTime = flame.noiseScrollSpeed * flame.time;
-    int count = min(int(flame.waveParams.x), FLAME_WAVE_EROSION_SLOTS);
+    int count = min(int(flame.waveParams.trackedCount), FLAME_WAVE_EROSION_SLOTS);
     float shapedNoise;
     float sigmaNoise;
     float remapScale;
     float argument = flameWaveNodeArgumentLocal(
         p, d, h, bestDensity, dt, count, eddyTime, shapedNoise, sigmaNoise, remapScale);
     if (push.debugView == 1) {
-        float v = (shapedNoise - 0.4375) / max(flame.waveParams.w, 1e-4);
+        float v = (shapedNoise - 0.4375) / max(flame.waveParams.amplitude, 1e-4);
         return vec4(flameDebugDiverging(v), 1.0);
     }
   if (push.debugView == 2) {
         float uSquared;
-        if (flame.emitterParams.x >= 1.5) {
+        if (flame.emitterParams.kind >= 1.5) {
             uSquared = 0.0;
         } else {
             float wiggle = flameContourWiggle(p, h);
             vec2 boundary = flameBoundaryDisplacement(p.xz);
             float hb = clamp(h / boundary.x, 0.0, 1.0);
-            float taperR = mix(1.0, flame.styleParams1.x, pow(hb, flame.styleParams0.w));
-            float rm = flame.emitterParams.x >= 0.5 ? flame.emitterParams.y : 0.0;
-            float minorScale = flame.emitterParams.x >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
+            float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hb, flame.warpStyle.taperPower));
+            float rm = flame.emitterParams.kind >= 0.5 ? flame.emitterParams.ringMajorRatio : 0.0;
+            float minorScale = flame.emitterParams.kind >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
             float rho = (length(p.xz) - rm) / minorScale;
             float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
             float u = rn / flameRadialSupportRadius();
@@ -584,7 +759,7 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
 void main() {
     FlameRaySegment segment = buildRaySegment();
 
-    if (push.debugView > 0 && flame.trailMeta.x < 1.0 && segment.tNear <= segment.tFar) {
+    if (push.debugView > 0 && flame.trailMeta.sampleCount < 1.0 && segment.tNear <= segment.tFar) {
         outColor = flameDebugViewColor(segment);
         outHistory = outColor;
         return;
@@ -618,7 +793,7 @@ void main() {
     if (push.mode == 3) {
         // Per-step Beer-Lambert integrator with tapered radial density
         float dt = (segment.tFar - segment.tNear) / float(push.stepCount);
-        float jitter = interleavedGradientNoise(gl_FragCoord.xy + vec2(flame.temporalData.y * 5.588238));
+        float jitter = interleavedGradientNoise(gl_FragCoord.xy + vec2(flame.temporalData.frameIndex * 5.588238));
         L = vec3(0.0);
         trans = 1.0;
         for (int i = 0; i < push.stepCount; ++i) {
@@ -628,7 +803,7 @@ void main() {
 
             float dSmooth;
             float density;
-            if (flame.trailMeta.x >= 1.0) {
+            if (flame.trailMeta.sampleCount >= 1.0) {
                 vec3 pWorld = (flame.model * vec4(p, 1.0)).xyz;
                 vec3 baseUnit = (flame.trailUnitInverse * vec4(pWorld, 1.0)).xyz;
 
@@ -687,11 +862,11 @@ void main() {
                 rampColor = mix(flame.colorMid.rgb, flame.colorTip.rgb, (u - 0.5) * 2.0);
             }
 
-            L += trans * rampColor * flame.intensity * (1.0 + flame.styleParams1.w * pow(tempNorm, 4.0)) * a;
+            L += trans * rampColor * flame.intensity * (1.0 + flame.edgeStyle.whiteBoost * pow(tempNorm, 4.0)) * a;
             trans *= 1.0 - a;
         }
     } else {
-        if (flame.trailMeta.x < 1.0 && flame.contourParams.z >= 2.0) {
+        if (flame.trailMeta.sampleCount < 1.0 && flame.contourParams.rteBands >= 2.0) {
             vec4 rte;
             if (push.mode == 1) {
                 rte = integrateRTERaymarch(segment, push.stepCount);
@@ -700,9 +875,9 @@ void main() {
             } else {
                 rte = integrateEmitterOccupancyRTE(segment.localOrigin, segment.localDir, segment.tNear, segment.tFar);
             }
-            if (flame.lightData.w > 0.0) {
+            if (flame.lightData.selfShadowStrength > 0.0) {
                 vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-                rte.rgb *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+                rte.rgb *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
             }
             L = rte.rgb;
             trans = 1.0 - rte.a;
@@ -716,7 +891,7 @@ void main() {
                 // Mode 0: multiply emission by weighted average of flameNoiseErosionFactor
                 // evaluated at tNear, midpoint, and tFar (weights 0.25, 0.5, 0.25)
                 // Only for the trail domain — cylinder and emitter occupancy paths own their erosion
-                if (flame.trailMeta.x >= 1.0) {
+                if (flame.trailMeta.sampleCount >= 1.0) {
                     float tMid = 0.5 * (segment.tNear + segment.tFar);
                     vec3 pNear = segment.localOrigin + segment.tNear * segment.localDir;
                     vec3 pMid = segment.localOrigin + tMid * segment.localDir;
@@ -729,9 +904,9 @@ void main() {
                             + 0.25 * flameNoiseErosionFactor(pFar, hFar);
                 }
             }
-            if (flame.lightData.w > 0.0) {
+            if (flame.lightData.selfShadowStrength > 0.0) {
                 vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-                emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+                emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
             }
             vec4 shaded = shadeEmission(segment, emission);
             L = shaded.rgb;
@@ -740,15 +915,15 @@ void main() {
     }
 
     // Self-shadow midpoint multiply on L (mode 3)
-    if (push.mode == 3 && flame.lightData.w > 0.0) {
+    if (push.mode == 3 && flame.lightData.selfShadowStrength > 0.0) {
         vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-        L *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.xyz))), flame.lightData.w);
+        L *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
     }
 
     vec4 shaded = vec4(L, 1.0 - trans);
     // Occlusion must track displayed luminance: a dim flame adds little light and must not darken the background.
-    shaded.a *= smoothstep(0.0, flame.colorBase.a, dot(shaded.rgb, LUMA_WEIGHTS));
-    vec4 blended = mix(shaded, texture(flameHistorySampler, fragTexCoord), flame.temporalData.x);
+    shaded.a *= smoothstep(0.0, flame.colorBase.occlusionLumRef, dot(shaded.rgb, LUMA_WEIGHTS));
+    vec4 blended = mix(shaded, texture(flameHistorySampler, fragTexCoord), flame.temporalData.accumWeight);
     outColor = blended;
     outHistory = blended;
 }

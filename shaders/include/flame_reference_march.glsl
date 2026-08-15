@@ -17,7 +17,7 @@ float integrateEmissionRaymarch(FlameRaySegment segment, int stepCount) {
         float w = flameContourWiggle(p, h);
         if (segment.cylinderDomain && flame.noiseAmplitude != 0.0) {
             sum += flamePointOccupancyDensity(p, h, w);
-        } else if (!segment.cylinderDomain && flame.trailMeta.x < 1.0) {
+        } else if (!segment.cylinderDomain && flame.trailMeta.sampleCount < 1.0) {
             sum += flamePointEmitterOccupancy(p, h, w);
         } else {
             float radial = segment.cylinderDomain ? flameRadialDensityFactor(vec3(p.x / w, p.y, p.z / w), h) : 1.0;
@@ -54,10 +54,10 @@ vec4 integrateRTERaymarch(FlameRaySegment segment, int stepCount) {
     }
     heightMean = total > 1e-6 ? heightMean / total : 0.0;
     float tempNorm = clamp(total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
-    float boost = 1.0 + flame.styleParams1.w * tempNorm * tempNorm;
+    float boost = 1.0 + flame.edgeStyle.whiteBoost * tempNorm * tempNorm;
 
     vec3 radiance = vec3(0.0);
-    vec3 sigmaRgb = flame.sigmaT * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.w, 0.0, 1.0));
+    vec3 sigmaRgb = flame.sigmaT * mix(vec3(1.0), vec3(1.0, 1.091, 1.333), clamp(flame.contourParams.sigmaDispersion, 0.0, 1.0));
     vec3 transmittance = vec3(1.0);
     for (int i = 0; i < stepCount; ++i) {
         float t = segment.tNear + (float(i) + 0.5) * dt;

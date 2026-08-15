@@ -52,12 +52,12 @@ pub fn perform_flame_wall_probe_dump(world: &World, viewport_size: [f32; 2]) {
         return;
     }
 
-    match write_flame_wall_probe_dump(&camera, &settings, viewport_size, &flames) {
+    match write_flame_wall_probe_dump(&camera, &settings, viewport_size, &flames, None) {
         Ok(path) => log!("wall probe dumped to {}", path.display()),
         Err(error) => log_warn!("wall probe dump failed: {}", error),
     }
 
-    match write_flame_field_traces(&view, &flames) {
+    match write_flame_field_traces(&view, &flames, None) {
         Ok(paths) => {
             for path in paths {
                 log!("flame field trace dumped to {}", path.display());

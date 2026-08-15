@@ -275,6 +275,16 @@ pub struct FlameSceneData {
     pub channels: Vec<FlameChannelData>,
     #[serde(default)]
     pub motion_path: Option<MotionPathData>,
+    #[serde(default)]
+    pub style: Option<FlameStyleRefData>,
+}
+
+/// Name and version of the style whose values are baked into the effect —
+/// provenance only, so editing the style file never changes a saved scene.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FlameStyleRefData {
+    pub name: String,
+    pub version: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -286,6 +296,8 @@ pub struct MotionPathData {
     pub enabled: bool,
 }
 
+// TODO(#132): replace this hand-written mirror struct with serialization
+// derived from the component itself (see the issue for the Bevy/Unity survey).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameEffectData {
     pub position: [f32; 3],
@@ -354,6 +366,26 @@ pub struct FlameEffectData {
     pub support_margin: f32,
     #[serde(default)]
     pub meander_amp: f32,
+    #[serde(default)]
+    pub edge_outer_sharpen: f32,
+    #[serde(default)]
+    pub noise_scale_mode: f32,
+    #[serde(default = "default_erosion_noise_gain")]
+    pub erosion_noise_gain: f32,
+    #[serde(default)]
+    pub twist_gain: f32,
+    #[serde(default)]
+    pub twist_speed: f32,
+    #[serde(default)]
+    pub burnout_gain: f32,
+    #[serde(default)]
+    pub noise_shaping_scale: f32,
+    #[serde(default)]
+    pub optical_depth: f32,
+}
+
+fn default_erosion_noise_gain() -> f32 {
+    1.0
 }
 
 fn default_swirl_speed() -> f32 {
@@ -475,6 +507,13 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             enabled: mp.enabled,
         });
 
+    let style = world
+        .get_component::<crate::ecs::component::AppliedFlameStyle>(*entity)
+        .map(|applied| FlameStyleRefData {
+            name: applied.name.clone(),
+            version: applied.version,
+        });
+
     Some(FlameSceneData {
         effect: FlameEffectData {
             position: [effect.position.x, effect.position.y, effect.position.z],
@@ -487,6 +526,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             height: effect.height,
             radius: effect.radius,
             sigma_t: effect.sigma_t,
+            optical_depth: effect.optical_depth,
             intensity: effect.intensity,
             color_base: effect.color_base,
             color_tip: effect.color_tip,
@@ -520,18 +560,26 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             aniso_axis_advect: effect.aniso_axis_advect,
             rte_bands: effect.rte_bands,
             sigma_dispersion: effect.sigma_dispersion,
-            tip_carve_depth: effect.tip_carve_depth,
-            tip_carve_reach: effect.tip_carve_reach,
+            tip_carve_depth: effect.tip_carve.depth,
+            tip_carve_reach: effect.tip_carve.reach,
             warp_reach: effect.warp_reach,
-            swirl_gain: effect.swirl_gain,
-            swirl_speed: effect.swirl_speed,
+            swirl_gain: effect.swirl.gain,
+            swirl_speed: effect.swirl.speed,
             spread_gain: effect.spread_gain,
             support_margin: effect.support_margin,
+            edge_outer_sharpen: effect.edge_outer_sharpen,
+            noise_scale_mode: effect.noise_scale_mode,
+            erosion_noise_gain: effect.erosion_noise_gain,
+            twist_gain: effect.twist.gain,
+            twist_speed: effect.twist.speed,
+            burnout_gain: effect.burnout_gain,
+            noise_shaping_scale: effect.noise_shaping_scale,
             meander_amp: effect.meander_amp,
             edge_temperature_blend: effect.edge_temperature_blend,
         },
         channels,
         motion_path,
+        style,
     })
 }
 
@@ -589,7 +637,12 @@ pub fn apply_flame_state_to_world(
     let entities: Vec<_> = world.query_flames();
     let entity = match entities.first() {
         Some(e) => *e,
-        None => return, // no flame entity exists yet, skip silently
+        None => crate::ecs::systems::spawn_flame_with_clip(
+            world,
+            assets,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        ),
     };
 
     // Write effect fields onto the existing FlameEffect component
@@ -609,6 +662,7 @@ pub fn apply_flame_state_to_world(
         effect.height = flame.effect.height;
         effect.radius = flame.effect.radius;
         effect.sigma_t = flame.effect.sigma_t;
+        effect.optical_depth = flame.effect.optical_depth;
         effect.intensity = flame.effect.intensity;
         effect.color_base = flame.effect.color_base;
         effect.color_tip = flame.effect.color_tip;
@@ -644,14 +698,31 @@ pub fn apply_flame_state_to_world(
         effect.aniso_axis_advect = flame.effect.aniso_axis_advect;
         effect.rte_bands = flame.effect.rte_bands;
         effect.sigma_dispersion = flame.effect.sigma_dispersion;
-        effect.tip_carve_depth = flame.effect.tip_carve_depth;
-        effect.tip_carve_reach = flame.effect.tip_carve_reach;
+        effect.tip_carve.depth = flame.effect.tip_carve_depth;
+        effect.tip_carve.reach = flame.effect.tip_carve_reach;
         effect.warp_reach = flame.effect.warp_reach;
-        effect.swirl_gain = flame.effect.swirl_gain;
-        effect.swirl_speed = flame.effect.swirl_speed;
+        effect.swirl.gain = flame.effect.swirl_gain;
+        effect.swirl.speed = flame.effect.swirl_speed;
         effect.support_margin = flame.effect.support_margin;
         effect.meander_amp = flame.effect.meander_amp;
+        effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
+        effect.noise_scale_mode = flame.effect.noise_scale_mode;
+        effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
+        effect.twist.gain = flame.effect.twist_gain;
+        effect.twist.speed = flame.effect.twist_speed;
+        effect.burnout_gain = flame.effect.burnout_gain;
+        effect.noise_shaping_scale = flame.effect.noise_shaping_scale;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
+    }
+
+    if let Some(style) = &flame.style {
+        world.insert_component(
+            entity,
+            crate::ecs::component::AppliedFlameStyle {
+                name: style.name.clone(),
+                version: style.version,
+            },
+        );
     }
 
     crate::ecs::systems::write_flame_transform(
@@ -786,58 +857,105 @@ mod tests {
         );
     }
 
+    fn sample_flame_effect_data() -> FlameEffectData {
+        FlameEffectData {
+            position: [0.0, 0.0, 0.0],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            height: 1.0,
+            radius: 0.5,
+            sigma_t: 0.3,
+            intensity: 1.0,
+            color_base: [1.0, 0.5, 0.0],
+            color_tip: [1.0, 1.0, 1.0],
+            temperature_base_k: 3200.0,
+            temperature_tip_k: 1500.0,
+            use_blackbody: true,
+            noise_amplitude: 0.1,
+            noise_contrast: 1.0,
+            noise_frequency: 1.0,
+            noise_scroll_speed: 0.0,
+            time_scale: 1.0,
+            time_offset: 0.0,
+            warp_amp: 0.05,
+            warp_freq: 2.0,
+            rise_speed: 1.0,
+            taper_power: 1.0,
+            radius_tip_ratio: 0.10,
+            edge_low: 0.3,
+            edge_high: 0.7,
+            white_boost: 0.0,
+            wind_direction: [0.0, 0.0],
+            bend_amount: 0.0,
+            bend_power: 2.0,
+            self_shadow_strength: 0.0,
+            envelope_peak: 0.35,
+            envelope_base: 0.45,
+            envelope_tail: 1.6,
+            radial_sharpness: 4.0,
+            occlusion_lum_ref: 1.0,
+            contour_wiggle_amp: 0.3,
+            aniso_axis_advect: 0.0,
+            rte_bands: 4.0,
+            sigma_dispersion: 1.0,
+            edge_temperature_blend: 0.0,
+            tip_carve_depth: 1.0,
+            tip_carve_reach: 0.2,
+            warp_reach: default_warp_reach(),
+            swirl_gain: 0.0,
+            swirl_speed: 1.0,
+            spread_gain: 0.0,
+            support_margin: 1.0,
+            edge_outer_sharpen: 0.0,
+            noise_scale_mode: 0.0,
+            erosion_noise_gain: 1.0,
+            twist_gain: 0.0,
+            twist_speed: 0.0,
+            burnout_gain: 0.0,
+            noise_shaping_scale: 0.0,
+            optical_depth: 0.0,
+            meander_amp: 0.0,
+        }
+    }
+
+    #[test]
+    fn test_flame_style_ref_scene_roundtrip() {
+        let scene = FlameSceneData {
+            effect: sample_flame_effect_data(),
+            channels: vec![],
+            motion_path: None,
+            style: Some(FlameStyleRefData {
+                name: "pillar-ref".to_string(),
+                version: 1,
+            }),
+        };
+        let json = serde_json::to_string(&scene).expect("serialize");
+        let restored: FlameSceneData = serde_json::from_str(&json).expect("deserialize");
+        let style = restored.style.expect("style ref survives");
+        assert_eq!(style.name, "pillar-ref");
+        assert_eq!(style.version, 1);
+    }
+
+    #[test]
+    fn test_flame_effect_data_fields_match_parameter_ownership_table() {
+        let value = serde_json::to_value(sample_flame_effect_data()).expect("serialize");
+        let serde_fields: std::collections::BTreeSet<String> = value
+            .as_object()
+            .expect("FlameEffectData serializes to an object")
+            .keys()
+            .cloned()
+            .collect();
+        let table_fields: std::collections::BTreeSet<String> =
+            thyllore_effect_core::PARAMETER_OWNERSHIP
+                .iter()
+                .map(|(name, _)| name.to_string())
+                .collect();
+        assert_eq!(serde_fields, table_fields);
+    }
+
     #[test]
     fn test_flame_scene_data_serde_roundtrip() {
         let scene = FlameSceneData {
-            effect: FlameEffectData {
-                position: [0.0, 0.0, 0.0],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                height: 1.0,
-                radius: 0.5,
-                sigma_t: 0.3,
-                intensity: 1.0,
-                color_base: [1.0, 0.5, 0.0],
-                color_tip: [1.0, 1.0, 1.0],
-                temperature_base_k: 3200.0,
-                temperature_tip_k: 1500.0,
-                use_blackbody: true,
-                noise_amplitude: 0.1,
-                noise_contrast: 1.0,
-                noise_frequency: 1.0,
-                noise_scroll_speed: 0.0,
-                time_scale: 1.0,
-                time_offset: 0.0,
-                warp_amp: 0.05,
-                warp_freq: 2.0,
-                rise_speed: 1.0,
-                taper_power: 1.0,
-                radius_tip_ratio: 0.10,
-                edge_low: 0.3,
-                edge_high: 0.7,
-                white_boost: 0.0,
-                wind_direction: [0.0, 0.0],
-                bend_amount: 0.0,
-                bend_power: 2.0,
-                self_shadow_strength: 0.0,
-                envelope_peak: 0.35,
-                envelope_base: 0.45,
-                envelope_tail: 1.6,
-                radial_sharpness: 4.0,
-                occlusion_lum_ref: 1.0,
-                contour_wiggle_amp: 0.3,
-                aniso_axis_advect: 0.0,
-                rte_bands: 4.0,
-                sigma_dispersion: 1.0,
-                edge_temperature_blend: 0.0,
-                tip_carve_depth: 1.0,
-                tip_carve_reach: 0.2,
-                warp_reach: default_warp_reach(),
-                swirl_gain: 0.0,
-                swirl_speed: 1.0,
-                spread_gain: 0.0,
-                support_margin: 1.0,
-                meander_amp: 0.0,
-            },
+            effect: sample_flame_effect_data(),
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
                 keys: vec![
@@ -860,6 +978,7 @@ mod tests {
                 ],
             }],
             motion_path: None,
+            style: None,
         };
 
         let json = serde_json::to_string(&scene).expect("Failed to serialize FlameSceneData");
@@ -985,6 +1104,14 @@ mod tests {
                 swirl_speed: 1.0,
                 spread_gain: 0.0,
                 support_margin: 1.0,
+                edge_outer_sharpen: 0.0,
+                noise_scale_mode: 0.0,
+                erosion_noise_gain: 1.0,
+                twist_gain: 0.0,
+                twist_speed: 0.0,
+                burnout_gain: 0.0,
+                noise_shaping_scale: 0.0,
+                optical_depth: 0.0,
                 meander_amp: 0.0,
             },
             channels: vec![FlameChannelData {
@@ -1009,6 +1136,7 @@ mod tests {
                 ],
             }],
             motion_path: None,
+            style: None,
         };
 
         let json = serde_json::to_string(&scene).expect("Failed to serialize");
@@ -1259,6 +1387,38 @@ mod tests {
         assert_eq!(loaded_mp.angular_speed, 0.7);
         assert_eq!(loaded_mp.phase_offset, 1.5);
         assert!(loaded_mp.enabled);
+    }
+
+    #[test]
+    fn test_apply_flame_state_spawns_entity_when_world_has_none() {
+        let mut source = crate::ecs::world::World::new();
+        let entity = crate::ecs::systems::spawn_flame(
+            &mut source,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect {
+                height: 8.0,
+                radius: 1.0,
+                radius_tip_ratio: 1.0,
+                ..crate::ecs::component::FlameEffect::default()
+            },
+        );
+        let _ = entity;
+        let data = build_flame_scene_data(&source).expect("scene data");
+
+        let mut world2 = crate::ecs::world::World::new();
+        world2.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets2 = crate::asset::AssetStorage::new();
+        assert!(world2.query_flames().is_empty());
+        apply_flame_state_to_world(&mut world2, &mut assets2, &data);
+
+        let flames = world2.query_flames();
+        assert_eq!(flames.len(), 1, "flame entity should be spawned on load");
+        let effect = world2
+            .get_component::<crate::ecs::component::FlameEffect>(flames[0])
+            .expect("FlameEffect on spawned entity");
+        assert_eq!(effect.height, 8.0);
+        assert_eq!(effect.radius, 1.0);
+        assert_eq!(effect.radius_tip_ratio, 1.0);
     }
 
     #[test]

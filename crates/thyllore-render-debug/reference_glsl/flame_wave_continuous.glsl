@@ -174,7 +174,8 @@ float flameMeanArgumentAt(vec3 o, vec3 d, float t) {
     vec3 p = o + t * d;
     float h = clamp(p.y, 0.0, 1.0);
     float density = flameWaveNodeDensity(p, h);
-    float meanErosion = flame.noiseAmplitude * mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK;
+    float meanErosion = flame.noiseAmplitude * mix(0.2, 1.0, h) * FLAME_EROSION_MEAN_SHRINK
+        * (1.0 + flameBurnoutBoost(h));
     return flameErodedArgument(density, meanErosion);
 }
 

@@ -55,7 +55,7 @@ pub fn flame_radial_radius_scale(height01: f32, taper: FlameRadialTaper) -> f32 
 }
 
 /// Support radius `S` of the biweight profile in R(h) units. The curvature at the
-/// axis matches the former Gaussian `exp(-sharpness * u^2)`, so the sharpness lever
+/// axis matches the former Gaussian `exp(-sharpness * u^2)`, so the sharpness parameter
 /// keeps its direction: larger sharpness narrows the support.
 pub fn flame_radial_support_radius(radial_sharpness: f32, support_margin: f32) -> f32 {
     support_margin
