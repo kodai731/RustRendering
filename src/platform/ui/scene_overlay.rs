@@ -1025,6 +1025,51 @@ fn build_flame_section(
                         );
                     }
 
+                    ui.separator();
+                    ui.text("Branches");
+                    ui.slider_config("Branch Period", 0.0, 2.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.period);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Spawn period [s] of the branch elements (vortex rings that wrap \
+                             the medium into side branches); 0 = no elements",
+                        );
+                    }
+                    ui.slider_config("Branch Life", 0.1, 6.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.life);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Lifetime [s] of one element (rise in, wind, fade out); clamped \
+                             to 11 periods so the element table never drops a live element",
+                        );
+                    }
+                    ui.slider_config("Branch Gain", 0.0, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Vortex circulation of each element: how far the trunk medium \
+                             winds around the rising core (a compact rotation never folds, \
+                             so any gain is structurally safe; 0 = off)",
+                        );
+                    }
+                    ui.slider_config("Branch Spread", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.spread);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Scatter of spawn height, azimuth, timing jitter and left/right \
+                             alternation (0 = strictly alternating, one plane)",
+                        );
+                    }
+                    let mut branch_seed = effect_copy.branch.seed as i32;
+                    if ui.input_int("Branch Seed", &mut branch_seed).build() {
+                        effect_copy.branch.seed = branch_seed.max(0) as u32;
+                    }
+
+                    ui.separator();
                     ui.slider_config("Support", 1.0, 2.5)
                         .display_format("%.2f")
                         .build(&mut effect_copy.support_margin);

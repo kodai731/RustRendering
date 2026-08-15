@@ -65,6 +65,10 @@ declare_style_group! {
             spread_gain: f32 => spread_gain,
             burnout_gain: f32 => burnout_gain,
             aniso_axis_advect: f32 => aniso_axis_advect,
+            branch_period: f32 => branch.period,
+            branch_life: f32 => branch.life,
+            branch_gain: f32 => branch.gain,
+            branch_spread: f32 => branch.spread,
         }
         custom {
             meander_amp_over_r0: f32,
@@ -235,6 +239,10 @@ mod tests {
                 meander_amp_over_r0: Some(0.6),
                 burnout_gain: Some(2.0),
                 aniso_axis_advect: Some(1.0),
+                branch_period: Some(0.5),
+                branch_life: Some(2.0),
+                branch_gain: Some(1.5),
+                branch_spread: Some(0.4),
             },
             texture: FlameStyleTexture {
                 noise_amplitude: Some(6.0),

@@ -19,6 +19,21 @@ pub struct FlameTwist {
     pub speed: f32,
 }
 
+/// Discrete branch element layer: a deterministic spawner of vortex transport
+/// elements that wrap the RTE medium around a rising core; period 0 or gain 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameBranch {
+    /// Spawn period in seconds; 0 spawns nothing.
+    pub period: f32,
+    /// Element lifetime in seconds.
+    pub life: f32,
+    /// Vortex circulation at full envelope; 0 = identity transport.
+    pub gain: f32,
+    /// Scatter of spawn height, azimuth, jitter and side alternation in [0, 1].
+    pub spread: f32,
+    pub seed: u32,
+}
+
 /// Sinusoidal displacement of the density boundary; amp 0 = off.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct FlameBoundary {
@@ -120,6 +135,7 @@ pub struct FlameEffect {
     pub burnout_gain: f32,
     /// tanh shaping scale override for the wave noise; 0 = built-in default.
     pub noise_shaping_scale: f32,
+    pub branch: FlameBranch,
 }
 
 impl Default for FlameEffect {
@@ -202,6 +218,13 @@ impl Default for FlameEffect {
             },
             burnout_gain: 0.0,
             noise_shaping_scale: 0.0,
+            branch: FlameBranch {
+                period: 0.0,
+                life: 2.5,
+                gain: 0.0,
+                spread: 0.3,
+                seed: 0,
+            },
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect

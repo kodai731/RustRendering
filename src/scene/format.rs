@@ -382,6 +382,24 @@ pub struct FlameEffectData {
     pub noise_shaping_scale: f32,
     #[serde(default)]
     pub optical_depth: f32,
+    #[serde(default)]
+    pub branch_period: f32,
+    #[serde(default = "default_branch_life")]
+    pub branch_life: f32,
+    #[serde(default)]
+    pub branch_gain: f32,
+    #[serde(default = "default_branch_spread")]
+    pub branch_spread: f32,
+    #[serde(default)]
+    pub branch_seed: u32,
+}
+
+fn default_branch_life() -> f32 {
+    2.5
+}
+
+fn default_branch_spread() -> f32 {
+    0.3
 }
 
 fn default_erosion_noise_gain() -> f32 {
@@ -576,6 +594,11 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             noise_shaping_scale: effect.noise_shaping_scale,
             meander_amp: effect.meander_amp,
             edge_temperature_blend: effect.edge_temperature_blend,
+            branch_period: effect.branch.period,
+            branch_life: effect.branch.life,
+            branch_gain: effect.branch.gain,
+            branch_spread: effect.branch.spread,
+            branch_seed: effect.branch.seed,
         },
         channels,
         motion_path,
@@ -712,6 +735,11 @@ pub fn apply_flame_state_to_world(
         effect.twist.speed = flame.effect.twist_speed;
         effect.burnout_gain = flame.effect.burnout_gain;
         effect.noise_shaping_scale = flame.effect.noise_shaping_scale;
+        effect.branch.period = flame.effect.branch_period;
+        effect.branch.life = flame.effect.branch_life;
+        effect.branch.gain = flame.effect.branch_gain;
+        effect.branch.spread = flame.effect.branch_spread;
+        effect.branch.seed = flame.effect.branch_seed;
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
@@ -914,6 +942,11 @@ mod tests {
             noise_shaping_scale: 0.0,
             optical_depth: 0.0,
             meander_amp: 0.0,
+            branch_period: 0.0,
+            branch_life: 2.5,
+            branch_gain: 0.0,
+            branch_spread: 0.3,
+            branch_seed: 0,
         }
     }
 
@@ -1113,6 +1146,11 @@ mod tests {
                 noise_shaping_scale: 0.0,
                 optical_depth: 0.0,
                 meander_amp: 0.0,
+                branch_period: 0.0,
+                branch_life: 2.5,
+                branch_gain: 0.0,
+                branch_spread: 0.3,
+                branch_seed: 0,
             },
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),

@@ -1,6 +1,8 @@
 #ifndef FLAME_NOISE_FIELD_GLSL
 #define FLAME_NOISE_FIELD_GLSL
 
+#include "flame_branch_transport.glsl"
+
 // Octagonal shell inscribed radius: 0.5 * cos(pi/8), derived from RING_SEGMENTS=8
 
 // Fixed rotation of the noise lattice for E2 experiments.
@@ -105,6 +107,17 @@ vec2 flameMeanderOffsetAt(float h) {
 vec3 flameMeanderShifted(vec3 p, float h) {
     vec2 off = flameMeanderOffsetAt(h);
     return vec3(p.x - off.x, p.y, p.z - off.y);
+}
+
+// Trunk-local support coordinate: meander removed, then pulled back through the
+// branch elements; `h` becomes the height every downstream profile reads.
+vec3 flameSupportPosition(vec3 p, inout float h) {
+    vec3 ps = flameMeanderShifted(p, h);
+    if (flameBranchActive()) {
+        ps = flameBranchPullBack(ps);
+        h = clamp(ps.y, 0.0, 1.0);
+    }
+    return ps;
 }
 
 // Total centerline offset = static bend + animated meander.
@@ -594,6 +607,7 @@ struct FlameWarpFrame {
     vec3 q;     // warped physical coordinate (styled density samples this)
     vec3 w;     // noise coordinate
     vec3 rate;  // dw/dt along the ray direction
+    float h;    // height of pb (branch transport moves it off the sample height)
 };
 
 // Medium spread (motion_design L3): age-coordinate volume-preserving opening
@@ -632,6 +646,11 @@ FlameWarpFrame flameBuildWarpFrame(vec3 p, vec3 d, float h) {
     FlameWarpFrame frame;
     frame.pb = flameNoiseBendRemoved(p, h);
     vec3 dt = d;
+    if (flameBranchActive()) {
+        frame.pb = flameBranchPullBackJvp(frame.pb, dt);
+        h = clamp(frame.pb.y, 0.0, 1.0);
+    }
+    frame.h = h;
     if (flame.spreadParams.twistGain != 0.0) {
         float rSquared = frame.pb.x * frame.pb.x + frame.pb.z * frame.pb.z;
         float phi = flameMediumTwistAngle(rSquared, h);
@@ -857,18 +876,18 @@ float flameResponseOccupancy(float dSmooth, float erosion, float h, float uSquar
 }
 
 // Internal helper: compute erosion value from a warp frame and height h.
-float flameNoiseErosionAt(FlameWarpFrame frame, float h, float density, float uSquared) {
-    float noise = flameWaveNoiseSum(frame.w, frame.pb, h);
-    return flameNoiseErosionFromValue(noise, h, density, uSquared);
+float flameNoiseErosionAt(FlameWarpFrame frame, float density, float uSquared) {
+    float noise = flameWaveNoiseSum(frame.w, frame.pb, frame.h);
+    return flameNoiseErosionFromValue(noise, frame.h, density, uSquared);
 }
 
 float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
     FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
     float uSquared;
-   dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
-   float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
+   dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, frame.h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
+   float erosion = flameNoiseErosionAt(frame, dSmooth, uSquared);
     return flameApplyCarveResidual(
-      flameResponseOccupancy(dSmooth, erosion, h, uSquared),
+      flameResponseOccupancy(dSmooth, erosion, frame.h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -876,7 +895,7 @@ float flameNoiseFieldDensity(vec3 p, float h, out float dSmooth) {
 // erosion consumer (band freeze, legacy factor, occupancy field).
 float flameNoiseErosionValue(vec3 p, float h, float density, float uSquared) {
     FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
-    return flameNoiseErosionAt(frame, h, density, uSquared);
+    return flameNoiseErosionAt(frame, density, uSquared);
 }
 
 // Legacy multiplicative factor (trail domain): no local dSmooth exists there,
@@ -900,10 +919,10 @@ float flameRingFieldDensity(vec3 p, float h, out float dSmooth) {
     vec3 pr = vec3(c * p.x + s * p.z, p.y, -s * p.x + c * p.z);
     FlameWarpFrame frame = flameBuildWarpFrame(pr, vec3(0.0), h);
     float uSquared;
-   dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
-  float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
+   dSmooth = flameEmitterSmoothDensityDisplacedAt(frame.q, frame.h, 1.0, flameBoundaryDisplacement(frame.q.xz), uSquared);
+  float erosion = flameNoiseErosionAt(frame, dSmooth, uSquared);
     return flameApplyCarveResidual(
-     flameResponseOccupancy(dSmooth, erosion, h, uSquared),
+     flameResponseOccupancy(dSmooth, erosion, frame.h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -913,7 +932,7 @@ float flameSdfFieldDensity(vec3 p, float h, out float dSmooth) {
     FlameWarpFrame frame = flameBuildWarpFrame(p, vec3(0.0), h);
     float uSquared;
   dSmooth = flameEmitterSmoothDensityDisplacedAt(p, h, 1.0, flameBoundaryDisplacement(p.xz), uSquared);
-  float erosion = flameNoiseErosionAt(frame, h, dSmooth, uSquared);
+  float erosion = flameNoiseErosionAt(frame, dSmooth, uSquared);
     return flameApplyCarveResidual(
     flameResponseOccupancy(dSmooth, erosion, h, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);

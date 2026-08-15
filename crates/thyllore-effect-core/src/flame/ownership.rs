@@ -95,6 +95,11 @@ declare_flame_parameters! { effect =>
     burnout_gain: Style = [effect.burnout_gain],
     noise_shaping_scale: Style = [effect.noise_shaping_scale],
     optical_depth: Style = [effect.optical_depth],
+    branch_period: Style = [effect.branch.period],
+    branch_life: Style = [effect.branch.life],
+    branch_gain: Style = [effect.branch.gain],
+    branch_spread: Style = [effect.branch.spread],
+    branch_seed: Frame = [effect.branch.seed as f32],
 }
 
 pub fn parameter_owner(field: &str) -> Option<ParameterOwner> {

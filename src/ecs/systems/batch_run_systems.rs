@@ -471,6 +471,11 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "burnout_gain",
     "noise_shaping_scale",
     "optical_depth",
+    "branch_period",
+    "branch_life",
+    "branch_gain",
+    "branch_spread",
+    "branch_seed",
 ];
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
@@ -955,6 +960,11 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "burnout_gain" => effect.burnout_gain = *value,
             "noise_shaping_scale" => effect.noise_shaping_scale = *value,
             "optical_depth" => effect.optical_depth = *value,
+            "branch_period" => effect.branch.period = *value,
+            "branch_life" => effect.branch.life = *value,
+            "branch_gain" => effect.branch.gain = *value,
+            "branch_spread" => effect.branch.spread = *value,
+            "branch_seed" => effect.branch.seed = value.max(0.0) as u32,
             _ => unreachable!("unknown key (parser should have rejected)"),
         }
     }

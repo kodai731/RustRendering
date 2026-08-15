@@ -17,7 +17,8 @@ use serde_json::{json, Value};
 use thyllore_effect_core::flame_wave::{WAVE_JITTER_K, WAVE_JITTER_PHASE, WAVE_JITTER_RANK};
 use thyllore_effect_core::WallProbeView;
 use thyllore_effect_core::{
-    build_flame_ubo, FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO,
+    branch_pull_back, branch_pull_back_jvp, build_flame_ubo, FlameBaked, FlameEffect,
+    FlameTemporalAccum, FlameUBO,
 };
 use thyllore_math_core::{integrate_erf_response_linear, smooth_erf_response, ErfResponseModel};
 
@@ -255,6 +256,17 @@ impl<'a> UboCtx<'a> {
     fn meander_shifted(&self, p: [f32; 3], h: f32) -> [f32; 3] {
         let off = self.meander_offset(h);
         [p[0] - off[0], p[1], p[2] - off[1]]
+    }
+
+    /// flameSupportPosition mirror: meander removed, then pulled back through
+    /// the branch elements; returns the coordinate and its height.
+    fn support_position(&self, p: [f32; 3], h: f32) -> ([f32; 3], f32) {
+        let ps = self.meander_shifted(p, h);
+        if self.u.branch_field.count > 0.5 {
+            let pulled = branch_pull_back(&self.u.branch_field, ps, self.u.time);
+            return (pulled, pulled[1].clamp(0.0, 1.0));
+        }
+        (ps, h)
     }
 
     fn wave_mode(&self, slot: usize) -> ([f32; 4], [f32; 4]) {
@@ -695,6 +707,14 @@ impl<'a> UboCtx<'a> {
         let bend = self.bend_offset(h);
         let mut pbu = [p[0] - bend[0], p[1], p[2] - bend[1]];
         let mut du = d;
+        let mut h = h;
+        if self.u.branch_field.count > 0.5 {
+            let (pulled, pulled_dir) =
+                branch_pull_back_jvp(&self.u.branch_field, pbu, du, self.u.time);
+            pbu = pulled;
+            du = pulled_dir;
+            h = pulled[1].clamp(0.0, 1.0);
+        }
         if self.u.spread_params.twist_gain != 0.0 {
             let r_squared = pbu[0] * pbu[0] + pbu[2] * pbu[2];
             let phi = self.twist_angle(r_squared, h);
@@ -727,6 +747,7 @@ impl<'a> UboCtx<'a> {
             rate,
             jitter_psi,
             jitter_psi_rate,
+            h,
         }
     }
 
@@ -746,13 +767,14 @@ impl<'a> UboCtx<'a> {
             rate,
             jitter_psi,
             jitter_psi_rate,
+            h: hs,
         } = self.wave_frame(p, d, h);
 
         // Compute u_squared (normalized radius squared) for plateau boost.
-        // Use meander-shifted p for density-side coordinate, matching the shader.
-        let ps = self.meander_shifted(p, h);
+        // Use the support position for density-side coordinate, matching the shader.
+        let (ps, h_support) = self.support_position(p, h);
         let boundary = self.boundary_displacement(ps[0], ps[2]);
-        let hb = (h / boundary[0]).clamp(0.0, 1.0);
+        let hb = (h_support / boundary[0]).clamp(0.0, 1.0);
         let emitter = self.u.emitter_params.kind;
         let u_squared = if emitter < 0.5 {
             // Cylinder: normalized radius squared from radial_factor scale
@@ -850,11 +872,11 @@ impl<'a> UboCtx<'a> {
         } else {
             0.4375 + z
         };
-        let lambda = self.tip_carve_lambda(h);
-        let mu = self.envelope_remaining_mu(h);
-        let strain = self.warp_strain(h);
+        let lambda = self.tip_carve_lambda(hs);
+        let mu = self.envelope_remaining_mu(hs);
+        let strain = self.warp_strain(hs);
         let erosion = self.u.noise_amplitude
-            * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + self.burnout_boost(h))
+            * (mixf(0.2, 1.0, hs) * EROSION_MEAN_SHRINK * (1.0 + self.burnout_boost(hs))
                 + PLATEAU_CARVE_BOOST * self.flame_plateau_carve_reach(u_squared)
                 + self.u.spread_params.erosion_noise_gain
                     * lambda
@@ -1158,6 +1180,7 @@ struct WaveFrame {
     rate: [f32; 3],
     jitter_psi: [f32; 3],
     jitter_psi_rate: [f32; 3],
+    h: f32,
 }
 
 /// Ray-constant carrier data (z units): per-mode amplitudes with the
@@ -1214,13 +1237,11 @@ struct SegmentEstimate {
 /// into the smoothing sigma through the tanh conditional statistics.
 fn mean_argument_at(ctx: &UboCtx, o: [f32; 3], d: [f32; 3], t: f32) -> f32 {
     let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
-    let h = p[1].clamp(0.0, 1.0);
-    // Use meander-shifted p for density-side coordinate, matching the shader.
-    let ps = ctx.meander_shifted(p, h);
-    let density = ctx.node_density(ps, h).density;
+    let (ps, hs) = ctx.support_position(p, p[1].clamp(0.0, 1.0));
+    let density = ctx.node_density(ps, hs).density;
     // Compute u_squared (normalized radius squared) for plateau boost.
     let boundary = ctx.boundary_displacement(ps[0], ps[2]);
-    let hb = (h / boundary[0]).clamp(0.0, 1.0);
+    let hb = (hs / boundary[0]).clamp(0.0, 1.0);
     let emitter = ctx.u.emitter_params.kind;
     let u_squared = if emitter < 0.5 {
         let scale = (ctx.radial_support_radius() * ctx.radial_radius_scale(hb)).max(1e-4);
@@ -1241,7 +1262,7 @@ fn mean_argument_at(ctx: &UboCtx, o: [f32; 3], d: [f32; 3], t: f32) -> f32 {
         0.0
     };
     let mean_erosion = ctx.u.noise_amplitude
-        * (mixf(0.2, 1.0, h) * EROSION_MEAN_SHRINK * (1.0 + ctx.burnout_boost(h))
+        * (mixf(0.2, 1.0, hs) * EROSION_MEAN_SHRINK * (1.0 + ctx.burnout_boost(hs))
             + PLATEAU_CARVE_BOOST * ctx.flame_plateau_carve_reach(u_squared));
     ctx.eroded_argument(density, mean_erosion)
 }
@@ -1340,9 +1361,7 @@ fn solve_reference_cutoff(
                 o[1] + t_star * d[1],
                 o[2] + t_star * d[2],
             ];
-            let h_star = p_star[1].clamp(0.0, 1.0);
-            // Use meander-shifted p for density-side coordinate, matching the shader.
-            let ps_star = ctx.meander_shifted(p_star, h_star);
+            let (ps_star, h_star) = ctx.support_position(p_star, p_star[1].clamp(0.0, 1.0));
             let density = ctx.node_density(ps_star, h_star).density;
             if density > 0.0 {
                 let fade = ctx.envelope_fade(density);
@@ -1484,12 +1503,12 @@ struct NodeArgument {
     mode_weights: Vec<f32>,
 }
 
-fn slab_interval(origin_y: f32, dir_y: f32, t_max: f32) -> Option<(f32, f32)> {
+fn slab_interval(origin_y: f32, dir_y: f32, y_top: f32, t_max: f32) -> Option<(f32, f32)> {
     if dir_y.abs() < 1e-6 {
-        return (0.0..=1.0).contains(&origin_y).then_some((0.0, t_max));
+        return (0.0..=y_top).contains(&origin_y).then_some((0.0, t_max));
     }
     let a = (0.0 - origin_y) / dir_y;
-    let b = (1.0 - origin_y) / dir_y;
+    let b = (y_top - origin_y) / dir_y;
     let lo = a.min(b).max(0.0);
     let hi = a.max(b).min(t_max);
     (hi > lo).then_some((lo, hi))
@@ -1568,7 +1587,9 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
     let boundary_trim =
         1.0 + 3.0 * ctx.u.boundary_params.amp.abs() * ctx.u.boundary_params.radius_ratio.max(0.0);
     let taper_max = ctx.u.edge_style.radius_tip_ratio.max(1.0);
-    let r_out = SHELL_BASE_RADIUS * SUPPORT_HEADROOM * taper_max * wiggle_trim * boundary_trim;
+    let r_out = SHELL_BASE_RADIUS * SUPPORT_HEADROOM * taper_max * wiggle_trim * boundary_trim
+        + ctx.u.branch_field.bounding_pad;
+    let y_top = 1.0 + ctx.u.branch_field.bounding_pad_y;
 
     let sigma_rgb = {
         let t = ctx.u.contour_params.sigma_dispersion.clamp(0.0, 1.0);
@@ -1594,7 +1615,7 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             let o = camera_local;
             let d = [dl[0] / dl_len, dl[1] / dl_len, dl[2] / dl_len];
 
-            let span = slab_interval(o[1], d[1], t_max)
+            let span = slab_interval(o[1], d[1], y_top, t_max)
                 .and_then(|(lo, hi)| outer_cylinder_interval(o, d, r_out, lo, hi));
             let (t0, t1) = match span {
                 Some(pair) => pair,
@@ -1720,8 +1741,8 @@ fn trace_ray(
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
         let h = p[1].clamp(0.0, 1.0);
         // Use meander-shifted p for density-side coordinate, matching the shader.
-        let ps = ctx.meander_shifted(p, h);
-        let nd = ctx.node_density(ps, h);
+        let (ps, hs) = ctx.support_position(p, h);
+        let nd = ctx.node_density(ps, hs);
         let arg = if nd.density > 0.0 {
             Some(ctx.node_argument(p, d, h, nd.density, dt))
         } else {
@@ -1734,8 +1755,8 @@ fn trace_ray(
         let p = [o[0] + t * d[0], o[1] + t * d[1], o[2] + t * d[2]];
         let h = p[1].clamp(0.0, 1.0);
         // Use meander-shifted p for density-side coordinate, matching the shader.
-        let ps = ctx.meander_shifted(p, h);
-        ctx.node_density(ps, h).density
+        let (ps, hs) = ctx.support_position(p, h);
+        ctx.node_density(ps, hs).density
     };
     let support_crossing = |t_dead: f32, t_live: f32| -> f32 {
         let (mut t_dead, mut t_live) = (t_dead, t_live);
@@ -2076,8 +2097,8 @@ fn trace_ray(
             let p = [o[0] + tf * d[0], o[1] + tf * d[1], o[2] + tf * d[2]];
             let h = p[1].clamp(0.0, 1.0);
             // Use meander-shifted p for density-side coordinate, matching the shader.
-            let ps = ctx.meander_shifted(p, h);
-            let nd = ctx.node_density(ps, h);
+            let (ps, hs) = ctx.support_position(p, h);
+            let nd = ctx.node_density(ps, hs);
             let a = ctx.node_argument(p, d, h, nd.density, dt);
             json!({
                 "t": round5(tf),
@@ -2245,6 +2266,45 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// Branch elements: an inactive spawner leaves the support position and
+    /// warp frame untouched; a live element moves the pulled-back point, keeps
+    /// the frame finite, and its support height follows the pulled-back y.
+    #[test]
+    fn test_branch_elements_transport_support_and_frame() {
+        let baked = Default::default();
+        let trail = Default::default();
+        let mut effect = FlameEffect::default();
+        effect.time = 2.3;
+        let ubo_off = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        let off = UboCtx::new(&ubo_off, [0.0, 0.5, 3.0]);
+        let p = [0.45, 0.42, 0.1];
+        let (ps_off, h_off) = off.support_position(p, 0.42);
+        assert_eq!(ps_off, off.meander_shifted(p, 0.42));
+        assert_eq!(h_off, 0.42);
+
+        effect.branch.period = 0.4;
+        effect.branch.gain = 3.0;
+        effect.branch.spread = 0.0;
+        let ubo_on = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
+        assert!(ubo_on.branch_field.count > 0.0);
+        let on = UboCtx::new(&ubo_on, [0.0, 0.5, 3.0]);
+        let moved = (0..12)
+            .map(|i| [0.2 + 0.1 * i as f32, 0.3 + 0.03 * i as f32, 0.0])
+            .any(|q| {
+                let (ps, hs) = on.support_position(q, q[1]);
+                assert_eq!(hs, ps[1].clamp(0.0, 1.0));
+                ps != on.meander_shifted(q, q[1])
+            });
+        assert!(moved, "a live element must move at least one sample");
+        let frame = on.wave_frame(p, [0.0, 0.0, -1.0], 0.42);
+        assert!(frame
+            .w
+            .iter()
+            .chain(frame.rate.iter())
+            .all(|v| v.is_finite()));
+        assert!((0.0..=1.0).contains(&frame.h));
     }
 
     /// twist_speed = 0 delegates the twist rate to swirl_speed; > 0 owns it.

@@ -190,6 +190,39 @@ struct FlameMeanderMode {
     float pad2;
 };
 
+const int FLAME_BRANCH_MAX_ELEMENTS = 12;
+
+struct FlameBranchElement {
+    float spawnTime;
+    float side;
+    float azimuth;
+    float spawnHeight;
+    float kind;
+    float hash01;
+    float pad0;
+    float pad1;
+};
+
+struct FlameBranchField {
+    float count;
+    float period;
+    float life;
+    float gain;
+    float riseRate;
+    float driftRate;
+    float aspect;
+    float coreRadius;
+    float ringRadiusStart;
+    float ringRadiusEnd;
+    float envelopeTime;
+    float arcHalfWidth;
+    float boundingPad;
+    float boundingPadY;
+    float pad0;
+    float pad1;
+    FlameBranchElement elements[FLAME_BRANCH_MAX_ELEMENTS];
+};
+
 layout(set = 1, binding = 0) uniform FlameUBO {
     mat4 model;
     mat4 inverseModel;
@@ -237,6 +270,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     float twistPad1;
     float twistPad2;
     FlameMeanderMode meanderModes[2];
+    FlameBranchField branchField;
     vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;
@@ -465,13 +499,14 @@ bool clampToShellCone(vec3 o, vec3 d, float radiusPad, inout float tNear, inout 
         }
     }
 
-    // Y-slab: 0 <= y <= 1
+    // Y-slab: 0 <= y <= 1 + branch pad (transported density can rise past the top)
+    float yTop = 1.0 + flame.branchField.boundingPadY;
     if (abs(d.y) < 1e-6) {
         // Horizontal ray: check if origin is within slab
-        if (o.y < 0.0 || o.y > 1.0) return false;
+        if (o.y < 0.0 || o.y > yTop) return false;
     } else {
         float tY0 = -o.y / d.y;
-        float tY1 = (1.0 - o.y) / d.y;
+        float tY1 = (yTop - o.y) / d.y;
         if (tY0 > tY1) { float tmp = tY0; tY0 = tY1; tY1 = tmp; }
         // Clamp to y-slab interval
         if (tNear < tY0) tNear = tY0;
@@ -528,6 +563,7 @@ FlameRaySegment buildRaySegment() {
    float radiusPad = flame.trailMeta.sampleCount >= 1.0
         ? length(flame.windBend.windDirection) * flame.windBend.bendAmount + 2.0 * flame.supportMotion.meanderAmp
         : 2.0 * flame.supportMotion.meanderAmp;
+    radiusPad += flame.branchField.boundingPad;
     if (!clampToShellCone(segment.localOrigin, segment.localDir, radiusPad, segment.tNear, segment.tFar)) {
         segment.tNear = 1.0;
         segment.tFar = 0.0;

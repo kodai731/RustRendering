@@ -95,6 +95,11 @@ pub fn build_effect_json(
     value["noise_shaping_scale"] = json!(effect.noise_shaping_scale);
     value["optical_depth"] = json!(effect.optical_depth);
     value["meander_amp"] = json!(effect.meander_amp);
+    value["branch_period"] = json!(effect.branch.period);
+    value["branch_life"] = json!(effect.branch.life);
+    value["branch_gain"] = json!(effect.branch.gain);
+    value["branch_spread"] = json!(effect.branch.spread);
+    value["branch_seed"] = json!(effect.branch.seed);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!([
         strain.strain_base,
@@ -160,6 +165,36 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
             ubo.support_motion.swirl_speed,
             ubo.support_motion.twist_speed,
         ],
+        "branch_field": build_branch_field_json(&ubo.branch_field),
+    })
+}
+
+fn build_branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> serde_json::Value {
+    let count = (field.count as usize).min(thyllore_effect_core::BRANCH_MAX_ELEMENTS);
+    json!({
+        "count": field.count,
+        "period": field.period,
+        "life": field.life,
+        "gain": field.gain,
+        "rise_rate": field.rise_rate,
+        "drift_rate": field.drift_rate,
+        "aspect": field.aspect,
+        "core_radius": field.core_radius,
+        "ring_radius": [field.ring_radius_start, field.ring_radius_end],
+        "envelope_time": field.envelope_time,
+        "arc_half_width": field.arc_half_width,
+        "bounding_pad": [field.bounding_pad, field.bounding_pad_y],
+        "elements": field.elements[..count]
+            .iter()
+            .map(|element| json!([
+                element.spawn_time,
+                element.side,
+                element.azimuth,
+                element.spawn_height,
+                element.kind,
+                element.hash01,
+            ]))
+            .collect::<Vec<_>>(),
     })
 }
 

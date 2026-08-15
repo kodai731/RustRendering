@@ -696,6 +696,7 @@ pub fn build_flame_ubo(
         },
         twist_field: build_twist_field(effect),
         meander_modes: build_meander_modes(effect),
+        branch_field: build_branch_field(effect),
         wave_modes: wave_fields.1,
         wave_jitter: wave_fields.3,
     }
@@ -1191,6 +1192,41 @@ pub struct FlameMeanderMode {
 }
 
 #[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FlameBranchElement {
+    pub spawn_time: f32,
+    pub side: f32,
+    pub azimuth: f32,
+    pub spawn_height: f32,
+    pub kind: f32,
+    pub hash01: f32,
+    pub _padding: [f32; 2],
+}
+
+/// Branch element table (newest first) with the per-effect age-profile
+/// constants; `count` = 0 leaves every consumer bit-identical.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct FlameBranchField {
+    pub count: f32,
+    pub period: f32,
+    pub life: f32,
+    pub gain: f32,
+    pub rise_rate: f32,
+    pub drift_rate: f32,
+    pub aspect: f32,
+    pub core_radius: f32,
+    pub ring_radius_start: f32,
+    pub ring_radius_end: f32,
+    pub envelope_time: f32,
+    pub arc_half_width: f32,
+    pub bounding_pad: f32,
+    pub bounding_pad_y: f32,
+    pub _padding: [f32; 2],
+    pub elements: [FlameBranchElement; BRANCH_MAX_ELEMENTS],
+}
+
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct FlameUBO {
     pub model: Matrix4<f32>,
@@ -1235,6 +1271,7 @@ pub struct FlameUBO {
     pub support_motion: FlameSupportMotion,
     pub twist_field: FlameTwistField,
     pub meander_modes: [FlameMeanderMode; 2],
+    pub branch_field: FlameBranchField,
     pub wave_modes: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     pub wave_jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
 }

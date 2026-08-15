@@ -1,6 +1,7 @@
 pub mod analytic;
 pub mod bake;
 mod baked;
+pub mod branch;
 mod constants;
 mod effect;
 mod env;
@@ -15,6 +16,7 @@ pub mod trail;
 pub use analytic::*;
 pub use bake::*;
 pub use baked::*;
+pub use branch::*;
 pub use constants::*;
 pub use effect::*;
 pub use env::*;

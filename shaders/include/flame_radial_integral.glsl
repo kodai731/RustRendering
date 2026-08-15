@@ -62,16 +62,17 @@ float flameContourWiggle(vec3 p, float h) {
 // Pointwise field for the reference raymarch (mode 1): the same eroded threshold
 // field the closed form approximates — true smoothstep, exact support membership.
 float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
-    vec3 ps = flameMeanderShifted(p, h);
+    float hs = h;
+    vec3 ps = flameSupportPosition(p, hs);
     vec2 boundary = flameBoundaryDisplacement(ps.xz);
-    float hb = clamp(h / boundary.x, 0.0, 1.0);
+    float hb = clamp(hs / boundary.x, 0.0, 1.0);
     float wb = wiggle * boundary.y;
     float uSquared;
     float radial = flameRadialDensityFactor(vec3(ps.x / wb, ps.y, ps.z / wb), hb, uSquared);
-    float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(h, boundary.x) * radial * flameNearCameraFade(p);
+    float dSmooth = evaluateHeightFalloff(hb) * flameCapFade(hs, boundary.x) * radial * flameNearCameraFade(p);
    float erosion = flameNoiseErosionValue(p, h, dSmooth, uSquared);
     return flameApplyCarveResidual(
-       flameResponseOccupancy(dSmooth, erosion, h, uSquared),
+       flameResponseOccupancy(dSmooth, erosion, hs, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -89,12 +90,13 @@ float flamePointOccupancyDensity(vec3 p, float h, float wiggle) {
 // Pointwise field for the reference raymarch (mode 1) on ring/SDF emitters:
 // the same field the node-based closed form approximates.
 float flamePointEmitterOccupancy(vec3 p, float h, float wiggle) {
-    vec3 ps = flameMeanderShifted(p, h);
+    float hs = h;
+    vec3 ps = flameSupportPosition(p, hs);
     float uSquared;
-  float dSmooth = flameEmitterSmoothDensityDisplacedAt(ps, h, wiggle, flameBoundaryDisplacement(ps.xz), uSquared) * flameNearCameraFade(p);
+  float dSmooth = flameEmitterSmoothDensityDisplacedAt(ps, hs, wiggle, flameBoundaryDisplacement(ps.xz), uSquared) * flameNearCameraFade(p);
    float erosion = flame.noiseAmplitude != 0.0 ? flameNoiseErosionValue(p, h, dSmooth, uSquared) : 0.0;
     return flameApplyCarveResidual(
-      flameResponseOccupancy(dSmooth, erosion, h, uSquared),
+      flameResponseOccupancy(dSmooth, erosion, hs, uSquared),
         dSmooth, uSquared) * flameFieldSupportMask(dSmooth);
 }
 
@@ -194,7 +196,7 @@ const int FLAME_WAVE_SEGMENTS = 64;
 // noise basis never changes the flame silhouette; ring and SDF use the shared
 // emitter density like their raymarch pair.
 float flameWaveNodeDensity(vec3 p, float h) {
-    vec3 ps = flameMeanderShifted(p, h);
+    vec3 ps = flameSupportPosition(p, h);
     float wiggle = flameContourWiggle(ps, h);
     vec2 boundary = flameBoundaryDisplacement(ps.xz);
     float dens;
@@ -214,8 +216,9 @@ float flameWaveNodeArgumentLocal(
     vec3 p, vec3 d, float h, float density, float dt,
     int count, float eddyTime, out float shapedNoise, out float sigmaNoise, out float remapScale) {
     FlameWarpFrame warpFrame = flameBuildWarpFrame(p, d, h);
+    float hs = warpFrame.h;
     FlameWaveModeSumResult sum = flameWaveModeSum(
-        warpFrame.w, warpFrame.rate, warpFrame.pb, d, h, dt, count, eddyTime);
+        warpFrame.w, warpFrame.rate, warpFrame.pb, d, hs, dt, count, eddyTime);
 
     // 5.1 probabilistic reduction: erosion modes past the tracked count (sorted by
     // |k| ascending on the CPU) are not tracked; their full variance enters the
@@ -234,7 +237,7 @@ float flameWaveNodeArgumentLocal(
     if (flame.emitterParams.kind >= 1.5) {
         uSquared = 0.0;
     } else {
-        vec3 ps = flameMeanderShifted(p, h);
+        vec3 ps = flameSupportPosition(p, h);
         float wiggle = flameContourWiggle(ps, h);
         vec2 boundary = flameBoundaryDisplacement(ps.xz);
         float hb = clamp(h / boundary.x, 0.0, 1.0);
@@ -246,7 +249,7 @@ float flameWaveNodeArgumentLocal(
         float u = rn / flameRadialSupportRadius();
         uSquared = u * u;
     }
-    float erosion = flameNoiseErosionFromValue(shapedNoise, h, density, uSquared);
+    float erosion = flameNoiseErosionFromValue(shapedNoise, hs, density, uSquared);
     remapScale = flameErosionRemapScale(erosion);
     return flameErodedArgument(density, erosion);
 }
