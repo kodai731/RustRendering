@@ -273,6 +273,9 @@ pub struct FlameSceneData {
     pub effect: FlameEffectData,
     #[serde(default)]
     pub channels: Vec<FlameChannelData>,
+    /// Authored clip length floor in seconds (0 = keyframes decide).
+    #[serde(default)]
+    pub clip_min_duration: f32,
     #[serde(default)]
     pub motion_path: Option<MotionPathData>,
     #[serde(default)]
@@ -596,6 +599,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
     let effect = world.get_component::<crate::ecs::component::FlameEffect>(*entity)?;
 
     let channels: Vec<FlameChannelData> = build_flame_channels_from_clip(world, *entity);
+    let clip_min_duration = flame_clip_min_duration(world, *entity);
 
     let motion_path = world
         .get_component::<crate::ecs::component::MotionPath>(*entity)
@@ -698,9 +702,23 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             branch_seed: effect.branch.seed,
         },
         channels,
+        clip_min_duration,
         motion_path,
         style,
     })
+}
+
+fn flame_clip_min_duration(
+    world: &crate::ecs::world::World,
+    entity: crate::ecs::world::Entity,
+) -> f32 {
+    crate::ecs::systems::find_entity_clip_id(world, entity)
+        .and_then(|clip_id| {
+            world
+                .get_resource::<crate::ecs::resource::ClipLibrary>()
+                .and_then(|lib| lib.get(clip_id).map(|clip| clip.min_duration))
+        })
+        .unwrap_or(0.0)
 }
 
 fn build_flame_channels_from_clip(
@@ -883,7 +901,9 @@ pub fn apply_flame_state_to_world(
     );
 
     // Rebuild the flame clip (scalar curves) from the scene channels. Loading is
-    // idempotent: any previously scheduled flame clip instance is replaced.
+    // idempotent: any previously scheduled flame clip instance is replaced. An
+    // empty clip is still scheduled so the Timeline shows a lane whose length
+    // can be edited before any key exists.
     let mut editable = thyllore_anim_core::editable::EditableAnimationClip::new(
         0,
         crate::ecs::component::FLAME_DOMAIN.name.to_string(),
@@ -919,30 +939,37 @@ pub fn apply_flame_state_to_world(
             }
         }
     }
+    editable.min_duration = flame.clip_min_duration.max(0.0);
     thyllore_anim_core::editable::clip_recalculate_duration(&mut editable);
 
-    world.remove_component::<crate::ecs::component::ClipSchedule>(entity);
-    if editable.has_scalar_keyframes() {
-        let clip_id = {
-            let mut clip_library = world.resource_mut::<crate::ecs::resource::ClipLibrary>();
-            crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
-                &mut clip_library,
-                assets,
-                editable,
-            )
-        };
-        let mut schedule = crate::ecs::component::ClipSchedule::new();
-        let instance_id = schedule.next_instance_id;
-        schedule.next_instance_id += 1;
-        schedule
-            .instances
-            .push(thyllore_anim_core::editable::ClipInstance::new(
-                instance_id,
-                clip_id,
-                0.0,
-            ));
-        world.insert_component(entity, schedule);
+    if let Some(previous_clip_id) =
+        crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(world, entity)
+    {
+        world
+            .resource_mut::<crate::ecs::resource::ClipLibrary>()
+            .remove(previous_clip_id);
     }
+    world.remove_component::<crate::ecs::component::ClipSchedule>(entity);
+    let duration = editable.duration;
+    let clip_id = {
+        let mut clip_library = world.resource_mut::<crate::ecs::resource::ClipLibrary>();
+        crate::ecs::systems::clip_library_systems::clip_library_register_and_activate(
+            &mut clip_library,
+            assets,
+            editable,
+        )
+    };
+    let mut schedule = crate::ecs::component::ClipSchedule::new();
+    let instance_id = schedule.next_instance_id;
+    schedule.next_instance_id += 1;
+    schedule
+        .instances
+        .push(thyllore_anim_core::editable::ClipInstance::new(
+            instance_id,
+            clip_id,
+            duration,
+        ));
+    world.insert_component(entity, schedule);
 
     // Insert MotionPath component if present in scene data
     if let Some(mp) = &flame.motion_path {
@@ -1083,6 +1110,7 @@ mod tests {
         let scene = FlameSceneData {
             effect: sample_flame_effect_data(),
             channels: vec![],
+            clip_min_duration: 0.0,
             motion_path: None,
             style: Some(FlameStyleRefData {
                 name: "pillar-ref".to_string(),
@@ -1138,6 +1166,7 @@ mod tests {
                     },
                 ],
             }],
+            clip_min_duration: 0.0,
             motion_path: None,
             style: None,
         };
@@ -1316,6 +1345,7 @@ mod tests {
                     },
                 ],
             }],
+            clip_min_duration: 0.0,
             motion_path: None,
             style: None,
         };
@@ -1600,6 +1630,39 @@ mod tests {
         assert_eq!(effect.height, 8.0);
         assert_eq!(effect.radius, 1.0);
         assert_eq!(effect.radius_tip_ratio, 1.0);
+    }
+
+    #[test]
+    fn test_apply_flame_state_schedules_empty_clip_and_replaces_previous() {
+        let mut source = crate::ecs::world::World::new();
+        crate::ecs::systems::spawn_flame(
+            &mut source,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
+        let data = build_flame_scene_data(&source).expect("scene data");
+        assert!(data.channels.is_empty());
+
+        let mut world2 = crate::ecs::world::World::new();
+        world2.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets2 = crate::asset::AssetStorage::new();
+        apply_flame_state_to_world(&mut world2, &mut assets2, &data);
+        let flame = world2.query_flames()[0];
+        let first_clip =
+            crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(&world2, flame)
+                .expect("keyless flame still gets a scheduled clip");
+
+        apply_flame_state_to_world(&mut world2, &mut assets2, &data);
+        let second_clip =
+            crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(&world2, flame)
+                .expect("clip after reload");
+        let library = world2.resource::<crate::ecs::resource::ClipLibrary>();
+        assert_ne!(first_clip, second_clip);
+        assert!(
+            library.get(first_clip).is_none(),
+            "previous clip is dropped"
+        );
+        assert!(library.get(second_clip).is_some());
     }
 
     #[test]

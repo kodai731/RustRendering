@@ -241,6 +241,38 @@ impl RayTracingData {
         Ok(())
     }
 
+    /// Point the ray query descriptor at the current TLAS, allocating the set
+    /// on first use (the pipeline may be built before any model exists).
+    pub unsafe fn bind_ray_query_tlas(&mut self, rrdevice: &RRDevice) -> Result<()> {
+        let Some(tlas) = self
+            .acceleration_structure
+            .as_ref()
+            .and_then(|accel| accel.tlas.acceleration_structure)
+        else {
+            return Ok(());
+        };
+        let (Some(descriptor), Some(gbuffer), Some(scene_buffer)) = (
+            self.ray_query_descriptor.as_mut(),
+            self.gbuffer.as_ref(),
+            self.scene_uniform_buffer,
+        ) else {
+            return Ok(());
+        };
+
+        if descriptor.descriptor_set == vk::DescriptorSet::null() {
+            descriptor.allocate_and_update(
+                rrdevice,
+                gbuffer.position_image_view,
+                gbuffer.normal_image_view,
+                gbuffer.shadow_mask_image_view,
+                tlas,
+                scene_buffer,
+            )
+        } else {
+            descriptor.update_tlas(rrdevice, tlas)
+        }
+    }
+
     unsafe fn init_scene_uniform_buffer(
         &mut self,
         instance: &Instance,
