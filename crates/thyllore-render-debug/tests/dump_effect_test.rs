@@ -17,24 +17,24 @@ fn test_effect_from_dump_values() {
 
     // Verify key values from the sample dump
     assert!(
-        (effect.noise_amplitude - 1.6).abs() < 1e-4,
+        (effect.noise.amplitude - 1.6).abs() < 1e-4,
         "noise_amplitude={}",
-        effect.noise_amplitude
+        effect.noise.amplitude
     );
     assert!(
-        (effect.noise_frequency - 6.0).abs() < 1e-4,
+        (effect.noise.frequency - 6.0).abs() < 1e-4,
         "noise_frequency={}",
-        effect.noise_frequency
+        effect.noise.frequency
     );
     assert_eq!(
-        effect.emitter_kind, 1,
+        effect.emitter.kind, 1,
         "emitter_kind={}",
-        effect.emitter_kind
+        effect.emitter.kind
     );
     assert!(
-        (effect.edge_low - 0.27).abs() < 1e-4,
+        (effect.edge.low - 0.27).abs() < 1e-4,
         "edge_low={}",
-        effect.edge_low
+        effect.edge.low
     );
     assert!(
         (effect.time - 2.1973181).abs() < 1e-5,
@@ -44,24 +44,24 @@ fn test_effect_from_dump_values() {
 
     // Verify restored effect matches specific scalar values from the dump
     assert!(
-        (effect.warp_amp - 1.4).abs() < 1e-4,
+        (effect.warp.amp - 1.4).abs() < 1e-4,
         "warp_amp={}",
-        effect.warp_amp
+        effect.warp.amp
     );
     assert!(
-        (effect.noise_scroll_speed - 1.0).abs() < 1e-4,
+        (effect.noise.scroll_speed - 1.0).abs() < 1e-4,
         "noise_scroll_speed={}",
-        effect.noise_scroll_speed
+        effect.noise.scroll_speed
     );
     assert!(
-        (effect.rise_speed - 1.5).abs() < 1e-4,
+        (effect.warp.rise_speed - 1.5).abs() < 1e-4,
         "rise_speed={}",
-        effect.rise_speed
+        effect.warp.rise_speed
     );
     assert!(
-        (effect.taper_power - 1.4).abs() < 1e-4,
+        (effect.warp.taper_power - 1.4).abs() < 1e-4,
         "taper_power={}",
-        effect.taper_power
+        effect.warp.taper_power
     );
     assert!(
         (effect.radial_sharpness - 4.0).abs() < 1e-4,
@@ -69,9 +69,9 @@ fn test_effect_from_dump_values() {
         effect.radial_sharpness
     );
     assert!(
-        (effect.ring_major_radius - 1.5).abs() < 1e-4,
+        (effect.emitter.ring_major_radius - 1.5).abs() < 1e-4,
         "ring_major_radius={}",
-        effect.ring_major_radius
+        effect.emitter.ring_major_radius
     );
 }
 

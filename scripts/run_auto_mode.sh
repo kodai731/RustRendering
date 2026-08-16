@@ -139,6 +139,12 @@ if [ -n "${LARGE_MODEL_ROOT:-}" ] && [ -d "$LARGE_MODEL_ROOT" ]; then
     LARGE_MODEL_ARG=(-v "$LARGE_MODEL_ROOT:$LARGE_MODEL_ROOT")
 fi
 
+# Host secrets dir (gitignored config/env files with API keys etc.); mount read-only when present.
+SECRETS_ARG=()
+if [ -d "$HOME/.config/secrets" ]; then
+    SECRETS_ARG=(-v "$HOME/.config/secrets:/home/dev/.config/secrets:ro")
+fi
+
 exec docker run \
     "${TTY_FLAGS[@]}" \
     --name "$CONTAINER_NAME" \
@@ -155,6 +161,7 @@ exec docker run \
     -v "$ANIM_ML_ROOT:$ANIM_ML_ROOT" \
     -v "$SHARED_DATA_ROOT:$SHARED_DATA_ROOT" \
     "${LARGE_MODEL_ARG[@]}" \
+    "${SECRETS_ARG[@]}" \
     -v "$CARGO_REGISTRY_HOST:/home/dev/.cargo/registry" \
     -v "$CARGO_TARGET_HOST:/home/dev/target-cache" \
     -v "$CLAUDE_CONFIG_HOST:/home/dev/.claude" \

@@ -55,7 +55,7 @@ mod tests {
     fn sync_attaches_the_manifest_to_every_flame() {
         let mut world = World::new();
         let mut effect = FlameEffect::default();
-        effect.noise_amplitude = 1.5;
+        effect.noise.amplitude = 1.5;
         effect.boundary.amp = 0.2;
         let entity = spawn_flame(&mut world, "Flame", effect);
 
@@ -72,7 +72,7 @@ mod tests {
     fn sync_tracks_parameter_changes() {
         let mut world = World::new();
         let mut effect = FlameEffect::default();
-        effect.noise_amplitude = 1.5;
+        effect.noise.amplitude = 1.5;
         effect.boundary.amp = 0.2;
         let entity = spawn_flame(&mut world, "Flame", effect);
         sync_world(&mut world);
@@ -80,7 +80,8 @@ mod tests {
         world
             .get_component_mut::<FlameEffect>(entity)
             .unwrap()
-            .noise_amplitude = 0.0;
+            .noise
+            .amplitude = 0.0;
         sync_world(&mut world);
 
         let field = world.get_component::<FieldAffected>(entity).unwrap();

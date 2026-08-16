@@ -20,7 +20,9 @@ use thyllore_effect_core::{
     branch_burnout_mask, branch_pull_back, branch_pull_back_jvp, build_flame_ubo, FlameBaked,
     FlameEffect, FlameTemporalAccum, FlameUBO,
 };
-use thyllore_math_core::{integrate_erf_response_linear, smooth_erf_response, ErfResponseModel};
+use thyllore_math_core::{
+    dot3, integrate_erf_response_linear, smooth_erf_response, ErfResponseModel,
+};
 
 const EROSION_SLOTS: usize = thyllore_effect_core::flame_wave::WAVE_EROSION_SLOTS;
 const WARP_BASE: usize = thyllore_effect_core::flame_wave::WAVE_WARP_BASE;
@@ -125,10 +127,6 @@ fn mix3(a: [f32; 3], b: [f32; 3], t: f32) -> [f32; 3] {
 fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
     let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
     t * t * (3.0 - 2.0 * t)
-}
-
-fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 fn cheb8(c0: [f32; 4], c1: [f32; 4], x01: f32) -> f32 {
@@ -2416,7 +2414,7 @@ mod tests {
             assert_eq!(off.burnout_boost(h), 0.0);
         }
 
-        effect.burnout_gain = 2.0;
+        effect.carve.burnout_gain = 2.0;
         let ubo_on = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
         let on = UboCtx::new(&ubo_on, [0.0, 0.5, 3.0]);
         let base = on.burnout_boost(0.0);
@@ -2427,9 +2425,9 @@ mod tests {
             top > mid && mid > base,
             "boost must deepen toward the luminous top"
         );
-        assert!(top <= effect.burnout_gain);
+        assert!(top <= effect.carve.burnout_gain);
 
-        effect.tip_carve.reach *= 4.0;
+        effect.carve.tip.reach *= 4.0;
         let ubo_deep = thyllore_effect_core::build_flame_ubo(&effect, &baked, &trail);
         let deep = UboCtx::new(&ubo_deep, [0.0, 0.5, 3.0]);
         assert!(

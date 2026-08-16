@@ -96,12 +96,12 @@ pub fn fit_silhouette(
         .collect();
 
     let mut params: [f32; 6] = [
-        initial.envelope_peak,
-        initial.envelope_base,
-        initial.envelope_tail,
+        initial.envelope.peak,
+        initial.envelope.base,
+        initial.envelope.tail,
         initial.radius,
-        initial.radius_tip_ratio,
-        initial.taper_power,
+        initial.edge.radius_tip_ratio,
+        initial.warp.taper_power,
     ];
 
     let mut best_residual = {
@@ -151,12 +151,12 @@ pub fn fit_silhouette(
 }
 
 fn apply_params(effect: &mut FlameEffect, baked: &crate::flame::FlameBaked, params: &[f32; 6]) {
-    effect.envelope_peak = params[0];
-    effect.envelope_base = params[1];
-    effect.envelope_tail = params[2];
+    effect.envelope.peak = params[0];
+    effect.envelope.base = params[1];
+    effect.envelope.tail = params[2];
     effect.radius = params[3];
-    effect.radius_tip_ratio = params[4];
-    effect.taper_power = params[5];
+    effect.edge.radius_tip_ratio = params[4];
+    effect.warp.taper_power = params[5];
     crate::flame::refresh_flame_coefficients(effect, baked);
 }
 
@@ -376,7 +376,7 @@ pub fn finalize_fit_envelope(
     for value in f.iter().take(33) {
         vis_max = vis_max.max(*value);
     }
-    let target = effect.edge_high + 0.12;
+    let target = effect.edge.high + 0.12;
     if vis_max < target {
         let scale = (target / vis_max.max(1e-4)).min(20.0);
         for i in 0..=32 {
@@ -433,15 +433,16 @@ pub fn apply_texture_fit(
 
     // Silhouette
     if groups.silhouette {
-        effect.envelope_peak =
-            effect.envelope_peak + (fit.envelope_peak - effect.envelope_peak) * blend;
-        effect.envelope_base =
-            effect.envelope_base + (fit.envelope_base - effect.envelope_base) * blend;
-        effect.envelope_tail =
-            effect.envelope_tail + (fit.envelope_tail - effect.envelope_tail) * blend;
-        effect.radius_tip_ratio =
-            effect.radius_tip_ratio + (fit.radius_tip_ratio - effect.radius_tip_ratio) * blend;
-        effect.taper_power = effect.taper_power + (fit.taper_power - effect.taper_power) * blend;
+        effect.envelope.peak =
+            effect.envelope.peak + (fit.envelope_peak - effect.envelope.peak) * blend;
+        effect.envelope.base =
+            effect.envelope.base + (fit.envelope_base - effect.envelope.base) * blend;
+        effect.envelope.tail =
+            effect.envelope.tail + (fit.envelope_tail - effect.envelope.tail) * blend;
+        effect.edge.radius_tip_ratio = effect.edge.radius_tip_ratio
+            + (fit.radius_tip_ratio - effect.edge.radius_tip_ratio) * blend;
+        effect.warp.taper_power =
+            effect.warp.taper_power + (fit.taper_power - effect.warp.taper_power) * blend;
 
         // Baked envelope and radius: set based on profile flag
         if profile {
@@ -471,48 +472,49 @@ pub fn apply_texture_fit(
 
         if fit.use_blackbody {
             if blend >= 0.5 {
-                effect.use_blackbody = true;
+                effect.color.use_blackbody = true;
             }
-            effect.temperature_base_k = effect.temperature_base_k
-                + (fit.temperature_base_k - effect.temperature_base_k) * blend;
-            effect.temperature_tip_k = effect.temperature_tip_k
-                + (fit.temperature_tip_k - effect.temperature_tip_k) * blend;
+            effect.color.temperature_base_k = effect.color.temperature_base_k
+                + (fit.temperature_base_k - effect.color.temperature_base_k) * blend;
+            effect.color.temperature_tip_k = effect.color.temperature_tip_k
+                + (fit.temperature_tip_k - effect.color.temperature_tip_k) * blend;
         } else {
             if blend >= 0.5 {
-                effect.use_blackbody = false;
+                effect.color.use_blackbody = false;
             }
-            effect.color_base[0] =
-                effect.color_base[0] + (fit.color_bands[0][0] - effect.color_base[0]) * blend;
-            effect.color_base[1] =
-                effect.color_base[1] + (fit.color_bands[0][1] - effect.color_base[1]) * blend;
-            effect.color_base[2] =
-                effect.color_base[2] + (fit.color_bands[0][2] - effect.color_base[2]) * blend;
-            effect.color_tip[0] =
-                effect.color_tip[0] + (fit.color_bands[2][0] - effect.color_tip[0]) * blend;
-            effect.color_tip[1] =
-                effect.color_tip[1] + (fit.color_bands[2][1] - effect.color_tip[1]) * blend;
-            effect.color_tip[2] =
-                effect.color_tip[2] + (fit.color_bands[2][2] - effect.color_tip[2]) * blend;
+            effect.color.base[0] =
+                effect.color.base[0] + (fit.color_bands[0][0] - effect.color.base[0]) * blend;
+            effect.color.base[1] =
+                effect.color.base[1] + (fit.color_bands[0][1] - effect.color.base[1]) * blend;
+            effect.color.base[2] =
+                effect.color.base[2] + (fit.color_bands[0][2] - effect.color.base[2]) * blend;
+            effect.color.tip[0] =
+                effect.color.tip[0] + (fit.color_bands[2][0] - effect.color.tip[0]) * blend;
+            effect.color.tip[1] =
+                effect.color.tip[1] + (fit.color_bands[2][1] - effect.color.tip[1]) * blend;
+            effect.color.tip[2] =
+                effect.color.tip[2] + (fit.color_bands[2][2] - effect.color.tip[2]) * blend;
         }
     }
 
     // Turbulence
     if groups.turbulence {
-        effect.noise_amplitude =
-            effect.noise_amplitude + (fit.noise_amplitude - effect.noise_amplitude) * blend;
-        effect.noise_frequency =
-            effect.noise_frequency + (fit.noise_frequency - effect.noise_frequency) * blend;
-        effect.contour_wiggle_amp = effect.contour_wiggle_amp
-            + (fit.contour_wiggle_amp - effect.contour_wiggle_amp) * blend;
+        effect.noise.amplitude =
+            effect.noise.amplitude + (fit.noise_amplitude - effect.noise.amplitude) * blend;
+        effect.noise.frequency =
+            effect.noise.frequency + (fit.noise_frequency - effect.noise.frequency) * blend;
+        effect.contour.wiggle_amp = effect.contour.wiggle_amp
+            + (fit.contour_wiggle_amp - effect.contour.wiggle_amp) * blend;
     }
 
     // Tilt
     if groups.tilt {
-        effect.wind_direction.x =
-            effect.wind_direction.x + (fit.wind_x - effect.wind_direction.x) * blend;
-        effect.wind_direction.y =
-            effect.wind_direction.y + (fit.wind_z - effect.wind_direction.y) * blend;
-        effect.bend_amount = effect.bend_amount + (fit.bend_amount - effect.bend_amount) * blend;
+        effect.wind.direction.x =
+            effect.wind.direction.x + (fit.wind_x - effect.wind.direction.x) * blend;
+        effect.wind.direction.y =
+            effect.wind.direction.y + (fit.wind_z - effect.wind.direction.y) * blend;
+        effect.wind.bend_amount =
+            effect.wind.bend_amount + (fit.bend_amount - effect.wind.bend_amount) * blend;
     }
 
     crate::flame::refresh_flame_coefficients(effect, baked);
@@ -613,13 +615,13 @@ mod tests {
     #[test]
     fn test_apply_blend_one_silhouette_only() {
         let mut effect = crate::flame::FlameEffect::default();
-        let original_color_base = effect.color_base;
-        let original_color_tip = effect.color_tip;
-        let original_noise_amplitude = effect.noise_amplitude;
-        let original_noise_frequency = effect.noise_frequency;
-        let original_contour_wiggle_amp = effect.contour_wiggle_amp;
-        let original_wind_direction = effect.wind_direction;
-        let original_bend_amount = effect.bend_amount;
+        let original_color_base = effect.color.base;
+        let original_color_tip = effect.color.tip;
+        let original_noise_amplitude = effect.noise.amplitude;
+        let original_noise_frequency = effect.noise.frequency;
+        let original_contour_wiggle_amp = effect.contour.wiggle_amp;
+        let original_wind_direction = effect.wind.direction;
+        let original_bend_amount = effect.wind.bend_amount;
 
         let fit = FlameTextureFit {
             envelope_peak: 2.0,
@@ -658,33 +660,33 @@ mod tests {
         );
 
         // Silhouette fields should match fit values
-        assert!((effect.envelope_peak - fit.envelope_peak).abs() < 1e-6);
-        assert!((effect.envelope_base - fit.envelope_base).abs() < 1e-6);
-        assert!((effect.envelope_tail - fit.envelope_tail).abs() < 1e-6);
-        assert!((effect.radius_tip_ratio - fit.radius_tip_ratio).abs() < 1e-6);
-        assert!((effect.taper_power - fit.taper_power).abs() < 1e-6);
+        assert!((effect.envelope.peak - fit.envelope_peak).abs() < 1e-6);
+        assert!((effect.envelope.base - fit.envelope_base).abs() < 1e-6);
+        assert!((effect.envelope.tail - fit.envelope_tail).abs() < 1e-6);
+        assert!((effect.edge.radius_tip_ratio - fit.radius_tip_ratio).abs() < 1e-6);
+        assert!((effect.warp.taper_power - fit.taper_power).abs() < 1e-6);
 
         // Color fields should be unchanged
-        assert_eq!(effect.color_base, original_color_base);
-        assert_eq!(effect.color_tip, original_color_tip);
+        assert_eq!(effect.color.base, original_color_base);
+        assert_eq!(effect.color.tip, original_color_tip);
 
         // Turbulence fields should be unchanged
-        assert!((effect.noise_amplitude - original_noise_amplitude).abs() < 1e-6);
-        assert!((effect.noise_frequency - original_noise_frequency).abs() < 1e-6);
-        assert!((effect.contour_wiggle_amp - original_contour_wiggle_amp).abs() < 1e-6);
+        assert!((effect.noise.amplitude - original_noise_amplitude).abs() < 1e-6);
+        assert!((effect.noise.frequency - original_noise_frequency).abs() < 1e-6);
+        assert!((effect.contour.wiggle_amp - original_contour_wiggle_amp).abs() < 1e-6);
 
         // Tilt fields should be unchanged
-        assert_eq!(effect.wind_direction, original_wind_direction);
-        assert!((effect.bend_amount - original_bend_amount).abs() < 1e-6);
+        assert_eq!(effect.wind.direction, original_wind_direction);
+        assert!((effect.wind.bend_amount - original_bend_amount).abs() < 1e-6);
     }
 
     #[test]
     fn test_apply_profile_mode_never_writes_turbulence() {
         let mut effect = crate::flame::FlameEffect::default();
-        effect.noise_amplitude = 6.0;
-        let original_noise_amplitude = effect.noise_amplitude;
-        let original_noise_frequency = effect.noise_frequency;
-        let original_contour_wiggle_amp = effect.contour_wiggle_amp;
+        effect.noise.amplitude = 6.0;
+        let original_noise_amplitude = effect.noise.amplitude;
+        let original_noise_frequency = effect.noise.frequency;
+        let original_contour_wiggle_amp = effect.contour.wiggle_amp;
 
         let fit = FlameTextureFit {
             envelope_peak: 2.0,
@@ -722,16 +724,16 @@ mod tests {
             true,
         );
 
-        assert!((effect.noise_amplitude - original_noise_amplitude).abs() < 1e-6);
-        assert!((effect.noise_frequency - original_noise_frequency).abs() < 1e-6);
-        assert!((effect.contour_wiggle_amp - original_contour_wiggle_amp).abs() < 1e-6);
-        assert!((effect.envelope_peak - fit.envelope_peak).abs() < 1e-6);
+        assert!((effect.noise.amplitude - original_noise_amplitude).abs() < 1e-6);
+        assert!((effect.noise.frequency - original_noise_frequency).abs() < 1e-6);
+        assert!((effect.contour.wiggle_amp - original_contour_wiggle_amp).abs() < 1e-6);
+        assert!((effect.envelope.peak - fit.envelope_peak).abs() < 1e-6);
     }
 
     #[test]
     fn test_apply_blend_half_envelope_peak_midpoint() {
         let mut effect = crate::flame::FlameEffect::default();
-        let current_peak = effect.envelope_peak;
+        let current_peak = effect.envelope.peak;
 
         let fit = FlameTextureFit {
             envelope_peak: 2.0,
@@ -771,9 +773,9 @@ mod tests {
 
         let expected = (current_peak + fit.envelope_peak) / 2.0;
         assert!(
-            (effect.envelope_peak - expected).abs() < 1e-6,
+            (effect.envelope.peak - expected).abs() < 1e-6,
             "envelope_peak {} != expected {}",
-            effect.envelope_peak,
+            effect.envelope.peak,
             expected
         );
     }
@@ -908,8 +910,8 @@ mod tests {
         // shifted from initial (these are observable parameters, unlike radius which is
         // unobservable from normalized symbols).
         let mut target_effect = FlameEffect::default();
-        target_effect.envelope_peak = 0.45;
-        target_effect.radius_tip_ratio = 0.60;
+        target_effect.envelope.peak = 0.45;
+        target_effect.edge.radius_tip_ratio = 0.60;
         crate::flame::refresh_flame_coefficients(&mut target_effect, &Default::default());
 
         let heights: Vec<f32> = (0..64).map(|i| 1.0 - i as f32 / 63.0).collect();
@@ -948,12 +950,12 @@ mod tests {
 
         // Build effect with fitted parameters
         let mut fitted_effect = initial.clone();
-        fitted_effect.envelope_peak = fitted[0];
-        fitted_effect.envelope_base = fitted[1];
-        fitted_effect.envelope_tail = fitted[2];
+        fitted_effect.envelope.peak = fitted[0];
+        fitted_effect.envelope.base = fitted[1];
+        fitted_effect.envelope.tail = fitted[2];
         fitted_effect.radius = fitted[3];
-        fitted_effect.radius_tip_ratio = fitted[4];
-        fitted_effect.taper_power = fitted[5];
+        fitted_effect.edge.radius_tip_ratio = fitted[4];
+        fitted_effect.warp.taper_power = fitted[5];
         crate::flame::refresh_flame_coefficients(&mut fitted_effect, &Default::default());
 
         let fitted_residual = projection_residual(
@@ -1129,7 +1131,7 @@ mod tests {
     fn test_forward_fit_beats_axis_profile_on_envelope_peak() {
         // Create an effect with envelope_peak = 0.45
         let mut effect = FlameEffect::default();
-        effect.envelope_peak = 0.45;
+        effect.envelope.peak = 0.45;
         crate::flame::refresh_flame_coefficients(&mut effect, &Default::default());
 
         // Project this effect using project_profile to create a synthetic brightness matrix
@@ -1151,8 +1153,8 @@ mod tests {
         let axis_profile: Vec<f32> = profile.iter().map(|row| row[center_col_idx]).collect();
         let axis_result = crate::flame_fit::fit_envelope_from_profile(
             &axis_profile,
-            effect.radius_tip_ratio,
-            effect.taper_power,
+            effect.edge.radius_tip_ratio,
+            effect.warp.taper_power,
         );
         let axis_peak = match axis_result {
             Some((p, _, _)) => p,

@@ -920,9 +920,9 @@ pub unsafe fn record_tonemap_to_offscreen(
                 ],
                 [plume.plume_height, effect.time, plume.turbulence_amp, 0.0],
                 [
-                    effect.wind_direction.x,
-                    effect.rise_speed,
-                    effect.wind_direction.y,
+                    effect.wind.direction.x,
+                    effect.warp.rise_speed,
+                    effect.wind.direction.y,
                     0.0,
                 ],
             ))

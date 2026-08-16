@@ -631,10 +631,10 @@ float flameMediumSpreadScale(float h) {
 // radius come from Rust (flame/constants.rs) through the UBO.
 // Mirrored in thyllore-render-debug/src/flame_field_trace.rs (twist_angle).
 float flameMediumTwistAngle(float rSquared, float h) {
-    float radial = flame.twistCoreRadiusSq / (rSquared + flame.twistCoreRadiusSq);
+    float radial = flame.twistField.coreRadiusSq / (rSquared + flame.twistField.coreRadiusSq);
     float wave = 0.0;
     for (int j = 0; j < 2; ++j) {
-        FlameTwistMode mode = flame.twistModes[j];
+        FlameTwistMode mode = flame.twistField.modes[j];
         wave += mode.amp * cos(mode.kappa * h + mode.omega * flame.time + mode.phase);
     }
     return flame.spreadParams.twistGain * radial * h * wave;

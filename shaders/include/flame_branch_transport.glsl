@@ -6,12 +6,6 @@
 // angle, compact inside rho < reach, so the map is a bijection for any gain.
 // Mirrored in thyllore-effect-core/src/flame/branch.rs.
 const float FLAME_BRANCH_TAU = 6.283185307;
-// Age-profile constants, mirrored from flame/constants.rs (BRANCH_BURNOUT_*).
-const float FLAME_BRANCH_WIND_FRACTION = 0.5;
-const float FLAME_BRANCH_BURNOUT_START_FRACTION = 0.6;
-const float FLAME_BRANCH_BURNOUT_RELEASE_FRACTION = 0.1;
-const float FLAME_BRANCH_BURNOUT_MARGIN = 0.5;
-const float FLAME_BRANCH_BURNOUT_TRUNK_INNER = 0.75;
 
 bool flameBranchActive() {
     return flame.branchField.count > 0.5;
@@ -28,7 +22,8 @@ float flameBranchSmoothstep(float edge0, float edge1, float x) {
 float flameBranchEnvelope(float age) {
     float life = flame.branchField.life;
     float envelopeTime = flame.branchField.envelopeTime;
-    float t = clamp(age / max(FLAME_BRANCH_WIND_FRACTION * life, 1e-3), 0.0, 1.0);
+    float windFraction = flame.branchField.ageProfile.windFraction;
+    float t = clamp(age / max(windFraction * life, 1e-3), 0.0, 1.0);
     float easeOut = 1.0 - (1.0 - t) * (1.0 - t);
     return easeOut * (1.0 - flameBranchSmoothstep(life - envelopeTime, life, age));
 }
@@ -39,9 +34,10 @@ float flameBranchEnvelope(float age) {
 float flameBranchBurnout(float age) {
     float life = flame.branchField.life;
     float envelopeTime = flame.branchField.envelopeTime;
+    FlameBranchAgeProfile profile = flame.branchField.ageProfile;
     float unwindStart = life - envelopeTime;
-    float releaseStart = life - FLAME_BRANCH_BURNOUT_RELEASE_FRACTION * envelopeTime;
-    return flameBranchSmoothstep(FLAME_BRANCH_BURNOUT_START_FRACTION * life, unwindStart, age)
+    float releaseStart = life - profile.burnoutReleaseFraction * envelopeTime;
+    return flameBranchSmoothstep(profile.burnoutStartFraction * life, unwindStart, age)
         * (1.0 - flameBranchSmoothstep(releaseStart, life, age));
 }
 
@@ -59,17 +55,6 @@ vec2 flameBranchLambOseen(float rhoSq, float coreRadius) {
         (1.0 - decay) / (FLAME_BRANCH_TAU * rhoSq),
         (decay * x - (1.0 - decay)) / (FLAME_BRANCH_TAU * rhoSq * rhoSq));
 }
-
-struct FlameVortexElement {
-    vec3 center;
-    vec3 outward;
-    vec3 line;
-    vec3 up;
-    float reach;
-    float coreRadius;
-    float circulation;
-    float alongOffset;
-};
 
 bool flameVortexElementAt(int index, out FlameVortexElement element) {
     FlameBranchElement spawn = flame.branchField.elements[index];
@@ -172,13 +157,14 @@ float flameVortexBurnoutMask(FlameVortexElement element, float burnout, float tr
     float u = frameCoords.x;
     float along = frameCoords.y;
     float v = frameCoords.z;
+    FlameBranchAgeProfile profile = flame.branchField.ageProfile;
     float reach = max(element.reach, 1e-4);
-    float outer = 1.0 + FLAME_BRANCH_BURNOUT_MARGIN;
+    float outer = 1.0 + profile.burnoutMargin;
     float radius = sqrt(u * u + v * v + along * along) / reach;
     float plateau = 1.0 - flameBranchSmoothstep(1.0, outer, radius);
 
     float axisRadius = length(p.xz) / max(trunkRadius, 1e-4);
-    float outsideTrunk = flameBranchSmoothstep(FLAME_BRANCH_BURNOUT_TRUNK_INNER, 1.0, axisRadius);
+    float outsideTrunk = flameBranchSmoothstep(profile.burnoutTrunkInner, 1.0, axisRadius);
     return 1.0 - burnout * plateau * outsideTrunk;
 }
 

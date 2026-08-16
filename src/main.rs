@@ -114,8 +114,11 @@ fn main() -> Result<()> {
                     position: cgmath::Vector3::new(1.5 * i as f32, 0.0, 0.0),
                     radius: 0.7,
                     height: 0.8,
-                    temperature_base_k: 1900.0 - 250.0 * i as f32,
-                    temperature_tip_k: 1100.0 - 150.0 * i as f32,
+                    color: thyllore_effect_core::FlameColor {
+                        temperature_base_k: 1900.0 - 250.0 * i as f32,
+                        temperature_tip_k: 1100.0 - 150.0 * i as f32,
+                        ..thyllore_effect_core::FlameColor::default()
+                    },
                     ..FlameEffect::default()
                 };
                 let mut baked = thyllore_effect_core::FlameBaked::default();

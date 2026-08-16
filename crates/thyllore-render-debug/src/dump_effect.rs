@@ -58,25 +58,25 @@ pub fn flame_from_dump(
     apply_scalar!(sigma_t, "sigma_t");
     apply_scalar!(optical_depth, "optical_depth");
     apply_scalar!(intensity, "intensity");
-    apply_scalar!(noise_amplitude, "noise_amplitude");
-    apply_scalar!(noise_contrast, "noise_contrast");
-    apply_scalar!(noise_frequency, "noise_frequency");
+    apply_scalar!(noise.amplitude, "noise_amplitude");
+    apply_scalar!(noise.contrast, "noise_contrast");
+    apply_scalar!(noise.frequency, "noise_frequency");
     apply_scalar!(time, "time");
-    apply_scalar!(edge_low, "edge_low");
-    apply_scalar!(edge_high, "edge_high");
-    apply_scalar!(white_boost, "white_boost");
-    apply_scalar!(bend_amount, "bend_amount");
-    apply_scalar!(bend_power, "bend_power");
-    apply_scalar!(occlusion_lum_ref, "occlusion_lum_ref");
-    apply_scalar!(aniso_axis_advect, "aniso_axis_advect");
-    apply_scalar!(rte_bands, "rte_bands");
+    apply_scalar!(edge.low, "edge_low");
+    apply_scalar!(edge.high, "edge_high");
+    apply_scalar!(edge.white_boost, "white_boost");
+    apply_scalar!(wind.bend_amount, "bend_amount");
+    apply_scalar!(wind.bend_power, "bend_power");
+    apply_scalar!(color.occlusion_lum_ref, "occlusion_lum_ref");
+    apply_scalar!(contour.aniso_axis_advect, "aniso_axis_advect");
+    apply_scalar!(contour.rte_bands, "rte_bands");
     apply_scalar!(boundary.amp, "boundary_amp");
     apply_scalar!(boundary.freq, "boundary_freq");
     apply_scalar!(boundary.speed, "boundary_speed");
     apply_scalar!(boundary.radius_ratio, "boundary_radius_ratio");
-    apply_scalar!(tip_carve.depth, "tip_carve_depth");
-    apply_scalar!(tip_carve.reach, "tip_carve_reach");
-    apply_scalar!(warp_reach, "warp_reach");
+    apply_scalar!(carve.tip.depth, "tip_carve_depth");
+    apply_scalar!(carve.tip.reach, "tip_carve_reach");
+    apply_scalar!(warp.reach, "warp_reach");
     apply_scalar!(swirl.gain, "swirl_gain");
     apply_scalar!(swirl.speed, "swirl_speed");
     apply_scalar!(spread_gain, "spread_gain");
@@ -84,22 +84,22 @@ pub fn flame_from_dump(
     if let Some(v) = flame_json.get("baked_blend").and_then(|f| f.as_f64()) {
         baked.blend = v as f32;
     }
-    apply_scalar!(warp_amp, "warp_amp");
-    apply_scalar!(warp_freq, "warp_freq");
-    apply_scalar!(warp_y_scale, "warp_y_scale");
-    apply_scalar!(noise_scroll_speed, "noise_scroll_speed");
-    apply_scalar!(noise_aniso_y, "noise_aniso_y");
-    apply_scalar!(rise_speed, "rise_speed");
-    apply_scalar!(taper_power, "taper_power");
-    apply_scalar!(radius_tip_ratio, "radius_tip_ratio");
-    apply_scalar!(contour_wiggle_amp, "contour_wiggle_amp");
-    apply_scalar!(sigma_dispersion, "sigma_dispersion");
+    apply_scalar!(warp.amp, "warp_amp");
+    apply_scalar!(warp.freq, "warp_freq");
+    apply_scalar!(warp.y_scale, "warp_y_scale");
+    apply_scalar!(noise.scroll_speed, "noise_scroll_speed");
+    apply_scalar!(noise.aniso_y, "noise_aniso_y");
+    apply_scalar!(warp.rise_speed, "rise_speed");
+    apply_scalar!(warp.taper_power, "taper_power");
+    apply_scalar!(edge.radius_tip_ratio, "radius_tip_ratio");
+    apply_scalar!(contour.wiggle_amp, "contour_wiggle_amp");
+    apply_scalar!(contour.sigma_dispersion, "sigma_dispersion");
     apply_scalar!(radial_sharpness, "radial_sharpness");
-    apply_scalar!(envelope_base, "envelope_base");
-    apply_scalar!(envelope_peak, "envelope_peak");
-    apply_scalar!(envelope_tail, "envelope_tail");
-    apply_scalar!(ring_angular_speed, "ring_angular_speed");
-    apply_scalar!(ring_major_radius, "ring_major_radius");
+    apply_scalar!(envelope.base, "envelope_base");
+    apply_scalar!(envelope.peak, "envelope_peak");
+    apply_scalar!(envelope.tail, "envelope_tail");
+    apply_scalar!(emitter.ring_angular_speed, "ring_angular_speed");
+    apply_scalar!(emitter.ring_major_radius, "ring_major_radius");
     apply_scalar!(time_scale, "time_scale");
     apply_scalar!(time_offset, "time_offset");
     if let Some(v) = flame_json.get("temporal_weight").and_then(|f| f.as_f64()) {
@@ -124,7 +124,7 @@ pub fn flame_from_dump(
     // wind_direction [x, y] (2-element array)
     if let Some(wd) = flame_json.get("wind_direction").and_then(|v| v.as_array()) {
         if wd.len() >= 2 {
-            effect.wind_direction = Vector2::new(
+            effect.wind.direction = Vector2::new(
                 wd[0].as_f64().unwrap() as f32,
                 wd[1].as_f64().unwrap() as f32,
             );
@@ -133,25 +133,25 @@ pub fn flame_from_dump(
 
     // emitter_kind from integer
     if let Some(v) = flame_json.get("emitter_kind").and_then(|f| f.as_i64()) {
-        effect.emitter_kind = v as u32;
+        effect.emitter.kind = v as u32;
     }
 
     // use_blackbody from boolean
     if let Some(v) = flame_json.get("use_blackbody").and_then(|f| f.as_bool()) {
-        effect.use_blackbody = v;
+        effect.color.use_blackbody = v;
     }
 
     // color_base / color_tip (array of 3 floats)
     if let Some(cb) = read_array3(flame_json.get("color_base").unwrap()) {
-        effect.color_base = cb;
+        effect.color.base = cb;
     }
     if let Some(ct) = read_array3(flame_json.get("color_tip").unwrap()) {
-        effect.color_tip = ct;
+        effect.color.tip = ct;
     }
 
     // temperature fields
-    apply_scalar!(temperature_base_k, "temperature_base_k");
-    apply_scalar!(temperature_tip_k, "temperature_tip_k");
+    apply_scalar!(color.temperature_base_k, "temperature_base_k");
+    apply_scalar!(color.temperature_tip_k, "temperature_tip_k");
 
     // light_position_world
     if let Some(lp) = read_array3(flame_json.get("light_position_world").unwrap()) {

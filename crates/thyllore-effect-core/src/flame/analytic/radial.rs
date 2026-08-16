@@ -27,8 +27,8 @@ impl FlameRadialTaper {
         baked: &crate::flame::FlameBaked,
     ) -> Self {
         Self {
-            tip_ratio: effect.radius_tip_ratio,
-            power: effect.taper_power,
+            tip_ratio: effect.edge.radius_tip_ratio,
+            power: effect.warp.taper_power,
             baked_series: if baked.radius.is_some() && baked.blend > 0.0 {
                 Some(effect.coefficients.radius_scale)
             } else {

@@ -3,6 +3,7 @@ use crate::flame_radial::{
     flame_radial_radius_scale, flame_radial_support_radius, FlameRadialTaper,
 };
 use std::f32::consts::TAU;
+use thyllore_math_core::dot3;
 
 /// Proxy widening (radial and above the top) that keeps transported density inside
 /// the shell cone, in flame-local units.
@@ -28,10 +29,6 @@ pub struct VortexElement {
     pub aspect: f32,
     /// Window center along the line, in reach units.
     pub along_offset: f32,
-}
-
-fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
-    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
 }
 
 /// Isotropic offset of `p` from the element center (y scaled by aspect).
@@ -168,8 +165,9 @@ pub fn active_branch_elements(
 /// Rise rate of the visible noise pattern in local height units per second: the
 /// advect chain moves the pattern by rise_speed / (aniso_y * noise_frequency).
 pub fn branch_rise_rate(effect: &FlameEffect) -> f32 {
-    let pattern_scale = effective_noise_aniso_y(effect) * effect.noise_frequency;
-    effect.rise_speed / pattern_scale.max(1e-3)
+    let pattern_scale = effective_noise_aniso_y(&effect.noise, effect.height, effect.radius)
+        * effect.noise.frequency;
+    effect.warp.rise_speed / pattern_scale.max(1e-3)
 }
 
 /// Circulation that turns the core by `gain` radians: gain is the peak rotation
@@ -403,7 +401,7 @@ pub fn flame_proxy_radial_pad(branch_pad_radial: f32, meander_amp: f32) -> f32 {
 pub fn flame_proxy_pad(effect: &FlameEffect, baked: &FlameBaked) -> FlameProxyPad {
     let branch = branch_proxy_pad(effect, baked);
     FlameProxyPad {
-        radial: flame_proxy_radial_pad(branch.radial, effect.meander_amp),
+        radial: flame_proxy_radial_pad(branch.radial, effect.meander.amp),
         top: branch.top,
     }
 }
@@ -459,6 +457,7 @@ pub fn build_branch_field(effect: &FlameEffect, baked: &FlameBaked) -> FlameBran
         bounding_pad: pad.radial,
         bounding_pad_y: pad.top,
         _padding1: [0.0; 2],
+        age_profile: FlameBranchAgeProfile::default(),
         elements,
     }
 }

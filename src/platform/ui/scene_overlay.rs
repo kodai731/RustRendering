@@ -820,21 +820,21 @@ fn build_flame_section(
                     }
 
                     let emitter_labels: [&str; 3] = ["Cylinder", "Ring", "Mesh SDF"];
-                    let mut emitter_selected = effect_copy.emitter_kind as usize;
+                    let mut emitter_selected = effect_copy.emitter.kind as usize;
                     if ui.combo_simple_string("Emitter", &mut emitter_selected, &emitter_labels) {
-                        effect_copy.emitter_kind = emitter_selected as u32;
+                        effect_copy.emitter.kind = emitter_selected as u32;
                     }
 
-                    if effect_copy.emitter_kind == 1 {
+                    if effect_copy.emitter.kind == 1 {
                         ui.slider_config("Ring Radius", 0.2, 5.0)
                             .display_format("%.2f")
-                            .build(&mut effect_copy.ring_major_radius);
+                            .build(&mut effect_copy.emitter.ring_major_radius);
                         ui.same_line();
-                        let mut ring_speed = effect_copy.ring_angular_speed;
+                        let mut ring_speed = effect_copy.emitter.ring_angular_speed;
                         ui.slider_config("Ring Speed", 0.0, 6.28)
                             .display_format("%.2f")
                             .build(&mut ring_speed);
-                        effect_copy.ring_angular_speed = ring_speed;
+                        effect_copy.emitter.ring_angular_speed = ring_speed;
                     }
 
                     ui.slider_config("Height", 0.05, 10.0)
@@ -882,7 +882,7 @@ fn build_flame_section(
 
                     ui.slider_config("Density Exp", 0.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.density_exp);
+                        .build(&mut effect_copy.thermal.density_exp);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Mass curve of a mixing parcel, (1 - m)^a: larger thins the mixed \
@@ -891,7 +891,7 @@ fn build_flame_section(
                     }
                     ui.slider_config("Temp Exp", 0.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.temp_exp);
+                        .build(&mut effect_copy.thermal.temp_exp);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Temperature curve of a mixing parcel, T_cold + (T_hot - T_cold) \
@@ -901,7 +901,7 @@ fn build_flame_section(
                     }
                     ui.slider_config("Wien C (K)", 0.0, 24000.0)
                         .display_format("%.0f")
-                        .build(&mut effect_copy.wien_c_k);
+                        .build(&mut effect_copy.thermal.wien_c_k);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Wien constant of the emissivity exp(-c/T): 24000 is physical at \
@@ -911,25 +911,25 @@ fn build_flame_section(
                     }
 
                     let mut color_changed = false;
-                    color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color_base);
-                    color_changed |= ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
+                    color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color.base);
+                    color_changed |= ui.color_edit3("Tip Color", &mut effect_copy.color.tip);
                     if color_changed {
-                        effect_copy.use_blackbody = false;
+                        effect_copy.color.use_blackbody = false;
                     }
 
                     ui.slider_config("Noise Amplitude", 0.0, 3.0)
-                        .build(&mut effect_copy.noise_amplitude);
+                        .build(&mut effect_copy.noise.amplitude);
                     ui.same_line();
                     if ui.small_button("K##NoiseAmplitude") {
                         ui_events.send(UIEvent::InsertScalarKey {
                             property_type: FlameParam::NoiseAmplitude.property_type(),
-                            value: effect_copy.noise_amplitude,
+                            value: effect_copy.noise.amplitude,
                         });
                     }
 
                     ui.slider_config("Noise Contrast", 0.25, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.noise_contrast);
+                        .build(&mut effect_copy.noise.contrast);
 
                     ui.slider_config("Swirl", 0.0, 1.5)
                         .display_format("%.2f")
@@ -943,7 +943,7 @@ fn build_flame_section(
 
                     ui.slider_config("Noise Aspect", 0.05, 1.5)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.noise_aniso_y);
+                        .build(&mut effect_copy.noise.aniso_y);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Vertical scale of the noise cells: small = tall streaks, 1 = \
@@ -953,14 +953,14 @@ fn build_flame_section(
 
                     let mut noise_sharpness =
                         thyllore_effect_core::shaping_scale_to_noise_sharpness(
-                            effect_copy.noise_shaping_scale,
+                            effect_copy.noise.shaping_scale,
                         );
                     if ui
                         .slider_config("Noise Sharpness", 0.0, 1.0)
                         .display_format("%.2f")
                         .build(&mut noise_sharpness)
                     {
-                        effect_copy.noise_shaping_scale =
+                        effect_copy.noise.shaping_scale =
                             thyllore_effect_core::noise_sharpness_to_shaping_scale(noise_sharpness);
                     }
                     if ui.is_item_hovered() {
@@ -975,7 +975,7 @@ fn build_flame_section(
 
                     ui.slider_config("Mix Lo", -3.0, 3.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.mix_lo);
+                        .build(&mut effect_copy.mix.lo);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Erosion carrier level (std units, carve-positive) where a parcel \
@@ -984,7 +984,7 @@ fn build_flame_section(
                     }
                     ui.slider_config("Mix Hi", -3.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.mix_hi);
+                        .build(&mut effect_copy.mix.hi);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Carrier level (std units) where a parcel counts as fully mixed \
@@ -993,7 +993,7 @@ fn build_flame_section(
                     }
                     ui.slider_config("Mix Scale", 0.1, 2.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.mix_scale);
+                        .build(&mut effect_copy.mix.scale);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Wavenumber of the mixing eddies relative to the low erosion \
@@ -1003,7 +1003,7 @@ fn build_flame_section(
                     }
                     ui.slider_config("Mix Radial Gain", 0.0, 3.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.mix_radial_gain);
+                        .build(&mut effect_copy.mix.radial_gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Shear-layer ramp added to the mixing degree, gain * u^2 over the \
@@ -1013,7 +1013,7 @@ fn build_flame_section(
                     }
                     ui.slider_config("Mix Height Gain", 0.0, 2.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.mix_height_gain);
+                        .build(&mut effect_copy.mix.height_gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Height ramp added to the mixing degree, gain * h^2: the plume \
@@ -1083,7 +1083,7 @@ fn build_flame_section(
 
                     ui.slider_config("Burnout", 0.0, 32.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.burnout_gain);
+                        .build(&mut effect_copy.carve.burnout_gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Age-driven burnout of the rising material: deepens the erosion \
@@ -1096,7 +1096,7 @@ fn build_flame_section(
 
                     ui.slider_config("Carve Residual", 0.0, 0.5)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.carve_residual);
+                        .build(&mut effect_copy.carve.residual);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Translucent floor left where the noise carves the medium away. \
@@ -1108,13 +1108,13 @@ fn build_flame_section(
 
                     ui.slider_config("Meander", 0.0, 2.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.meander_amp);
+                        .build(&mut effect_copy.meander.amp);
                     if ui.is_item_hovered() {
                         ui.tooltip_text("Horizontal meandering motion of the flame (0 = off)");
                     }
                     ui.slider_config("Meander Frequency", 0.2, 30.0)
                         .display_format("%.1f")
-                        .build(&mut effect_copy.meander_frequency);
+                        .build(&mut effect_copy.meander.frequency);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Wavenumber multiplier of the meander modes: 1 = two long bends over \

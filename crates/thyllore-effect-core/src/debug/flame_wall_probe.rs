@@ -122,12 +122,12 @@ pub fn probe_flame_wall(
     let model = build_flame_model_matrix(effect);
     let height_series = build_height_series(&effect.coefficients.height);
     let taper = FlameRadialTaper::from_effect(effect, baked);
-    let ring_major = if effect.emitter_kind == 1 {
-        effect.ring_major_radius / flame_bounding_radius(effect).max(1e-3)
+    let ring_major = if effect.emitter.kind == 1 {
+        effect.emitter.ring_major_radius / flame_bounding_radius(effect).max(1e-3)
     } else {
         0.0
     };
-    let wiggle_trim = 1.0 + effect.contour_wiggle_amp;
+    let wiggle_trim = 1.0 + effect.contour.wiggle_amp;
     let density_at = |p: Vector3<f32>| {
         evaluate_ring_smooth_density(
             [p.x, p.y, p.z],
@@ -195,7 +195,7 @@ pub fn probe_flame_wall(
                     let density = density_at(camera_local + direction_local * t);
                     density_sum += density;
                     density_max = density_max.max(density);
-                    if density >= effect.edge_high {
+                    if density >= effect.edge.high {
                         saturated += 1;
                     }
                 }
@@ -224,7 +224,7 @@ pub fn probe_flame_wall(
                 let mid_distance = (mid_world - camera_world).magnitude().max(1e-3);
                 let pixels_per_world =
                     view.viewport_size_px[1] / (2.0 * mid_distance * tan_half.max(1e-4));
-                let cell_world = flame_bounding_radius(effect) / effect.noise_frequency.max(1e-3);
+                let cell_world = flame_bounding_radius(effect) / effect.noise.frequency.max(1e-3);
 
                 // Compute new diagnostic fields
                 let segment_dt = chord / crate::flame_wave::FLAME_WAVE_SEGMENTS as f32;
@@ -233,10 +233,10 @@ pub fn probe_flame_wall(
                 // anisoCompress is a diagonal transform scaling y by noise_aniso_y
                 let dir_scaled = Vector3::new(
                     direction_local.x,
-                    direction_local.y * effect.noise_aniso_y,
+                    direction_local.y * effect.noise.aniso_y,
                     direction_local.z,
                 );
-                let dW = dir_scaled * effect.noise_frequency;
+                let dW = dir_scaled * effect.noise.frequency;
                 let dW_magnitude = dW.magnitude();
                 let cells_per_segment = segment_dt * dW_magnitude / (2.0 * std::f32::consts::PI);
 
@@ -290,7 +290,7 @@ pub fn probe_flame_wall(
                 ray.t_exit = t_exit;
                 ray.chord = chord;
                 ray.chord_world = chord * world_step;
-                ray.noise_cells = chord * effect.noise_frequency;
+                ray.noise_cells = chord * effect.noise.frequency;
                 ray.grazing_deg = grazing_deg;
                 ray.density_mean = density_sum / DENSITY_SAMPLES as f32;
                 ray.density_max = density_max;
@@ -325,7 +325,7 @@ pub fn probe_flame_wall(
         camera_local: [camera_local.x, camera_local.y, camera_local.z],
         camera_density,
         camera_inside_support: camera_density > 0.0,
-        emitter_approximated: effect.emitter_kind != 1,
+        emitter_approximated: effect.emitter.kind != 1,
         hit_fraction: hits.len() as f32 / rays.len() as f32,
         tangential_hit_fraction: tangential / hit_count,
         saturated_hit_fraction: saturated / hit_count,
@@ -339,14 +339,21 @@ pub fn probe_flame_wall(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flame::{FlameContour, FlameEmitter};
 
     fn ring_effect() -> FlameEffect {
         FlameEffect {
-            emitter_kind: 1,
-            ring_major_radius: 1.5,
+            emitter: FlameEmitter {
+                kind: 1,
+                ring_major_radius: 1.5,
+                ..FlameEmitter::default()
+            },
             radius: 0.6,
             height: 1.6,
-            contour_wiggle_amp: 0.0,
+            contour: FlameContour {
+                wiggle_amp: 0.0,
+                ..FlameContour::default()
+            },
             ..FlameEffect::default()
         }
     }
@@ -382,7 +389,7 @@ mod tests {
         );
         let ray = center_ray(&report);
         assert!(ray.hit);
-        assert!((ray.noise_cells - ray.chord * effect.noise_frequency).abs() < 1e-4);
+        assert!((ray.noise_cells - ray.chord * effect.noise.frequency).abs() < 1e-4);
         assert!(
             ray.grazing_deg > 45.0,
             "wall-crossing ray must be transversal, got {}",
@@ -436,7 +443,10 @@ mod tests {
     #[test]
     fn cylinder_emitter_is_marked_approximated_and_hits() {
         let effect = FlameEffect {
-            contour_wiggle_amp: 0.0,
+            contour: FlameContour {
+                wiggle_amp: 0.0,
+                ..FlameContour::default()
+            },
             ..FlameEffect::default()
         };
         let report = probe_flame_wall(

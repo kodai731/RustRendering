@@ -1,7 +1,6 @@
 use crate::flame::*;
 use crate::flame_trail::{FlameTrailSample, FlameTrailState};
 use cgmath::{InnerSpace, Matrix3, Matrix4, Vector3};
-use thyllore_color_core::blackbody_rgb;
 use thyllore_math_core::{evaluate_chebyshev, fit_erf_response};
 
 /// Parse a mode mask string into a set of matched indices.
@@ -42,28 +41,18 @@ fn parse_mode_mask(mask: &str) -> std::collections::HashSet<usize> {
 /// (axis optionally bent toward the advection direction by aniso_axis_advect).
 fn noise_aniso_compress(effect: &FlameEffect, v: [f32; 3]) -> [f32; 3] {
     let advect = Vector3::new(
-        effect.wind_direction.x,
-        effect.rise_speed,
-        effect.wind_direction.y,
+        effect.wind.direction.x,
+        effect.warp.rise_speed,
+        effect.wind.direction.y,
     );
     let mut axis = Vector3::new(0.0, 1.0, 0.0);
-    if effect.aniso_axis_advect > 0.0 && advect.magnitude2() > 1e-8 {
-        let blend = effect.aniso_axis_advect.clamp(0.0, 1.0);
+    if effect.contour.aniso_axis_advect > 0.0 && advect.magnitude2() > 1e-8 {
+        let blend = effect.contour.aniso_axis_advect.clamp(0.0, 1.0);
         axis = (axis * (1.0 - blend) + advect.normalize() * blend).normalize();
     }
     let vector = Vector3::new(v[0], v[1], v[2]);
-    let compressed = vector - axis * vector.dot(axis) * (1.0 - effect.noise_aniso_y);
+    let compressed = vector - axis * vector.dot(axis) * (1.0 - effect.noise.aniso_y);
     [compressed.x, compressed.y, compressed.z]
-}
-
-/// Effective noise aniso y: noise_scale_mode < 0.5 returns noise_aniso_y as-is;
-/// >= 0.5 multiplies by height/radius to compensate for world-to-local scaling.
-pub fn effective_noise_aniso_y(effect: &FlameEffect) -> f32 {
-    if effect.noise_scale_mode < 0.5 {
-        effect.noise_aniso_y
-    } else {
-        effect.noise_aniso_y * (effect.height / effect.radius.max(1e-4))
-    }
 }
 
 /// Medium spread gain alpha (motion_design L3); the reach shares the tip
@@ -71,44 +60,10 @@ pub fn effective_noise_aniso_y(effect: &FlameEffect) -> f32 {
 fn build_medium_spread_params(effect: &FlameEffect) -> FlameSpreadParams {
     FlameSpreadParams {
         gain: effect.spread_gain.max(0.0),
-        edge_outer_sharpen: effect.edge_outer_sharpen,
+        edge_outer_sharpen: effect.edge.outer_sharpen,
         twist_gain: effect.twist.gain,
-        erosion_noise_gain: effect.erosion_noise_gain,
+        erosion_noise_gain: effect.noise.erosion_gain,
     }
-}
-
-/// The twist rate scale: twist speed owns the rate when positive, otherwise
-/// the rate delegates to the swirl speed.
-fn twist_rate_scale(effect: &FlameEffect) -> f32 {
-    if effect.twist.speed > 0.0 {
-        effect.twist.speed
-    } else {
-        effect.swirl.speed
-    }
-}
-
-fn build_twist_field(effect: &FlameEffect) -> FlameTwistField {
-    let rate_scale = twist_rate_scale(effect);
-    FlameTwistField {
-        modes: std::array::from_fn(|j| FlameTwistMode {
-            kappa: TWIST_MODE_KAPPA[j],
-            omega: TWIST_MODE_SPIN[j] * rate_scale * twist_mode_phase_rate(TWIST_MODE_KAPPA[j]),
-            phase: TWIST_MODE_PHASE[j],
-            amp: TWIST_MODE_AMP[j],
-        }),
-        core_radius_sq: TWIST_CORE_RADIUS_SQ,
-        _padding: [0.0; 3],
-    }
-}
-
-fn build_meander_modes(effect: &FlameEffect) -> [FlameMeanderMode; 2] {
-    std::array::from_fn(|j| FlameMeanderMode {
-        direction: MEANDER_MODE_DIRECTION[j],
-        kappa: MEANDER_MODE_KAPPA[j] * effect.meander_frequency.max(0.0),
-        omega: effect.swirl.speed * MEANDER_MODE_RATE_SCALE[j],
-        phase: MEANDER_MODE_PHASE[j],
-        _padding: [0.0; 3],
-    })
 }
 
 fn build_wave_cf_params() -> FlameWaveCfParams {
@@ -135,32 +90,6 @@ struct WaveUboFields {
     low_carrier_std: f32,
 }
 
-/// Contrast-scaled base edge window: center is fixed, half-width divides by
-/// noise_contrast (higher contrast = narrower window = harder carving).
-/// Exactly 1.0 returns the authored edge_low/edge_high bytes untouched.
-pub fn contrast_scaled_edges(effect: &FlameEffect) -> (f32, f32) {
-    let contrast = effect.noise_contrast.clamp(0.25, 4.0);
-    if contrast == 1.0 {
-        return (effect.edge_low, effect.edge_high);
-    }
-    let c = 0.5 * (effect.edge_low + effect.edge_high);
-    let hw = 0.5 * (effect.edge_high - effect.edge_low) / contrast;
-    (c - hw, c + hw)
-}
-
-/// Compute the effective edge window (low, high) from noise amplitude.
-/// Center c = 0.5*(edge_low + edge_high) is fixed; half-width scales with
-/// |noise_amplitude| / NOISE_AMPLITUDE_REF raised to EDGE_WIDTH_GAMMA, clamped
-/// to [0.25*hw0, 4.0*hw0] where hw0 = contrast-scaled half-width.
-pub fn effective_edge_window(effect: &FlameEffect) -> (f32, f32) {
-    let (edge_lo, edge_hi) = contrast_scaled_edges(effect);
-    let c = 0.5 * (edge_lo + edge_hi);
-    let hw0 = 0.5 * (edge_hi - edge_lo);
-    let hw = hw0 * (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(EDGE_WIDTH_GAMMA);
-    let hw = hw.max(0.25 * hw0).min(4.0 * hw0);
-    (c - hw, c + hw)
-}
-
 fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     use crate::flame_wave::{
         build_unified_erosion_modes, generate_wave_cf_shear_layers, generate_wave_detail_modes,
@@ -177,7 +106,7 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
             k_ratio,
             read_env_wave_env_mu(),
             effect.boundary.amp * read_env_unified_tilt_gain_b(),
-            effect.contour_wiggle_amp * read_env_unified_tilt_gain_w(),
+            effect.contour.wiggle_amp * read_env_unified_tilt_gain_w(),
         )
     } else {
         let mut modes = generate_wave_modes_with_ratio(k_ratio).to_vec();
@@ -230,7 +159,7 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     let warp_modes = generate_wave_warp_modes();
     let cf_active = read_env_wave_cf() && !unified;
     let depth_scale: Vec<f32> = if cf_active {
-        wave_cf_depth_scale(&erosion_modes, &warp_modes, effect.noise_frequency, |v| {
+        wave_cf_depth_scale(&erosion_modes, &warp_modes, effect.noise.frequency, |v| {
             noise_aniso_compress(effect, v)
         })
         .to_vec()
@@ -294,8 +223,8 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
             mode.curl_direction[2],
         ];
     }
-    let tanh_scale = if effect.noise_shaping_scale > 0.0 {
-        effect.noise_shaping_scale
+    let tanh_scale = if effect.noise.shaping_scale > 0.0 {
+        effect.noise.shaping_scale
     } else {
         read_env_wave_tanh()
     };
@@ -304,7 +233,7 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     } else {
         wave_shaping_params(tanh_scale)
     };
-    amplitude *= (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
+    amplitude *= (effect.noise.amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
     let jitter_scale = crate::flame_wave::read_env_wave_jitter();
     let mut jitter = [[0.0f32; 4]; WAVE_MODE_COUNT];
     for (slot, mode) in jitter.iter_mut().zip(erosion_modes.iter()) {
@@ -327,51 +256,6 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
     }
 }
 
-/// sigma_floor = relative-window floor coefficient (beta * |A| * shaped noise
-/// std; the shader multiplies by lambda * D_mid / 0.30 for the modulation std).
-/// The shader reads the low-octave carrier in std units, so the mixing window
-/// is spectrum-invariant.
-fn build_mix_params(effect: &FlameEffect, low_carrier_std: f32) -> FlameMixParams {
-    FlameMixParams {
-        lo: effect.mix_lo,
-        hi: effect.mix_hi.max(effect.mix_lo + 1e-3),
-        inv_carrier_std: 1.0 / low_carrier_std.max(1e-6),
-        height_gain: effect.mix_height_gain.max(0.0),
-        scale: effect.mix_scale.max(1e-3),
-        radial_gain: effect.mix_radial_gain.max(0.0),
-        _padding: [0.0; 2],
-    }
-}
-
-pub fn wave_segment_count(effect: &FlameEffect) -> u32 {
-    effect
-        .wave_segments
-        .clamp(WAVE_SEGMENTS_MIN, WAVE_SEGMENTS_MAX)
-}
-
-fn build_temperature_ramp(effect: &FlameEffect) -> [[f32; 4]; 8] {
-    let cold = effect.temperature_tip_k;
-    let hot = effect.temperature_base_k;
-    let mut ramp = [[0.0f32; 4]; 8];
-    for (index, entry) in ramp.iter_mut().enumerate() {
-        let kelvin = cold + (hot - cold) * index as f32 / 7.0;
-        let rgb = blackbody_rgb(kelvin);
-        *entry = [rgb[0], rgb[1], rgb[2], 1.0];
-    }
-    ramp
-}
-
-fn build_thermal_params(effect: &FlameEffect) -> FlameThermalParams {
-    FlameThermalParams {
-        density_exp: effect.density_exp.max(0.0),
-        temp_exp: effect.temp_exp.max(0.0),
-        temp_hot_k: effect.temperature_base_k.max(1.0),
-        temp_cold_k: effect.temperature_tip_k.max(1.0),
-        wien_c_k: effect.wien_c_k.max(0.0),
-        _padding: [0.0; 3],
-    }
-}
-
 fn build_segment_params(effect: &FlameEffect) -> FlameSegmentParams {
     let count = wave_segment_count(effect);
     FlameSegmentParams {
@@ -390,15 +274,15 @@ pub fn build_unified_field_params(effect: &FlameEffect) -> FlameUnifiedParams {
     if !read_env_wave_unified() {
         return inactive;
     }
-    let amplitude_ratio = (effect.noise_amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
+    let amplitude_ratio = (effect.noise.amplitude.abs() / NOISE_AMPLITUDE_REF).powf(SHAPING_GAMMA);
     let std = crate::flame_wave::unified_noise_std(
         read_env_wave_k_ratio(),
         read_env_wave_env_mu(),
         effect.boundary.amp * read_env_unified_tilt_gain_b(),
-        effect.contour_wiggle_amp * read_env_unified_tilt_gain_w(),
+        effect.contour.wiggle_amp * read_env_unified_tilt_gain_w(),
     );
     let sigma_floor =
-        read_env_unified_beta() * effect.noise_amplitude.abs() * std * amplitude_ratio;
+        read_env_unified_beta() * effect.noise.amplitude.abs() * std * amplitude_ratio;
     FlameUnifiedParams {
         enabled: 1.0,
         sigma_floor,
@@ -445,63 +329,6 @@ fn build_profile_params(effect: &FlameEffect, baked: &FlameBaked) -> FlameProfil
         color_active: color_flag,
         _padding: 0.0,
     }
-}
-
-/// Build the color ramp array for the UBO.
-/// When baked_color is Some and baked_blend > 0, each entry is a blend between
-/// the legacy 3-point ramp value (same as flameRampColor shader) and the baked color.
-/// Otherwise returns all zeros (flag 0 means shader doesn't read it).
-fn build_color_ramp(effect: &FlameEffect, baked_state: &FlameBaked) -> [[f32; 4]; 8] {
-    let baked = match baked_state.color {
-        Some(ref b) if baked_state.blend > 0.0 => b,
-        _ => return [[0.0; 4]; 8],
-    };
-    let blend = baked_state.blend;
-
-    // Compute color_base, color_mid, color_tip same as build_flame_ubo
-    let (color_base, color_mid, color_tip) = if effect.use_blackbody {
-        let base = blackbody_rgb(effect.temperature_base_k);
-        let tip = blackbody_rgb(effect.temperature_tip_k);
-        let mid_temp = (effect.temperature_base_k + effect.temperature_tip_k) / 2.0;
-        let mid = blackbody_rgb(mid_temp);
-        (base, mid, tip)
-    } else {
-        let base = effect.color_base;
-        let tip = effect.color_tip;
-        let mid = [
-            (base[0] + tip[0]) / 2.0,
-            (base[1] + tip[1]) / 2.0,
-            (base[2] + tip[2]) / 2.0,
-        ];
-        (base, mid, tip)
-    };
-
-    let mut ramp = [[0.0f32; 4]; 8];
-    for i in 0..8 {
-        let h = (i as f32 + 0.5) / 8.0;
-        // Legacy 3-point ramp (same as flameRampColor shader)
-        let legacy = if h < 0.5 {
-            let t = h * 2.0;
-            [
-                color_base[0] + (color_mid[0] - color_base[0]) * t,
-                color_base[1] + (color_mid[1] - color_base[1]) * t,
-                color_base[2] + (color_mid[2] - color_base[2]) * t,
-            ]
-        } else {
-            let t = (h - 0.5) * 2.0;
-            [
-                color_mid[0] + (color_tip[0] - color_mid[0]) * t,
-                color_mid[1] + (color_tip[1] - color_mid[1]) * t,
-                color_mid[2] + (color_tip[2] - color_mid[2]) * t,
-            ]
-        };
-        // Blend: lerp(legacy, baked, blend)
-        let r = legacy[0] + (baked[i][0] - legacy[0]) * blend;
-        let g = legacy[1] + (baked[i][1] - legacy[1]) * blend;
-        let b = legacy[2] + (baked[i][2] - legacy[2]) * blend;
-        ramp[i] = [r, g, b, 0.0];
-    }
-    ramp
 }
 
 /// Form-matched strain norm: max a|k| for the sequential composition
@@ -555,8 +382,8 @@ pub fn build_warp_strain_params(effect: &FlameEffect) -> FlameWarpStrainParams {
     table.extend_from_slice(&build_medium_swirl_modes(effect, &warp_modes));
     let [strain_base, strain_tip, inv_reach, inv_strain_norm] =
         crate::flame_wave::warp_strain_params(
-            effect.warp_amp,
-            effect.warp_reach,
+            effect.warp.amp,
+            effect.warp.reach,
             shear_strain_norm(&table),
         );
     FlameWarpStrainParams {
@@ -574,30 +401,8 @@ fn build_warp_form_params(effect: &FlameEffect) -> FlameWarpFormParams {
         } else {
             0.0
         },
-        burnout_gain: effect.burnout_gain,
+        burnout_gain: effect.carve.burnout_gain,
         _padding: [0.0; 2],
-    }
-}
-
-fn build_tip_carve_params(effect: &FlameEffect) -> FlameTipCarveParams {
-    let primitive = thyllore_math_core::ChebyshevSeries::new(
-        effect
-            .coefficients
-            .height_primitive
-            .iter()
-            .flatten()
-            .copied()
-            .collect(),
-        (0.0, 1.0),
-    );
-    let (at_base, at_top) = thyllore_math_core::chebyshev_endpoint_values(&primitive);
-    let total = at_top - at_base;
-    let inv_total = if total.abs() > 1e-6 { 1.0 / total } else { 0.0 };
-    FlameTipCarveParams {
-        depth: effect.tip_carve.depth,
-        inv_reach: 1.0 / effect.tip_carve.reach.max(1e-3),
-        primitive_top: at_top,
-        inv_primitive_range: inv_total,
     }
 }
 
@@ -606,31 +411,8 @@ pub fn build_flame_ubo(
     baked: &FlameBaked,
     temporal: &FlameTemporalAccum,
 ) -> FlameUBO {
-    let (color_base, color_mid, color_tip) = if effect.use_blackbody {
-        let base = blackbody_rgb(effect.temperature_base_k);
-        let tip = blackbody_rgb(effect.temperature_tip_k);
-        let mid_temp = (effect.temperature_base_k + effect.temperature_tip_k) / 2.0;
-        let mid = blackbody_rgb(mid_temp);
-        (base, mid, tip)
-    } else {
-        let base = effect.color_base;
-        let tip = effect.color_tip;
-        let mid = [
-            (base[0] + tip[0]) / 2.0,
-            (base[1] + tip[1]) / 2.0,
-            (base[2] + tip[2]) / 2.0,
-        ];
-        (base, mid, tip)
-    };
-    let radius = flame_bounding_radius(effect).max(MIN_FLAME_EXTENT);
-    let height = effect.height.max(MIN_FLAME_EXTENT);
-    let rel = effect.light_position_world - effect.position;
-    let dir = Vector3::new(rel.x / radius, rel.y / height, rel.z / radius);
-    let norm_dir = if dir.dot(dir) < 1e-6 {
-        Vector3::new(0.0, 1.0, 0.0)
-    } else {
-        dir.normalize()
-    };
+    let (color_base, color_mid, color_tip) = resolve_flame_colors(&effect.color);
+    let edge_window = effective_edge_window(&effect.edge, &effect.noise);
     let wave_fields = build_wave_ubo_fields(effect);
     FlameUBO {
         model: build_flame_model_matrix(effect),
@@ -642,13 +424,13 @@ pub fn build_flame_ubo(
         sigma_t: effective_sigma_t(effect),
         intensity: effect.intensity,
         height_axis_scale: 1.0,
-        noise_amplitude: effect.noise_amplitude,
-        noise_frequency: effect.noise_frequency,
-        noise_scroll_speed: effect.noise_scroll_speed,
+        noise_amplitude: effect.noise.amplitude,
+        noise_frequency: effect.noise.frequency,
+        noise_scroll_speed: effect.noise.scroll_speed,
         radial_sharpness: effect.radial_sharpness,
         color_base: FlameColorBase {
             rgb: color_base,
-            occlusion_lum_ref: effect.occlusion_lum_ref,
+            occlusion_lum_ref: effect.color.occlusion_lum_ref,
         },
         color_mid: FlameColorMid {
             rgb: color_mid,
@@ -661,33 +443,13 @@ pub fn build_flame_ubo(
         temporal_data: FlameTemporalParams {
             accum_weight: temporal.weight,
             frame_index: (temporal.frame_index % 16384) as f32,
-            noise_aniso_y: effective_noise_aniso_y(effect),
-            warp_y_scale: effect.warp_y_scale,
+            noise_aniso_y: effective_noise_aniso_y(&effect.noise, effect.height, effect.radius),
+            warp_y_scale: effect.warp.y_scale,
         },
-        light_data: FlameLightParams {
-            direction: [norm_dir.x, norm_dir.y, norm_dir.z],
-            self_shadow_strength: effect.self_shadow_strength,
-        },
-        warp_style: FlameWarpStyle {
-            warp_amp: effect.warp_amp,
-            warp_freq: effect.warp_freq,
-            rise_speed: effect.rise_speed,
-            taper_power: effect.taper_power,
-        },
-        edge_style: {
-            let (edge_low, edge_high) = contrast_scaled_edges(effect);
-            FlameEdgeStyle {
-                radius_tip_ratio: effect.radius_tip_ratio,
-                edge_low,
-                edge_high,
-                white_boost: effect.white_boost,
-            }
-        },
-        wind_bend: FlameWindBend {
-            wind_direction: [effect.wind_direction.x, effect.wind_direction.y],
-            bend_amount: effect.bend_amount,
-            bend_power: effect.bend_power,
-        },
+        light_data: build_light_params(effect),
+        warp_style: build_warp_style(&effect.warp),
+        edge_style: build_edge_style(&effect.edge, &effect.noise),
+        wind_bend: build_wind_bend(&effect.wind),
         trail_unit_inverse: Matrix4::<f32>::from_scale(1.0),
         trail_meta: FlameTrailMeta {
             sample_count: 0.0,
@@ -695,76 +457,70 @@ pub fn build_flame_ubo(
             _padding: [0.0; 2],
         },
         trail_coefficients: [[0.0; 4]; 4],
-        emitter_params: FlameEmitterParams {
-            kind: effect.emitter_kind as f32,
-            ring_major_ratio: if effect.emitter_kind == 1 {
-                effect.ring_major_radius / flame_bounding_radius(effect)
-            } else {
-                0.0
-            },
-            ring_angular_speed: effect.ring_angular_speed,
-            sdf_slab_depth: if effect.emitter_kind == 2 { 0.15 } else { 0.0 },
-        },
-        contour_params: FlameContourParams {
-            wiggle_amp: effect.contour_wiggle_amp,
-            aniso_axis_advect: effect.aniso_axis_advect,
-            rte_bands: effect.rte_bands,
-            sigma_dispersion: effect.sigma_dispersion,
-        },
-        erosion_response: {
-            let (edge_low, edge_high) = effective_edge_window(effect);
-            let model = fit_erf_response(edge_low, edge_high);
-            FlameErosionResponse {
-                center: model.center,
-                kappa: model.kappa,
-                weight1: model.gaussian_weights[0],
-                weight2: model.gaussian_weights[1],
-            }
-        },
+        emitter_params: build_emitter_params(&effect.emitter, effect.radius),
+        contour_params: build_contour_params(&effect.contour),
+        erosion_response: build_erosion_response(edge_window),
         wave_cf_params: FlameWaveCfParams {
             skipped_power_plain: wave_fields.skipped_power[0],
             skipped_power_env: wave_fields.skipped_power[1],
             ..build_wave_cf_params()
         },
-        boundary_params: FlameBoundaryParams {
-            amp: effect.boundary.amp,
-            freq: effect.boundary.freq,
-            speed: effect.boundary.speed,
-            radius_ratio: effect.boundary.radius_ratio,
-        },
-        near_fade_params: {
-            let (edge_low, edge_high) = effective_edge_window(effect);
-            FlameNearFadeParams {
-                radius: effect.near_fade_radius,
-                carve_residual: effect.carve_residual,
-                edge_low,
-                edge_high,
-            }
-        },
+        boundary_params: build_boundary_params(&effect.boundary),
+        near_fade_params: build_near_fade_params(&effect.carve, edge_window),
         radius_coefficients: effect.coefficients.radius_scale,
-        color_ramp: build_color_ramp(effect, baked),
-        temp_ramp: build_temperature_ramp(effect),
+        color_ramp: build_color_ramp(&effect.color, baked),
+        temp_ramp: build_temperature_ramp(&effect.color),
         profile_params: build_profile_params(effect, baked),
         wave_params: wave_fields.shaping,
-        tip_carve_params: build_tip_carve_params(effect),
+        tip_carve_params: build_tip_carve_params(&effect.carve, &effect.coefficients),
         warp_strain_params: build_warp_strain_params(effect),
         warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
-        mix_params: build_mix_params(effect, wave_fields.low_carrier_std),
+        mix_params: build_mix_params(&effect.mix, wave_fields.low_carrier_std),
         segment_params: build_segment_params(effect),
-        thermal_params: build_thermal_params(effect),
+        thermal_params: build_thermal_params(&effect.thermal, &effect.color),
         spread_params: build_medium_spread_params(effect),
         support_motion: FlameSupportMotion {
             support_margin: effect.support_margin,
-            meander_amp: effect.meander_amp,
+            meander_amp: effect.meander.amp,
             swirl_speed: effect.swirl.speed,
             twist_speed: effect.twist.speed,
         },
-        twist_field: build_twist_field(effect),
-        meander_modes: build_meander_modes(effect),
+        twist_field: build_twist_field(&effect.twist, &effect.swirl),
+        meander_modes: build_meander_modes(&effect.meander, &effect.swirl),
         branch_field: build_branch_field(effect, baked),
         wave_modes: wave_fields.packed,
         wave_jitter: wave_fields.jitter,
+    }
+}
+
+fn build_light_params(effect: &FlameEffect) -> FlameLightParams {
+    let radius = flame_bounding_radius(effect).max(MIN_FLAME_EXTENT);
+    let height = effect.height.max(MIN_FLAME_EXTENT);
+    let relative = effect.light_position_world - effect.position;
+    let direction = Vector3::new(
+        relative.x / radius,
+        relative.y / height,
+        relative.z / radius,
+    );
+    let unit_direction = if direction.dot(direction) < 1e-6 {
+        Vector3::new(0.0, 1.0, 0.0)
+    } else {
+        direction.normalize()
+    };
+    FlameLightParams {
+        direction: [unit_direction.x, unit_direction.y, unit_direction.z],
+        self_shadow_strength: effect.self_shadow_strength,
+    }
+}
+
+fn build_erosion_response(edge_window: (f32, f32)) -> FlameErosionResponse {
+    let model = fit_erf_response(edge_window.0, edge_window.1);
+    FlameErosionResponse {
+        center: model.center,
+        kappa: model.kappa,
+        weight1: model.gaussian_weights[0],
+        weight2: model.gaussian_weights[1],
     }
 }
 
@@ -1309,6 +1065,32 @@ pub struct FlameBranchElement {
     pub _padding: [f32; 3],
 }
 
+/// Age-profile fractions of the vortex transport (winding, burnout), shared with
+/// the shader so both sides evaluate the same envelope.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameBranchAgeProfile {
+    pub wind_fraction: f32,
+    pub burnout_start_fraction: f32,
+    pub burnout_release_fraction: f32,
+    pub burnout_margin: f32,
+    pub burnout_trunk_inner: f32,
+    pub _padding: [f32; 3],
+}
+
+impl Default for FlameBranchAgeProfile {
+    fn default() -> Self {
+        Self {
+            wind_fraction: BRANCH_WIND_FRACTION,
+            burnout_start_fraction: BRANCH_BURNOUT_START_FRACTION,
+            burnout_release_fraction: BRANCH_BURNOUT_RELEASE_FRACTION,
+            burnout_margin: BRANCH_BURNOUT_MARGIN,
+            burnout_trunk_inner: BRANCH_BURNOUT_TRUNK_INNER,
+            _padding: [0.0; 3],
+        }
+    }
+}
+
 /// Branch element table (newest first) with the per-effect age-profile
 /// constants; `count` = 0 leaves every consumer bit-identical.
 #[repr(C)]
@@ -1329,6 +1111,7 @@ pub struct FlameBranchField {
     pub bounding_pad: f32,
     pub bounding_pad_y: f32,
     pub _padding1: [f32; 2],
+    pub age_profile: FlameBranchAgeProfile,
     pub elements: [FlameBranchElement; BRANCH_MAX_ELEMENTS],
 }
 
@@ -1395,28 +1178,5 @@ impl Default for FlameUBO {
             &FlameBaked::default(),
             &FlameTemporalAccum::default(),
         )
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_effective_noise_aniso_y_mode_zero() {
-        let mut effect = FlameEffect::default();
-        effect.noise_scale_mode = 0.0;
-        effect.noise_aniso_y = 0.5;
-        assert!((effective_noise_aniso_y(&effect) - 0.5).abs() < 1e-6);
-    }
-
-    #[test]
-    fn test_effective_noise_aniso_y_mode_one() {
-        let mut effect = FlameEffect::default();
-        effect.noise_scale_mode = 1.0;
-        effect.noise_aniso_y = 0.5;
-        effect.height = 8.0;
-        effect.radius = 1.0;
-        assert!((effective_noise_aniso_y(&effect) - 4.0).abs() < 1e-6);
     }
 }

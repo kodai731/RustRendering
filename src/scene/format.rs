@@ -440,27 +440,33 @@ fn default_meander_frequency() -> f32 {
 }
 
 fn default_mix_lo() -> f32 {
-    thyllore_effect_core::FlameEffect::default().mix_lo
+    thyllore_effect_core::FlameEffect::default().mix.lo
 }
 
 fn default_mix_hi() -> f32 {
-    thyllore_effect_core::FlameEffect::default().mix_hi
+    thyllore_effect_core::FlameEffect::default().mix.hi
 }
 
 fn default_mix_scale() -> f32 {
-    thyllore_effect_core::FlameEffect::default().mix_scale
+    thyllore_effect_core::FlameEffect::default().mix.scale
 }
 
 fn default_density_exp() -> f32 {
-    thyllore_effect_core::FlameEffect::default().density_exp
+    thyllore_effect_core::FlameEffect::default()
+        .thermal
+        .density_exp
 }
 
 fn default_temp_exp() -> f32 {
-    thyllore_effect_core::FlameEffect::default().temp_exp
+    thyllore_effect_core::FlameEffect::default()
+        .thermal
+        .temp_exp
 }
 
 fn default_wien_c_k() -> f32 {
-    thyllore_effect_core::FlameEffect::default().wien_c_k
+    thyllore_effect_core::FlameEffect::default()
+        .thermal
+        .wien_c_k
 }
 
 fn default_wave_segments() -> u32 {
@@ -468,7 +474,7 @@ fn default_wave_segments() -> u32 {
 }
 
 fn default_noise_aniso_y() -> f32 {
-    thyllore_effect_core::FlameEffect::default().noise_aniso_y
+    thyllore_effect_core::FlameEffect::default().noise.aniso_y
 }
 
 fn default_branch_spawn_height() -> f32 {
@@ -632,64 +638,64 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             sigma_t: effect.sigma_t,
             optical_depth: effect.optical_depth,
             intensity: effect.intensity,
-            color_base: effect.color_base,
-            color_tip: effect.color_tip,
-            temperature_base_k: effect.temperature_base_k,
-            temperature_tip_k: effect.temperature_tip_k,
-            use_blackbody: effect.use_blackbody,
-            noise_amplitude: effect.noise_amplitude,
-            noise_contrast: effect.noise_contrast,
-            noise_frequency: effect.noise_frequency,
-            noise_scroll_speed: effect.noise_scroll_speed,
+            color_base: effect.color.base,
+            color_tip: effect.color.tip,
+            temperature_base_k: effect.color.temperature_base_k,
+            temperature_tip_k: effect.color.temperature_tip_k,
+            use_blackbody: effect.color.use_blackbody,
+            noise_amplitude: effect.noise.amplitude,
+            noise_contrast: effect.noise.contrast,
+            noise_frequency: effect.noise.frequency,
+            noise_scroll_speed: effect.noise.scroll_speed,
             time_scale: effect.time_scale,
             time_offset: effect.time_offset,
-            warp_amp: effect.warp_amp,
-            warp_freq: effect.warp_freq,
-            rise_speed: effect.rise_speed,
-            taper_power: effect.taper_power,
-            radius_tip_ratio: effect.radius_tip_ratio,
-            edge_low: effect.edge_low,
-            edge_high: effect.edge_high,
-            white_boost: effect.white_boost,
-            wind_direction: [effect.wind_direction.x, effect.wind_direction.y],
-            bend_amount: effect.bend_amount,
-            bend_power: effect.bend_power,
+            warp_amp: effect.warp.amp,
+            warp_freq: effect.warp.freq,
+            rise_speed: effect.warp.rise_speed,
+            taper_power: effect.warp.taper_power,
+            radius_tip_ratio: effect.edge.radius_tip_ratio,
+            edge_low: effect.edge.low,
+            edge_high: effect.edge.high,
+            white_boost: effect.edge.white_boost,
+            wind_direction: [effect.wind.direction.x, effect.wind.direction.y],
+            bend_amount: effect.wind.bend_amount,
+            bend_power: effect.wind.bend_power,
             self_shadow_strength: effect.self_shadow_strength,
-            envelope_peak: effect.envelope_peak,
-            envelope_base: effect.envelope_base,
-            envelope_tail: effect.envelope_tail,
+            envelope_peak: effect.envelope.peak,
+            envelope_base: effect.envelope.base,
+            envelope_tail: effect.envelope.tail,
             radial_sharpness: effect.radial_sharpness,
-            occlusion_lum_ref: effect.occlusion_lum_ref,
-            contour_wiggle_amp: effect.contour_wiggle_amp,
-            aniso_axis_advect: effect.aniso_axis_advect,
-            rte_bands: effect.rte_bands,
-            sigma_dispersion: effect.sigma_dispersion,
-            tip_carve_depth: effect.tip_carve.depth,
-            tip_carve_reach: effect.tip_carve.reach,
-            warp_reach: effect.warp_reach,
+            occlusion_lum_ref: effect.color.occlusion_lum_ref,
+            contour_wiggle_amp: effect.contour.wiggle_amp,
+            aniso_axis_advect: effect.contour.aniso_axis_advect,
+            rte_bands: effect.contour.rte_bands,
+            sigma_dispersion: effect.contour.sigma_dispersion,
+            tip_carve_depth: effect.carve.tip.depth,
+            tip_carve_reach: effect.carve.tip.reach,
+            warp_reach: effect.warp.reach,
             swirl_gain: effect.swirl.gain,
             swirl_speed: effect.swirl.speed,
             spread_gain: effect.spread_gain,
             support_margin: effect.support_margin,
-            edge_outer_sharpen: effect.edge_outer_sharpen,
-            noise_scale_mode: effect.noise_scale_mode,
-            erosion_noise_gain: effect.erosion_noise_gain,
+            edge_outer_sharpen: effect.edge.outer_sharpen,
+            noise_scale_mode: effect.noise.scale_mode,
+            erosion_noise_gain: effect.noise.erosion_gain,
             twist_gain: effect.twist.gain,
             twist_speed: effect.twist.speed,
-            burnout_gain: effect.burnout_gain,
-            noise_shaping_scale: effect.noise_shaping_scale,
-            meander_amp: effect.meander_amp,
-            meander_frequency: effect.meander_frequency,
-            mix_lo: effect.mix_lo,
-            mix_hi: effect.mix_hi,
-            mix_height_gain: effect.mix_height_gain,
-            mix_scale: effect.mix_scale,
-            mix_radial_gain: effect.mix_radial_gain,
-            density_exp: effect.density_exp,
-            temp_exp: effect.temp_exp,
-            wien_c_k: effect.wien_c_k,
+            burnout_gain: effect.carve.burnout_gain,
+            noise_shaping_scale: effect.noise.shaping_scale,
+            meander_amp: effect.meander.amp,
+            meander_frequency: effect.meander.frequency,
+            mix_lo: effect.mix.lo,
+            mix_hi: effect.mix.hi,
+            mix_height_gain: effect.mix.height_gain,
+            mix_scale: effect.mix.scale,
+            mix_radial_gain: effect.mix.radial_gain,
+            density_exp: effect.thermal.density_exp,
+            temp_exp: effect.thermal.temp_exp,
+            wien_c_k: effect.thermal.wien_c_k,
             wave_segments: effect.wave_segments,
-            noise_aniso_y: effect.noise_aniso_y,
+            noise_aniso_y: effect.noise.aniso_y,
             branch_period: effect.branch.period,
             branch_life: effect.branch.life,
             branch_gain: effect.branch.gain,
@@ -802,65 +808,65 @@ pub fn apply_flame_state_to_world(
         effect.sigma_t = flame.effect.sigma_t;
         effect.optical_depth = flame.effect.optical_depth;
         effect.intensity = flame.effect.intensity;
-        effect.color_base = flame.effect.color_base;
-        effect.color_tip = flame.effect.color_tip;
-        effect.temperature_base_k = flame.effect.temperature_base_k;
-        effect.temperature_tip_k = flame.effect.temperature_tip_k;
-        effect.use_blackbody = flame.effect.use_blackbody;
-        effect.noise_amplitude = flame.effect.noise_amplitude;
-        effect.noise_contrast = flame.effect.noise_contrast;
-        effect.noise_frequency = flame.effect.noise_frequency;
-        effect.noise_scroll_speed = flame.effect.noise_scroll_speed;
+        effect.color.base = flame.effect.color_base;
+        effect.color.tip = flame.effect.color_tip;
+        effect.color.temperature_base_k = flame.effect.temperature_base_k;
+        effect.color.temperature_tip_k = flame.effect.temperature_tip_k;
+        effect.color.use_blackbody = flame.effect.use_blackbody;
+        effect.noise.amplitude = flame.effect.noise_amplitude;
+        effect.noise.contrast = flame.effect.noise_contrast;
+        effect.noise.frequency = flame.effect.noise_frequency;
+        effect.noise.scroll_speed = flame.effect.noise_scroll_speed;
         effect.time_scale = flame.effect.time_scale;
         effect.time_offset = flame.effect.time_offset;
-        effect.warp_amp = flame.effect.warp_amp;
-        effect.warp_freq = flame.effect.warp_freq;
-        effect.rise_speed = flame.effect.rise_speed;
-        effect.taper_power = flame.effect.taper_power;
-        effect.radius_tip_ratio = flame.effect.radius_tip_ratio;
-        effect.edge_low = flame.effect.edge_low;
-        effect.edge_high = flame.effect.edge_high;
-        effect.white_boost = flame.effect.white_boost;
-        effect.wind_direction = cgmath::Vector2::new(
+        effect.warp.amp = flame.effect.warp_amp;
+        effect.warp.freq = flame.effect.warp_freq;
+        effect.warp.rise_speed = flame.effect.rise_speed;
+        effect.warp.taper_power = flame.effect.taper_power;
+        effect.edge.radius_tip_ratio = flame.effect.radius_tip_ratio;
+        effect.edge.low = flame.effect.edge_low;
+        effect.edge.high = flame.effect.edge_high;
+        effect.edge.white_boost = flame.effect.white_boost;
+        effect.wind.direction = cgmath::Vector2::new(
             flame.effect.wind_direction[0],
             flame.effect.wind_direction[1],
         );
-        effect.bend_amount = flame.effect.bend_amount;
-        effect.bend_power = flame.effect.bend_power;
+        effect.wind.bend_amount = flame.effect.bend_amount;
+        effect.wind.bend_power = flame.effect.bend_power;
         effect.self_shadow_strength = flame.effect.self_shadow_strength;
-        effect.envelope_peak = flame.effect.envelope_peak;
-        effect.envelope_base = flame.effect.envelope_base;
-        effect.envelope_tail = flame.effect.envelope_tail;
-        effect.occlusion_lum_ref = flame.effect.occlusion_lum_ref;
-        effect.contour_wiggle_amp = flame.effect.contour_wiggle_amp;
-        effect.aniso_axis_advect = flame.effect.aniso_axis_advect;
-        effect.rte_bands = flame.effect.rte_bands;
-        effect.sigma_dispersion = flame.effect.sigma_dispersion;
-        effect.tip_carve.depth = flame.effect.tip_carve_depth;
-        effect.tip_carve.reach = flame.effect.tip_carve_reach;
-        effect.warp_reach = flame.effect.warp_reach;
+        effect.envelope.peak = flame.effect.envelope_peak;
+        effect.envelope.base = flame.effect.envelope_base;
+        effect.envelope.tail = flame.effect.envelope_tail;
+        effect.color.occlusion_lum_ref = flame.effect.occlusion_lum_ref;
+        effect.contour.wiggle_amp = flame.effect.contour_wiggle_amp;
+        effect.contour.aniso_axis_advect = flame.effect.aniso_axis_advect;
+        effect.contour.rte_bands = flame.effect.rte_bands;
+        effect.contour.sigma_dispersion = flame.effect.sigma_dispersion;
+        effect.carve.tip.depth = flame.effect.tip_carve_depth;
+        effect.carve.tip.reach = flame.effect.tip_carve_reach;
+        effect.warp.reach = flame.effect.warp_reach;
         effect.swirl.gain = flame.effect.swirl_gain;
         effect.swirl.speed = flame.effect.swirl_speed;
         effect.support_margin = flame.effect.support_margin;
-        effect.meander_amp = flame.effect.meander_amp;
-        effect.meander_frequency = flame.effect.meander_frequency;
-        effect.mix_lo = flame.effect.mix_lo;
-        effect.mix_hi = flame.effect.mix_hi;
-        effect.mix_height_gain = flame.effect.mix_height_gain;
-        effect.mix_scale = flame.effect.mix_scale;
-        effect.mix_radial_gain = flame.effect.mix_radial_gain;
-        effect.density_exp = flame.effect.density_exp;
-        effect.temp_exp = flame.effect.temp_exp;
-        effect.wien_c_k = flame.effect.wien_c_k;
+        effect.meander.amp = flame.effect.meander_amp;
+        effect.meander.frequency = flame.effect.meander_frequency;
+        effect.mix.lo = flame.effect.mix_lo;
+        effect.mix.hi = flame.effect.mix_hi;
+        effect.mix.height_gain = flame.effect.mix_height_gain;
+        effect.mix.scale = flame.effect.mix_scale;
+        effect.mix.radial_gain = flame.effect.mix_radial_gain;
+        effect.thermal.density_exp = flame.effect.density_exp;
+        effect.thermal.temp_exp = flame.effect.temp_exp;
+        effect.thermal.wien_c_k = flame.effect.wien_c_k;
         effect.wave_segments = flame.effect.wave_segments;
-        effect.noise_aniso_y = flame.effect.noise_aniso_y;
-        effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
-        effect.noise_scale_mode = flame.effect.noise_scale_mode;
-        effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
+        effect.noise.aniso_y = flame.effect.noise_aniso_y;
+        effect.edge.outer_sharpen = flame.effect.edge_outer_sharpen;
+        effect.noise.scale_mode = flame.effect.noise_scale_mode;
+        effect.noise.erosion_gain = flame.effect.erosion_noise_gain;
         effect.twist.gain = flame.effect.twist_gain;
         effect.twist.speed = flame.effect.twist_speed;
-        effect.burnout_gain = flame.effect.burnout_gain;
-        effect.noise_shaping_scale = flame.effect.noise_shaping_scale;
+        effect.carve.burnout_gain = flame.effect.burnout_gain;
+        effect.noise.shaping_scale = flame.effect.noise_shaping_scale;
         effect.branch.period = flame.effect.branch_period;
         effect.branch.life = flame.effect.branch_life;
         effect.branch.gain = flame.effect.branch_gain;
@@ -1609,7 +1615,10 @@ mod tests {
             crate::ecs::component::FlameEffect {
                 height: 8.0,
                 radius: 1.0,
-                radius_tip_ratio: 1.0,
+                edge: thyllore_effect_core::FlameEdge {
+                    radius_tip_ratio: 1.0,
+                    ..thyllore_effect_core::FlameEdge::default()
+                },
                 ..crate::ecs::component::FlameEffect::default()
             },
         );
@@ -1629,7 +1638,7 @@ mod tests {
             .expect("FlameEffect on spawned entity");
         assert_eq!(effect.height, 8.0);
         assert_eq!(effect.radius, 1.0);
-        assert_eq!(effect.radius_tip_ratio, 1.0);
+        assert_eq!(effect.edge.radius_tip_ratio, 1.0);
     }
 
     #[test]

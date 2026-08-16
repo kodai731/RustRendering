@@ -86,9 +86,9 @@ pub fn fit_flame_coefficients(profile: &FlameProfile) -> FlameCoefficients {
     }
 }
 pub fn profile_from_effect(effect: &FlameEffect, baked: &FlameBaked) -> FlameProfile {
-    let peak = effect.envelope_peak as f64;
-    let base = effect.envelope_base as f64;
-    let tail = effect.envelope_tail as f64;
+    let peak = effect.envelope.peak as f64;
+    let base = effect.envelope.base as f64;
+    let tail = effect.envelope.tail as f64;
     let radial_sharpness = effect.radial_sharpness;
     let support_margin = effect.support_margin;
     let baked_envelope = baked.envelope;
@@ -128,8 +128,8 @@ pub fn refresh_flame_coefficients(effect: &mut FlameEffect, baked: &FlameBaked) 
 
     let baked_radius = baked.radius;
     let baked_blend = baked.blend;
-    let radius_tip_ratio = effect.radius_tip_ratio as f64;
-    let taper_power = effect.taper_power as f64;
+    let radius_tip_ratio = effect.edge.radius_tip_ratio as f64;
+    let taper_power = effect.warp.taper_power as f64;
 
     if baked_radius.is_some() && baked_blend > 0.0 {
         let blend = baked_blend as f64;

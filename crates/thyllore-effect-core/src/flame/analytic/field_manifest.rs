@@ -137,7 +137,7 @@ pub fn flame_field_manifest_with(
     unified: bool,
     jitter_scale: f32,
 ) -> FieldManifest {
-    let erosion = effect.noise_amplitude != 0.0;
+    let erosion = effect.noise.amplitude != 0.0;
     let jitter = erosion && !unified && jitter_scale > 0.0;
     FieldManifest {
         influences: vec![
@@ -157,19 +157,19 @@ pub fn flame_field_manifest_with(
                 source: FieldSourceKind::ErosionWaveTable,
                 target: FieldTargetKind::SilhouetteRadius,
                 parameter: "contour_wiggle_amp (mid-octave tilt)",
-                active: unified && erosion && effect.contour_wiggle_amp != 0.0,
+                active: unified && erosion && effect.contour.wiggle_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::WarpDisplacementTable,
                 target: FieldTargetKind::SampleCoordinates,
                 parameter: "warp_amp",
-                active: effect.warp_amp != 0.0,
+                active: effect.warp.amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::ContourWiggleTable,
                 target: FieldTargetKind::SilhouetteRadius,
                 parameter: "contour_wiggle_amp",
-                active: !unified && effect.contour_wiggle_amp != 0.0,
+                active: !unified && effect.contour.wiggle_amp != 0.0,
             },
             FieldInfluence {
                 source: FieldSourceKind::BoundaryFbm,
@@ -204,9 +204,9 @@ mod tests {
     #[test]
     fn legacy_manifest_follows_the_parameters() {
         let mut e = effect();
-        e.noise_amplitude = 1.5;
-        e.warp_amp = 1.4;
-        e.contour_wiggle_amp = 0.3;
+        e.noise.amplitude = 1.5;
+        e.warp.amp = 1.4;
+        e.contour.wiggle_amp = 0.3;
         e.boundary.amp = 0.2;
         let sources = flame_field_manifest_with(&e, false, 1.0).active_sources();
         assert!(sources.contains(&FieldSourceKind::ErosionWaveTable));
@@ -216,7 +216,7 @@ mod tests {
         assert!(sources.contains(&FieldSourceKind::PhaseJitterFields));
 
         e.boundary.amp = 0.0;
-        e.contour_wiggle_amp = 0.0;
+        e.contour.wiggle_amp = 0.0;
         let sources = flame_field_manifest_with(&e, false, 0.0).active_sources();
         assert!(!sources.contains(&FieldSourceKind::BoundaryFbm));
         assert!(!sources.contains(&FieldSourceKind::ContourWiggleTable));
@@ -226,9 +226,9 @@ mod tests {
     #[test]
     fn unified_manifest_has_no_pending_sources_and_absorbs_the_parameters() {
         let mut e = effect();
-        e.noise_amplitude = 1.5;
-        e.warp_amp = 1.4;
-        e.contour_wiggle_amp = 0.3;
+        e.noise.amplitude = 1.5;
+        e.warp.amp = 1.4;
+        e.contour.wiggle_amp = 0.3;
         e.boundary.amp = 0.2;
         let m = flame_field_manifest_with(&e, true, 1.0);
         assert_eq!(
