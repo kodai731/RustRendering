@@ -1,13 +1,14 @@
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::init::MAX_FRAMES_IN_FLIGHT;
+use crate::vulkanr::descriptor::ReflectedSetLayout;
 
 #[derive(Clone, Debug)]
 pub struct ImguiData {
     pub pipeline: Option<vk::Pipeline>,
     pub pipeline_layout: Option<vk::PipelineLayout>,
     pub descriptor_set: Option<vk::DescriptorSet>,
-    pub descriptor_set_layout: Option<vk::DescriptorSetLayout>,
+    pub descriptor_set_layout: Option<ReflectedSetLayout>,
     pub descriptor_pool: Option<vk::DescriptorPool>,
     pub font_image: Option<vk::Image>,
     pub font_image_memory: Option<vk::DeviceMemory>,

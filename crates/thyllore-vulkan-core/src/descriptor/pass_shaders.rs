@@ -53,6 +53,10 @@ pub const BILLBOARD_SHADERS: [&str; 2] = [
     "assets/shaders/billboardVert.spv",
     "assets/shaders/billboardFrag.spv",
 ];
+pub const IMGUI_SHADERS: [&str; 2] = [
+    "assets/shaders/imguiVert.spv",
+    "assets/shaders/imguiFrag.spv",
+];
 
 pub fn standard_graphics_shaders() -> Vec<&'static str> {
     [

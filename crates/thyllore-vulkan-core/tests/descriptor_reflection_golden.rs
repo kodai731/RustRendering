@@ -4,13 +4,13 @@ use thyllore_effect_core::flame::analytic::ubo::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_vulkan_core::data::{SceneUniformData, UniformBufferObject};
 use thyllore_vulkan_core::descriptor::{
-    bloom_shaders, reflect_shader_bytes, standard_graphics_shaders, DescriptorSetTable,
-    FrameDescriptorSet, LayoutMismatch, MaterialManager, ObjectDescriptorSet,
+    bloom_shaders, imgui_layout_spec, reflect_shader_bytes, standard_graphics_shaders,
+    DescriptorSetTable, FrameDescriptorSet, LayoutMismatch, MaterialManager, ObjectDescriptorSet,
     RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
     RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
     RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet, ReflectedLayoutSpec,
     SelectionUBO, ShaderReflection, AUTO_EXPOSURE_AVERAGE_SHADER, AUTO_EXPOSURE_HISTOGRAM_SHADER,
-    BILLBOARD_SHADERS, COMPOSITE_SHADERS, DOF_SHADERS, FLAME_RESOLVE_SHADERS,
+    BILLBOARD_SHADERS, COMPOSITE_SHADERS, DOF_SHADERS, FLAME_RESOLVE_SHADERS, IMGUI_SHADERS,
     ONION_SKIN_COMPOSITE_SHADERS, RAY_QUERY_SHADOW_SHADER, TONEMAP_SHADERS,
 };
 use thyllore_vulkan_core::resource::OnionSkinPassResources;
@@ -126,6 +126,11 @@ fn pass_goldens() -> Vec<PassGolden> {
             name: "onion_skin_composite",
             shaders: ONION_SKIN_COMPOSITE_SHADERS.to_vec(),
             sets: vec![(0, OnionSkinPassResources::composite_layout_spec())],
+        },
+        PassGolden {
+            name: "imgui",
+            shaders: IMGUI_SHADERS.to_vec(),
+            sets: vec![(0, imgui_layout_spec())],
         },
     ]
 }

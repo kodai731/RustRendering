@@ -1262,7 +1262,7 @@ impl App {
         let sampler = Self::create_font_sampler(&rrdevice.device)?;
 
         let (descriptor_pool, descriptor_set_layout, descriptor_set) =
-            Self::setup_imgui_descriptors(&rrdevice.device, image_view, sampler)?;
+            Self::setup_imgui_descriptors(rrdevice, image_view, sampler)?;
 
         let msaa_samples = {
             let render_config = data.ecs_world.resource::<RenderConfig>();
@@ -1276,9 +1276,9 @@ impl App {
         let imgui_pipeline = RRPipeline::new_imgui(
             rrdevice,
             rrrender,
-            descriptor_set_layout,
-            "assets/shaders/imguiVert.spv",
-            "assets/shaders/imguiFrag.spv",
+            descriptor_set_layout.handle,
+            IMGUI_SHADERS[0],
+            IMGUI_SHADERS[1],
             msaa_samples,
         )?;
 
@@ -1514,55 +1514,25 @@ impl App {
     }
 
     unsafe fn setup_imgui_descriptors(
-        device: &VkDevice,
+        rrdevice: &RRDevice,
         image_view: vk::ImageView,
         sampler: vk::Sampler,
-    ) -> Result<(
-        vk::DescriptorPool,
-        vk::DescriptorSetLayout,
-        vk::DescriptorSet,
-    )> {
-        let pool_sizes = [vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)];
+    ) -> Result<(vk::DescriptorPool, ReflectedSetLayout, vk::DescriptorSet)> {
+        let layout = ReflectedSetLayout::create(rrdevice, &imgui_layout_spec())?;
+        let descriptor_pool =
+            layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
+        let descriptor_set = layout.allocate_sets(rrdevice, descriptor_pool, 1)?[0];
 
-        let pool_info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets(1);
+        layout
+            .writer(descriptor_set)
+            .image(
+                IMGUI_TEXTURE_BINDING,
+                image_view,
+                sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .apply(rrdevice);
 
-        let descriptor_pool = device.create_descriptor_pool(&pool_info, None)?;
-
-        let bindings = [vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)];
-
-        let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        let descriptor_set_layout = device.create_descriptor_set_layout(&layout_info, None)?;
-
-        let layouts = [descriptor_set_layout];
-        let allocate_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&layouts);
-
-        let descriptor_sets = device.allocate_descriptor_sets(&allocate_info)?;
-        let descriptor_set = descriptor_sets[0];
-
-        let image_info = [vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(image_view)
-            .sampler(sampler)];
-
-        let descriptor_writes = [vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info)];
-
-        device.update_descriptor_sets(&descriptor_writes, &[] as &[vk::CopyDescriptorSet]);
-
-        Ok((descriptor_pool, descriptor_set_layout, descriptor_set))
+        Ok((descriptor_pool, layout, descriptor_set))
     }
 }
