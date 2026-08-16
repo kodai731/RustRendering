@@ -515,8 +515,9 @@ pub fn select_bone_by_ray(
 pub unsafe fn update_bone_gizmo_buffers(
     bone_gizmo: &mut BoneGizmoData,
     backend: &mut dyn RenderBackend,
+    frame_slot: usize,
 ) -> Result<()> {
-    backend.update_or_create_line_buffers(&mut bone_gizmo.stick_mesh)
+    backend.update_or_create_line_buffers(&mut bone_gizmo.stick_mesh, frame_slot)
 }
 
 pub fn select_bone_by_mesh_ray(

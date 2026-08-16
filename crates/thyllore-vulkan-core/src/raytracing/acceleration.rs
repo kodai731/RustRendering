@@ -10,6 +10,7 @@ pub struct RRBLAS {
     pub buffer: Option<vk::Buffer>,
     pub buffer_memory: Option<vk::DeviceMemory>,
     pub device_address: vk::DeviceAddress,
+    pub update_scratch: Option<DeviceBuffer>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -18,12 +19,22 @@ pub struct RRTLAS {
     pub buffer: Option<vk::Buffer>,
     pub buffer_memory: Option<vk::DeviceMemory>,
     pub device_address: vk::DeviceAddress,
+    pub update_scratch: Option<DeviceBuffer>,
+    pub instances_buf: Option<DeviceBuffer>,
 }
 
+#[derive(Clone, Debug, Default)]
 struct DeviceBuffer {
     buffer: vk::Buffer,
     memory: vk::DeviceMemory,
     address: vk::DeviceAddress,
+    size: vk::DeviceSize,
+}
+
+impl DeviceBuffer {
+    fn buffer_size(&self) -> vk::DeviceSize {
+        self.size
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -70,6 +81,7 @@ unsafe fn allocate_device_buffer(
         buffer,
         memory,
         address,
+        size,
     })
 }
 
@@ -161,11 +173,18 @@ fn build_triangle_geometry(
         .build()
 }
 
-unsafe fn upload_instances_buffer(
-    instance: &Instance,
+unsafe fn fill_instances_buffer(
     rrdevice: &RRDevice,
+    buf: &DeviceBuffer,
+    instances_size: vk::DeviceSize,
     blas_list: &[RRBLAS],
-) -> Result<DeviceBuffer> {
+) -> Result<()> {
+    let ptr =
+        rrdevice
+            .device
+            .map_memory(buf.memory, 0, instances_size, vk::MemoryMapFlags::empty())?
+            as *mut vk::AccelerationStructureInstanceKHR;
+
     let instances: Vec<vk::AccelerationStructureInstanceKHR> = blas_list
         .iter()
         .enumerate()
@@ -183,8 +202,19 @@ unsafe fn upload_instances_buffer(
         })
         .collect();
 
+    std::ptr::copy_nonoverlapping(instances.as_ptr(), ptr, instances.len());
+    rrdevice.device.unmap_memory(buf.memory);
+
+    Ok(())
+}
+
+unsafe fn upload_instances_buffer(
+    instance: &Instance,
+    rrdevice: &RRDevice,
+    blas_list: &[RRBLAS],
+) -> Result<DeviceBuffer> {
     let instances_size = (std::mem::size_of::<vk::AccelerationStructureInstanceKHR>()
-        * instances.len()) as vk::DeviceSize;
+        * blas_list.len()) as vk::DeviceSize;
 
     let buf = allocate_device_buffer(
         instance,
@@ -195,14 +225,7 @@ unsafe fn upload_instances_buffer(
         vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
     )?;
 
-    let ptr =
-        rrdevice
-            .device
-            .map_memory(buf.memory, 0, instances_size, vk::MemoryMapFlags::empty())?
-            as *mut vk::AccelerationStructureInstanceKHR;
-
-    std::ptr::copy_nonoverlapping(instances.as_ptr(), ptr, instances.len());
-    rrdevice.device.unmap_memory(buf.memory);
+    fill_instances_buffer(rrdevice, &buf, instances_size, blas_list)?;
 
     Ok(buf)
 }
@@ -297,6 +320,7 @@ impl RRAccelerationStructure {
             buffer: Some(as_buffer),
             buffer_memory: Some(as_buffer_memory),
             device_address,
+            update_scratch: None,
         })
     }
 
@@ -384,6 +408,8 @@ impl RRAccelerationStructure {
             buffer: Some(as_buffer),
             buffer_memory: Some(as_buffer_memory),
             device_address,
+            instances_buf: None,
+            update_scratch: None,
         })
     }
 
@@ -391,7 +417,7 @@ impl RRAccelerationStructure {
         instance: &Instance,
         rrdevice: &RRDevice,
         rrcommand_pool: &RRCommandPool,
-        blas: &RRBLAS,
+        blas: &mut RRBLAS,
         vertex_buffer: &vk::Buffer,
         vertex_count: u32,
         vertex_stride: u32,
@@ -429,13 +455,33 @@ impl RRAccelerationStructure {
             &mut size_info,
         );
 
-        let scratch = allocate_device_buffer(
-            instance,
-            rrdevice,
-            size_info.update_scratch_size,
-            vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
+        let scratch = if let Some(ref existing) = blas.update_scratch {
+            if size_info.update_scratch_size > existing.buffer_size() {
+                destroy_device_buffer(device, &existing);
+                let new = allocate_device_buffer(
+                    instance,
+                    rrdevice,
+                    size_info.update_scratch_size,
+                    vk::BufferUsageFlags::STORAGE_BUFFER
+                        | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                )?;
+                blas.update_scratch = Some(new.clone());
+                new
+            } else {
+                blas.update_scratch.clone().unwrap()
+            }
+        } else {
+            let buf = allocate_device_buffer(
+                instance,
+                rrdevice,
+                size_info.update_scratch_size,
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            )?;
+            blas.update_scratch = Some(buf.clone());
+            buf
+        };
 
         let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
             .type_(vk::AccelerationStructureTypeKHR::BOTTOM_LEVEL)
@@ -449,7 +495,6 @@ impl RRAccelerationStructure {
             });
 
         execute_as_build(rrdevice, rrcommand_pool, &build_info, primitive_count)?;
-        destroy_device_buffer(device, &scratch);
 
         Ok(())
     }
@@ -458,7 +503,7 @@ impl RRAccelerationStructure {
         instance: &Instance,
         rrdevice: &RRDevice,
         rrcommand_pool: &RRCommandPool,
-        tlas: &RRTLAS,
+        tlas: &mut RRTLAS,
         blas_list: &[RRBLAS],
     ) -> Result<()> {
         let device = &rrdevice.device;
@@ -467,7 +512,25 @@ impl RRAccelerationStructure {
             return Ok(());
         }
 
-        let instances_buf = upload_instances_buffer(instance, rrdevice, blas_list)?;
+        let instances_size = (std::mem::size_of::<vk::AccelerationStructureInstanceKHR>()
+            * blas_list.len()) as vk::DeviceSize;
+
+        let instances_buf = if let Some(ref existing) = tlas.instances_buf {
+            if instances_size > existing.buffer_size() {
+                destroy_device_buffer(device, &existing);
+                let new = upload_instances_buffer(instance, rrdevice, blas_list)?;
+                tlas.instances_buf = Some(new.clone());
+                new
+            } else {
+                let buf = tlas.instances_buf.clone().unwrap();
+                fill_instances_buffer(rrdevice, &buf, instances_size, blas_list)?;
+                buf
+            }
+        } else {
+            let buf = upload_instances_buffer(instance, rrdevice, blas_list)?;
+            tlas.instances_buf = Some(buf.clone());
+            buf
+        };
 
         let instances_data = vk::AccelerationStructureGeometryInstancesDataKHR::builder()
             .array_of_pointers(false)
@@ -502,13 +565,33 @@ impl RRAccelerationStructure {
             &mut size_info,
         );
 
-        let scratch = allocate_device_buffer(
-            instance,
-            rrdevice,
-            size_info.update_scratch_size,
-            vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
+        let scratch = if let Some(ref existing) = tlas.update_scratch {
+            if size_info.update_scratch_size > existing.buffer_size() {
+                destroy_device_buffer(device, &existing);
+                let new = allocate_device_buffer(
+                    instance,
+                    rrdevice,
+                    size_info.update_scratch_size,
+                    vk::BufferUsageFlags::STORAGE_BUFFER
+                        | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                    vk::MemoryPropertyFlags::DEVICE_LOCAL,
+                )?;
+                tlas.update_scratch = Some(new.clone());
+                new
+            } else {
+                tlas.update_scratch.clone().unwrap()
+            }
+        } else {
+            let buf = allocate_device_buffer(
+                instance,
+                rrdevice,
+                size_info.update_scratch_size,
+                vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            )?;
+            tlas.update_scratch = Some(buf.clone());
+            buf
+        };
 
         let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
             .type_(vk::AccelerationStructureTypeKHR::TOP_LEVEL)
@@ -523,9 +606,6 @@ impl RRAccelerationStructure {
 
         execute_as_build(rrdevice, rrcommand_pool, &build_info, primitive_count)?;
 
-        destroy_device_buffer(device, &scratch);
-        destroy_device_buffer(device, &instances_buf);
-
         Ok(())
     }
 
@@ -539,6 +619,12 @@ impl RRAccelerationStructure {
         if let Some(memory) = self.tlas.buffer_memory {
             device.free_memory(memory, None);
         }
+        if let Some(ref scratch) = self.tlas.update_scratch {
+            destroy_device_buffer(device, scratch);
+        }
+        if let Some(ref instances) = self.tlas.instances_buf {
+            destroy_device_buffer(device, instances);
+        }
 
         for blas in &mut self.blas_list {
             if let Some(blas_as) = blas.acceleration_structure {
@@ -550,12 +636,15 @@ impl RRAccelerationStructure {
             if let Some(memory) = blas.buffer_memory {
                 device.free_memory(memory, None);
             }
+            if let Some(ref scratch) = blas.update_scratch {
+                destroy_device_buffer(device, scratch);
+            }
         }
         self.blas_list.clear();
     }
 
     pub unsafe fn update_all(
-        &self,
+        &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
         rrcommand_pool: &RRCommandPool,
@@ -569,7 +658,7 @@ impl RRAccelerationStructure {
                     instance,
                     rrdevice,
                     rrcommand_pool,
-                    &self.blas_list[i],
+                    &mut self.blas_list[i],
                     vertex_buffer,
                     *vertex_count,
                     *vertex_stride,
@@ -583,7 +672,7 @@ impl RRAccelerationStructure {
             instance,
             rrdevice,
             rrcommand_pool,
-            &self.tlas,
+            &mut self.tlas,
             &self.blas_list,
         )?;
 

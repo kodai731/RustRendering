@@ -8,7 +8,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use thyllore_render_core::{
     BufferMemoryType, DistanceAttenuation, FrameUBO, IndexBufferHandle, LineMesh, MeshId,
-    ObjectUBO, ProjectionData, RenderBackend, VertexBufferHandle,
+    ObjectUBO, ProjectionData, RenderBackend, VertexBufferHandle, FRAMES_IN_FLIGHT,
 };
 
 use crate::command::RRCommandPool;
@@ -77,7 +77,7 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
     }
 
     unsafe fn update_acceleration_structure(&mut self, mesh_ids: &[MeshId]) -> Result<()> {
-        let Some(ref accel_struct) = self.raytracing.acceleration_structure else {
+        let Some(ref mut accel_struct) = self.raytracing.acceleration_structure else {
             return Ok(());
         };
 
@@ -90,7 +90,7 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
             }
 
             let mesh = &self.graphics.meshes[mesh_id];
-            let blas = &accel_struct.blas_list[mesh_id];
+            let blas = &mut accel_struct.blas_list[mesh_id];
 
             RRAccelerationStructure::update_blas(
                 self.instance,
@@ -109,11 +109,11 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
     }
 
     unsafe fn rebuild_tlas(&mut self) -> Result<()> {
-        let Some(ref accel_struct) = self.raytracing.acceleration_structure else {
+        let Some(ref mut accel_struct) = self.raytracing.acceleration_structure else {
             return Ok(());
         };
 
-        let tlas = &accel_struct.tlas;
+        let tlas = &mut accel_struct.tlas;
         RRAccelerationStructure::update_tlas(
             self.instance,
             self.device,
@@ -128,6 +128,7 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
     unsafe fn create_gizmo_buffers(
         &mut self,
         mesh: &mut LineMesh,
+        frame_slot: usize,
         memory_type: BufferMemoryType,
     ) -> Result<()> {
         let vertex_handle = if memory_type == BufferMemoryType::DeviceLocal {
@@ -146,7 +147,7 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
                 0,
             )?
         };
-        mesh.vertex_buffer_handle = vertex_handle;
+        mesh.vertex_buffer_handles[frame_slot] = vertex_handle;
 
         let index_handle = self.buffer_registry.create_index_buffer(
             self.instance,
@@ -154,7 +155,9 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
             self.command_pool.as_ref(),
             &mesh.indices,
         )?;
-        mesh.index_buffer_handle = index_handle;
+        mesh.index_buffer_handles[frame_slot] = index_handle;
+
+        mesh.last_written_slot = frame_slot;
 
         Ok(())
     }
@@ -162,37 +165,45 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
     unsafe fn update_gizmo_vertex_buffer(&self, mesh: &LineMesh) -> Result<()> {
         self.buffer_registry.update_vertex_buffer(
             self.device,
-            mesh.vertex_buffer_handle,
+            mesh.current_vertex_buffer_handle(),
             &mesh.vertices,
         )?;
         Ok(())
     }
 
     unsafe fn destroy_gizmo_buffers(&mut self, mesh: &mut LineMesh) {
-        self.buffer_registry
-            .destroy_vertex_buffer(self.device, mesh.vertex_buffer_handle);
-        self.buffer_registry
-            .destroy_index_buffer(self.device, mesh.index_buffer_handle);
-        mesh.vertex_buffer_handle = VertexBufferHandle::INVALID;
-        mesh.index_buffer_handle = IndexBufferHandle::INVALID;
+        for slot in 0..FRAMES_IN_FLIGHT {
+            if mesh.vertex_buffer_handles[slot].is_valid() {
+                self.buffer_registry
+                    .destroy_vertex_buffer(self.device, mesh.vertex_buffer_handles[slot]);
+                mesh.vertex_buffer_handles[slot] = VertexBufferHandle::INVALID;
+            }
+            if mesh.index_buffer_handles[slot].is_valid() {
+                self.buffer_registry
+                    .destroy_index_buffer(self.device, mesh.index_buffer_handles[slot]);
+                mesh.index_buffer_handles[slot] = IndexBufferHandle::INVALID;
+            }
+        }
     }
 
-    unsafe fn update_or_create_line_buffers(&mut self, mesh: &mut LineMesh) -> Result<()> {
+    unsafe fn update_or_create_line_buffers(
+        &mut self,
+        mesh: &mut LineMesh,
+        frame_slot: usize,
+    ) -> Result<()> {
         if mesh.vertices.is_empty() {
             return Ok(());
         }
 
         let vertex_data_size = (std::mem::size_of_val(mesh.vertices.as_slice())) as u64;
+        let vhandle = &mut mesh.vertex_buffer_handles[frame_slot];
 
-        if !mesh.vertex_buffer_handle.is_valid()
-            || self
-                .buffer_registry
-                .get_vertex_buffer_size(mesh.vertex_buffer_handle)
-                < vertex_data_size
+        if !vhandle.is_valid()
+            || self.buffer_registry.get_vertex_buffer_size(*vhandle) < vertex_data_size
         {
-            if mesh.vertex_buffer_handle.is_valid() {
+            if vhandle.is_valid() {
                 self.buffer_registry
-                    .destroy_vertex_buffer(self.device, mesh.vertex_buffer_handle);
+                    .destroy_vertex_buffer(self.device, *vhandle);
             }
             let vertex_handle = self.buffer_registry.create_host_visible_vertex_buffer(
                 self.instance,
@@ -200,51 +211,51 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
                 &mesh.vertices,
                 1024,
             )?;
-            mesh.vertex_buffer_handle = vertex_handle;
+            *vhandle = vertex_handle;
         } else {
-            self.buffer_registry.update_vertex_buffer(
-                self.device,
-                mesh.vertex_buffer_handle,
-                &mesh.vertices,
-            )?;
+            self.buffer_registry
+                .update_vertex_buffer(self.device, *vhandle, &mesh.vertices)?;
         }
 
         let index_data_size = (std::mem::size_of::<u32>() * mesh.indices.len()) as u64;
+        let ihandle = &mut mesh.index_buffer_handles[frame_slot];
 
-        if !mesh.index_buffer_handle.is_valid()
-            || self
-                .buffer_registry
-                .get_index_buffer_size(mesh.index_buffer_handle)
-                < index_data_size
+        if !ihandle.is_valid()
+            || self.buffer_registry.get_index_buffer_size(*ihandle) < index_data_size
         {
-            if mesh.index_buffer_handle.is_valid() {
+            if ihandle.is_valid() {
                 self.buffer_registry
-                    .destroy_index_buffer(self.device, mesh.index_buffer_handle);
+                    .destroy_index_buffer(self.device, *ihandle);
             }
             let index_handle = self.buffer_registry.create_host_visible_index_buffer(
                 self.instance,
                 self.device,
                 &mesh.indices,
             )?;
-            mesh.index_buffer_handle = index_handle;
+            *ihandle = index_handle;
         } else {
-            self.buffer_registry.update_index_buffer(
-                self.device,
-                mesh.index_buffer_handle,
-                &mesh.indices,
-            )?;
+            self.buffer_registry
+                .update_index_buffer(self.device, *ihandle, &mesh.indices)?;
         }
+
+        mesh.last_written_slot = frame_slot;
 
         Ok(())
     }
 
     unsafe fn destroy_line_buffers(&mut self, mesh: &mut LineMesh) {
-        self.buffer_registry
-            .destroy_vertex_buffer(self.device, mesh.vertex_buffer_handle);
-        self.buffer_registry
-            .destroy_index_buffer(self.device, mesh.index_buffer_handle);
-        mesh.vertex_buffer_handle = VertexBufferHandle::INVALID;
-        mesh.index_buffer_handle = IndexBufferHandle::INVALID;
+        for slot in 0..FRAMES_IN_FLIGHT {
+            if mesh.vertex_buffer_handles[slot].is_valid() {
+                self.buffer_registry
+                    .destroy_vertex_buffer(self.device, mesh.vertex_buffer_handles[slot]);
+                mesh.vertex_buffer_handles[slot] = VertexBufferHandle::INVALID;
+            }
+            if mesh.index_buffer_handles[slot].is_valid() {
+                self.buffer_registry
+                    .destroy_index_buffer(self.device, mesh.index_buffer_handles[slot]);
+                mesh.index_buffer_handles[slot] = IndexBufferHandle::INVALID;
+            }
+        }
     }
 
     unsafe fn update_frame_ubo(

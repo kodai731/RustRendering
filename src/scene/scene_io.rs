@@ -4,9 +4,10 @@ use std::path::{Path, PathBuf};
 use super::clip_io::{load_animation_clip, save_animation_clip};
 use super::error::{SceneError, SceneResult};
 use super::format::{
-    AnimationClipRef, AutoExposureState, BloomState, CameraState, DepthOfFieldState, EditorState,
-    ExposureState, LensEffectsState, PanelLayoutState, PhysicalCameraState, SceneFile,
-    SceneMetadata, TimelineConfig, ToneMappingState, SCENE_FORMAT_VERSION,
+    apply_flame_state_to_world, build_flame_scene_data, AnimationClipRef, AutoExposureState,
+    BloomState, CameraState, DepthOfFieldState, EditorState, ExposureState, LensEffectsState,
+    ModelReference, PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata,
+    TimelineConfig, ToneMappingState, SCENE_FORMAT_VERSION,
 };
 use crate::animation::editable::SourceClipId;
 use crate::ecs::resource::CurveEditorState;
@@ -32,7 +33,7 @@ pub fn save_scene(scene_path: &Path, world: &World) -> SceneResult<()> {
 
     let animation_clips = save_animation_clips(world, &animations_dir)?;
 
-    let scene = build_scene_file(collected, previous_metadata, animation_clips);
+    let scene = build_scene_file(collected, previous_metadata, animation_clips, world);
 
     write_scene_file(scene_path, &scene)?;
 
@@ -62,11 +63,10 @@ impl CollectedSceneState {
         let editor = world
             .get_resource::<CurveEditorState>()
             .map(|e| EditorState {
-                selected_bone_id: e.selected_bone_id,
+                selected_bone_id: e.selected_bone_id(),
                 curve_editor_open: e.is_open,
             })
             .unwrap_or_default();
-
         let panel_layout = world
             .get_resource::<PanelLayout>()
             .map(|l| PanelLayoutState {
@@ -238,6 +238,7 @@ fn build_scene_file(
     collected: CollectedSceneState,
     previous_metadata: Option<SceneMetadata>,
     animation_clips: Vec<AnimationClipRef>,
+    world: &World,
 ) -> SceneFile {
     let scene_name = previous_metadata
         .as_ref()
@@ -251,6 +252,7 @@ fn build_scene_file(
     scene.timeline = collected.timeline;
     scene.editor = collected.editor;
     scene.panel_layout = collected.panel_layout;
+    scene.flame = build_flame_scene_data(world);
 
     if let Some(prev) = previous_metadata {
         scene.metadata.created_at = prev.created_at;
@@ -291,6 +293,7 @@ pub fn load_scene(scene_path: &Path) -> SceneResult<LoadedScene> {
         && scene.version != 1
         && scene.version != 2
         && scene.version != 3
+        && scene.version != 4
     {
         return Err(SceneError::VersionMismatch {
             expected: SCENE_FORMAT_VERSION,
@@ -304,10 +307,7 @@ pub fn load_scene(scene_path: &Path) -> SceneResult<LoadedScene> {
         .parent()
         .unwrap_or(Path::new("."));
 
-    let model_path = assets_dir.join(&scene.model.path);
-    if !model_path.exists() {
-        return Err(SceneError::ModelNotFound(model_path));
-    }
+    let model_path = resolve_model_path(assets_dir, &scene.model)?;
 
     let mut clips = Vec::new();
     let mut loaded_paths = std::collections::HashSet::new();
@@ -341,8 +341,21 @@ pub fn find_default_scene() -> Option<PathBuf> {
 
 pub struct LoadedScene {
     pub scene: SceneFile,
-    pub model_path: PathBuf,
+    /// `None` when the scene's mesh was generated in-app and has no file to load.
+    pub model_path: Option<PathBuf>,
     pub clips: Vec<crate::animation::editable::EditableAnimationClip>,
+}
+
+fn resolve_model_path(assets_dir: &Path, model: &ModelReference) -> SceneResult<Option<PathBuf>> {
+    if model.is_generated_mesh() {
+        return Ok(None);
+    }
+
+    let model_path = assets_dir.join(&model.path);
+    if !model_path.exists() {
+        return Err(SceneError::ModelNotFound(model_path));
+    }
+    Ok(Some(model_path))
 }
 
 fn sanitize_filename(name: &str) -> String {
@@ -360,6 +373,7 @@ fn sanitize_filename(name: &str) -> String {
 pub fn apply_loaded_scene_to_world(
     loaded: &LoadedScene,
     world: &mut World,
+    assets: &mut crate::asset::AssetStorage,
     clips_with_ids: &[(SourceClipId, String)],
 ) {
     apply_camera_state(&loaded.scene.camera, world);
@@ -367,6 +381,9 @@ pub fn apply_loaded_scene_to_world(
     apply_editor_state(&loaded.scene.editor, world);
     apply_rendering_params(&loaded.scene.camera, world);
     apply_panel_layout(loaded.scene.panel_layout.as_ref(), world);
+    if let Some(ref flame) = loaded.scene.flame {
+        apply_flame_state_to_world(world, assets, flame);
+    }
 }
 
 fn apply_camera_state(camera_state: &CameraState, world: &mut World) {
@@ -419,7 +436,9 @@ fn apply_timeline_state(
 
 fn apply_editor_state(editor: &EditorState, world: &mut World) {
     if let Some(mut curve_editor) = world.get_resource_mut::<CurveEditorState>() {
-        curve_editor.selected_bone_id = editor.selected_bone_id;
+        if let Some(id) = editor.selected_bone_id {
+            curve_editor.select_bone(id);
+        }
         curve_editor.is_open = editor.curve_editor_open;
     }
 }
@@ -516,5 +535,80 @@ fn apply_panel_layout(panel_layout: Option<&PanelLayoutState>, world: &mut World
                 pl.debug_height,
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_scene(dir: &Path, model_path: &str) -> PathBuf {
+        let scenes_dir = dir.join("scenes");
+        fs::create_dir_all(&scenes_dir).unwrap();
+        let scene = SceneFile::new("test", model_path);
+        let scene_path = scenes_dir.join("test.scene.ron");
+        write_scene_file(&scene_path, &scene).unwrap();
+        scene_path
+    }
+
+    fn temp_dir(name: &str) -> PathBuf {
+        let dir = std::env::temp_dir().join(format!("thyllore_scene_{name}"));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn generated_mesh_scene_loads_without_a_model_file() {
+        let dir = temp_dir("generated");
+        let scene_path = write_scene(&dir, ModelReference::GENERATED_MESH);
+
+        let loaded = load_scene(&scene_path).expect("generated mesh is not a file path");
+
+        assert!(loaded.model_path.is_none());
+        assert!(loaded.scene.model.is_generated_mesh());
+    }
+
+    #[test]
+    fn scene_pointing_at_a_missing_model_file_is_rejected() {
+        let dir = temp_dir("missing");
+        let scene_path = write_scene(&dir, "models/does_not_exist.glb");
+
+        assert!(matches!(
+            load_scene(&scene_path),
+            Err(SceneError::ModelNotFound(_))
+        ));
+    }
+
+    #[test]
+    fn default_scene_asset_parses_with_recovered_flame() {
+        let content = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/default.scene.ron"),
+        )
+        .expect("default scene asset readable");
+        let scene: SceneFile = ron::from_str(&content).expect("default scene asset parses");
+
+        let flame = scene.flame.expect("recovered flame section present");
+        assert_eq!(flame.effect.height, 8.0);
+        assert_eq!(flame.effect.radius, 1.0);
+        assert_eq!(flame.effect.radius_tip_ratio, 1.0);
+        assert_eq!(flame.effect.temperature_base_k, 2900.0);
+        assert_eq!(flame.effect.temperature_tip_k, 1300.0);
+        assert_eq!(flame.effect.mix_scale, 0.5);
+        assert_eq!(flame.effect.white_boost, 0.0);
+        assert_eq!(flame.effect.noise_scale_mode, 1.0);
+        assert!(flame.effect.meander_amp > 0.0);
+    }
+
+    #[test]
+    fn scene_resolves_an_existing_model_file() {
+        let dir = temp_dir("present");
+        fs::create_dir_all(dir.join("models")).unwrap();
+        fs::write(dir.join("models/mesh.glb"), b"stub").unwrap();
+        let scene_path = write_scene(&dir, "models/mesh.glb");
+
+        let loaded = load_scene(&scene_path).expect("model file exists");
+
+        assert_eq!(loaded.model_path, Some(dir.join("models/mesh.glb")));
     }
 }

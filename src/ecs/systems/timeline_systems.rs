@@ -1,20 +1,34 @@
 use std::collections::HashMap;
 
 use crate::animation::editable::{
-    apply_tangent_by_type, clip_add_keyframe, clip_recalculate_duration,
+    apply_tangent_by_type, clip_add_keyframe, clip_recalculate_duration, curve_add_keyframe,
     curve_recalculate_auto_tangent_at, curve_remove_keyframe, curve_set_keyframe_time,
-    initialize_weighted_handle_lengths, InterpolationType, KeyframeId, PropertyCurve, PropertyType,
-    SourceClipId, TangentWeightMode,
+    initialize_weighted_handle_lengths, EditableAnimationClip, InterpolationType, KeyframeId,
+    PropertyCurve, PropertyType, SourceClipId, TangentWeightMode,
 };
 use crate::animation::{BoneId, BoneLocalPose};
 use crate::ecs::component::ClipSchedule;
 use crate::ecs::events::UIEvent;
-use crate::ecs::resource::{ClipLibrary, TimelineState};
+use crate::ecs::resource::{ClipLibrary, CurveTrackRef, TimelineState};
 use crate::ecs::world::World;
 
 fn ensure_bezier_for_tangent(curve: &mut PropertyCurve, keyframe_id: KeyframeId) {
     if let Some(idx) = curve.keyframes.iter().position(|k| k.id == keyframe_id) {
         curve.keyframes[idx].interpolation = InterpolationType::Bezier;
+    }
+}
+
+fn resolve_curve_mut(
+    clip: &mut EditableAnimationClip,
+    track: CurveTrackRef,
+    property_type: PropertyType,
+) -> Option<&mut PropertyCurve> {
+    match track {
+        CurveTrackRef::Bone(bone_id) => clip
+            .tracks
+            .get_mut(&bone_id)
+            .map(|t| t.get_curve_mut(property_type)),
+        CurveTrackRef::Scalar => clip.get_scalar_curve_mut(property_type),
     }
 }
 
@@ -48,13 +62,13 @@ pub fn timeline_process_events(
             UIEvent::TimelineExpandTrack(bone_id) => timeline_state.expand_track(*bone_id),
             UIEvent::TimelineCollapseTrack(bone_id) => timeline_state.collapse_track(*bone_id),
             UIEvent::TimelineSelectKeyframe {
-                bone_id,
+                track,
                 property_type,
                 keyframe_id,
                 modifier,
             } => {
                 use crate::ecs::resource::SelectedKeyframe;
-                let selected = SelectedKeyframe::new(*bone_id, *property_type, *keyframe_id);
+                let selected = SelectedKeyframe::new(*track, *property_type, *keyframe_id);
                 timeline_apply_selection(timeline_state, selected, *modifier);
             }
             UIEvent::TimelineSetKeyframeSelection {
@@ -131,13 +145,27 @@ fn dispatch_keyframe_edit_events(
     for event in events {
         match event {
             UIEvent::TimelineAddKeyframe {
-                bone_id,
+                track,
                 property_type,
                 time,
                 value,
             } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
-                    clip_add_keyframe(clip, *bone_id, *property_type, *time, *value);
+                    match track {
+                        CurveTrackRef::Bone(bone_id) => {
+                            clip_add_keyframe(clip, *bone_id, *property_type, *time, *value);
+                        }
+                        CurveTrackRef::Scalar => {
+                            // Scalar curves are keyed by Custom codes; a bone
+                            // property type here would create an unnamed curve
+                            // that nothing ever samples.
+                            if !matches!(property_type, PropertyType::Custom(_)) {
+                                continue;
+                            }
+                            let curve = clip.get_or_add_scalar_curve(*property_type);
+                            curve_add_keyframe(curve, *time, *value);
+                        }
+                    }
                     clip_recalculate_duration(clip);
                     clip_modified = true;
                 }
@@ -146,8 +174,7 @@ fn dispatch_keyframe_edit_events(
             UIEvent::TimelineMoveSelectedKeyframes { time_delta } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
                     for sel in &timeline_state.selected_keyframes {
-                        if let Some(track) = clip.tracks.get_mut(&sel.bone_id) {
-                            let curve = track.get_curve_mut(sel.property_type);
+                        if let Some(curve) = resolve_curve_mut(clip, sel.track, sel.property_type) {
                             if let Some(kf) =
                                 curve.keyframes.iter_mut().find(|k| k.id == sel.keyframe_id)
                             {
@@ -165,11 +192,10 @@ fn dispatch_keyframe_edit_events(
                 if !selected.is_empty() {
                     if let Some(clip) = clip_library.get_mut(clip_id) {
                         for sel in &selected {
-                            if let Some(track) = clip.tracks.get_mut(&sel.bone_id) {
-                                curve_remove_keyframe(
-                                    track.get_curve_mut(sel.property_type),
-                                    sel.keyframe_id,
-                                );
+                            if let Some(curve) =
+                                resolve_curve_mut(clip, sel.track, sel.property_type)
+                            {
+                                curve_remove_keyframe(curve, sel.keyframe_id);
                             }
                         }
                         clip_recalculate_duration(clip);
@@ -180,15 +206,14 @@ fn dispatch_keyframe_edit_events(
             }
 
             UIEvent::TimelineMoveKeyframe {
-                bone_id,
+                track,
                 property_type,
                 keyframe_id,
                 new_time,
                 new_value,
             } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
-                    if let Some(track) = clip.tracks.get_mut(bone_id) {
-                        let curve = track.get_curve_mut(*property_type);
+                    if let Some(curve) = resolve_curve_mut(clip, *track, *property_type) {
                         curve_set_keyframe_time(curve, *keyframe_id, *new_time);
                         curve.set_keyframe_value(*keyframe_id, *new_value);
                     }
@@ -198,13 +223,13 @@ fn dispatch_keyframe_edit_events(
             }
 
             UIEvent::TimelineDeleteKeyframe {
-                bone_id,
+                track,
                 property_type,
                 keyframe_id,
             } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
-                    if let Some(track) = clip.tracks.get_mut(bone_id) {
-                        curve_remove_keyframe(track.get_curve_mut(*property_type), *keyframe_id);
+                    if let Some(curve) = resolve_curve_mut(clip, *track, *property_type) {
+                        curve_remove_keyframe(curve, *keyframe_id);
                     }
                     clip_recalculate_duration(clip);
                     clip_modified = true;
@@ -231,31 +256,28 @@ fn dispatch_tangent_edit_events(
     for event in events {
         match event {
             UIEvent::TimelineSetKeyframeInterpolation {
-                bone_id,
+                track,
                 property_type,
                 keyframe_id,
                 interpolation,
             } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
-                    if let Some(track) = clip.tracks.get_mut(bone_id) {
-                        track
-                            .get_curve_mut(*property_type)
-                            .set_keyframe_interpolation(*keyframe_id, *interpolation);
+                    if let Some(curve) = resolve_curve_mut(clip, *track, *property_type) {
+                        curve.set_keyframe_interpolation(*keyframe_id, *interpolation);
                         clip_modified = true;
                     }
                 }
             }
 
             UIEvent::TimelineSetKeyframeTangent {
-                bone_id,
+                track,
                 property_type,
                 keyframe_id,
                 in_tangent,
                 out_tangent,
             } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
-                    if let Some(track) = clip.tracks.get_mut(bone_id) {
-                        let curve = track.get_curve_mut(*property_type);
+                    if let Some(curve) = resolve_curve_mut(clip, *track, *property_type) {
                         if let Some(kf) = curve.get_keyframe_mut(*keyframe_id) {
                             kf.tangent_type = crate::animation::editable::TangentType::Manual;
                         }
@@ -270,14 +292,13 @@ fn dispatch_tangent_edit_events(
             }
 
             UIEvent::TimelineSetTangentType {
-                bone_id,
+                track,
                 property_type,
                 keyframe_id,
                 tangent_type,
             } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
-                    if let Some(track) = clip.tracks.get_mut(bone_id) {
-                        let curve = track.get_curve_mut(*property_type);
+                    if let Some(curve) = resolve_curve_mut(clip, *track, *property_type) {
                         ensure_bezier_for_tangent(curve, *keyframe_id);
                         if let Some(idx) = curve.keyframes.iter().position(|k| k.id == *keyframe_id)
                         {
@@ -290,14 +311,13 @@ fn dispatch_tangent_edit_events(
             }
 
             UIEvent::TimelineSetTangentWeightMode {
-                bone_id,
+                track,
                 property_type,
                 keyframe_id,
                 weight_mode,
             } => {
                 if let Some(clip) = clip_library.get_mut(clip_id) {
-                    if let Some(track) = clip.tracks.get_mut(bone_id) {
-                        let curve = track.get_curve_mut(*property_type);
+                    if let Some(curve) = resolve_curve_mut(clip, *track, *property_type) {
                         curve.set_keyframe_weight_mode(*keyframe_id, *weight_mode);
                         if *weight_mode == TangentWeightMode::Weighted {
                             if let Some(idx) =
@@ -408,6 +428,88 @@ pub fn timeline_zoom_out(state: &mut TimelineState, min_zoom: f32) {
     state.zoom_level = (state.zoom_level / 1.2).max(min_zoom);
 }
 
+/// Timeline (start, end) a dragged clip block should be drawn at while the drag
+/// is in progress. Mirrors the clamps the commit events apply on release
+/// (`ClipInstanceMove`/`TrimStart`/`TrimEnd`), so the live preview always shows
+/// exactly what releasing the mouse would produce.
+pub fn clip_drag_preview_times(
+    drag_type: &crate::ecs::resource::ClipDragType,
+    original_value: f32,
+    delta_time: f32,
+    inst_start: f32,
+    inst_end: f32,
+    clip_in: f32,
+    clip_out: f32,
+) -> (f32, f32) {
+    use crate::ecs::resource::ClipDragType;
+
+    let span = clip_out - clip_in;
+    let seconds_per_clip_second = if span > 1e-6 {
+        (inst_end - inst_start) / span
+    } else {
+        1.0
+    };
+
+    match drag_type {
+        ClipDragType::Move => {
+            let start = (original_value + delta_time).max(0.0);
+            (start, start + (inst_end - inst_start))
+        }
+        ClipDragType::TrimStart => {
+            let new_clip_in = (original_value + delta_time).clamp(0.0, clip_out);
+            (
+                inst_start,
+                inst_start + (clip_out - new_clip_in) * seconds_per_clip_second,
+            )
+        }
+        ClipDragType::TrimEnd => {
+            let new_clip_out = (original_value + delta_time).max(clip_in);
+            (
+                inst_start,
+                inst_start + (new_clip_out - clip_in) * seconds_per_clip_second,
+            )
+        }
+    }
+}
+
+/// Range the timeline spans when no clip supplies one, so the ruler, the transport and
+/// playback all agree on how far the playhead may travel.
+pub const TIMELINE_FALLBACK_DURATION_SECONDS: f32 = 5.0;
+
+/// Range the playhead travels over. Always positive: scrubbing and playback stay usable
+/// before a clip exists. Covers both the selected clip's own duration and the furthest
+/// scheduled instance end, so a drag-extended instance of a short (or empty) clip can
+/// still be scrubbed to its end.
+pub fn timeline_effective_duration(
+    timeline_state: &TimelineState,
+    clip_library: &ClipLibrary,
+) -> f32 {
+    let clip_duration = timeline_state
+        .current_clip_id
+        .and_then(|id| clip_library.get(id))
+        .map(|c| c.duration)
+        .unwrap_or(0.0);
+
+    let duration = clip_duration.max(timeline_state.schedule_extent_seconds);
+    if duration > 0.0 {
+        duration
+    } else {
+        TIMELINE_FALLBACK_DURATION_SECONDS
+    }
+}
+
+/// Furthest end time any scheduled clip instance reaches, across every entity.
+/// Muted instances count too: their blocks stay visible on the timeline, so the
+/// ruler must still reach them.
+pub fn schedule_extent_seconds(world: &World) -> f32 {
+    world
+        .component_entities::<ClipSchedule>()
+        .iter()
+        .filter_map(|&entity| world.get_component::<ClipSchedule>(entity))
+        .flat_map(|schedule| schedule.instances.iter().map(|i| i.end_time()))
+        .fold(0.0, f32::max)
+}
+
 pub fn timeline_update(
     timeline_state: &mut TimelineState,
     clip_library: &ClipLibrary,
@@ -417,16 +519,7 @@ pub fn timeline_update(
         return;
     }
 
-    let duration = timeline_state
-        .current_clip_id
-        .and_then(|id| clip_library.get(id))
-        .map(|c| c.duration)
-        .unwrap_or(0.0);
-
-    if duration <= 0.0 {
-        return;
-    }
-
+    let duration = timeline_effective_duration(timeline_state, clip_library);
     let new_time = timeline_state.current_time + delta_time * timeline_state.speed;
 
     if timeline_state.looping {
@@ -474,7 +567,7 @@ pub fn process_clip_instance_events(events: &[UIEvent], world: &mut World) {
                 new_clip_in,
             } => {
                 modify_clip_instance(world, *entity, *instance_id, |inst| {
-                    inst.clip_in = new_clip_in.max(0.0);
+                    inst.clip_in = new_clip_in.clamp(0.0, inst.clip_out);
                 });
             }
 
@@ -484,7 +577,7 @@ pub fn process_clip_instance_events(events: &[UIEvent], world: &mut World) {
                 new_clip_out,
             } => {
                 modify_clip_instance(world, *entity, *instance_id, |inst| {
-                    inst.clip_out = new_clip_out.max(0.0);
+                    inst.clip_out = new_clip_out.max(inst.clip_in);
                 });
             }
 
@@ -750,23 +843,133 @@ mod tests {
         let mut state = TimelineState::new();
         state.current_clip_id = Some(clip_id);
 
-        state.selected_keyframes.insert(SelectedKeyframe::new(
+        state.selected_keyframes.insert(SelectedKeyframe::for_bone(
             bone_id,
             PropertyType::TranslationX,
             kf1_id,
         ));
-        state.selected_keyframes.insert(SelectedKeyframe::new(
+        state.selected_keyframes.insert(SelectedKeyframe::for_bone(
             bone_id,
             PropertyType::TranslationX,
             kf2_id,
         ));
-        state.selected_keyframes.insert(SelectedKeyframe::new(
+        state.selected_keyframes.insert(SelectedKeyframe::for_bone(
             bone_id,
             PropertyType::TranslationY,
             kf3_id,
         ));
 
         (state, library)
+    }
+
+    #[test]
+    fn timeline_advances_without_a_clip() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.playing = true;
+
+        timeline_update(&mut state, &library, 0.5);
+
+        assert!((state.current_time - 0.5).abs() < 1e-5);
+    }
+
+    #[test]
+    fn timeline_without_a_clip_loops_at_the_fallback_duration() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.playing = true;
+        state.looping = true;
+        state.current_time = TIMELINE_FALLBACK_DURATION_SECONDS - 0.25;
+
+        timeline_update(&mut state, &library, 0.5);
+
+        assert!((state.current_time - 0.25).abs() < 1e-5);
+    }
+
+    #[test]
+    fn timeline_without_a_clip_stops_at_the_fallback_duration_when_not_looping() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.playing = true;
+        state.looping = false;
+        state.current_time = TIMELINE_FALLBACK_DURATION_SECONDS - 0.25;
+
+        timeline_update(&mut state, &library, 0.5);
+
+        assert!((state.current_time - TIMELINE_FALLBACK_DURATION_SECONDS).abs() < 1e-5);
+        assert!(!state.playing);
+    }
+
+    #[test]
+    fn timeline_uses_the_clip_duration_when_one_is_selected() {
+        let (mut state, library) = setup_test_clip();
+        let clip_duration = library.get(1).unwrap().duration;
+        assert!(clip_duration > 0.0 && clip_duration < TIMELINE_FALLBACK_DURATION_SECONDS);
+
+        assert!(
+            (timeline_effective_duration(&state, &library) - clip_duration).abs() < 1e-5,
+            "effective duration must follow the clip, not the fallback"
+        );
+
+        state.playing = true;
+        state.looping = true;
+        state.current_time = clip_duration - 0.1;
+        timeline_update(&mut state, &library, 0.2);
+
+        assert!((state.current_time - 0.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn timeline_extends_to_the_schedule_extent_beyond_the_clip_duration() {
+        let (mut state, library) = setup_test_clip();
+        let clip_duration = library.get(1).unwrap().duration;
+
+        // A drag-extended instance reaches past the clip's own duration: the
+        // ruler, scrubbing and playback must all cover it.
+        state.schedule_extent_seconds = clip_duration + 2.0;
+        assert!(
+            (timeline_effective_duration(&state, &library) - (clip_duration + 2.0)).abs() < 1e-5
+        );
+
+        state.playing = true;
+        state.looping = true;
+        state.current_time = clip_duration + 1.9;
+        timeline_update(&mut state, &library, 0.2);
+        assert!((state.current_time - 0.1).abs() < 1e-5);
+    }
+
+    #[test]
+    fn empty_clip_with_extended_instance_uses_the_extent_not_the_fallback() {
+        let library = ClipLibrary::new();
+        let mut state = TimelineState::new();
+        state.schedule_extent_seconds = 8.0;
+
+        assert!((timeline_effective_duration(&state, &library) - 8.0).abs() < 1e-5);
+    }
+
+    #[test]
+    fn schedule_extent_covers_every_entity_and_counts_muted_instances() {
+        let mut world = World::new();
+
+        let a = world.spawn();
+        let mut schedule_a = ClipSchedule::new();
+        schedule_a
+            .instances
+            .push(crate::animation::editable::ClipInstance::new(1, 10, 0.0));
+        schedule_a.instances[0].clip_out = 3.0;
+        world.insert_component(a, schedule_a);
+
+        let b = world.spawn();
+        let mut schedule_b = ClipSchedule::new();
+        schedule_b
+            .instances
+            .push(crate::animation::editable::ClipInstance::new(1, 11, 0.0));
+        schedule_b.instances[0].start_time = 1.0;
+        schedule_b.instances[0].clip_out = 4.5;
+        schedule_b.instances[0].muted = true;
+        world.insert_component(b, schedule_b);
+
+        assert!((schedule_extent_seconds(&world) - 5.5).abs() < 1e-5);
     }
 
     #[test]
@@ -822,7 +1025,7 @@ mod tests {
     fn set_keyframe_selection_replace() {
         let (mut state, mut library) = setup_test_clip();
 
-        let new_sel = vec![SelectedKeyframe::new(0, PropertyType::ScaleX, 999)];
+        let new_sel = vec![SelectedKeyframe::for_bone(0, PropertyType::ScaleX, 999)];
         let events = vec![UIEvent::TimelineSetKeyframeSelection {
             keyframes: new_sel,
             modifier: SelectionModifier::Replace,
@@ -831,11 +1034,9 @@ mod tests {
         timeline_process_events(&events, &mut state, &mut library);
 
         assert_eq!(state.selected_keyframes.len(), 1);
-        assert!(state.selected_keyframes.contains(&SelectedKeyframe::new(
-            0,
-            PropertyType::ScaleX,
-            999
-        )));
+        assert!(state
+            .selected_keyframes
+            .contains(&SelectedKeyframe::for_bone(0, PropertyType::ScaleX, 999)));
     }
 
     #[test]
@@ -843,7 +1044,7 @@ mod tests {
         let (mut state, mut library) = setup_test_clip();
         let original_count = state.selected_keyframes.len();
 
-        let new_sel = vec![SelectedKeyframe::new(0, PropertyType::ScaleX, 999)];
+        let new_sel = vec![SelectedKeyframe::for_bone(0, PropertyType::ScaleX, 999)];
         let events = vec![UIEvent::TimelineSetKeyframeSelection {
             keyframes: new_sel,
             modifier: SelectionModifier::Add,
@@ -860,7 +1061,7 @@ mod tests {
 
         // Toggle off an existing keyframe, toggle on a new one
         let existing = state.selected_keyframes.iter().next().unwrap().clone();
-        let new_kf = SelectedKeyframe::new(0, PropertyType::ScaleX, 999);
+        let new_kf = SelectedKeyframe::for_bone(0, PropertyType::ScaleX, 999);
         let events = vec![UIEvent::TimelineSetKeyframeSelection {
             keyframes: vec![existing.clone(), new_kf.clone()],
             modifier: SelectionModifier::Toggle,
@@ -873,5 +1074,156 @@ mod tests {
         assert_eq!(state.selected_keyframes.len(), before_count);
         assert!(!state.selected_keyframes.contains(&existing));
         assert!(state.selected_keyframes.contains(&new_kf));
+    }
+
+    #[test]
+    fn scalar_add_keyframe_rejects_bone_property_types() {
+        let (mut state, mut library) = setup_test_clip();
+
+        let events = vec![
+            UIEvent::TimelineAddKeyframe {
+                track: CurveTrackRef::Scalar,
+                property_type: PropertyType::TranslationX,
+                time: 0.5,
+                value: 1.0,
+            },
+            UIEvent::TimelineAddKeyframe {
+                track: CurveTrackRef::Scalar,
+                property_type: PropertyType::Custom(0),
+                time: 0.5,
+                value: 1.0,
+            },
+        ];
+        timeline_process_events(&events, &mut state, &mut library);
+
+        let clip = library.get(state.current_clip_id.unwrap()).unwrap();
+        assert_eq!(clip.scalar_curves.len(), 1);
+        assert_eq!(clip.scalar_curves[0].property_type, PropertyType::Custom(0));
+    }
+
+    fn spawn_zero_length_clip_instance(world: &mut World) -> crate::ecs::world::Entity {
+        use crate::animation::editable::ClipInstance;
+        use crate::ecs::component::ClipSchedule;
+
+        let entity = world.spawn();
+        let mut schedule = ClipSchedule::default();
+        schedule.next_instance_id = 2;
+        schedule.instances.push(ClipInstance::new(1, 1, 0.0));
+        world.insert_component(entity, schedule);
+        entity
+    }
+
+    fn instance_clip_range(world: &World, entity: crate::ecs::world::Entity) -> (f32, f32) {
+        let schedule = world
+            .get_component::<crate::ecs::component::ClipSchedule>(entity)
+            .unwrap();
+        let inst = &schedule.instances[0];
+        (inst.clip_in, inst.clip_out)
+    }
+
+    #[test]
+    fn trim_end_extends_a_zero_length_clip_freely() {
+        let mut world = World::new();
+        let entity = spawn_zero_length_clip_instance(&mut world);
+
+        let events = vec![UIEvent::ClipInstanceTrimEnd {
+            entity,
+            instance_id: 1,
+            new_clip_out: 3.0,
+        }];
+        process_clip_instance_events(&events, &mut world);
+
+        let (clip_in, clip_out) = instance_clip_range(&world, entity);
+        assert!((clip_in - 0.0).abs() < 1e-6);
+        assert!((clip_out - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn trim_end_never_drops_below_clip_in() {
+        let mut world = World::new();
+        let entity = spawn_zero_length_clip_instance(&mut world);
+
+        let events = vec![
+            UIEvent::ClipInstanceTrimStart {
+                entity,
+                instance_id: 1,
+                new_clip_in: 0.0,
+            },
+            UIEvent::ClipInstanceTrimEnd {
+                entity,
+                instance_id: 1,
+                new_clip_out: -2.0,
+            },
+        ];
+        process_clip_instance_events(&events, &mut world);
+
+        let (clip_in, clip_out) = instance_clip_range(&world, entity);
+        assert!(clip_out >= clip_in);
+    }
+
+    #[test]
+    fn trim_start_never_exceeds_clip_out() {
+        let mut world = World::new();
+        let entity = spawn_zero_length_clip_instance(&mut world);
+
+        let events = vec![
+            UIEvent::ClipInstanceTrimEnd {
+                entity,
+                instance_id: 1,
+                new_clip_out: 2.0,
+            },
+            UIEvent::ClipInstanceTrimStart {
+                entity,
+                instance_id: 1,
+                new_clip_in: 5.0,
+            },
+        ];
+        process_clip_instance_events(&events, &mut world);
+
+        let (clip_in, clip_out) = instance_clip_range(&world, entity);
+        assert!((clip_in - 2.0).abs() < 1e-6);
+        assert!((clip_out - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drag_preview_trim_end_extends_zero_length_clip() {
+        use crate::ecs::resource::ClipDragType;
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::TrimEnd, 0.0, 3.0, 0.0, 0.0, 0.0, 0.0);
+        assert!((start - 0.0).abs() < 1e-6);
+        assert!((end - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drag_preview_mirrors_commit_clamps() {
+        use crate::ecs::resource::ClipDragType;
+
+        // TrimEnd never drops below clip_in
+        let (_, end) =
+            clip_drag_preview_times(&ClipDragType::TrimEnd, 2.0, -5.0, 1.0, 3.0, 1.0, 2.0);
+        assert!((end - 1.0).abs() < 1e-6);
+
+        // TrimStart clamps into [0, clip_out]; block start stays fixed
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::TrimStart, 0.5, 9.0, 1.0, 3.0, 0.5, 2.0);
+        assert!((start - 1.0).abs() < 1e-6);
+        assert!((end - 1.0).abs() < 1e-6);
+
+        // Move clamps at timeline zero and preserves width
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::Move, 1.0, -5.0, 1.0, 3.0, 0.0, 2.0);
+        assert!((start - 0.0).abs() < 1e-6);
+        assert!((end - 2.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn drag_preview_respects_playback_speed_scale() {
+        use crate::ecs::resource::ClipDragType;
+        // 1 clip-second spans 2 timeline-seconds (speed 0.5): extending
+        // clip_out by 1 extends the block by 2.
+        let (start, end) =
+            clip_drag_preview_times(&ClipDragType::TrimEnd, 1.0, 1.0, 1.0, 3.0, 0.0, 1.0);
+        assert!((start - 1.0).abs() < 1e-6);
+        assert!((end - 5.0).abs() < 1e-6);
     }
 }

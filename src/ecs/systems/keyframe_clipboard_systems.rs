@@ -1,6 +1,8 @@
 use crate::animation::editable::{build_mirror_mapping, curve_add_keyframe, mirror_keyframes};
 use crate::ecs::events::UIEvent;
-use crate::ecs::resource::{ClipLibrary, CopiedKeyframe, KeyframeCopyBuffer, TimelineState};
+use crate::ecs::resource::{
+    ClipLibrary, CopiedKeyframe, CurveTrackRef, KeyframeCopyBuffer, TimelineState,
+};
 
 pub fn process_keyframe_clipboard_events(
     events: &[UIEvent],
@@ -53,14 +55,20 @@ fn copy_keyframes(
     let mut entries = Vec::new();
 
     for sel in &timeline_state.selected_keyframes {
-        if let Some(track) = clip.tracks.get(&sel.bone_id) {
-            let curve = track.get_curve(sel.property_type);
+        let curve = match sel.track {
+            CurveTrackRef::Bone(bone_id) => clip
+                .tracks
+                .get(&bone_id)
+                .map(|track| track.get_curve(sel.property_type)),
+            CurveTrackRef::Scalar => clip.get_scalar_curve(sel.property_type),
+        };
+        if let Some(curve) = curve {
             if let Some(kf) = curve.get_keyframe(sel.keyframe_id) {
                 if kf.time < min_time {
                     min_time = kf.time;
                 }
                 entries.push(CopiedKeyframe {
-                    bone_id: sel.bone_id,
+                    bone_id: sel.track.bone_id(),
                     property_type: sel.property_type,
                     relative_time: kf.time,
                     value: kf.value,
@@ -103,18 +111,26 @@ fn paste_keyframes(
 
     for entry in &copy_buffer.entries {
         let time = paste_time + entry.relative_time;
-        if let Some(track) = clip.tracks.get_mut(&entry.bone_id) {
-            let curve = track.get_curve_mut(entry.property_type);
-            let new_id = curve_add_keyframe(curve, time, entry.value);
-            curve.set_keyframe_interpolation(new_id, entry.interpolation);
-            curve.set_keyframe_tangents(
-                new_id,
-                entry.in_tangent.clone(),
-                entry.out_tangent.clone(),
-            );
-            curve.set_keyframe_weight_mode(new_id, entry.weight_mode);
-        }
+        paste_entry_into_clip(clip, entry, time);
     }
+}
+
+fn paste_entry_into_clip(
+    clip: &mut crate::animation::editable::EditableAnimationClip,
+    entry: &CopiedKeyframe,
+    time: f32,
+) {
+    let curve = match entry.bone_id {
+        Some(bone_id) => match clip.tracks.get_mut(&bone_id) {
+            Some(track) => track.get_curve_mut(entry.property_type),
+            None => return,
+        },
+        None => clip.get_or_add_scalar_curve(entry.property_type),
+    };
+    let new_id = curve_add_keyframe(curve, time, entry.value);
+    curve.set_keyframe_interpolation(new_id, entry.interpolation);
+    curve.set_keyframe_tangents(new_id, entry.in_tangent.clone(), entry.out_tangent.clone());
+    curve.set_keyframe_weight_mode(new_id, entry.weight_mode);
 }
 
 fn mirror_paste_keyframes(
@@ -151,16 +167,6 @@ fn mirror_paste_keyframes(
 
     for entry in &mirrored.entries {
         let time = paste_time + entry.relative_time;
-        if let Some(track) = clip.tracks.get_mut(&entry.bone_id) {
-            let curve = track.get_curve_mut(entry.property_type);
-            let new_id = curve_add_keyframe(curve, time, entry.value);
-            curve.set_keyframe_interpolation(new_id, entry.interpolation);
-            curve.set_keyframe_tangents(
-                new_id,
-                entry.in_tangent.clone(),
-                entry.out_tangent.clone(),
-            );
-            curve.set_keyframe_weight_mode(new_id, entry.weight_mode);
-        }
+        paste_entry_into_clip(clip, entry, time);
     }
 }

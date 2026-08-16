@@ -5,6 +5,12 @@ use crate::descriptor::RRCompositeDescriptorSet;
 use crate::frame_context::FrameRenderContext;
 use crate::pipeline::RRPipeline;
 
+/// Scene radiance of the empty viewport. Clearing the HDR buffer with it makes the
+/// background an ordinary part of the scene, so exposure and tone mapping apply to it
+/// exactly as they do to surfaces and volumetrics. Calibrated so the default exposure
+/// reproduces the previous display-referred background.
+pub const BACKGROUND_RADIANCE: f32 = 0.067;
+
 pub unsafe fn begin_composite_render_pass(
     ctx: &FrameRenderContext,
     render_pass: vk::RenderPass,
@@ -104,6 +110,48 @@ pub unsafe fn end_composite_render_pass(ctx: &FrameRenderContext, cmd: vk::Comma
     ctx.device.device.cmd_end_render_pass(cmd);
 }
 
+pub unsafe fn begin_hdr_render_pass(
+    ctx: &FrameRenderContext,
+    render_pass: vk::RenderPass,
+    framebuffer: vk::Framebuffer,
+    extent: vk::Extent2D,
+    background_radiance: f32,
+    cmd: vk::CommandBuffer,
+) {
+    let device = &ctx.device.device;
+    let render_area = vk::Rect2D::builder()
+        .offset(vk::Offset2D::default())
+        .extent(extent);
+
+    let color_clear_value = vk::ClearValue {
+        color: vk::ClearColorValue {
+            float32: [
+                background_radiance,
+                background_radiance,
+                background_radiance,
+                1.0,
+            ],
+        },
+    };
+
+    let depth_clear_value = vk::ClearValue {
+        depth_stencil: vk::ClearDepthStencilValue {
+            depth: 1.0,
+            stencil: 0,
+        },
+    };
+
+    let clear_values = [color_clear_value, depth_clear_value];
+
+    let render_pass_info = vk::RenderPassBeginInfo::builder()
+        .render_pass(render_pass)
+        .framebuffer(framebuffer)
+        .render_area(render_area)
+        .clear_values(&clear_values);
+
+    device.cmd_begin_render_pass(cmd, &render_pass_info, vk::SubpassContents::INLINE);
+}
+
 pub unsafe fn record_composite_to_hdr_pass(
     ctx: &FrameRenderContext,
     pipeline: &RRPipeline,
@@ -114,26 +162,14 @@ pub unsafe fn record_composite_to_hdr_pass(
     debug_view_mode_value: i32,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
-    let device = &ctx.device.device;
-    let render_area = vk::Rect2D::builder()
-        .offset(vk::Offset2D::default())
-        .extent(extent);
-
-    let color_clear_value = vk::ClearValue {
-        color: vk::ClearColorValue {
-            float32: [0.0, 0.0, 0.0, 1.0],
-        },
-    };
-
-    let clear_values = [color_clear_value];
-
-    let render_pass_info = vk::RenderPassBeginInfo::builder()
-        .render_pass(render_pass)
-        .framebuffer(framebuffer)
-        .render_area(render_area)
-        .clear_values(&clear_values);
-
-    device.cmd_begin_render_pass(cmd, &render_pass_info, vk::SubpassContents::INLINE);
+    begin_hdr_render_pass(
+        ctx,
+        render_pass,
+        framebuffer,
+        extent,
+        BACKGROUND_RADIANCE,
+        cmd,
+    );
 
     record_composite_draw(
         ctx,
@@ -144,7 +180,7 @@ pub unsafe fn record_composite_to_hdr_pass(
         cmd,
     )?;
 
-    device.cmd_end_render_pass(cmd);
+    end_composite_render_pass(ctx, cmd);
 
     Ok(())
 }

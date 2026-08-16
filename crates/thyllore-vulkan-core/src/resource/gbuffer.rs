@@ -5,6 +5,11 @@ use crate::core::RRDevice;
 use crate::resource::buffer::create_buffer;
 use crate::resource::image::{create_image, create_image_view, transition_image_layout};
 
+/// Object id at offset 0, world position at `READBACK_POSITION_OFFSET`. Picking reads both from
+/// the same pixel so a click can compare what the flame covers against what the surface covers.
+pub const READBACK_POSITION_OFFSET: vk::DeviceSize = 16;
+pub const READBACK_STAGING_SIZE: vk::DeviceSize = READBACK_POSITION_OFFSET + 16;
+
 #[derive(Clone, Debug, Default)]
 pub struct RRGBuffer {
     pub position_image: vk::Image,
@@ -52,7 +57,8 @@ impl RRGBuffer {
             vk::ImageTiling::OPTIMAL,
             vk::ImageUsageFlags::COLOR_ATTACHMENT
                 | vk::ImageUsageFlags::STORAGE
-                | vk::ImageUsageFlags::SAMPLED,
+                | vk::ImageUsageFlags::SAMPLED
+                | vk::ImageUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
 
@@ -157,7 +163,7 @@ impl RRGBuffer {
         let (readback_staging_buffer, readback_staging_memory) = create_buffer(
             instance,
             rrdevice,
-            std::mem::size_of::<u32>() as vk::DeviceSize,
+            READBACK_STAGING_SIZE,
             vk::BufferUsageFlags::TRANSFER_DST,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;

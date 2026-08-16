@@ -13,20 +13,42 @@ pub enum SelectionModifier {
     Toggle,
 }
 
+/// Which curve container inside the current clip a keyframe belongs to.
+/// `Bone` addresses a `BoneTrack` property curve, `Scalar` addresses the
+/// clip-level `scalar_curves` (identified by `PropertyType::Custom`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum CurveTrackRef {
+    Bone(BoneId),
+    Scalar,
+}
+
+impl CurveTrackRef {
+    pub fn bone_id(self) -> Option<BoneId> {
+        match self {
+            CurveTrackRef::Bone(id) => Some(id),
+            CurveTrackRef::Scalar => None,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct SelectedKeyframe {
-    pub bone_id: BoneId,
+    pub track: CurveTrackRef,
     pub property_type: PropertyType,
     pub keyframe_id: KeyframeId,
 }
 
 impl SelectedKeyframe {
-    pub fn new(bone_id: BoneId, property_type: PropertyType, keyframe_id: KeyframeId) -> Self {
+    pub fn new(track: CurveTrackRef, property_type: PropertyType, keyframe_id: KeyframeId) -> Self {
         Self {
-            bone_id,
+            track,
             property_type,
             keyframe_id,
         }
+    }
+
+    pub fn for_bone(bone_id: BoneId, property_type: PropertyType, keyframe_id: KeyframeId) -> Self {
+        Self::new(CurveTrackRef::Bone(bone_id), property_type, keyframe_id)
     }
 }
 
@@ -44,6 +66,16 @@ pub enum ClipDragType {
     Move,
     TrimStart,
     TrimEnd,
+}
+
+/// Timeline-times a dragged clip block should be drawn at while the drag is
+/// still in progress (before the commit event fires on release).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClipDragPreview {
+    pub entity: Entity,
+    pub instance_id: ClipInstanceId,
+    pub start_time: f32,
+    pub end_time: f32,
 }
 
 #[derive(Clone, Debug)]
@@ -66,6 +98,10 @@ pub struct TimelineState {
     pub selected_clip_instance: Option<(Entity, ClipInstanceId)>,
     pub snap_settings: SnapSettings,
     pub baked_bone_ids: Vec<BoneId>,
+    /// Furthest end time any scheduled clip instance reaches, refreshed each
+    /// frame. Lets the timeline range cover drag-extended instances whose
+    /// source clip is shorter (or empty).
+    pub schedule_extent_seconds: f32,
 }
 
 impl TimelineState {
@@ -89,6 +125,7 @@ impl TimelineState {
             selected_clip_instance: None,
             snap_settings: SnapSettings::default(),
             baked_bone_ids: Vec::new(),
+            schedule_extent_seconds: 0.0,
         }
     }
 

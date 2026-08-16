@@ -1,7 +1,15 @@
 use std::collections::HashSet;
 
+use super::timeline_state::CurveTrackRef;
 use crate::animation::editable::{BezierHandle, KeyframeId, PropertyType};
 use crate::animation::BoneId;
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CurveEditorTarget {
+    Bone(BoneId),
+    /// Clip-level scalar curves (`PropertyType::Custom`), e.g. flame parameters.
+    Scalars,
+}
 
 #[derive(Clone, Debug)]
 pub struct CurveSelectedKeyframe {
@@ -45,7 +53,7 @@ impl Default for CurveInteractionMode {
 
 pub struct CurveEditorState {
     pub is_open: bool,
-    pub selected_bone_id: Option<BoneId>,
+    pub selected_target: Option<CurveEditorTarget>,
     pub visible_curves: HashSet<PropertyType>,
     pub window_size: [f32; 2],
     pub selected_keyframes: Vec<CurveSelectedKeyframe>,
@@ -65,6 +73,31 @@ pub struct CurveEditorState {
     pub needs_focus: bool,
 }
 
+impl CurveEditorState {
+    pub fn selected_bone_id(&self) -> Option<BoneId> {
+        match self.selected_target {
+            Some(CurveEditorTarget::Bone(id)) => Some(id),
+            _ => None,
+        }
+    }
+
+    pub fn select_bone(&mut self, bone_id: BoneId) {
+        self.selected_target = Some(CurveEditorTarget::Bone(bone_id));
+    }
+
+    pub fn select_scalars(&mut self) {
+        self.selected_target = Some(CurveEditorTarget::Scalars);
+    }
+
+    pub fn selected_track_ref(&self) -> Option<CurveTrackRef> {
+        match self.selected_target {
+            Some(CurveEditorTarget::Bone(id)) => Some(CurveTrackRef::Bone(id)),
+            Some(CurveEditorTarget::Scalars) => Some(CurveTrackRef::Scalar),
+            None => None,
+        }
+    }
+}
+
 impl Default for CurveEditorState {
     fn default() -> Self {
         let mut visible_curves = HashSet::new();
@@ -77,7 +110,7 @@ impl Default for CurveEditorState {
 
         Self {
             is_open: false,
-            selected_bone_id: None,
+            selected_target: None,
             visible_curves,
             window_size: [800.0, 500.0],
             selected_keyframes: Vec::new(),

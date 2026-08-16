@@ -2,4 +2,5 @@
 pub struct KeyboardModifiers {
     pub ctrl: bool,
     pub shift: bool,
+    pub alt: bool,
 }

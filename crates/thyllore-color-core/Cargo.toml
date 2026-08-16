@@ -1,0 +1,8 @@
+[package]
+name = "thyllore-color-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Layer 0 color utilities for ThylloreAnimation (blackbody, sRGB, chromaticity)"
+repository = "https://github.com/kodai731/Thyllore-Animation"

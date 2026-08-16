@@ -3697,8 +3697,11 @@ dependencies = [
  "ron",
  "serde",
  "serde_json",
+ "sha2",
+ "tempfile",
  "thiserror 1.0.69",
  "thyllore-anim-core",
+ "thyllore-effect-core",
  "thyllore-exporter-core",
  "thyllore-grpc-client",
  "thyllore-importer-core",
@@ -3707,10 +3710,27 @@ dependencies = [
  "thyllore-ml-core",
  "thyllore-model-core",
  "thyllore-render-core",
+ "thyllore-render-debug",
+ "thyllore-texture-fit-core",
  "thyllore-vulkan-core",
  "ufbx",
  "vulkanalia",
  "winit",
+]
+
+[[package]]
+name = "thyllore-color-core"
+version = "0.0.1"
+
+[[package]]
+name = "thyllore-effect-core"
+version = "0.0.1"
+dependencies = [
+ "cgmath",
+ "serde",
+ "thyllore-color-core",
+ "thyllore-math-core",
+ "thyllore-texture-fit-core",
 ]
 
 [[package]]
@@ -3834,6 +3854,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "thyllore-render-debug"
+version = "0.0.1"
+dependencies = [
+ "cgmath",
+ "serde_json",
+ "thyllore-effect-core",
+ "thyllore-math-core",
+ "thyllore-render-core",
+]
+
+[[package]]
+name = "thyllore-texture-fit-core"
+version = "0.0.1"
+dependencies = [
+ "serde",
+ "thyllore-color-core",
+ "thyllore-math-core",
+]
+
+[[package]]
 name = "thyllore-vulkan-core"
 version = "0.0.1"
 dependencies = [
@@ -3843,6 +3883,7 @@ dependencies = [
  "log",
  "png 0.17.16",
  "thiserror 1.0.69",
+ "thyllore-effect-core",
  "thyllore-log-core",
  "thyllore-math-core",
  "thyllore-model-core",

@@ -160,6 +160,7 @@ impl App {
             &rrdevice,
             &rrswapchain,
             &rrcommand_pool,
+            &rrrender,
             &mut data,
         )?;
 
@@ -216,16 +217,19 @@ impl App {
         )?;
 
         let (model_path, loaded_scene) = Self::determine_startup_model();
-        Self::load_startup_model(
-            &instance,
-            &rrdevice,
-            &rrcommand_pool,
-            &rrswapchain,
-            &mut data,
-            &model_path,
-            loaded_scene.is_some(),
-        );
+        // Self::load_startup_model(
+        //     &instance,
+        //     &rrdevice,
+        //     &rrcommand_pool,
+        //     &rrswapchain,
+        //     &mut data,
+        //     &model_path,
+        //     loaded_scene.is_some(),
+        //     );
 
+        // The scene restores timeline, panel and curve editor state, so those resources must
+        // exist before it is applied. Registration is idempotent and runs again below.
+        Self::register_editor_resources(&mut data);
         Self::apply_loaded_scene(&mut data, loaded_scene);
 
         if let Err(e) = Self::create_ray_tracing_pipelines_with_resources(
@@ -281,6 +285,12 @@ impl App {
         data.ecs_world.insert_resource(grid_mesh_data);
         data.ecs_world.insert_resource(grid_scale);
 
+        let gpu_timestamp_profiler = thyllore_vulkan_core::GpuTimestampProfiler::new(
+            &rrdevice.device,
+            rrdevice.timestamp_period,
+            vulkan_resources.rrswapchain.swapchain_images.len(),
+        );
+
         Ok(Self {
             entry,
             instance,
@@ -290,6 +300,8 @@ impl App {
             resized: false,
             start: Instant::now(),
             last_update_time: 0.0,
+            gpu_timestamp_profiler,
+            last_frame_instant: None,
         })
     }
 
@@ -299,12 +311,12 @@ impl App {
         data.ecs_world
             .insert_resource(crate::ecs::resource::DebugViewState::default());
     }
-
     unsafe fn initialize_graphics_and_ecs(
         instance: &Instance,
         rrdevice: &RRDevice,
         rrswapchain: &RRSwapchain,
         rrcommand_pool: &Rc<RRCommandPool>,
+        rrrender: &RRRender,
         data: &mut AppData,
     ) -> Result<()> {
         let swapchain_image_count = rrswapchain.swapchain_images.len();
@@ -367,6 +379,39 @@ impl App {
             rrdevice.msaa_samples,
             rrswapchain.swapchain_format
         );
+
+        let render_layouts = data.graphics_resources.get_layouts();
+        if let Some(ref hdr_buffer) = data.viewport.hdr_buffer {
+            let hdr_grid =
+                PipelineBuilder::new("assets/shaders/gridVert.spv", "assets/shaders/gridFrag.spv")
+                    .vertex_input(VertexInputConfig::Gizmo)
+                    .topology(vk::PrimitiveTopology::LINE_LIST)
+                    .polygon_mode(vk::PolygonMode::LINE)
+                    .depth_test(DepthTestConfig {
+                        test_enable: true,
+                        write_enable: true,
+                        compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+                    })
+                    .custom_render_pass(hdr_buffer.render_pass)
+                    .msaa_samples(vk::SampleCountFlags::_1)
+                    .descriptor_layouts(render_layouts.to_vec())
+                    // Opaque surface inside the HDR buffer: alpha 1 marks "background fully
+                    // covered", which the tonemap needs to keep the grid color. The flame
+                    // composites over it afterwards with premultiplied blending.
+                    .blend(BlendConfig {
+                        enable: true,
+                        src_color_factor: vk::BlendFactor::SRC_ALPHA,
+                        dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                        color_op: vk::BlendOp::ADD,
+                        src_alpha_factor: vk::BlendFactor::ONE,
+                        dst_alpha_factor: vk::BlendFactor::ZERO,
+                        alpha_op: vk::BlendOp::ADD,
+                    })
+                    .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
+                    .context("Failed to create HDR grid pipeline")?;
+            let hdr_grid_id = data.pipeline_storage.register(hdr_grid);
+            data.viewport.hdr_grid_pipeline_id = Some(hdr_grid_id);
+        }
 
         Ok(())
     }
@@ -606,6 +651,7 @@ impl App {
             gizmo_create_buffers(
                 &mut gizmo_data.mesh,
                 &mut backend,
+                0,
                 crate::render::BufferMemoryType::DeviceLocal,
             )
             .expect("Failed to create gizmo buffers");
@@ -627,6 +673,7 @@ impl App {
             gizmo_create_buffers(
                 &mut light_gizmo_data.mesh,
                 &mut backend,
+                0,
                 crate::render::BufferMemoryType::HostVisible,
             )
             .expect("Failed to create light gizmo buffers");
@@ -844,19 +891,16 @@ impl App {
             Vec<crate::animation::editable::EditableAnimationClip>,
         )>,
     ) {
-        if !data
-            .ecs_world
-            .contains_resource::<crate::ecs::resource::PanelLayout>()
-        {
-            data.ecs_world
-                .insert_resource(crate::ecs::resource::PanelLayout::default());
-        }
-
         let mut scene_state = SceneState::new();
         if let Some((scene_path, scene, clips)) = loaded_scene {
             let clips_with_ids =
                 Self::register_loaded_clips(&mut data.ecs_world, &mut data.ecs_assets, clips);
-            crate::scene::apply_loaded_scene_to_world(&scene, &mut data.ecs_world, &clips_with_ids);
+            crate::scene::apply_loaded_scene_to_world(
+                &scene,
+                &mut data.ecs_world,
+                &mut data.ecs_assets,
+                &clips_with_ids,
+            );
 
             let active_clip_id = {
                 let timeline = data.ecs_world.resource::<TimelineState>();
@@ -892,15 +936,16 @@ impl App {
         let (mut grid_mesh, xz_only_index_count) = create_grid_mesh();
         let grid_scale = create_default_grid_scale();
 
-        grid_mesh.vertex_buffer_handle = data.buffer_registry.create_vertex_buffer(
+        grid_mesh.vertex_buffer_handles[0] = data.buffer_registry.create_vertex_buffer(
             instance,
             rrdevice,
             rrcommand_pool,
             &grid_mesh.vertices,
             crate::render::BufferMemoryType::DeviceLocal,
         )?;
+        grid_mesh.last_written_slot = 0;
 
-        grid_mesh.index_buffer_handle = data.buffer_registry.create_index_buffer(
+        grid_mesh.index_buffer_handles[0] = data.buffer_registry.create_index_buffer(
             instance,
             rrdevice,
             rrcommand_pool,
@@ -1104,6 +1149,7 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::UIEventQueue>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::MouseInput>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::KeyboardModifiers>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::CameraFlyInput>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::ViewportInput>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::ImGuiInputCapture>(data);
         Self::insert_default_if_missing::<HierarchyState>(data);
@@ -1140,6 +1186,16 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::BloomSettings>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::AutoExposure>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
+        if data.ecs_world.query_flames().is_empty() {
+            crate::ecs::systems::spawn_flame_with_clip(
+                &mut data.ecs_world,
+                &mut data.ecs_assets,
+                crate::ecs::systems::DEFAULT_FLAME_NAME,
+                crate::ecs::component::FlameEffect::default(),
+            );
+        }
+        Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);
     }
 
     #[cfg(feature = "ml")]
@@ -1262,12 +1318,39 @@ impl App {
     ) {
         use crate::scene::{find_default_scene, load_scene};
 
-        let default_model_path = "assets/models/stickman/stickman.glb".to_string();
+        // let default_model_path = "assets/models/stickman/stickman.glb".to_string();
+
+        // Check for --batch-scene flag in command line arguments
+        let args: Vec<String> = std::env::args().collect();
+        if let Some(pos) = args.iter().position(|a| a == "--batch-scene") {
+            if let Some(path_str) = args.get(pos + 1) {
+                let scene_path = std::path::PathBuf::from(path_str);
+                if scene_path.exists() {
+                    match load_scene(&scene_path) {
+                        Ok(loaded) => {
+                            let model_path = loaded.scene.model.path.clone();
+                            let clips = loaded.clips.clone();
+                            log!("Loaded batch scene from: {}", scene_path.display());
+                            return (model_path, Some((scene_path, loaded, clips)));
+                        }
+                        Err(e) => {
+                            log_error!("Failed to load batch scene: {:?}", e);
+                        }
+                    }
+                } else {
+                    log_error!("Batch scene path does not exist: {}", scene_path.display());
+                }
+            } else {
+                log_error!("--batch-scene flag is missing the path argument");
+            }
+        }
 
         if let Some(scene_path) = find_default_scene() {
             match load_scene(&scene_path) {
                 Ok(loaded) => {
-                    let model_path = loaded.model_path.to_string_lossy().to_string();
+                    // The scene's own reference, not the resolved file: a generated mesh has no
+                    // file and must round-trip its sentinel back out on the next save.
+                    let model_path = loaded.scene.model.path.clone();
                     let clips = loaded.clips.clone();
                     log!("Loaded default scene from: {}", scene_path.display());
                     return (model_path, Some((scene_path, loaded, clips)));
@@ -1278,7 +1361,8 @@ impl App {
             }
         }
 
-        (default_model_path, None)
+        // (default_model_path, None)
+        ("".to_string(), None)
     }
 
     fn register_loaded_clips(

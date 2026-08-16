@@ -68,6 +68,8 @@ fi
 CLAUDE_GLOBAL_MOUNTS=()
 [ -r "$HOME/.claude/CLAUDE.md" ] && CLAUDE_GLOBAL_MOUNTS+=(-v "$HOME/.claude/CLAUDE.md:/home/dev/.claude/CLAUDE.md:ro")
 [ -d "$HOME/.claude/rules" ] && CLAUDE_GLOBAL_MOUNTS+=(-v "$HOME/.claude/rules:/home/dev/.claude/rules:ro")
+[ -d "$HOME/.claude/skills" ] && CLAUDE_GLOBAL_MOUNTS+=(-v "$HOME/.claude/skills:/home/dev/.claude/skills:ro")
+[ -d "$HOME/.claude/agents" ] && CLAUDE_GLOBAL_MOUNTS+=(-v "$HOME/.claude/agents:/home/dev/.claude/agents:ro")
 
 NEED_BUILD=0
 if [ "${1:-}" = "--rebuild" ]; then
@@ -137,6 +139,12 @@ if [ -n "${LARGE_MODEL_ROOT:-}" ] && [ -d "$LARGE_MODEL_ROOT" ]; then
     LARGE_MODEL_ARG=(-v "$LARGE_MODEL_ROOT:$LARGE_MODEL_ROOT")
 fi
 
+# Host secrets dir (gitignored config/env files with API keys etc.); mount read-only when present.
+SECRETS_ARG=()
+if [ -d "$HOME/.config/secrets" ]; then
+    SECRETS_ARG=(-v "$HOME/.config/secrets:/home/dev/.config/secrets:ro")
+fi
+
 exec docker run \
     "${TTY_FLAGS[@]}" \
     --name "$CONTAINER_NAME" \
@@ -153,6 +161,7 @@ exec docker run \
     -v "$ANIM_ML_ROOT:$ANIM_ML_ROOT" \
     -v "$SHARED_DATA_ROOT:$SHARED_DATA_ROOT" \
     "${LARGE_MODEL_ARG[@]}" \
+    "${SECRETS_ARG[@]}" \
     -v "$CARGO_REGISTRY_HOST:/home/dev/.cargo/registry" \
     -v "$CARGO_TARGET_HOST:/home/dev/target-cache" \
     -v "$CLAUDE_CONFIG_HOST:/home/dev/.claude" \

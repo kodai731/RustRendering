@@ -14,11 +14,13 @@ use super::ui::{
 #[cfg(debug_assertions)]
 use super::ui::{build_click_debug_overlay, DebugWindowState};
 use crate::app::App;
+use crate::vulkanr::vulkan::*;
+
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{
-    ClipBrowserState, ClipLibrary, CurveEditorBuffer, CurveEditorState, HierarchyState,
-    ImGuiInputCapture, KeyboardModifiers, MessageLog, MouseInput, PanelLayout, PoseLibrary,
-    TimelineInteractionState, TimelineState, ViewportInput,
+    CameraFlyInput, ClipBrowserState, ClipLibrary, CurveEditorBuffer, CurveEditorState,
+    HierarchyState, ImGuiInputCapture, KeyboardModifiers, MessageLog, MouseInput, PanelLayout,
+    PoseLibrary, TimelineInteractionState, TimelineState, ViewportInput,
 };
 use crate::ecs::systems::clip_track_systems::query_clip_tracks;
 use crate::ecs::systems::phases::run_event_dispatch_phase;
@@ -36,6 +38,30 @@ fn update_mouse_input(world: &crate::ecs::World, ui: &imgui::Ui) {
     let mut modifiers = world.resource_mut::<KeyboardModifiers>();
     modifiers.ctrl = io.key_ctrl;
     modifiers.shift = io.key_shift;
+    modifiers.alt = io.key_alt;
+    drop(modifiers);
+
+    update_camera_fly_input(world, ui);
+}
+
+fn update_camera_fly_input(world: &crate::ecs::World, ui: &imgui::Ui) {
+    let io = ui.io();
+    let mut fly = world.resource_mut::<CameraFlyInput>();
+    fly.delta_seconds = io.delta_time;
+
+    if io.want_text_input {
+        fly.forward = 0.0;
+        fly.right = 0.0;
+        fly.up = 0.0;
+        fly.boost = false;
+        return;
+    }
+
+    let axis = |negative: bool, positive: bool| (positive as i32 - negative as i32) as f32;
+    fly.forward = axis(ui.is_key_down(imgui::Key::S), ui.is_key_down(imgui::Key::W));
+    fly.right = axis(ui.is_key_down(imgui::Key::A), ui.is_key_down(imgui::Key::D));
+    fly.up = axis(ui.is_key_down(imgui::Key::Q), ui.is_key_down(imgui::Key::E));
+    fly.boost = io.key_shift;
 }
 
 impl System {
@@ -137,10 +163,19 @@ fn dispatch_window_event(
 
         WindowEvent::DroppedFile(path_buf) => {
             if let Some(path) = path_buf.to_str() {
-                let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
-                ui_events.send(UIEvent::LoadModel {
-                    path: path.to_string(),
-                });
+                if path.to_ascii_lowercase().ends_with(".png") {
+                    // A dropped PNG fills the texture-fit path field (selection
+                    // only — applying stays on the explicit Apply button).
+                    app.data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::ModelState>()
+                        .texture_fit_path = path.to_string();
+                } else {
+                    let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
+                    ui_events.send(UIEvent::LoadModel {
+                        path: path.to_string(),
+                    });
+                }
             }
         }
 
@@ -160,6 +195,10 @@ fn dispatch_window_event(
                 #[cfg(feature = "auto-rig")]
                 text_to_animation_dialog,
             );
+
+            if crate::ecs::systems::batch_run_is_completed(&app.data.ecs_world) {
+                window_target.exit();
+            }
         }
 
         _ => {}
@@ -179,10 +218,12 @@ fn dispatch_keyboard_input(
     };
     drop(modifiers_res);
 
+    let camera_fly_active = app.data.ecs_world.resource::<MouseInput>().right_pressed;
+
     if let Some(ui_event) = dispatch_keyboard_shortcut(
         &event.logical_key,
         modifiers,
-        imgui.io().want_capture_keyboard,
+        imgui.io().want_capture_keyboard || camera_fly_active,
         bindings,
     ) {
         let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
@@ -201,6 +242,15 @@ fn handle_redraw_requested(
     #[cfg(feature = "auto-rig")]
     text_to_animation_dialog: &mut crate::platform::ui::TextToAnimationDialogState,
 ) {
+    let dt_ms = if let Some(last) = app.last_frame_instant {
+        let elapsed = last.elapsed().as_secs_f32() * 1000.0;
+        app.last_frame_instant = Some(Instant::now());
+        elapsed
+    } else {
+        app.last_frame_instant = Some(Instant::now());
+        0.0
+    };
+
     let ui = imgui.frame();
 
     let io = ui.io();
@@ -222,6 +272,25 @@ fn handle_redraw_requested(
     let mut overlay_state = SceneOverlayState {
         model_path: model_state.model_path.clone(),
         load_status: model_state.load_status.clone(),
+        flame_preset_index: model_state.flame_preset_index,
+        texture_fit_path: model_state.texture_fit_path.clone(),
+        texture_fit_blend: model_state.texture_fit_blend,
+        texture_fit_groups: model_state.texture_fit_groups,
+        texture_fit_profile: model_state.texture_fit_profile,
+        texture_fit_scan: model_state.texture_fit_scan.clone(),
+        texture_fit_scan_done: model_state.texture_fit_scan_done,
+        texture_fit_browser_open: model_state.texture_fit_browser_open,
+        texture_fit_browser_dir: model_state.texture_fit_browser_dir.clone(),
+        texture_fit_browser_selected: model_state.texture_fit_browser_selected.clone(),
+        texture_fit_browser_show_all: model_state.texture_fit_browser_show_all,
+        texture_fit_browser_show_hidden: model_state.texture_fit_browser_show_hidden,
+        texture_fit_path_validated: model_state.texture_fit_path_validated.clone(),
+        texture_fit_path_info: model_state.texture_fit_path_info.clone(),
+        flame_style_index: model_state.flame_style_index,
+        flame_style_scan: model_state.flame_style_scan.clone(),
+        flame_style_scan_done: model_state.flame_style_scan_done,
+        flame_style_groups: model_state.flame_style_groups,
+        flame_style_save_name: model_state.flame_style_save_name.clone(),
         #[cfg(feature = "auto-rig")]
         open_text_to_mesh_dialog: false,
         #[cfg(feature = "auto-rig")]
@@ -242,6 +311,45 @@ fn handle_redraw_requested(
         text_to_animation_dialog,
     );
 
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_preset_index = overlay_state.flame_preset_index;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_path = overlay_state.texture_fit_path;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_blend = overlay_state.texture_fit_blend;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_groups = overlay_state.texture_fit_groups;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_profile = overlay_state.texture_fit_profile;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_open = overlay_state.texture_fit_browser_open;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_dir = overlay_state.texture_fit_browser_dir;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_selected = overlay_state.texture_fit_browser_selected;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_show_all = overlay_state.texture_fit_browser_show_all;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_browser_show_hidden = overlay_state.texture_fit_browser_show_hidden;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_path_validated = overlay_state.texture_fit_path_validated;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_path_info = overlay_state.texture_fit_path_info;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_scan = overlay_state.texture_fit_scan;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .texture_fit_scan_done = overlay_state.texture_fit_scan_done;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_index = overlay_state.flame_style_index;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_scan = overlay_state.flame_style_scan;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_scan_done = overlay_state.flame_style_scan_done;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_groups = overlay_state.flame_style_groups;
+    app.resource_mut::<crate::ecs::ModelState>()
+        .flame_style_save_name = overlay_state.flame_style_save_name;
+
     #[cfg(debug_assertions)]
     {
         app.resource_mut::<crate::ecs::resource::DebugViewState>()
@@ -252,10 +360,13 @@ fn handle_redraw_requested(
     build_click_debug_overlay(ui, &app.data.ecs_world);
 
     platform.prepare_render(ui, window);
+
+    let imgui_build_start = Instant::now();
     let draw_data = imgui.render();
+    let imgui_build_ms = imgui_build_start.elapsed().as_secs_f32() * 1000.0;
 
     unsafe {
-        process_ui_events_and_render_frame(app, window, draw_data);
+        process_ui_events_and_render_frame(app, window, draw_data, dt_ms, imgui_build_ms);
     }
 
     app.data.ecs_world.resource_mut::<MouseInput>().end_frame();
@@ -471,30 +582,49 @@ fn build_timeline_and_fixed_overlays(
             layout_snapshot,
         );
     }
-
-    let delta_time = (app.start.elapsed().as_secs_f32() - app.last_update_time).max(0.001);
-    let timeline_state = app.data.ecs_world.resource::<TimelineState>();
-    let clip_duration = timeline_state
-        .current_clip_id
-        .and_then(|id| {
+    // Batch captures are diffed pixel-by-pixel; the status bar shows wall-clock
+    // values (FPS, memory) that would break determinism, so skip it there.
+    let is_batch_capture = app
+        .data
+        .ecs_world
+        .contains_resource::<crate::ecs::resource::BatchRun>();
+    if !is_batch_capture {
+        let delta_time = (app.start.elapsed().as_secs_f32() - app.last_update_time).max(0.001);
+        let timeline_state = app.data.ecs_world.resource::<TimelineState>();
+        let clip_duration = {
             let lib = app.data.ecs_world.resource::<ClipLibrary>();
-            lib.get(id).map(|c| c.duration)
-        })
-        .unwrap_or(0.0);
-    draw_status_bar(
-        ui,
-        status_bar_state,
-        delta_time,
-        viewport_info,
-        &*timeline_state,
-        clip_duration,
-    );
+            crate::ecs::systems::timeline_effective_duration(&timeline_state, &lib)
+        };
+        draw_status_bar(
+            ui,
+            status_bar_state,
+            delta_time,
+            viewport_info,
+            &*timeline_state,
+            clip_duration,
+        );
+    }
 
     let mut panel_layout = app.data.ecs_world.resource_mut::<PanelLayout>();
     handle_splitters(ui, &mut panel_layout, layout_snapshot);
 }
 
 fn build_curve_editor(ui: &imgui::Ui, app: &mut App) {
+    let scalar_domain = {
+        let world = &app.data.ecs_world;
+        let current = world.resource::<TimelineState>().current_clip_id;
+        current.and_then(|_| {
+            crate::ecs::component::scalar_channel_domains()
+                .iter()
+                .copied()
+                .find(|domain| {
+                    (domain.entities)(world).iter().any(|&entity| {
+                        crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(world, entity)
+                            == current
+                    })
+                })
+        })
+    };
     let timeline_state = app.data.ecs_world.resource::<TimelineState>();
     let clip_library = app.data.ecs_world.resource::<ClipLibrary>();
     let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
@@ -537,6 +667,7 @@ fn build_curve_editor(ui: &imgui::Ui, app: &mut App) {
         &*curve_buffer,
         &suggestion_overlays,
         &mut *pose_library,
+        scalar_domain,
     );
 }
 
@@ -544,6 +675,8 @@ unsafe fn process_ui_events_and_render_frame(
     app: &mut App,
     window: &winit::window::Window,
     draw_data: &imgui::DrawData,
+    dt_ms: f32,
+    imgui_build_ms: f32,
 ) {
     let model_bounds = app.data.graphics_resources.calculate_model_bounds();
     let (platform_events, deferred_actions) = run_event_dispatch_phase(
@@ -561,7 +694,7 @@ unsafe fn process_ui_events_and_render_frame(
         execute_deferred_action(app, action);
     }
 
-    render_frame(app, window, draw_data);
+    render_frame(app, window, draw_data, dt_ms, imgui_build_ms);
 }
 
 unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
@@ -587,10 +720,15 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
         DeferredAction::TakeScreenshot => {
             log!("Taking screenshot...");
             let image_index = app.frame % crate::app::init::MAX_FRAMES_IN_FLIGHT;
-            match app.save_screenshot(image_index) {
+            let save_result = app.save_screenshot(image_index);
+            match &save_result {
                 Ok(path) => msg_info!("Screenshot saved: {}", path),
                 Err(e) => log_error!("Screenshot failed: {:?}", e),
             }
+            crate::ecs::systems::batch_run_record_screenshot(
+                &app.data.ecs_world,
+                save_result.map_err(|e| format!("{e:?}")),
+            );
         }
 
         #[cfg(debug_assertions)]
@@ -701,11 +839,81 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
     }
 }
 
-unsafe fn render_frame(app: &mut App, window: &winit::window::Window, draw_data: &imgui::DrawData) {
+unsafe fn render_frame(
+    app: &mut App,
+    window: &winit::window::Window,
+    draw_data: &imgui::DrawData,
+    dt_ms: f32,
+    imgui_build_ms: f32,
+) {
     let frame_result = (|| -> anyhow::Result<()> {
+        let gpu_wait_start = Instant::now();
         let image_index = app.begin_frame()?;
+        let gpu_wait_ms = gpu_wait_start.elapsed().as_secs_f32() * 1000.0;
+
+        let update_start = Instant::now();
         app.update(image_index)?;
+        let update_ms = update_start.elapsed().as_secs_f32() * 1000.0;
+
+        let render_cpu_start = Instant::now();
         app.render(image_index, draw_data)?;
+        let render_cpu_ms = render_cpu_start.elapsed().as_secs_f32() * 1000.0;
+
+        // Batch run screenshot: after render (which calls queue_present_khr),
+        // check if we need to save a screenshot for the batch run.
+        if app
+            .data
+            .ecs_world
+            .contains_resource::<crate::ecs::resource::BatchRun>()
+        {
+            let state = app
+                .data
+                .ecs_world
+                .get_resource::<crate::ecs::resource::BatchRun>()
+                .map(|b| b.state.clone());
+            let dump_wall_probe = app
+                .data
+                .ecs_world
+                .get_resource::<crate::ecs::resource::BatchRun>()
+                .map(|b| b.dump_wall_probe)
+                .unwrap_or(false);
+            if matches!(
+                state,
+                Some(crate::ecs::resource::BatchRunState::ScreenshotRequested)
+            ) {
+                app.rrdevice.device.device_wait_idle()?;
+                let save_result = app.save_screenshot(image_index);
+                crate::ecs::systems::batch_run_record_screenshot(
+                    &app.data.ecs_world,
+                    save_result.map_err(|e| format!("{e:?}")),
+                );
+                // Wall probe dump: if this batch run was started with
+                // --batch-debug-action dump_wall_probe, dump synchronously
+                // at the same frame/time as the screenshot.
+                if dump_wall_probe {
+                    crate::ecs::systems::perform_flame_wall_probe_dump(
+                        &app.data.ecs_world,
+                        [1680.0, 840.0],
+                    );
+                }
+            }
+        }
+
+        app.data
+            .ecs_world
+            .insert_resource(crate::ecs::resource::CpuFrameTimings {
+                frame: app.frame as u64,
+                dt_ms,
+                stages: vec![
+                    ("imgui_build".to_string(), imgui_build_ms),
+                    ("gpu_wait".to_string(), gpu_wait_ms),
+                    ("update".to_string(), update_ms),
+                    ("render_cpu".to_string(), render_cpu_ms),
+                ],
+                imgui_vtx: draw_data.total_vtx_count as u32,
+                imgui_idx: draw_data.total_idx_count as u32,
+            });
+
         Ok(())
     })();
 
@@ -715,6 +923,32 @@ unsafe fn render_frame(app: &mut App, window: &winit::window::Window, draw_data:
             if let Err(e) = app.recreate_swapchain(window) {
                 log_error!("Failed to recreate swapchain: {:?}", e);
                 return;
+            }
+            // Write swapchain_recreate marker event to exposure dump sink if it exists
+            if let Some(mut sink) = app
+                .data
+                .ecs_world
+                .get_resource_mut::<crate::ecs::resource::ExposureDumpSink>()
+            {
+                let frame = app
+                    .data
+                    .ecs_world
+                    .get_resource::<crate::ecs::resource::BatchRun>()
+                    .map(|b| b.frames_rendered)
+                    .unwrap_or(sink.last_frame);
+                use std::fs::OpenOptions;
+                use std::io::Write;
+                if let Ok(mut file) = OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&sink.path)
+                {
+                    let _ = writeln!(
+                        file,
+                        "{{\"event\":\"swapchain_recreate\",\"frame\":{}}}",
+                        frame
+                    );
+                }
             }
         } else {
             log_error!("Frame error: {:?}", e);

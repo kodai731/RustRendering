@@ -83,5 +83,5 @@ void main() {
     vec3 blurredColor = accumColor / max(totalWeight, 0.001);
     float blendFactor = smoothstep(0.0, 2.0, coc);
 
-    outColor = vec4(mix(hdrColor.rgb, blurredColor, blendFactor), 1.0);
+    outColor = vec4(mix(hdrColor.rgb, blurredColor, blendFactor), hdrColor.a);
 }

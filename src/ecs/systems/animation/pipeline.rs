@@ -1,10 +1,10 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use cgmath::Matrix4;
 
 use crate::animation::{BoneId, BoneLocalPose, SkeletonId};
 use crate::asset::AssetStorage;
-use crate::ecs::resource::{AnimationType, ClipLibrary};
+use crate::ecs::resource::{AnimationType, ClipLibrary, PoseApplyCache};
 use crate::ecs::world::{Animator, World};
 use crate::ecs::{apply_pose_overrides, compute_pose_global_transforms};
 use crate::vulkanr::resource::graphics_resource::{GraphicsResources, NodeData};
@@ -27,6 +27,7 @@ pub fn run_animation_pipeline(
     assets: &AssetStorage,
     dt: f32,
     pose_overrides: &HashMap<BoneId, BoneLocalPose>,
+    pose_apply_cache: &mut PoseApplyCache,
 ) -> AnimationEvalResult {
     let entity_infos = collect_animated_entities(world, graphics, clip_library, assets);
 
@@ -36,15 +37,16 @@ pub fn run_animation_pipeline(
         .map(|(_, a)| a.time)
         .unwrap_or(0.0);
 
-    let morph_updated = if !clip_library.morph_animation.is_empty() {
-        apply_morph_animation(graphics, &clip_library.morph_animation, first_time)
+    let morph_updated: HashSet<usize> = if !clip_library.morph_animation.is_empty() {
+        let updated = apply_morph_animation(graphics, &clip_library.morph_animation, first_time);
+        updated.into_iter().collect()
     } else {
-        Vec::new()
+        HashSet::new()
     };
 
     if entity_infos.is_empty() {
         return AnimationEvalResult {
-            updated_meshes: morph_updated,
+            updated_meshes: morph_updated.into_iter().collect(),
             bone_transforms: None,
         };
     }
@@ -57,10 +59,13 @@ pub fn run_animation_pipeline(
         assets,
         dt,
         pose_overrides,
+        &morph_updated,
+        pose_apply_cache,
     );
 
+    let morph_vec: Vec<usize> = morph_updated.into_iter().collect();
     AnimationEvalResult {
-        updated_meshes: merge_updated_indices(morph_updated, anim_updated),
+        updated_meshes: merge_updated_indices(morph_vec, anim_updated),
         bone_transforms,
     }
 }
@@ -73,6 +78,8 @@ fn apply_blended_animations(
     assets: &AssetStorage,
     dt: f32,
     pose_overrides: &HashMap<BoneId, BoneLocalPose>,
+    morph_updated: &HashSet<usize>,
+    pose_apply_cache: &mut PoseApplyCache,
 ) -> (
     Vec<usize>,
     Option<(SkeletonId, Vec<Matrix4<f32>>, AnimationType)>,
@@ -145,14 +152,44 @@ fn apply_blended_animations(
             ));
         }
 
+        let morph_targeted = morph_updated.contains(&info.mesh_idx);
+
         let mesh_updated = match info.animation_type {
-            AnimationType::Node => apply_node_animation_to_single_mesh(
-                graphics,
-                info.mesh_idx,
-                nodes,
-                info.node_animation_scale,
-            ),
-            _ => apply_skinning_to_single_mesh(graphics, info.mesh_idx, &globals, skeleton),
+            AnimationType::Node => {
+                let mesh_ref = &graphics.meshes[info.mesh_idx];
+                let node_opt = mesh_ref
+                    .node_index
+                    .and_then(|idx| nodes.iter().find(|n| n.index == idx));
+                if let Some(node) = node_opt {
+                    let current_value = (node.global_transform, info.node_animation_scale);
+                    if should_skip_node(
+                        pose_apply_cache,
+                        info.mesh_idx,
+                        current_value,
+                        morph_targeted,
+                    ) {
+                        continue;
+                    }
+                    pose_apply_cache
+                        .node_cache
+                        .insert(info.mesh_idx, current_value);
+                }
+                apply_node_animation_to_single_mesh(
+                    graphics,
+                    info.mesh_idx,
+                    nodes,
+                    info.node_animation_scale,
+                )
+            }
+            _ => {
+                if should_skip_skinned(pose_apply_cache, info.mesh_idx, &globals, morph_targeted) {
+                    continue;
+                }
+                pose_apply_cache
+                    .skinned_cache
+                    .insert(info.mesh_idx, globals.clone());
+                apply_skinning_to_single_mesh(graphics, info.mesh_idx, &globals, skeleton)
+            }
         };
 
         if mesh_updated && !updated.contains(&info.mesh_idx) {
@@ -161,4 +198,118 @@ fn apply_blended_animations(
     }
 
     (updated, first_bone_transforms)
+}
+
+#[inline]
+fn should_skip_skinned(
+    cache: &PoseApplyCache,
+    mesh_idx: usize,
+    globals: &[Matrix4<f32>],
+    morph_targeted: bool,
+) -> bool {
+    if morph_targeted {
+        return false;
+    }
+    if let Some(cached) = cache.skinned_cache.get(&mesh_idx) {
+        if cached == &globals {
+            return true;
+        }
+    }
+    false
+}
+
+#[inline]
+fn should_skip_node(
+    cache: &PoseApplyCache,
+    mesh_idx: usize,
+    current_value: (Matrix4<f32>, f32),
+    morph_targeted: bool,
+) -> bool {
+    if morph_targeted {
+        return false;
+    }
+    if let Some(cached) = cache.node_cache.get(&mesh_idx) {
+        if cached == &current_value {
+            return true;
+        }
+    }
+    false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ecs::resource::PoseApplyCache;
+    use cgmath::SquareMatrix;
+
+    fn identity_matrices(count: usize) -> Vec<Matrix4<f32>> {
+        (0..count).map(|_| Matrix4::identity()).collect()
+    }
+
+    fn translated_matrices(offset: f32, count: usize) -> Vec<Matrix4<f32>> {
+        (0..count)
+            .map(|i| {
+                Matrix4::from_translation(cgmath::Vector3::new(offset * (i as f32 + 1.0), 0.0, 0.0))
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_should_skip_skinned_same_globals_no_morph() {
+        let mut cache = PoseApplyCache::default();
+        let globals: Vec<Matrix4<f32>> = identity_matrices(4);
+        cache.skinned_cache.insert(0, globals.clone());
+
+        assert!(should_skip_skinned(&cache, 0, &globals, false));
+    }
+
+    #[test]
+    fn test_should_skip_skinned_different_globals_no_morph() {
+        let mut cache = PoseApplyCache::default();
+        let cached_globals: Vec<Matrix4<f32>> = identity_matrices(4);
+        let new_globals: Vec<Matrix4<f32>> = translated_matrices(1.0, 4);
+        cache.skinned_cache.insert(0, cached_globals);
+
+        assert!(!should_skip_skinned(&cache, 0, &new_globals, false));
+    }
+
+    #[test]
+    fn test_should_skip_skinned_any_globals_morph_true() {
+        let mut cache = PoseApplyCache::default();
+        let globals: Vec<Matrix4<f32>> = identity_matrices(4);
+        cache.skinned_cache.insert(0, globals.clone());
+
+        assert!(!should_skip_skinned(&cache, 0, &globals, true));
+    }
+
+    #[test]
+    fn test_should_skip_node_same_value_no_morph() {
+        let mut cache = PoseApplyCache::default();
+        let value: (Matrix4<f32>, f32) = (Matrix4::identity(), 1.0);
+        cache.node_cache.insert(0, value);
+
+        assert!(should_skip_node(&cache, 0, value, false));
+    }
+
+    #[test]
+    fn test_should_skip_node_different_value_no_morph() {
+        let mut cache = PoseApplyCache::default();
+        let cached_value: (Matrix4<f32>, f32) = (Matrix4::identity(), 1.0);
+        let new_value: (Matrix4<f32>, f32) = (
+            Matrix4::from_translation(cgmath::Vector3::new(1.0, 0.0, 0.0)),
+            1.0,
+        );
+        cache.node_cache.insert(0, cached_value);
+
+        assert!(!should_skip_node(&cache, 0, new_value, false));
+    }
+
+    #[test]
+    fn test_should_skip_node_any_value_morph_true() {
+        let mut cache = PoseApplyCache::default();
+        let value: (Matrix4<f32>, f32) = (Matrix4::identity(), 1.0);
+        cache.node_cache.insert(0, value);
+
+        assert!(!should_skip_node(&cache, 0, value, true));
+    }
 }

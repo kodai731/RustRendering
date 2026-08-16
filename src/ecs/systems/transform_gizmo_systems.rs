@@ -4,7 +4,7 @@ use cgmath::{vec3, Deg, InnerSpace, Quaternion, Rotation3, Vector2, Vector3};
 
 use crate::ecs::component::{ColorVertex, LineMesh};
 use crate::ecs::resource::gizmo::transform_gizmo::{TransformGizmoData, TransformGizmoHandle};
-use crate::ecs::resource::{CoordinateSpace, TransformGizmoMode, TransformGizmoState};
+use crate::ecs::resource::TransformGizmoMode;
 use crate::math::{
     coordinate_system::perspective_infinite_reverse, ray_plane_intersection,
     ray_to_line_segment_distance, ray_to_point_distance, screen_to_world_ray, view,
@@ -977,6 +977,7 @@ pub fn compute_ray_to_circle_distance(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ecs::resource::{CoordinateSpace, TransformGizmoState};
 
     #[test]
     fn test_cone_vertex_generation() {

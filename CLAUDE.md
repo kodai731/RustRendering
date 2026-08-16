@@ -81,6 +81,13 @@ This includes core ECS layer (`src/ecs/`), domain ECS modules (`src/animation/ed
 - Key principles: make invalid states unrepresentable, validate at boundaries, consistent error handling, RAII, exhaustive
   matching, no boolean parameters, fail fast.
 
+## Comments
+
+- **IMPORTANT**: Follow the rules defined in `.claude/rules/comments.md` for all source code, shaders included.
+- Key principles: comments are not required by default; make the code self-explanatory and split it into paragraphs
+  instead; comment only what the code cannot say (formula sources, non-obvious constraints) in a single line; never
+  leave a record of a fix or a session's reasoning in the code.
+
 ## Path
 
 **IMPORTANT:** All `${...Path}` variables MUST be resolved by reading `.claude/local/paths.md`.

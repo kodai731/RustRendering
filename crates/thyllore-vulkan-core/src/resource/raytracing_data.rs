@@ -9,7 +9,7 @@ use crate::data::{self as vulkan_data, SceneUniformData};
 use crate::descriptor::{
     RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
     RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
-    RRRayQueryDescriptorSet, RRToneMapDescriptorSet,
+    RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet,
 };
 use crate::pipeline::{
     BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
@@ -18,10 +18,14 @@ use crate::pipeline::{
 use crate::raytracing::RRAccelerationStructure;
 use crate::render::RRRender;
 use crate::renderer::push_constants::{GBufferPushConstants, OnionSkinPushConstants};
+use crate::renderer::tonemap::ToneMapPushConstants;
 use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
-use crate::resource::{BloomChain, OnionSkinPassResources, RRGBuffer};
+use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
+use thyllore_effect_core::FlameUBO;
+
+pub const MAX_FLAME_INSTANCES: usize = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
@@ -54,6 +58,17 @@ pub struct RayTracingData {
     pub auto_exposure_average_descriptor: Option<RRAutoExposureAverageDescriptorSet>,
 
     pub onion_skin_pass: Option<OnionSkinPassResources>,
+
+    pub flame_shading_pipeline: Option<RRPipeline>,
+    pub flame_descriptor: Option<RRFlameDescriptorSet>,
+    pub flame_uniform_buffer: Option<vk::Buffer>,
+    pub flame_uniform_buffer_memory: Option<vk::DeviceMemory>,
+    pub flame_ubo_slot_size: vk::DeviceSize,
+
+    pub flame_sdf_image: vk::Image,
+    pub flame_sdf_image_memory: vk::DeviceMemory,
+    pub flame_sdf_image_view: vk::ImageView,
+    pub flame_sdf_sampler: vk::Sampler,
 
     pub scene_uniform_buffer: Option<vk::Buffer>,
     pub scene_uniform_buffer_memory: Option<vk::DeviceMemory>,
@@ -226,6 +241,38 @@ impl RayTracingData {
         Ok(())
     }
 
+    /// Point the ray query descriptor at the current TLAS, allocating the set
+    /// on first use (the pipeline may be built before any model exists).
+    pub unsafe fn bind_ray_query_tlas(&mut self, rrdevice: &RRDevice) -> Result<()> {
+        let Some(tlas) = self
+            .acceleration_structure
+            .as_ref()
+            .and_then(|accel| accel.tlas.acceleration_structure)
+        else {
+            return Ok(());
+        };
+        let (Some(descriptor), Some(gbuffer), Some(scene_buffer)) = (
+            self.ray_query_descriptor.as_mut(),
+            self.gbuffer.as_ref(),
+            self.scene_uniform_buffer,
+        ) else {
+            return Ok(());
+        };
+
+        if descriptor.descriptor_set == vk::DescriptorSet::null() {
+            descriptor.allocate_and_update(
+                rrdevice,
+                gbuffer.position_image_view,
+                gbuffer.normal_image_view,
+                gbuffer.shadow_mask_image_view,
+                tlas,
+                scene_buffer,
+            )
+        } else {
+            descriptor.update_tlas(rrdevice, tlas)
+        }
+    }
+
     unsafe fn init_scene_uniform_buffer(
         &mut self,
         instance: &Instance,
@@ -371,6 +418,125 @@ impl RayTracingData {
         Ok(())
     }
 
+    pub unsafe fn create_flame_pipeline(
+        &mut self,
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        rrrender: &RRRender,
+        graphics_resources: &GraphicsResources,
+        flame_buffer: &FlameBuffer,
+        position_image_view: vk::ImageView,
+        position_sampler: vk::Sampler,
+        scene_depth_view: vk::ImageView,
+    ) -> Result<()> {
+        let min_alignment = rrdevice.min_uniform_buffer_offset_alignment;
+        let slot_size = (std::mem::size_of::<FlameUBO>() as vk::DeviceSize + min_alignment - 1)
+            & !(min_alignment - 1);
+        let total_size = slot_size * MAX_FLAME_INSTANCES as vk::DeviceSize;
+        let (flame_ubo_buffer, flame_ubo_memory) = create_buffer(
+            instance,
+            rrdevice,
+            total_size,
+            vk::BufferUsageFlags::UNIFORM_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        self.write_initial_flame_ubo(rrdevice, flame_ubo_memory)?;
+
+        let mut flame_descriptor = RRFlameDescriptorSet {
+            descriptor_set_layout: RRFlameDescriptorSet::create_layout(rrdevice)?,
+            descriptor_pool: RRFlameDescriptorSet::create_pool(rrdevice)?,
+            descriptor_sets: [vk::DescriptorSet::null(); 2],
+            scene_depth_sampler: vk::Sampler::null(),
+        };
+        flame_descriptor.allocate_and_update(
+            rrdevice,
+            flame_ubo_buffer,
+            slot_size,
+            flame_buffer.history_image_views,
+            flame_buffer.sampler,
+            position_image_view,
+            position_sampler,
+            scene_depth_view,
+        )?;
+
+        let flame_shading_pipeline = PipelineBuilder::new(
+            "assets/shaders/tonemapVert.spv",
+            "assets/shaders/flameResolveFrag.spv",
+        )
+        .vertex_input(VertexInputConfig::Custom {
+            bindings: vec![],
+            attributes: vec![],
+        })
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .no_depth_test()
+        .custom_render_pass(flame_buffer.shading_render_pass)
+        .msaa_samples(vk::SampleCountFlags::_1)
+        .mrt_attachments(2)
+        .blend(BlendConfig {
+            enable: true,
+            src_color_factor: vk::BlendFactor::ONE,
+            dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            color_op: vk::BlendOp::ADD,
+            src_alpha_factor: vk::BlendFactor::ONE,
+            dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+            alpha_op: vk::BlendOp::ADD,
+        })
+        .attachment_blend(
+            1,
+            BlendConfig {
+                enable: false,
+                src_color_factor: vk::BlendFactor::ONE,
+                dst_color_factor: vk::BlendFactor::ZERO,
+                color_op: vk::BlendOp::ADD,
+                src_alpha_factor: vk::BlendFactor::ONE,
+                dst_alpha_factor: vk::BlendFactor::ZERO,
+                alpha_op: vk::BlendOp::ADD,
+            },
+        )
+        .push_constants(PushConstantConfig {
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            offset: 0,
+            size: std::mem::size_of::<crate::renderer::FlamePushConstants>() as u32,
+        })
+        .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
+        .descriptor_layouts(vec![
+            graphics_resources.frame_set.layout,
+            flame_descriptor.descriptor_set_layout,
+        ])
+        .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
+
+        self.flame_shading_pipeline = Some(flame_shading_pipeline);
+        self.flame_descriptor = Some(flame_descriptor);
+        self.flame_uniform_buffer = Some(flame_ubo_buffer);
+        self.flame_uniform_buffer_memory = Some(flame_ubo_memory);
+        self.flame_ubo_slot_size = slot_size;
+
+        log!("Created flame pipelines");
+        Ok(())
+    }
+
+    unsafe fn write_initial_flame_ubo(
+        &self,
+        rrdevice: &RRDevice,
+        flame_ubo_memory: vk::DeviceMemory,
+    ) -> Result<()> {
+        let initial_ubo = FlameUBO::default();
+
+        let mapped = rrdevice.device.map_memory(
+            flame_ubo_memory,
+            0,
+            std::mem::size_of::<FlameUBO>() as vk::DeviceSize,
+            vk::MemoryMapFlags::empty(),
+        )?;
+        std::ptr::copy_nonoverlapping(
+            &initial_ubo as *const FlameUBO as *const u8,
+            mapped.cast(),
+            std::mem::size_of::<FlameUBO>(),
+        );
+        rrdevice.device.unmap_memory(flame_ubo_memory);
+        Ok(())
+    }
+
     pub unsafe fn create_tonemap_pipeline(
         &mut self,
         rrdevice: &RRDevice,
@@ -420,7 +586,7 @@ impl RayTracingData {
         .push_constants(PushConstantConfig {
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             offset: 0,
-            size: 24,
+            size: std::mem::size_of::<ToneMapPushConstants>() as u32,
         })
         .build(rrdevice, rrrender, Some(offscreen_extent))?;
 

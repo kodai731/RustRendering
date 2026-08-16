@@ -74,14 +74,14 @@ impl Resources {
         self.data.insert(type_id, RefCell::new(Box::new(resource)));
     }
 
-    pub fn get<R: Resource>(&self) -> Option<ResRef<R>> {
+    pub fn get<R: Resource>(&self) -> Option<ResRef<'_, R>> {
         let type_id = TypeId::of::<R>();
         self.data
             .get(&type_id)
             .map(|cell| ResRef(cell.borrow(), std::marker::PhantomData))
     }
 
-    pub fn get_mut<R: Resource>(&self) -> Option<ResMut<R>> {
+    pub fn get_mut<R: Resource>(&self) -> Option<ResMut<'_, R>> {
         let type_id = TypeId::of::<R>();
         self.data
             .get(&type_id)
@@ -373,25 +373,25 @@ impl World {
         self.resources.insert(resource);
     }
 
-    pub fn resource<R: Resource>(&self) -> ResRef<R> {
+    pub fn resource<R: Resource>(&self) -> ResRef<'_, R> {
         self.resources.get::<R>().expect(&format!(
             "resource<{}> not found: call insert_resource() first",
             std::any::type_name::<R>()
         ))
     }
 
-    pub fn resource_mut<R: Resource>(&self) -> ResMut<R> {
+    pub fn resource_mut<R: Resource>(&self) -> ResMut<'_, R> {
         self.resources.get_mut::<R>().expect(&format!(
             "resource_mut<{}> not found: call insert_resource() first",
             std::any::type_name::<R>()
         ))
     }
 
-    pub fn get_resource<R: Resource>(&self) -> Option<ResRef<R>> {
+    pub fn get_resource<R: Resource>(&self) -> Option<ResRef<'_, R>> {
         self.resources.get::<R>()
     }
 
-    pub fn get_resource_mut<R: Resource>(&self) -> Option<ResMut<R>> {
+    pub fn get_resource_mut<R: Resource>(&self) -> Option<ResMut<'_, R>> {
         self.resources.get_mut::<R>()
     }
 
@@ -461,6 +461,15 @@ impl World {
         self.iter_components::<BillboardBehavior>()
             .map(|(e, _)| e)
             .collect()
+    }
+
+    pub fn query_flames(&self) -> Vec<Entity> {
+        let mut entities: Vec<Entity> = self
+            .iter_components::<crate::ecs::component::FlameEffect>()
+            .map(|(e, _)| e)
+            .collect();
+        entities.sort();
+        entities
     }
 
     pub fn query_with_parent(&self) -> Vec<Entity> {
@@ -669,6 +678,17 @@ impl<'a> EntityBuilder<'a> {
         self
     }
 
+    pub fn with_flame(self, effect: crate::ecs::component::FlameEffect) -> Self {
+        self.world.insert_component(self.entity, effect);
+        self.world
+            .insert_component(self.entity, crate::ecs::component::FlameBaked::default());
+        self.world.insert_component(
+            self.entity,
+            crate::ecs::component::FlameTemporalAccum::default(),
+        );
+        self
+    }
+
     pub fn with_editor_display(self, icon: EntityIcon, expanded: bool) -> Self {
         self.world.insert_component(
             self.entity,
@@ -683,21 +703,21 @@ impl<'a> EntityBuilder<'a> {
 }
 
 impl World {
-    pub fn entity(&mut self) -> EntityBuilder {
+    pub fn entity(&mut self) -> EntityBuilder<'_> {
         EntityBuilder::new(self)
     }
 
-    pub fn query<Q: crate::ecs::query::QueryData>(&self) -> crate::ecs::query::Query<Q> {
+    pub fn query<Q: crate::ecs::query::QueryData>(&self) -> crate::ecs::query::Query<'_, Q> {
         crate::ecs::query::Query::new(self)
     }
 
     pub fn query_filtered<Q: crate::ecs::query::QueryData, F: crate::ecs::query::QueryFilter>(
         &self,
-    ) -> crate::ecs::query::QueryFiltered<Q, F> {
+    ) -> crate::ecs::query::QueryFiltered<'_, Q, F> {
         crate::ecs::query::QueryFiltered::new(self)
     }
 
-    pub fn query_builder(&self) -> crate::ecs::query::QueryBuilder<crate::ecs::query::HNil> {
+    pub fn query_builder(&self) -> crate::ecs::query::QueryBuilder<'_, crate::ecs::query::HNil> {
         crate::ecs::query::QueryBuilder::new(self)
     }
 }

@@ -61,6 +61,7 @@ pub struct RRDevice {
     pub graphics_queue_family_index: u32,
     pub msaa_samples: vk::SampleCountFlags,
     pub min_uniform_buffer_offset_alignment: u64,
+    pub timestamp_period: f32,
 }
 
 impl RRDevice {
@@ -73,6 +74,7 @@ impl RRDevice {
             graphics_queue_family_index: 0,
             msaa_samples: vk::SampleCountFlags::default(),
             min_uniform_buffer_offset_alignment: 256,
+            timestamp_period: 1.0,
         }
     }
 
@@ -105,6 +107,7 @@ impl RRDevice {
 
         let properties = instance.get_physical_device_properties(physical_device);
         let min_ubo_alignment = properties.limits.min_uniform_buffer_offset_alignment;
+        let timestamp_period = properties.limits.timestamp_period;
 
         println!("created logical device");
         Ok(Self {
@@ -115,6 +118,7 @@ impl RRDevice {
             graphics_queue_family_index: graphics_index.0,
             msaa_samples: sample_count,
             min_uniform_buffer_offset_alignment: min_ubo_alignment,
+            timestamp_period,
         })
     }
 
@@ -144,6 +148,7 @@ impl RRDevice {
 
         let properties = instance.get_physical_device_properties(physical_device);
         let min_ubo_alignment = properties.limits.min_uniform_buffer_offset_alignment;
+        let timestamp_period = properties.limits.timestamp_period;
 
         println!("created headless logical device");
         Ok(Self {
@@ -154,6 +159,7 @@ impl RRDevice {
             graphics_queue_family_index: graphics_index.0,
             msaa_samples: sample_count,
             min_uniform_buffer_offset_alignment: min_ubo_alignment,
+            timestamp_period,
         })
     }
 
@@ -266,7 +272,8 @@ unsafe fn create_device_common(
         .sampler_anisotropy(true)
         .sample_rate_shading(true)
         .fill_mode_non_solid(true)
-        .independent_blend(true);
+        .independent_blend(true)
+        .geometry_shader(true);
 
     let mut accel_features =
         vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder().acceleration_structure(true);
@@ -344,11 +351,45 @@ unsafe fn create_logical_device_with_present(
     Ok((device, graphics_queue, present_queue))
 }
 
-unsafe fn pick_physical_device(
+const AMD_VENDOR_ID: u32 = 0x1002;
+
+unsafe fn device_local_memory_bytes(
     instance: &Instance,
-    surface: &vk::SurfaceKHR,
+    physical_device: vk::PhysicalDevice,
+) -> u64 {
+    let memory = instance.get_physical_device_memory_properties(physical_device);
+    (0..memory.memory_heap_count as usize)
+        .filter(|&i| {
+            memory.memory_heaps[i]
+                .flags
+                .contains(vk::MemoryHeapFlags::DEVICE_LOCAL)
+        })
+        .map(|i| memory.memory_heaps[i].size)
+        .sum()
+}
+
+// Enumeration order depends on the Vulkan loader / layer environment, so a
+// first-suitable pick can land on a small display adapter. Rank every suitable
+// device instead: THYLLORE_GPU name match > device-local VRAM > AMD (the render
+// GPU on this workstation; the NVIDIA card stays free for compute).
+fn device_rank(name_matches_env: bool, vram_bytes: u64, vendor_id: u32) -> (bool, u64, bool) {
+    (name_matches_env, vram_bytes, vendor_id == AMD_VENDOR_ID)
+}
+
+fn preferred_gpu_name_lowercase() -> Option<String> {
+    std::env::var("THYLLORE_GPU")
+        .ok()
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_lowercase())
+}
+
+unsafe fn pick_ranked_physical_device(
+    instance: &Instance,
+    surface: Option<&vk::SurfaceKHR>,
     device_extensions: &[vk::ExtensionName],
 ) -> Result<(vk::PhysicalDevice, vk::SampleCountFlags)> {
+    let preferred_name = preferred_gpu_name_lowercase();
+    let mut best: Option<(vk::PhysicalDevice, (bool, u64, bool))> = None;
     for physical_device in instance.enumerate_physical_devices()? {
         let properties = instance.get_physical_device_properties(physical_device);
 
@@ -363,53 +404,69 @@ unsafe fn pick_physical_device(
             continue;
         }
 
-        if let Err(error) = check_physical_device_presentation(instance, surface, &physical_device)
-        {
-            log!(
-                "Skipping Physical Device (`{}`): {}",
-                properties.device_name,
-                error
-            );
-            continue;
+        if let Some(surface) = surface {
+            if let Err(error) =
+                check_physical_device_presentation(instance, surface, &physical_device)
+            {
+                log!(
+                    "Skipping Physical Device (`{}`): {}",
+                    properties.device_name,
+                    error
+                );
+                continue;
+            }
         }
 
-        log!("Selected Physical Device (`{}`).", properties.device_name);
-        let sample_count = get_max_msaa_samples(instance, physical_device);
-        return Ok((physical_device, sample_count));
+        let name_matches_env = preferred_name.as_ref().is_some_and(|p| {
+            properties
+                .device_name
+                .to_string()
+                .to_lowercase()
+                .contains(p)
+        });
+        let vram = device_local_memory_bytes(instance, physical_device);
+        let rank = device_rank(name_matches_env, vram, properties.vendor_id);
+        log!(
+            "Suitable Physical Device (`{}`): {} MiB device-local{}",
+            properties.device_name,
+            vram / (1024 * 1024),
+            if name_matches_env {
+                ", matches THYLLORE_GPU"
+            } else {
+                ""
+            }
+        );
+        if best.as_ref().is_none_or(|(_, best_rank)| rank > *best_rank) {
+            best = Some((physical_device, rank));
+        }
     }
 
-    Err(anyhow!("Failed to find suitable physical device"))
+    let (physical_device, _) = best.ok_or_else(|| {
+        anyhow!(if surface.is_some() {
+            "Failed to find suitable physical device"
+        } else {
+            "Failed to find suitable physical device (headless)"
+        })
+    })?;
+    let properties = instance.get_physical_device_properties(physical_device);
+    log!("Selected Physical Device (`{}`).", properties.device_name);
+    let sample_count = get_max_msaa_samples(instance, physical_device);
+    Ok((physical_device, sample_count))
+}
+
+unsafe fn pick_physical_device(
+    instance: &Instance,
+    surface: &vk::SurfaceKHR,
+    device_extensions: &[vk::ExtensionName],
+) -> Result<(vk::PhysicalDevice, vk::SampleCountFlags)> {
+    pick_ranked_physical_device(instance, Some(surface), device_extensions)
 }
 
 unsafe fn pick_physical_device_headless(
     instance: &Instance,
     device_extensions: &[vk::ExtensionName],
 ) -> Result<(vk::PhysicalDevice, vk::SampleCountFlags)> {
-    for physical_device in instance.enumerate_physical_devices()? {
-        let properties = instance.get_physical_device_properties(physical_device);
-
-        if let Err(error) =
-            check_physical_device_capabilities(instance, &physical_device, device_extensions)
-        {
-            log!(
-                "Skipping Physical Device (`{}`): {}",
-                properties.device_name,
-                error
-            );
-            continue;
-        }
-
-        log!(
-            "Selected Physical Device headless (`{}`).",
-            properties.device_name
-        );
-        let sample_count = get_max_msaa_samples(instance, physical_device);
-        return Ok((physical_device, sample_count));
-    }
-
-    Err(anyhow!(
-        "Failed to find suitable physical device (headless)"
-    ))
+    pick_ranked_physical_device(instance, None, device_extensions)
 }
 
 unsafe fn check_physical_device_capabilities(
