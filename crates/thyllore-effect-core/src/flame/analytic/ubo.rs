@@ -130,9 +130,9 @@ struct WaveUboFields {
     packed: [[f32; 4]; 2 * crate::flame_wave::WAVE_MODE_SLOTS],
     skipped_power: [f32; 2],
     jitter: [[f32; 4]; crate::flame_wave::WAVE_MODE_COUNT],
-    /// Std of the raw erosion carrier z (sum of the sine modes), before the
-    /// tanh shaping; the glow threshold is expressed in these units.
-    carrier_std: f32,
+    /// Std of the low-octave erosion carrier zLow (the envelope modes), before
+    /// the tanh shaping; the mixing window is expressed in these units.
+    low_carrier_std: f32,
 }
 
 /// Contrast-scaled base edge window: center is fixed, half-width divides by
@@ -220,8 +220,9 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         let power = 0.5 * mode.amplitude * mode.amplitude;
         skipped_power[usize::from(mode.env_coeff != 0.0)] += power;
     }
-    let carrier_std = erosion_modes
+    let low_carrier_std = erosion_modes
         .iter()
+        .filter(|mode| mode.env_coeff == 0.0)
         .map(|mode| 0.5 * mode.amplitude * mode.amplitude)
         .sum::<f32>()
         .sqrt();
@@ -322,20 +323,23 @@ fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
         packed,
         skipped_power,
         jitter,
-        carrier_std,
+        low_carrier_std,
     }
 }
 
 /// sigma_floor = relative-window floor coefficient (beta * |A| * shaped noise
 /// std; the shader multiplies by lambda * D_mid / 0.30 for the modulation std).
-/// Glow rises smoothly over two carrier std above the threshold; the shader
-/// reads the raw carrier in std units, so the threshold is spectrum-invariant.
-fn build_glow_params(effect: &FlameEffect, carrier_std: f32) -> FlameGlowParams {
-    FlameGlowParams {
-        gain: effect.glow_gain.max(0.0),
-        threshold: effect.glow_threshold,
-        inv_carrier_std: 1.0 / carrier_std.max(1e-6),
-        _padding: 0.0,
+/// The shader reads the low-octave carrier in std units, so the mixing window
+/// is spectrum-invariant.
+fn build_mix_params(effect: &FlameEffect, low_carrier_std: f32) -> FlameMixParams {
+    FlameMixParams {
+        lo: effect.mix_lo,
+        hi: effect.mix_hi.max(effect.mix_lo + 1e-3),
+        inv_carrier_std: 1.0 / low_carrier_std.max(1e-6),
+        height_gain: effect.mix_height_gain.max(0.0),
+        scale: effect.mix_scale.max(1e-3),
+        radial_gain: effect.mix_radial_gain.max(0.0),
+        _padding: [0.0; 2],
     }
 }
 
@@ -345,12 +349,26 @@ pub fn wave_segment_count(effect: &FlameEffect) -> u32 {
         .clamp(WAVE_SEGMENTS_MIN, WAVE_SEGMENTS_MAX)
 }
 
-fn build_density_map_params(effect: &FlameEffect) -> FlameDensityMapParams {
-    FlameDensityMapParams {
-        gain: effect.density_map_gain.max(0.0),
-        scale_ratio: effect.density_map_scale.max(0.0) / effect.noise_frequency.abs().max(1e-4),
-        soot_gain: effect.soot_gain.clamp(0.0, 1.0),
-        soot_threshold: effect.soot_threshold,
+fn build_temperature_ramp(effect: &FlameEffect) -> [[f32; 4]; 8] {
+    let cold = effect.temperature_tip_k;
+    let hot = effect.temperature_base_k;
+    let mut ramp = [[0.0f32; 4]; 8];
+    for (index, entry) in ramp.iter_mut().enumerate() {
+        let kelvin = cold + (hot - cold) * index as f32 / 7.0;
+        let rgb = blackbody_rgb(kelvin);
+        *entry = [rgb[0], rgb[1], rgb[2], 1.0];
+    }
+    ramp
+}
+
+fn build_thermal_params(effect: &FlameEffect) -> FlameThermalParams {
+    FlameThermalParams {
+        density_exp: effect.density_exp.max(0.0),
+        temp_exp: effect.temp_exp.max(0.0),
+        temp_hot_k: effect.temperature_base_k.max(1.0),
+        temp_cold_k: effect.temperature_tip_k.max(1.0),
+        wien_c_k: effect.wien_c_k.max(0.0),
+        _padding: [0.0; 3],
     }
 }
 
@@ -638,7 +656,7 @@ pub fn build_flame_ubo(
         },
         color_tip: FlameColorTip {
             rgb: color_tip,
-            edge_temperature_blend: effect.edge_temperature_blend,
+            _padding: 0.0,
         },
         temporal_data: FlameTemporalParams {
             accum_weight: temporal.weight,
@@ -725,15 +743,16 @@ pub fn build_flame_ubo(
         },
         radius_coefficients: effect.coefficients.radius_scale,
         color_ramp: build_color_ramp(effect, baked),
+        temp_ramp: build_temperature_ramp(effect),
         profile_params: build_profile_params(effect, baked),
         wave_params: wave_fields.shaping,
         tip_carve_params: build_tip_carve_params(effect),
         warp_strain_params: build_warp_strain_params(effect),
         warp_form_params: build_warp_form_params(effect),
         unified_params: build_unified_field_params(effect),
-        glow_params: build_glow_params(effect, wave_fields.carrier_std),
+        mix_params: build_mix_params(effect, wave_fields.low_carrier_std),
         segment_params: build_segment_params(effect),
-        density_map: build_density_map_params(effect),
+        thermal_params: build_thermal_params(effect),
         spread_params: build_medium_spread_params(effect),
         support_motion: FlameSupportMotion {
             support_margin: effect.support_margin,
@@ -1029,7 +1048,7 @@ pub struct FlameColorMid {
 #[derive(Clone, Copy, Debug)]
 pub struct FlameColorTip {
     pub rgb: [f32; 3],
-    pub edge_temperature_blend: f32,
+    pub _padding: f32,
 }
 
 #[repr(C)]
@@ -1194,21 +1213,26 @@ pub struct FlameUnifiedParams {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct FlameGlowParams {
-    pub gain: f32,
-    pub threshold: f32,
+pub struct FlameMixParams {
+    pub lo: f32,
+    pub hi: f32,
     pub inv_carrier_std: f32,
-    pub _padding: f32,
+    pub height_gain: f32,
+    /// Wavenumber scale of the mixing eddies relative to the low erosion octave.
+    pub scale: f32,
+    pub radial_gain: f32,
+    pub _padding: [f32; 2],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct FlameDensityMapParams {
-    pub gain: f32,
-    /// Map lattice units per noise-coordinate unit (scale / noise_frequency).
-    pub scale_ratio: f32,
-    pub soot_gain: f32,
-    pub soot_threshold: f32,
+pub struct FlameThermalParams {
+    pub density_exp: f32,
+    pub temp_exp: f32,
+    pub temp_hot_k: f32,
+    pub temp_cold_k: f32,
+    pub wien_c_k: f32,
+    pub _padding: [f32; 3],
 }
 
 #[repr(C)]
@@ -1343,15 +1367,18 @@ pub struct FlameUBO {
     pub near_fade_params: FlameNearFadeParams,
     pub radius_coefficients: [[f32; 4]; 2],
     pub color_ramp: [[f32; 4]; 8],
+    /// Planckian chromaticity sampled from temperature_tip_k (index 0) to
+    /// temperature_base_k (index 7); the shader interpolates by node temperature.
+    pub temp_ramp: [[f32; 4]; 8],
     pub profile_params: FlameProfileParams,
     pub wave_params: FlameWaveShaping,
     pub tip_carve_params: FlameTipCarveParams,
     pub warp_strain_params: FlameWarpStrainParams,
     pub warp_form_params: FlameWarpFormParams,
     pub unified_params: FlameUnifiedParams,
-    pub glow_params: FlameGlowParams,
+    pub mix_params: FlameMixParams,
     pub segment_params: FlameSegmentParams,
-    pub density_map: FlameDensityMapParams,
+    pub thermal_params: FlameThermalParams,
     pub spread_params: FlameSpreadParams,
     pub support_motion: FlameSupportMotion,
     pub twist_field: FlameTwistField,

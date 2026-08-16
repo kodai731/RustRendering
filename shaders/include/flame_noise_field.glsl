@@ -719,6 +719,39 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
     return flameEmitterSmoothDensityDisplacedAt(c, h, wiggle, flameBoundaryDisplacement(c.xz));
 }
 
+// Mixing degree m: how far a parcel has mixed with ambient air, read from the
+// low-octave erosion modes at the mixing eddy scale (std units, carve-positive
+// = mixed) plus height and shear-layer (radial) ramps: entrainment is a
+// large-eddy state of the outer plume, the high octaves only carve.
+// Density and temperature are two curves of the same scalar, so thinning and
+// cooling stay coupled the way turbulent entrainment couples them.
+// Mirrored in thyllore-render-debug/src/flame_field_trace.rs (mixing_degree).
+float flameMixingDegree(float carrierZ, float h, float uSquared) {
+    float carveSign = flame.noiseAmplitude < 0.0 ? -1.0 : 1.0;
+    float mixNoise = smoothstep(flame.mixParams.lo, flame.mixParams.hi,
+        carveSign * carrierZ * flame.mixParams.invCarrierStd);
+    float mixHeight = flame.mixParams.heightGain * h * h;
+    float mixRadial = flame.mixParams.radialGain * uSquared;
+    return clamp(mixNoise + mixHeight + mixRadial, 0.0, 1.0);
+}
+
+float flameMixDensityFactor(float mixing) {
+    return pow(max(1.0 - mixing, 0.0), flame.thermalParams.densityExp);
+}
+
+float flameMixTemperature(float mixing) {
+    return flame.thermalParams.tempColdK
+        + (flame.thermalParams.tempHotK - flame.thermalParams.tempColdK)
+            * pow(max(1.0 - mixing, 0.0), flame.thermalParams.tempExp);
+}
+
+// Wien-tail emissivity exp(-c/T) relative to the hot temperature; c is the
+// exposure-compressed Wien constant (24000 K = physical at 0.6 um).
+float flameWienEmissivity(float temperatureK) {
+    return exp(flame.thermalParams.wienCK
+        * (1.0 / max(flame.thermalParams.tempHotK, 1.0) - 1.0 / max(temperatureK, 1.0)));
+}
+
 // Wave-basis erosion noise: analytic sum of random wave modes over the same
 // warped coordinate the fbm samples — no lattice, no cells, so the ray
 // restriction is exact 1D and the closed form needs no radial bands. Advection
@@ -728,92 +761,6 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
 // Mirrored in thyllore-render-core/src/flame_wave.rs (evaluate_wave_noise_cf).
 // `pb` is the pre-warp (bend-removed) coordinate the closed-form pseudo-FM
 // modulators sample; it is unused when the cf variant is off.
-// Density map: a lattice value-noise fbm in the noise coordinate (so it rides
-// the same rise / twist / spread transport as the erosion carrier) that
-// scales the segment mass (optical depth and emission) log-normally,
-// exp(gain * n), so the column gets dense knots and thin veils instead of a
-// uniform occupancy. The erosion argument and the support keep the raw
-// density (the carved texture and the closed-form crossings are untouched);
-// octaves the segment spacing cannot resolve fade by the same exp(-beta^4)
-// low-pass as the mode sum. gain is the log-density std (exp(gain) = one-sigma
-// mass ratio) and the mean mass stays 1 (the -gain^2/2 log-normal shift), so
-// the map redistributes the medium instead of adding to it; 0 returns exactly 1.
-// Mirrored in thyllore-render-debug/src/flame_field_trace.rs (density_map_factor).
-const int FLAME_DENSITY_MAP_OCTAVES = 3;
-// Std of the normalized 3-octave sum (measured over the lattice), so gain is
-// the log-density std: exp(gain) is the one-sigma mass ratio.
-const float FLAME_DENSITY_MAP_INV_STD = 1.0 / 0.262;
-
-uint flameLatticeHash(uvec3 v) {
-    v = v * 1664525u + 1013904223u;
-    v.x += v.y * v.z;
-    v.y += v.z * v.x;
-    v.z += v.x * v.y;
-    v ^= v >> 16u;
-    v.x += v.y * v.z;
-    v.y += v.z * v.x;
-    v.z += v.x * v.y;
-    return v.x;
-}
-
-float flameLatticeValue(ivec3 cell) {
-    return float(flameLatticeHash(uvec3(cell)) & 0xFFFFFFu) * (1.0 / 16777216.0);
-}
-
-float flameValueNoise(vec3 m) {
-    vec3 cellF = floor(m);
-    vec3 f = m - cellF;
-    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
-    ivec3 c = ivec3(cellF);
-    float x00 = mix(flameLatticeValue(c), flameLatticeValue(c + ivec3(1, 0, 0)), u.x);
-    float x10 = mix(flameLatticeValue(c + ivec3(0, 1, 0)), flameLatticeValue(c + ivec3(1, 1, 0)), u.x);
-    float x01 = mix(flameLatticeValue(c + ivec3(0, 0, 1)), flameLatticeValue(c + ivec3(1, 0, 1)), u.x);
-    float x11 = mix(flameLatticeValue(c + ivec3(0, 1, 1)), flameLatticeValue(c + ivec3(1, 1, 1)), u.x);
-    return mix(mix(x00, x10, u.y), mix(x01, x11, u.y), u.z);
-}
-
-// Unit-std log-density noise of the map (0 when both map effects are off).
-float flameDensityMapNoise(vec3 w, vec3 rate, float dt) {
-    if (flame.densityMap.gain <= 0.0 && flame.densityMap.sootGain <= 0.0) {
-        return 0.0;
-    }
-    vec3 m = w * flame.densityMap.scaleRatio;
-    float advance = length(rate) * flame.densityMap.scaleRatio * dt;
-    float sum = 0.0;
-    float weightSum = 0.0;
-    float amplitude = 1.0;
-    float frequency = 1.0;
-    for (int octave = 0; octave < FLAME_DENSITY_MAP_OCTAVES; ++octave) {
-        float beta = 2.0 * advance * frequency;
-        float b2 = beta * beta;
-        float resolved = exp(-b2 * b2);
-        sum += amplitude * resolved * (2.0 * flameValueNoise(m * frequency + vec3(float(octave) * 17.0)) - 1.0);
-        weightSum += amplitude;
-        amplitude *= 0.5;
-        frequency *= 2.0;
-    }
-    return FLAME_DENSITY_MAP_INV_STD * sum / weightSum;
-}
-
-float flameDensityMapFactor(float mapNoise) {
-    if (flame.densityMap.gain <= 0.0) {
-        return 1.0;
-    }
-    float logDensity = flame.densityMap.gain * mapNoise;
-    return exp(logDensity - 0.5 * flame.densityMap.gain * flame.densityMap.gain);
-}
-
-// Soot clumps: where the map noise exceeds sootThreshold (std units) the
-// medium stays but stops emitting — dark dense clumps inside the bright body,
-// with a half-std soft edge. sootGain 0 returns exactly 0.
-float flameSootMask(float mapNoise) {
-    if (flame.densityMap.sootGain <= 0.0) {
-        return 0.0;
-    }
-    return flame.densityMap.sootGain
-        * smoothstep(flame.densityMap.sootThreshold, flame.densityMap.sootThreshold + 0.5, mapNoise);
-}
-
 // Shared two-pass mode sum (low octave first, then high octaves riding the
 // low-octave envelope 1 + coeff * zLow). `dt = 0` (with rate = vec3(0.0))
 // evaluates the field at a point: every low-pass weight is then exactly 1 and
@@ -822,6 +769,7 @@ float flameSootMask(float mapNoise) {
 struct FlameWaveModeSumResult {
     float z;
     float zLow;
+    float zMix;
     float unresolvedPower;
 };
 
@@ -843,16 +791,22 @@ FlameWaveModeSumResult flameWaveModeSum(
 
     FlameWaveModeSumResult result;
     result.zLow = 0.0;
+    result.zMix = 0.0;
     result.unresolvedPower = 0.0;
+    float mixScale = flame.mixParams.scale;
     for (int n = 0; n < count; ++n) {
         vec4 waveVector = flame.waveModes[2 * n];
         vec4 wavePhase = flame.waveModes[2 * n + 1];
         if (wavePhase.z != 0.0) {
             continue;
         }
-        float angle = dot(waveVector.xyz, w) + wavePhase.x + wavePhase.y * eddyTime
-            + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
+        float spatialAngle = dot(waveVector.xyz, w) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
+        float angle = spatialAngle + wavePhase.x + wavePhase.y * eddyTime;
         float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsiRate);
+        float betaMix = mixScale * betaPhase * dt / 3.14159265;
+        float bm2 = betaMix * betaMix;
+        result.zMix += exp(-bm2 * bm2) * waveVector.w
+            * sin(mixScale * spatialAngle + wavePhase.x + wavePhase.y * eddyTime);
         float carrier;
         if (cf) {
             float depth = ampDisp * wavePhase.w;

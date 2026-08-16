@@ -880,23 +880,33 @@ fn build_flame_section(
                         });
                     }
 
-                    ui.slider_config("Glow Gain", 0.0, 8.0)
+                    ui.slider_config("Density Exp", 0.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.glow_gain);
+                        .build(&mut effect_copy.density_exp);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Radiance gain of the un-eroded noise cores: bright filaments over \
-                             a dim body (0 = flat radiance ceiling)",
+                            "Mass curve of a mixing parcel, (1 - m)^a: larger thins the mixed \
+                             regions faster",
                         );
                     }
-                    ui.slider_config("Glow Threshold", -2.0, 3.0)
+                    ui.slider_config("Temp Exp", 0.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.glow_threshold);
+                        .build(&mut effect_copy.temp_exp);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Noise level (in std units) where the glow starts, rising smoothly \
-                             over two std: lower lights more of the body, higher keeps only the \
-                             densest cores",
+                            "Temperature curve of a mixing parcel, T_cold + (T_hot - T_cold) \
+                             (1 - m)^b: larger than Density Exp cools before thinning (dark red \
+                             tufts remain), smaller thins before cooling",
+                        );
+                    }
+                    ui.slider_config("Wien C (K)", 0.0, 24000.0)
+                        .display_format("%.0f")
+                        .build(&mut effect_copy.wien_c_k);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Wien constant of the emissivity exp(-c/T): 24000 is physical at \
+                             0.6 um, smaller compresses the hot/cold brightness contrast like \
+                             camera exposure",
                         );
                     }
 
@@ -963,43 +973,51 @@ fn build_flame_section(
                         );
                     }
 
-                    ui.slider_config("Density Map Gain", 0.0, 2.5)
+                    ui.slider_config("Mix Lo", -3.0, 3.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.density_map_gain);
+                        .build(&mut effect_copy.mix_lo);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Log-density std of the medium (dense knots and thin veils) from a \
-                             lattice fbm riding the noise transport: 1 = one-sigma mass ratio \
-                             e; 0 = uniform medium",
+                            "Erosion carrier level (std units, carve-positive) where a parcel \
+                             starts mixing with ambient air: lower mixes more of the body",
                         );
                     }
-                    ui.slider_config("Density Map Scale", 0.1, 8.0)
+                    ui.slider_config("Mix Hi", -3.0, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.density_map_scale);
+                        .build(&mut effect_copy.mix_hi);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Density map cells per radius: small = a few large lobes, large = \
-                             fine speckle",
+                            "Carrier level (std units) where a parcel counts as fully mixed \
+                             (thin and cold)",
                         );
                     }
-
-                    ui.slider_config("Soot Gain", 0.0, 1.0)
+                    ui.slider_config("Mix Scale", 0.1, 2.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.soot_gain);
+                        .build(&mut effect_copy.mix_scale);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Darkness of the soot clumps: where the density map noise passes \
-                             Soot Threshold the medium keeps its mass but loses this share of \
-                             its emission (dark dense clumps in a bright body); 0 = off",
+                            "Wavenumber of the mixing eddies relative to the low erosion \
+                             octave: below 1 the mixed and unmixed regions grow larger than \
+                             the carve detail",
                         );
                     }
-                    ui.slider_config("Soot Threshold", -1.0, 3.0)
+                    ui.slider_config("Mix Radial Gain", 0.0, 3.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.soot_threshold);
+                        .build(&mut effect_copy.mix_radial_gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
-                            "Density map noise level (std units) where a clump starts, soft \
-                             over half a std: 1 = ~16% of the volume, 2 = ~2%",
+                            "Shear-layer ramp added to the mixing degree, gain * u^2 over the \
+                             normalized radius: the axis stays an unmixed bright core while \
+                             the rim thins and cools",
+                        );
+                    }
+                    ui.slider_config("Mix Height Gain", 0.0, 2.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.mix_height_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Height ramp added to the mixing degree, gain * h^2: the plume \
+                             thins and cools toward the top",
                         );
                     }
 

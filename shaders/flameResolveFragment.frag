@@ -33,7 +33,7 @@ struct FlameColorMid {
 
 struct FlameColorTip {
     vec3 rgb;
-    float edgeTemperatureBlend;
+    float pad0;
 };
 
 struct FlameTemporalParams {
@@ -159,18 +159,26 @@ struct FlameUnifiedParams {
     float pad1;
 };
 
-struct FlameGlowParams {
-    float gain;
-    float threshold;
+struct FlameMixParams {
+    float lo;
+    float hi;
     float invCarrierStd;
+    float heightGain;
+    float scale;
+    float radialGain;
     float pad0;
+    float pad1;
 };
 
-struct FlameDensityMapParams {
-    float gain;
-    float scaleRatio;
-    float sootGain;
-    float sootThreshold;
+struct FlameThermalParams {
+    float densityExp;
+    float tempExp;
+    float tempHotK;
+    float tempColdK;
+    float wienCK;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct FlameSegmentParams {
@@ -281,15 +289,16 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     FlameNearFadeParams nearFadeParams;
     vec4 radiusCoefficients[2];
     vec4 colorRamp[8];
+    vec4 tempRamp[8];
     FlameProfileParams profileParams;
     FlameWaveShaping waveParams;
     FlameTipCarveParams tipCarveParams;
     FlameWarpStrainParams warpStrainParams;
     FlameWarpFormParams warpFormParams;
     FlameUnifiedParams unifiedParams;
-    FlameGlowParams glowParams;
+    FlameMixParams mixParams;
     FlameSegmentParams segmentParams;
-    FlameDensityMapParams densityMap;
+    FlameThermalParams thermalParams;
     FlameSpreadParams spreadParams;
     FlameSupportMotion supportMotion;
     FlameTwistMode twistModes[2];

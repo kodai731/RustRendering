@@ -74,7 +74,6 @@ pub fn build_effect_json(
     value["aniso_axis_advect"] = json!(effect.aniso_axis_advect);
     value["rte_bands"] = json!(effect.rte_bands);
     value["sigma_dispersion"] = json!(effect.sigma_dispersion);
-    value["edge_temperature_blend"] = json!(effect.edge_temperature_blend);
     value["boundary_amp"] = json!(effect.boundary.amp);
     value["boundary_freq"] = json!(effect.boundary.freq);
     value["boundary_speed"] = json!(effect.boundary.speed);
@@ -96,13 +95,15 @@ pub fn build_effect_json(
     value["optical_depth"] = json!(effect.optical_depth);
     value["meander_amp"] = json!(effect.meander_amp);
     value["meander_frequency"] = json!(effect.meander_frequency);
-    value["glow_gain"] = json!(effect.glow_gain);
-    value["glow_threshold"] = json!(effect.glow_threshold);
+    value["mix_lo"] = json!(effect.mix_lo);
+    value["mix_hi"] = json!(effect.mix_hi);
+    value["mix_height_gain"] = json!(effect.mix_height_gain);
+    value["mix_scale"] = json!(effect.mix_scale);
+    value["mix_radial_gain"] = json!(effect.mix_radial_gain);
+    value["density_exp"] = json!(effect.density_exp);
+    value["temp_exp"] = json!(effect.temp_exp);
+    value["wien_c_k"] = json!(effect.wien_c_k);
     value["wave_segments"] = json!(effect.wave_segments);
-    value["density_map_gain"] = json!(effect.density_map_gain);
-    value["density_map_scale"] = json!(effect.density_map_scale);
-    value["soot_gain"] = json!(effect.soot_gain);
-    value["soot_threshold"] = json!(effect.soot_threshold);
     value["branch_period"] = json!(effect.branch.period);
     value["branch_life"] = json!(effect.branch.life);
     value["branch_gain"] = json!(effect.branch.gain);
@@ -168,12 +169,12 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "noise_scroll_speed": ubo.noise_scroll_speed,
         "color_base": [ubo.color_base.rgb[0], ubo.color_base.rgb[1], ubo.color_base.rgb[2], ubo.color_base.occlusion_lum_ref],
         "color_mid": ubo.color_mid.rgb,
-        "color_tip": [ubo.color_tip.rgb[0], ubo.color_tip.rgb[1], ubo.color_tip.rgb[2], ubo.color_tip.edge_temperature_blend],
+        "color_tip": ubo.color_tip.rgb,
         "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
         "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
-        "glow_params": [ubo.glow_params.gain, ubo.glow_params.threshold, ubo.glow_params.inv_carrier_std],
+        "mix_params": [ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain],
         "segment_params": [ubo.segment_params.count],
-        "density_map": [ubo.density_map.gain, ubo.density_map.scale_ratio, ubo.density_map.soot_gain, ubo.density_map.soot_threshold],
+        "thermal_params": [ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_c_k],
         "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],
         "support_margin": [
             ubo.support_motion.support_margin,

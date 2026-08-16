@@ -620,20 +620,52 @@ impl<'a> UboCtx<'a> {
         d_smooth - (erosion.max(0.0) + erosion.min(0.0) * self.envelope_fade(d_smooth))
     }
 
-    /// Mirror of flameSegmentGlow: radiance gain of the un-eroded noise cores.
-    fn segment_glow(&self, carrier_start: f32, carrier_end: f32) -> f32 {
-        let glow = &self.u.glow_params;
-        if glow.gain <= 0.0 {
-            return 1.0;
-        }
+    /// Mirror of flameMixingDegree.
+    fn mixing_degree(&self, carrier_z: f32, h: f32, u_squared: f32) -> f32 {
+        let mix = &self.u.mix_params;
         let carve_sign = if self.u.noise_amplitude < 0.0 {
             -1.0
         } else {
             1.0
         };
-        let material = -carve_sign * 0.5 * (carrier_start + carrier_end) * glow.inv_carrier_std;
-        let ramp = smoothstep(glow.threshold, glow.threshold + 2.0, material);
-        1.0 + glow.gain * ramp
+        let mix_noise = smoothstep(mix.lo, mix.hi, carve_sign * carrier_z * mix.inv_carrier_std);
+        let mix_height = mix.height_gain * h * h;
+        let mix_radial = mix.radial_gain * u_squared;
+        (mix_noise + mix_height + mix_radial).clamp(0.0, 1.0)
+    }
+
+    /// Mirror of flameMixDensityFactor.
+    fn mix_density_factor(&self, mixing: f32) -> f32 {
+        (1.0 - mixing)
+            .max(0.0)
+            .powf(self.u.thermal_params.density_exp)
+    }
+
+    /// Mirror of flameMixTemperature.
+    fn mix_temperature(&self, mixing: f32) -> f32 {
+        let thermal = &self.u.thermal_params;
+        thermal.temp_cold_k
+            + (thermal.temp_hot_k - thermal.temp_cold_k)
+                * (1.0 - mixing).max(0.0).powf(thermal.temp_exp)
+    }
+
+    /// Mirror of flameTemperatureColor.
+    fn temperature_color(&self, temperature_k: f32) -> [f32; 3] {
+        let thermal = &self.u.thermal_params;
+        let span = (thermal.temp_hot_k - thermal.temp_cold_k).max(1.0);
+        let u = ((temperature_k - thermal.temp_cold_k) / span).clamp(0.0, 1.0) * 8.0 - 0.5;
+        let i0 = u.floor().clamp(0.0, 7.0) as usize;
+        let i1 = (i0 + 1).min(7);
+        let f = (u - i0 as f32).clamp(0.0, 1.0);
+        let a = self.u.temp_ramp[i0];
+        let b = self.u.temp_ramp[i1];
+        mix3([a[0], a[1], a[2]], [b[0], b[1], b[2]], f)
+    }
+
+    /// Mirror of flameWienEmissivity.
+    fn wien_emissivity(&self, temperature_k: f32) -> f32 {
+        let hot = self.u.thermal_params.temp_hot_k.max(1.0);
+        (self.u.thermal_params.wien_c_k * (1.0 / hot - 1.0 / temperature_k.max(1.0))).exp()
     }
 
     /// d(shaped)/dz of the tanh noise shaping, expressed through the shaped
@@ -882,6 +914,8 @@ impl<'a> UboCtx<'a> {
         let z = z_low; // after both passes z_low holds the full sum
                        // Recompute the true z_low (first pass only) for the record.
         let mut z_low_only = 0.0f32;
+        let mut z_mix = 0.0f32;
+        let mix_scale = self.u.mix_params.scale;
         for n in 0..count {
             let (kv, ph) = self.wave_mode(n);
             if ph[2] != 0.0 {
@@ -893,12 +927,18 @@ impl<'a> UboCtx<'a> {
                 self.u.wave_jitter[n][1],
                 self.u.wave_jitter[n][2],
             ];
-            let angle = dot3(k, w) + ph[0] + ph[1] * eddy_time + dot3(jit, jitter_psi);
+            let spatial_angle = dot3(k, w) + dot3(jit, jitter_psi);
+            let angle = spatial_angle + ph[0] + ph[1] * eddy_time;
             let beta_phase = dot3(k, rate) + dot3(jit, jitter_psi_rate);
             let beta = beta_phase * dt / std::f32::consts::PI;
             let b2 = beta * beta;
             let weight = (-b2 * b2).exp();
             z_low_only += weight * kv[3] * angle.sin();
+            let beta_mix = mix_scale * beta_phase * dt / std::f32::consts::PI;
+            let bm2 = beta_mix * beta_mix;
+            z_mix += (-bm2 * bm2).exp()
+                * kv[3]
+                * (mix_scale * spatial_angle + ph[0] + ph[1] * eddy_time).sin();
         }
 
         let mut unresolved_total = unresolved + self.u.wave_cf_params.skipped_power_plain;
@@ -913,10 +953,10 @@ impl<'a> UboCtx<'a> {
         } else {
             0.4375 + z
         };
-        let map_noise = self.density_map_noise(w, rate, dt);
-        let map_factor = self.density_map_factor(map_noise);
-        let soot = self.soot_mask(map_noise);
-        let density = density * map_factor.min(1.0);
+        let mixing = self.mixing_degree(z_mix, hs, u_squared);
+        let mix_density = self.mix_density_factor(mixing);
+        let temperature = self.mix_temperature(mixing);
+        let emissivity = self.wien_emissivity(temperature);
         let lambda = self.tip_carve_lambda(hs);
         let mu = self.envelope_remaining_mu(hs);
         let strain = self.warp_strain(hs);
@@ -946,65 +986,12 @@ impl<'a> UboCtx<'a> {
             envelope_fade: self.envelope_fade(density),
             argument,
             density,
-            map_factor,
-            soot,
+            mix_density,
+            temperature,
+            emissivity,
             mode_values,
             mode_weights,
         }
-    }
-
-    /// Mirror of flameDensityMapNoise (unit-std log-density noise).
-    fn density_map_noise(&self, w: [f32; 3], rate: [f32; 3], dt: f32) -> f32 {
-        let map = &self.u.density_map;
-        if map.gain <= 0.0 && map.soot_gain <= 0.0 {
-            return 0.0;
-        }
-        let m = [
-            w[0] * map.scale_ratio,
-            w[1] * map.scale_ratio,
-            w[2] * map.scale_ratio,
-        ];
-        let advance = (rate[0] * rate[0] + rate[1] * rate[1] + rate[2] * rate[2]).sqrt()
-            * map.scale_ratio
-            * dt;
-        let mut sum = 0.0f32;
-        let mut weight_sum = 0.0f32;
-        let mut amplitude = 1.0f32;
-        let mut frequency = 1.0f32;
-        for octave in 0..DENSITY_MAP_OCTAVES {
-            let beta = 2.0 * advance * frequency;
-            let b2 = beta * beta;
-            let resolved = (-b2 * b2).exp();
-            let offset = octave as f32 * 17.0;
-            let sample = lattice_value_noise([
-                m[0] * frequency + offset,
-                m[1] * frequency + offset,
-                m[2] * frequency + offset,
-            ]);
-            sum += amplitude * resolved * (2.0 * sample - 1.0);
-            weight_sum += amplitude;
-            amplitude *= 0.5;
-            frequency *= 2.0;
-        }
-        DENSITY_MAP_INV_STD * sum / weight_sum
-    }
-
-    /// Mirror of flameDensityMapFactor.
-    fn density_map_factor(&self, map_noise: f32) -> f32 {
-        let gain = self.u.density_map.gain;
-        if gain <= 0.0 {
-            return 1.0;
-        }
-        (gain * map_noise - 0.5 * gain * gain).exp()
-    }
-
-    /// Mirror of flameSootMask.
-    fn soot_mask(&self, map_noise: f32) -> f32 {
-        let map = &self.u.density_map;
-        if map.soot_gain <= 0.0 {
-            return 0.0;
-        }
-        map.soot_gain * smoothstep(map.soot_threshold, map.soot_threshold + 0.5, map_noise)
     }
 
     /// Carrier constants shared by every point of a ray: per-mode amplitude
@@ -1134,46 +1121,6 @@ impl<'a> UboCtx<'a> {
                 * ((inv_scale * (u + offset)).tanh() + (inv_scale * (u - offset)).tanh());
         }
         amp * mean
-    }
-
-    fn ramp_color(&self, h: f32) -> [f32; 3] {
-        if self.u.profile_params.color_active > 0.5 {
-            let u = h.clamp(0.0, 1.0) * 8.0 - 0.5;
-            let i0 = (u.floor().clamp(0.0, 7.0)) as usize;
-            let i1 = (i0 + 1).min(7);
-            let f = (u - i0 as f32).clamp(0.0, 1.0);
-            let a = self.u.color_ramp[i0];
-            let b = self.u.color_ramp[i1];
-            mix3([a[0], a[1], a[2]], [b[0], b[1], b[2]], f)
-        } else if h < 0.5 {
-            mix3(
-                [
-                    self.u.color_base.rgb[0],
-                    self.u.color_base.rgb[1],
-                    self.u.color_base.rgb[2],
-                ],
-                [
-                    self.u.color_mid.rgb[0],
-                    self.u.color_mid.rgb[1],
-                    self.u.color_mid.rgb[2],
-                ],
-                h * 2.0,
-            )
-        } else {
-            mix3(
-                [
-                    self.u.color_mid.rgb[0],
-                    self.u.color_mid.rgb[1],
-                    self.u.color_mid.rgb[2],
-                ],
-                [
-                    self.u.color_tip.rgb[0],
-                    self.u.color_tip.rgb[1],
-                    self.u.color_tip.rgb[2],
-                ],
-                (h - 0.5) * 2.0,
-            )
-        }
     }
 
     /// computeSelfShadowTau (layered concentric cylinders).
@@ -1605,53 +1552,14 @@ struct NodeArgument {
     envelope_fade: f32,
     argument: f32,
     density: f32,
-    /// Density map mass ratio at the node; the segment mass scales with its mean.
-    map_factor: f32,
-    /// Soot mask at the node; the segment emission loses its mean.
-    soot: f32,
+    /// Mixing-degree mass factor at the node; the segment mass scales with its mean.
+    mix_density: f32,
+    /// Node temperature of the mixing curve; the segment color samples its mean.
+    temperature: f32,
+    /// Wien emissivity at the node temperature; the segment radiance scales with its mean.
+    emissivity: f32,
     mode_values: Vec<f32>,
     mode_weights: Vec<f32>,
-}
-
-const DENSITY_MAP_OCTAVES: usize = 3;
-const DENSITY_MAP_INV_STD: f32 = 1.0 / 0.262;
-
-/// Mirror of flameLatticeHash (u32 wrapping arithmetic, identical to the GLSL uint math).
-fn lattice_hash(v: [u32; 3]) -> u32 {
-    let mut x = v[0].wrapping_mul(1664525).wrapping_add(1013904223);
-    let mut y = v[1].wrapping_mul(1664525).wrapping_add(1013904223);
-    let mut z = v[2].wrapping_mul(1664525).wrapping_add(1013904223);
-    x = x.wrapping_add(y.wrapping_mul(z));
-    y = y.wrapping_add(z.wrapping_mul(x));
-    z = z.wrapping_add(x.wrapping_mul(y));
-    x ^= x >> 16;
-    y ^= y >> 16;
-    z ^= z >> 16;
-    x = x.wrapping_add(y.wrapping_mul(z));
-    y = y.wrapping_add(z.wrapping_mul(x));
-    z = z.wrapping_add(x.wrapping_mul(y));
-    let _ = (y, z);
-    x
-}
-
-fn lattice_value(cell: [i32; 3]) -> f32 {
-    (lattice_hash([cell[0] as u32, cell[1] as u32, cell[2] as u32]) & 0xFF_FFFF) as f32
-        * (1.0 / 16777216.0)
-}
-
-/// Mirror of flameValueNoise (quintic-blended lattice value noise).
-fn lattice_value_noise(m: [f32; 3]) -> f32 {
-    let cell_f = [m[0].floor(), m[1].floor(), m[2].floor()];
-    let f = [m[0] - cell_f[0], m[1] - cell_f[1], m[2] - cell_f[2]];
-    let fade = |t: f32| t * t * t * (t * (t * 6.0 - 15.0) + 10.0);
-    let u = [fade(f[0]), fade(f[1]), fade(f[2])];
-    let c = [cell_f[0] as i32, cell_f[1] as i32, cell_f[2] as i32];
-    let at = |dx: i32, dy: i32, dz: i32| lattice_value([c[0] + dx, c[1] + dy, c[2] + dz]);
-    let x00 = mixf(at(0, 0, 0), at(1, 0, 0), u[0]);
-    let x10 = mixf(at(0, 1, 0), at(1, 1, 0), u[0]);
-    let x01 = mixf(at(0, 0, 1), at(1, 0, 1), u[0]);
-    let x11 = mixf(at(0, 1, 1), at(1, 1, 1), u[0]);
-    mixf(mixf(x00, x10, u[1]), mixf(x01, x11, u[1]), u[2])
 }
 
 fn slab_interval(origin_y: f32, dir_y: f32, y_top: f32, t_max: f32) -> Option<(f32, f32)> {
@@ -1873,9 +1781,9 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "erosion_response": vec_json(&[ubo.erosion_response.center, ubo.erosion_response.kappa, ubo.erosion_response.weight1, ubo.erosion_response.weight2]),
             "wave_cf_params": vec_json(&[ubo.wave_cf_params.enabled, ubo.wave_cf_params.shear_layer_count, ubo.wave_cf_params.skipped_power_plain, ubo.wave_cf_params.skipped_power_env]),
             "unified_params": vec_json(&[ubo.unified_params.enabled, ubo.unified_params.sigma_floor]),
-            "glow_params": vec_json(&[ubo.glow_params.gain, ubo.glow_params.threshold, ubo.glow_params.inv_carrier_std]),
+            "mix_params": vec_json(&[ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain]),
             "segment_params": vec_json(&[ubo.segment_params.count]),
-            "density_map": vec_json(&[ubo.density_map.gain, ubo.density_map.scale_ratio, ubo.density_map.soot_gain, ubo.density_map.soot_threshold]),
+            "thermal_params": vec_json(&[ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_c_k]),
             "spread_params": vec_json(&[ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain]),
             "support_params": vec_json(&[
                 ubo.support_motion.support_margin,
@@ -2009,7 +1917,6 @@ fn trace_ray(
     };
     let residual = ctx.u.near_fade_params.carve_residual.clamp(0.0, 1.0);
     let mut total = 0.0f32;
-    let mut height_mean_num = 0.0f32;
     let mut radiance_pre = [0.0f32; 3];
     let mut transmittance = [1.0f32; 3];
     let mut trans_track: Vec<(f32, f32)> = Vec::with_capacity(segments);
@@ -2148,7 +2055,7 @@ fn trace_ray(
             integral += residual * (plain - integral);
             first_moment += residual * (plain_moment - first_moment);
         }
-        let emission = integral.max(0.0) * 0.5 * (start_arg.map_factor + end_arg.map_factor);
+        let emission = integral.max(0.0) * 0.5 * (start_arg.mix_density + end_arg.mix_density);
         let t_mean = if integral > 1e-6 {
             (first_moment / integral).clamp(seg_start, seg_end)
         } else {
@@ -2162,50 +2069,16 @@ fn trace_ray(
             o[2] + t_mean * d[2],
         ];
         let h_mean = p_mean[1].clamp(0.0, 1.0);
-        height_mean_num += emission * h_mean;
-        let mut edge = 0.0;
-        if ctx.u.emitter_params.kind < 1.5 {
-            let rm = if ctx.u.emitter_params.kind >= 0.5 {
-                ctx.u.emitter_params.ring_major_ratio
-            } else {
-                0.0
-            };
-            let minor = if ctx.u.emitter_params.kind >= 0.5 {
-                (1.0 - rm).max(1e-3)
-            } else {
-                1.0
-            };
-            let taper_r = mixf(
-                1.0,
-                ctx.u.edge_style.radius_tip_ratio,
-                h_mean.powf(ctx.u.warp_style.taper_power),
-            );
-            let rho_norm = (((p_mean[0] * p_mean[0] + p_mean[2] * p_mean[2]).sqrt() - rm) / minor)
-                .abs()
-                / taper_r.max(1e-4);
-            edge = (ctx.u.color_tip.edge_temperature_blend * smoothstep(0.6, 1.2, rho_norm))
-                .clamp(0.0, 1.0);
-        }
-        let ramp = ctx.ramp_color(h_mean);
-        let color = mix3(
-            ramp,
-            [
-                ctx.u.color_tip.rgb[0],
-                ctx.u.color_tip.rgb[1],
-                ctx.u.color_tip.rgb[2],
-            ],
-            edge,
-        );
+        let color = ctx.temperature_color(0.5 * (start_arg.temperature + end_arg.temperature));
         let tau = [
             sigma_rgb[0] * emission,
             sigma_rgb[1] * emission,
             sigma_rgb[2] * emission,
         ];
-        let glow = ctx.segment_glow(start_arg.z, end_arg.z);
-        let luminous = 1.0 - 0.5 * (start_arg.soot + end_arg.soot);
+        let emissivity = 0.5 * (start_arg.emissivity + end_arg.emissivity);
         for c in 0..3 {
             let absorbed = 1.0 - (-tau[c]).exp();
-            radiance_pre[c] += transmittance[c] * color[c] * absorbed * glow * luminous;
+            radiance_pre[c] += transmittance[c] * color[c] * absorbed * emissivity;
             transmittance[c] *= (-tau[c]).exp();
         }
         let mean_trans = (transmittance[0] + transmittance[1] + transmittance[2]) / 3.0;
@@ -2226,23 +2099,15 @@ fn trace_ray(
             "emission": round5(emission),
             "t_mean": round5(t_mean),
             "h_mean": round5(h_mean),
-            "edge": round5(edge),
             "tau": vec_json(&tau),
             "transmittance_after": vec_json(&transmittance),
         }));
     }
 
-    let height_mean = if total > 1e-6 {
-        height_mean_num / total
-    } else {
-        0.0
-    };
-    let temp_norm = (total * 2.0).clamp(0.0, 1.0) * (1.0 - 0.55 * height_mean);
-    let boost = 1.0 + ctx.u.edge_style.white_boost * temp_norm * temp_norm;
     let mut radiance = [
-        radiance_pre[0] * ctx.u.intensity * boost,
-        radiance_pre[1] * ctx.u.intensity * boost,
-        radiance_pre[2] * ctx.u.intensity * boost,
+        radiance_pre[0] * ctx.u.intensity,
+        radiance_pre[1] * ctx.u.intensity,
+        radiance_pre[2] * ctx.u.intensity,
     ];
     let alpha_rte = 1.0 - (transmittance[0] + transmittance[1] + transmittance[2]) / 3.0;
 
@@ -2386,9 +2251,6 @@ fn trace_ray(
         "mode_trace": mode_trace,
         "final": {
             "emission_total": round5(total),
-            "height_mean": round5(height_mean),
-            "temp_norm": round5(temp_norm),
-            "boost": round5(boost),
             "radiance": vec_json(&radiance),
             "alpha_rte": round5(alpha_rte),
             "alpha_final": round5(alpha_final),
@@ -2417,8 +2279,9 @@ fn clone_argument(a: &NodeArgument) -> NodeArgument {
         envelope_fade: a.envelope_fade,
         argument: a.argument,
         density: a.density,
-        map_factor: a.map_factor,
-        soot: a.soot,
+        mix_density: a.mix_density,
+        temperature: a.temperature,
+        emissivity: a.emissivity,
         mode_values: a.mode_values.clone(),
         mode_weights: a.mode_weights.clone(),
     }

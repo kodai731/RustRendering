@@ -130,6 +130,15 @@ vec3 flameRampColor(float h) {
     return mix(flame.colorMid.rgb, flame.colorTip.rgb, (h - 0.5) * 2.0);
 }
 
+vec3 flameTemperatureColor(float temperatureK) {
+    float span = max(flame.thermalParams.tempHotK - flame.thermalParams.tempColdK, 1.0);
+    float u = clamp((temperatureK - flame.thermalParams.tempColdK) / span, 0.0, 1.0) * 8.0 - 0.5;
+    int i0 = int(clamp(floor(u), 0.0, 7.0));
+    int i1 = min(i0 + 1, 7);
+    float f = clamp(u - float(i0), 0.0, 1.0);
+    return mix(flame.tempRamp[i0].rgb, flame.tempRamp[i1].rgb, f);
+}
+
 vec4 integrateRadialRTE(vec3 o, vec3 d, float tNear, float tFar) {
     if (tFar <= tNear) {
         return vec4(0.0);
@@ -210,30 +219,30 @@ float flameWaveNodeDensity(vec3 p, float h) {
     }
     return dens * flameNearCameraFade(p) * burnout;
 }
-// Everything one node contributes to the segment closed form. `mapFactor` is
-// the density map mass ratio at the node; it scales the segment mass only, so
-// the erosion argument (the carved texture) and the support are untouched.
+// Everything one node contributes to the segment closed form. `mixDensity` and
+// `emissivity` are the mixing-degree curves at the node; they scale the segment
+// mass and radiance only, so the carved argument and the support are untouched.
 struct FlameNodeSample {
     float argument;
     float shapedNoise;
-    float carrierZ;
     float sigmaNoise;
     float remapScale;
     float density;
-    float mapFactor;
-    float soot;
+    float mixDensity;
+    float temperature;
+    float emissivity;
 };
 
 FlameNodeSample flameNodeSampleEmpty() {
     FlameNodeSample node;
     node.argument = 0.0;
     node.shapedNoise = 0.4375;
-    node.carrierZ = 0.0;
     node.sigmaNoise = 0.0;
     node.remapScale = 1.0;
     node.density = 0.0;
-    node.mapFactor = 1.0;
-    node.soot = 0.0;
+    node.mixDensity = 1.0;
+    node.temperature = flame.thermalParams.tempHotK;
+    node.emissivity = 1.0;
     return node;
 }
 
@@ -258,12 +267,8 @@ FlameNodeSample flameWaveNodeSample(
     node.sigmaNoise = sqrt(unresolvedPower);
     float invScale = flame.waveParams.inverseScale;
     float amp = flame.waveParams.amplitude;
-    node.carrierZ = sum.z;
     node.shapedNoise = invScale > 0.0 ? 0.4375 + amp * tanh(sum.z * invScale) : 0.4375 + sum.z;
-    float mapNoise = flameDensityMapNoise(warpFrame.w, warpFrame.rate, dt);
-    node.mapFactor = flameDensityMapFactor(mapNoise);
-    node.soot = flameSootMask(mapNoise);
-    node.density = density * min(node.mapFactor, 1.0);
+    node.density = density;
 
     float uSquared;
     if (flame.emitterParams.kind >= 1.5) {
@@ -281,6 +286,10 @@ FlameNodeSample flameWaveNodeSample(
         float u = rn / flameRadialSupportRadius();
         uSquared = u * u;
     }
+    float mixing = flameMixingDegree(sum.zMix, hs, uSquared);
+    node.mixDensity = flameMixDensityFactor(mixing);
+    node.temperature = flameMixTemperature(mixing);
+    node.emissivity = flameWienEmissivity(node.temperature);
     float erosion = flameNoiseErosionFromValue(node.shapedNoise, hs, node.density, uSquared);
     node.remapScale = flameErosionRemapScale(erosion);
     node.argument = flameErodedArgument(node.density, erosion);
@@ -315,18 +324,18 @@ struct FlameSegmentNodes {
     float argumentEnd;
     float shapedStart;
     float shapedEnd;
-    float carrierStart;
-    float carrierEnd;
     float sigmaStart;
     float sigmaEnd;
     float remapStart;
     float remapEnd;
     float densityStart;
     float densityEnd;
-    float mapStart;
-    float mapEnd;
-    float sootStart;
-    float sootEnd;
+    float mixDensityStart;
+    float mixDensityEnd;
+    float temperatureStart;
+    float temperatureEnd;
+    float emissivityStart;
+    float emissivityEnd;
 };
 
 // Pure per-segment math (no walk state): sigmaEff composition from the node
@@ -375,20 +384,6 @@ vec2 flameWaveSegmentCarved(
     return carved;
 }
 
-// Radiance gain of the un-eroded noise cores: the raw carrier is read in
-// units of its own std with material-rich (low erosion) positive, and the gain
-// rises smoothly over two std above glowParams.threshold (a steeper ramp reads
-// as scales). gain 0 leaves the ceiling model untouched.
-float flameSegmentGlow(float carrierStart, float carrierEnd) {
-    if (flame.glowParams.gain <= 0.0) {
-        return 1.0;
-    }
-    float carveSign = flame.noiseAmplitude < 0.0 ? -1.0 : 1.0;
-    float material = -carveSign * 0.5 * (carrierStart + carrierEnd) * flame.glowParams.invCarrierStd;
-    float ramp = smoothstep(flame.glowParams.threshold, flame.glowParams.threshold + 2.0, material);
-    return 1.0 + flame.glowParams.gain * ramp;
-}
-
 // The segment grid jitter walks with the frame only while the history blend
 // can average it (accumWeight > 0): a still batch frame keeps the static grid.
 vec2 flameSegmentJitterShift() {
@@ -406,7 +401,6 @@ vec2 flameSegmentJitterShift() {
 // order of that product changes).
 struct FlameWaveIntegral {
     float total;
-    float heightMeanNum;
     vec3 radiancePre;
     vec3 transmittance;
 };
@@ -415,7 +409,6 @@ FlameWaveIntegral flameWaveOccupancySegments(
     vec3 o, vec3 d, float t0, float t1, bool rte) {
     FlameWaveIntegral acc;
     acc.total = 0.0;
-    acc.heightMeanNum = 0.0;
     acc.radiancePre = vec3(0.0);
     acc.transmittance = vec3(1.0);
     int segmentCount = int(flame.segmentParams.count);
@@ -486,18 +479,18 @@ FlameWaveIntegral flameWaveOccupancySegments(
         nodes.argumentEnd = current.argument;
         nodes.shapedStart = previous.shapedNoise;
         nodes.shapedEnd = current.shapedNoise;
-        nodes.carrierStart = previous.carrierZ;
-        nodes.carrierEnd = current.carrierZ;
         nodes.sigmaStart = previous.sigmaNoise;
         nodes.sigmaEnd = current.sigmaNoise;
         nodes.remapStart = previous.remapScale;
         nodes.remapEnd = current.remapScale;
         nodes.densityStart = previous.density;
         nodes.densityEnd = current.density;
-        nodes.mapStart = previous.mapFactor;
-        nodes.mapEnd = current.mapFactor;
-        nodes.sootStart = previous.soot;
-        nodes.sootEnd = current.soot;
+        nodes.mixDensityStart = previous.mixDensity;
+        nodes.mixDensityEnd = current.mixDensity;
+        nodes.temperatureStart = previous.temperature;
+        nodes.temperatureEnd = current.temperature;
+        nodes.emissivityStart = previous.emissivity;
+        nodes.emissivityEnd = current.emissivity;
         float hMid = clamp(o.y + (segStart + 0.5 * span) * d.y, 0.0, 1.0);
         vec3 pMid = o + (segStart + 0.5 * span) * d;
         float uSquared;
@@ -511,30 +504,15 @@ FlameWaveIntegral flameWaveOccupancySegments(
         }
         vec2 carved = flameWaveSegmentCarved(
             nodes, o, d, segStart, segEnd, span, uSquared, invScale, amp);
-        float emission = max(carved.x, 0.0) * 0.5 * (nodes.mapStart + nodes.mapEnd);
-        float tMean = carved.x > 1e-6
-            ? clamp(carved.y / carved.x, segStart, segEnd)
-            : t0 + (float(segment) + 0.5) * dt;
+        float emission = max(carved.x, 0.0) * 0.5 * (nodes.mixDensityStart + nodes.mixDensityEnd);
         acc.total += emission;
         if (rte) {
-            vec3 pMean = o + tMean * d;
-            float hMean = clamp(pMean.y, 0.0, 1.0);
-            acc.heightMeanNum += emission * hMean;
-            float edge = 0.0;
-            if (flame.emitterParams.kind < 1.5) {
-                float rm = flame.emitterParams.kind >= 0.5 ? flame.emitterParams.ringMajorRatio : 0.0;
-                float minorScale = flame.emitterParams.kind >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
-                float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hMean, flame.warpStyle.taperPower));
-                float rhoNorm = abs((length(pMean.xz) - rm) / minorScale) / max(taperR, 1e-4);
-                edge = clamp(flame.colorTip.edgeTemperatureBlend * smoothstep(0.6, 1.2, rhoNorm), 0.0, 1.0);
-            }
             vec3 tau = sigmaRgb * emission;
             vec3 absorbed = vec3(1.0) - exp(-tau);
             absorbed = mix(absorbed, absorbed * (vec3(1.0) - exp(-2.0 * tau)), FLAME_POWDER_STRENGTH);
-            float glow = flameSegmentGlow(nodes.carrierStart, nodes.carrierEnd);
-            float luminous = 1.0 - 0.5 * (nodes.sootStart + nodes.sootEnd);
-            acc.radiancePre += acc.transmittance
-                * mix(flameRampColor(hMean), flame.colorTip.rgb, edge) * absorbed * glow * luminous;
+            float emissivity = 0.5 * (nodes.emissivityStart + nodes.emissivityEnd);
+            vec3 color = flameTemperatureColor(0.5 * (nodes.temperatureStart + nodes.temperatureEnd));
+            acc.radiancePre += acc.transmittance * color * absorbed * emissivity;
             acc.transmittance *= exp(-tau);
         }
 
@@ -571,12 +549,7 @@ vec4 integrateWaveOccupancyRTE(vec3 o, vec3 d, float tNear, float tFar) {
         return vec4(0.0);
     }
     FlameWaveIntegral acc = flameWaveOccupancySegments(o, d, tNear, tFar, true);
-
-    float heightMean = acc.total > 1e-6 ? acc.heightMeanNum / acc.total : 0.0;
-    float tempNorm = clamp(acc.total * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMean);
-    float boost = 1.0 + flame.edgeStyle.whiteBoost * tempNorm * tempNorm;
-
-    vec3 radiance = acc.radiancePre * flame.intensity * boost;
+    vec3 radiance = acc.radiancePre * flame.intensity;
     return vec4(radiance, 1.0 - dot(acc.transmittance, vec3(1.0 / 3.0)));
 }
 

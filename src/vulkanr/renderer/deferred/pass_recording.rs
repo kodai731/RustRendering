@@ -288,12 +288,21 @@ pub unsafe fn record_composite_to_hdr(
     let extent = hdr_buffer.extent();
     let (pipeline, descriptor, view_mode_value) = prepare_composite_resources(app)?;
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
+    let black_background = app
+        .resource::<crate::ecs::resource::DebugViewState>()
+        .black_background;
+    let background_radiance = if black_background {
+        0.0
+    } else {
+        thyllore_vulkan_core::renderer::BACKGROUND_RADIANCE
+    };
 
     thyllore_vulkan_core::renderer::begin_hdr_render_pass(
         &ctx,
         render_pass,
         framebuffer,
         extent,
+        background_radiance,
         command_buffer,
     );
 
@@ -306,8 +315,10 @@ pub unsafe fn record_composite_to_hdr(
         command_buffer,
     )?;
 
-    let pipeline_override = app.data.viewport.hdr_grid_pipeline_id;
-    super::OverlayRenderer::new(app).draw_grid_overlay(command_buffer, 0, pipeline_override)?;
+    if !black_background {
+        let pipeline_override = app.data.viewport.hdr_grid_pipeline_id;
+        super::OverlayRenderer::new(app).draw_grid_overlay(command_buffer, 0, pipeline_override)?;
+    }
 
     thyllore_vulkan_core::renderer::end_composite_render_pass(&ctx, command_buffer);
 

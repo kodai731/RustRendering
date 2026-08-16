@@ -115,7 +115,6 @@ fn test_no_unread_keys() {
         "occlusion_lum_ref",
         "aniso_axis_advect",
         "rte_bands",
-        "edge_temperature_blend",
         "boundary_amp",
         "boundary_freq",
         "boundary_speed",

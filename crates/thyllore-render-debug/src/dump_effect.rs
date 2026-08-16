@@ -70,7 +70,6 @@ pub fn flame_from_dump(
     apply_scalar!(occlusion_lum_ref, "occlusion_lum_ref");
     apply_scalar!(aniso_axis_advect, "aniso_axis_advect");
     apply_scalar!(rte_bands, "rte_bands");
-    apply_scalar!(edge_temperature_blend, "edge_temperature_blend");
     apply_scalar!(boundary.amp, "boundary_amp");
     apply_scalar!(boundary.freq, "boundary_freq");
     apply_scalar!(boundary.speed, "boundary_speed");

@@ -197,20 +197,20 @@ fn test_flame_ubo_layout_is_std140_compatible() {
     // trail_coefficients is [[f32; 4]; 4] (64 bytes) instead of [f32; 4] (16 bytes)
     assert_eq!(
         std::mem::size_of::<FlameUBO>(),
-        784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
+        784 + 16 + 16 + 16 + 32 + 128 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
             + 48
             + 16
-            + std::mem::size_of::<FlameGlowParams>()
+            + std::mem::size_of::<FlameMixParams>()
             + std::mem::size_of::<FlameSegmentParams>()
-            + std::mem::size_of::<FlameDensityMapParams>()
+            + std::mem::size_of::<FlameThermalParams>()
             + std::mem::size_of::<FlameTwistField>()
             + std::mem::size_of::<[FlameMeanderMode; 2]>()
             + std::mem::size_of::<FlameBranchField>()
     );
     assert_eq!(std::mem::size_of::<FlameSupportMotion>(), 16);
-    assert_eq!(std::mem::size_of::<FlameGlowParams>(), 16);
+    assert_eq!(std::mem::size_of::<FlameMixParams>(), 32);
     assert_eq!(std::mem::size_of::<FlameSegmentParams>(), 16);
-    assert_eq!(std::mem::size_of::<FlameDensityMapParams>(), 16);
+    assert_eq!(std::mem::size_of::<FlameThermalParams>(), 32);
     assert_eq!(std::mem::size_of::<FlameTwistField>(), 48);
     assert_eq!(std::mem::size_of::<[FlameMeanderMode; 2]>(), 64);
     assert_eq!(std::mem::size_of::<FlameBranchElement>(), 48);

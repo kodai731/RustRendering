@@ -113,6 +113,7 @@ pub enum BatchDebugAction {
     AddFlame,
     OpenFlameCurves,
     ViewMode(DebugViewMode),
+    BlackBackground,
     FlameClipPreview {
         end_seconds: f32,
     },
@@ -448,7 +449,6 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "aniso_axis_advect",
     "rte_bands",
     "sigma_dispersion",
-    "edge_temperature_blend",
     "boundary_amp",
     "near_fade_radius",
     "carve_residual",
@@ -461,13 +461,15 @@ pub(crate) const FLAME_SET_KEYS: &[&str] = &[
     "support_margin",
     "meander_amp",
     "meander_frequency",
-    "glow_gain",
-    "glow_threshold",
+    "mix_lo",
+    "mix_hi",
+    "mix_height_gain",
+    "mix_scale",
+    "mix_radial_gain",
+    "density_exp",
+    "temp_exp",
+    "wien_c_k",
     "wave_segments",
-    "density_map_gain",
-    "density_map_scale",
-    "soot_gain",
-    "soot_threshold",
     "boundary_freq",
     "boundary_speed",
     "boundary_radius_ratio",
@@ -950,7 +952,6 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "aniso_axis_advect" => effect.aniso_axis_advect = *value,
             "rte_bands" => effect.rte_bands = *value,
             "sigma_dispersion" => effect.sigma_dispersion = *value,
-            "edge_temperature_blend" => effect.edge_temperature_blend = *value,
             "boundary_amp" => effect.boundary.amp = *value,
             "near_fade_radius" => effect.near_fade_radius = *value,
             "carve_residual" => effect.carve_residual = *value,
@@ -963,13 +964,15 @@ pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32
             "spread_gain" => effect.spread_gain = *value,
             "meander_amp" => effect.meander_amp = *value,
             "meander_frequency" => effect.meander_frequency = *value,
-            "glow_gain" => effect.glow_gain = *value,
-            "glow_threshold" => effect.glow_threshold = *value,
+            "mix_lo" => effect.mix_lo = *value,
+            "mix_hi" => effect.mix_hi = *value,
+            "mix_height_gain" => effect.mix_height_gain = *value,
+            "mix_scale" => effect.mix_scale = *value,
+            "mix_radial_gain" => effect.mix_radial_gain = *value,
+            "density_exp" => effect.density_exp = *value,
+            "temp_exp" => effect.temp_exp = *value,
+            "wien_c_k" => effect.wien_c_k = *value,
             "wave_segments" => effect.wave_segments = value.max(0.0) as u32,
-            "density_map_gain" => effect.density_map_gain = *value,
-            "density_map_scale" => effect.density_map_scale = *value,
-            "soot_gain" => effect.soot_gain = *value,
-            "soot_threshold" => effect.soot_threshold = *value,
             "boundary_freq" => effect.boundary.freq = *value,
             "boundary_speed" => effect.boundary.speed = *value,
             "boundary_radius_ratio" => effect.boundary.radius_ratio = *value,
@@ -1603,6 +1606,7 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "add_flame",
     "open_flame_curves",
     "view_mode=<final|position|normal|shadow_mask|ndotl|light_direction|view_depth|object_id|selection_view|selection_ubo>",
+    "black_background (clear the HDR viewport to black and hide the grid, for reference-footage comparison)",
     "flame_clip_preview=<end_seconds> (draw the first flame's clip block as a mid-drag TrimEnd preview, without committing)",
     "timeline_select_flame_clip (enqueue TimelineSelectClip for the flame clip — the double-click path — to check it leaves the flame schedule's trim intact)",
     "dump_wall_probe (write camera pose + wall-regime ray diagnostics to log/flame/)",
@@ -1678,6 +1682,7 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
     }
     match name {
         "timeline_select_flame_clip" => Ok(BatchDebugAction::TimelineSelectFlameClip),
+        "black_background" => Ok(BatchDebugAction::BlackBackground),
         "reset_camera" => Ok(BatchDebugAction::ResetCamera),
         "reset_camera_up" => Ok(BatchDebugAction::ResetCameraUp),
         "camera_to_model" => Ok(BatchDebugAction::CameraToModel),
@@ -1744,6 +1749,9 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
         match action {
             BatchDebugAction::ViewMode(mode) => {
                 world.resource_mut::<DebugViewState>().debug_view_mode = *mode;
+            }
+            BatchDebugAction::BlackBackground => {
+                world.resource_mut::<DebugViewState>().black_background = true;
             }
             BatchDebugAction::ResetCamera => {
                 world

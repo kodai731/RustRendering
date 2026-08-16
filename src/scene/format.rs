@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCENE_FORMAT_VERSION: u32 = 4;
+pub const SCENE_FORMAT_VERSION: u32 = 5;
 
 pub use thyllore_anim_core::editable::{AnimationClipFile, ANIMATION_FORMAT_VERSION};
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -348,8 +348,6 @@ pub struct FlameEffectData {
     pub rte_bands: f32,
     #[serde(default = "default_sigma_dispersion")]
     pub sigma_dispersion: f32,
-    #[serde(default)]
-    pub edge_temperature_blend: f32,
     #[serde(default = "default_tip_carve_depth")]
     pub tip_carve_depth: f32,
     #[serde(default = "default_tip_carve_reach")]
@@ -368,22 +366,26 @@ pub struct FlameEffectData {
     pub meander_amp: f32,
     #[serde(default = "default_meander_frequency")]
     pub meander_frequency: f32,
+    #[serde(default = "default_mix_lo")]
+    pub mix_lo: f32,
+    #[serde(default = "default_mix_hi")]
+    pub mix_hi: f32,
     #[serde(default)]
-    pub glow_gain: f32,
-    #[serde(default = "default_glow_threshold")]
-    pub glow_threshold: f32,
+    pub mix_height_gain: f32,
+    #[serde(default = "default_mix_scale")]
+    pub mix_scale: f32,
+    #[serde(default)]
+    pub mix_radial_gain: f32,
+    #[serde(default = "default_density_exp")]
+    pub density_exp: f32,
+    #[serde(default = "default_temp_exp")]
+    pub temp_exp: f32,
+    #[serde(default = "default_wien_c_k")]
+    pub wien_c_k: f32,
     #[serde(default = "default_wave_segments")]
     pub wave_segments: u32,
     #[serde(default = "default_noise_aniso_y")]
     pub noise_aniso_y: f32,
-    #[serde(default)]
-    pub density_map_gain: f32,
-    #[serde(default = "default_density_map_scale")]
-    pub density_map_scale: f32,
-    #[serde(default)]
-    pub soot_gain: f32,
-    #[serde(default = "default_soot_threshold")]
-    pub soot_threshold: f32,
     #[serde(default)]
     pub edge_outer_sharpen: f32,
     #[serde(default)]
@@ -434,20 +436,32 @@ fn default_meander_frequency() -> f32 {
     1.0
 }
 
-fn default_glow_threshold() -> f32 {
-    1.0
+fn default_mix_lo() -> f32 {
+    thyllore_effect_core::FlameEffect::default().mix_lo
+}
+
+fn default_mix_hi() -> f32 {
+    thyllore_effect_core::FlameEffect::default().mix_hi
+}
+
+fn default_mix_scale() -> f32 {
+    thyllore_effect_core::FlameEffect::default().mix_scale
+}
+
+fn default_density_exp() -> f32 {
+    thyllore_effect_core::FlameEffect::default().density_exp
+}
+
+fn default_temp_exp() -> f32 {
+    thyllore_effect_core::FlameEffect::default().temp_exp
+}
+
+fn default_wien_c_k() -> f32 {
+    thyllore_effect_core::FlameEffect::default().wien_c_k
 }
 
 fn default_wave_segments() -> u32 {
     thyllore_effect_core::flame_wave::FLAME_WAVE_SEGMENTS as u32
-}
-
-fn default_density_map_scale() -> f32 {
-    1.0
-}
-
-fn default_soot_threshold() -> f32 {
-    1.0
 }
 
 fn default_noise_aniso_y() -> f32 {
@@ -662,15 +676,16 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
             noise_shaping_scale: effect.noise_shaping_scale,
             meander_amp: effect.meander_amp,
             meander_frequency: effect.meander_frequency,
-            glow_gain: effect.glow_gain,
-            glow_threshold: effect.glow_threshold,
+            mix_lo: effect.mix_lo,
+            mix_hi: effect.mix_hi,
+            mix_height_gain: effect.mix_height_gain,
+            mix_scale: effect.mix_scale,
+            mix_radial_gain: effect.mix_radial_gain,
+            density_exp: effect.density_exp,
+            temp_exp: effect.temp_exp,
+            wien_c_k: effect.wien_c_k,
             wave_segments: effect.wave_segments,
             noise_aniso_y: effect.noise_aniso_y,
-            density_map_gain: effect.density_map_gain,
-            density_map_scale: effect.density_map_scale,
-            soot_gain: effect.soot_gain,
-            soot_threshold: effect.soot_threshold,
-            edge_temperature_blend: effect.edge_temperature_blend,
             branch_period: effect.branch.period,
             branch_life: effect.branch.life,
             branch_gain: effect.branch.gain,
@@ -811,14 +826,16 @@ pub fn apply_flame_state_to_world(
         effect.support_margin = flame.effect.support_margin;
         effect.meander_amp = flame.effect.meander_amp;
         effect.meander_frequency = flame.effect.meander_frequency;
-        effect.glow_gain = flame.effect.glow_gain;
-        effect.glow_threshold = flame.effect.glow_threshold;
+        effect.mix_lo = flame.effect.mix_lo;
+        effect.mix_hi = flame.effect.mix_hi;
+        effect.mix_height_gain = flame.effect.mix_height_gain;
+        effect.mix_scale = flame.effect.mix_scale;
+        effect.mix_radial_gain = flame.effect.mix_radial_gain;
+        effect.density_exp = flame.effect.density_exp;
+        effect.temp_exp = flame.effect.temp_exp;
+        effect.wien_c_k = flame.effect.wien_c_k;
         effect.wave_segments = flame.effect.wave_segments;
         effect.noise_aniso_y = flame.effect.noise_aniso_y;
-        effect.density_map_gain = flame.effect.density_map_gain;
-        effect.density_map_scale = flame.effect.density_map_scale;
-        effect.soot_gain = flame.effect.soot_gain;
-        effect.soot_threshold = flame.effect.soot_threshold;
         effect.edge_outer_sharpen = flame.effect.edge_outer_sharpen;
         effect.noise_scale_mode = flame.effect.noise_scale_mode;
         effect.erosion_noise_gain = flame.effect.erosion_noise_gain;
@@ -1021,7 +1038,6 @@ mod tests {
             aniso_axis_advect: 0.0,
             rte_bands: 4.0,
             sigma_dispersion: 1.0,
-            edge_temperature_blend: 0.0,
             tip_carve_depth: 1.0,
             tip_carve_reach: 0.2,
             warp_reach: default_warp_reach(),
@@ -1039,14 +1055,16 @@ mod tests {
             optical_depth: 0.0,
             meander_amp: 0.0,
             meander_frequency: 1.0,
-            glow_gain: 0.0,
-            glow_threshold: 1.0,
+            mix_lo: 0.0,
+            mix_hi: 2.0,
+            mix_height_gain: 0.0,
+            mix_scale: 1.0,
+            mix_radial_gain: 0.0,
+            density_exp: 1.0,
+            temp_exp: 1.0,
+            wien_c_k: 12000.0,
             wave_segments: 64,
             noise_aniso_y: 0.35,
-            density_map_gain: 0.0,
-            density_map_scale: 1.0,
-            soot_gain: 0.0,
-            soot_threshold: 1.0,
             branch_period: 0.0,
             branch_life: 2.5,
             branch_gain: 0.0,
@@ -1239,7 +1257,6 @@ mod tests {
                 aniso_axis_advect: 0.0,
                 rte_bands: 4.0,
                 sigma_dispersion: 1.0,
-                edge_temperature_blend: 0.0,
                 tip_carve_depth: 1.0,
                 tip_carve_reach: 0.2,
                 warp_reach: default_warp_reach(),
@@ -1257,14 +1274,16 @@ mod tests {
                 optical_depth: 0.0,
                 meander_amp: 0.0,
                 meander_frequency: 1.0,
-                glow_gain: 0.0,
-                glow_threshold: 1.0,
+                mix_lo: 0.0,
+                mix_hi: 2.0,
+                mix_height_gain: 0.0,
+                mix_scale: 1.0,
+                mix_radial_gain: 0.0,
+                density_exp: 1.0,
+                temp_exp: 1.0,
+                wien_c_k: 12000.0,
                 wave_segments: 64,
                 noise_aniso_y: 0.35,
-                density_map_gain: 0.0,
-                density_map_scale: 1.0,
-                soot_gain: 0.0,
-                soot_threshold: 1.0,
                 branch_period: 0.0,
                 branch_life: 2.5,
                 branch_gain: 0.0,
