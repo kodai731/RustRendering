@@ -9,7 +9,7 @@ pub struct RRRayQueryDescriptorSet {
 }
 
 impl RRRayQueryDescriptorSet {
-    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+    pub fn layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
         let position_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
@@ -45,20 +45,19 @@ impl RRRayQueryDescriptorSet {
             .stage_flags(vk::ShaderStageFlags::COMPUTE)
             .build();
 
-        let bindings = [
+        vec![
             position_binding,
             normal_binding,
             shadow_mask_binding,
             tlas_binding,
             scene_ubo_binding,
-        ];
+        ]
+    }
 
+    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+        let bindings = Self::layout_bindings();
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-
-        let layout = rrdevice.device.create_descriptor_set_layout(&info, None)?;
-        log::info!("Created Ray Query descriptor set layout");
-
-        Ok(layout)
+        Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
     }
 
     pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {

@@ -32,7 +32,7 @@ pub struct RRCompositeDescriptorSet {
 
 impl RRCompositeDescriptorSet {
     /// Create Composite descriptor set layout
-    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+    pub fn layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
         // Binding 0: Position sampler (sampled image)
         let position_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
@@ -86,7 +86,7 @@ impl RRCompositeDescriptorSet {
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
 
-        let bindings = [
+        vec![
             position_binding,
             normal_binding,
             shadow_mask_binding,
@@ -94,13 +94,13 @@ impl RRCompositeDescriptorSet {
             scene_ubo_binding,
             object_id_binding,
             selection_ubo_binding,
-        ];
+        ]
+    }
 
+    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+        let bindings = Self::layout_bindings();
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-
-        let layout = rrdevice.device.create_descriptor_set_layout(&info, None)?;
-
-        Ok(layout)
+        Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
     }
 
     pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {

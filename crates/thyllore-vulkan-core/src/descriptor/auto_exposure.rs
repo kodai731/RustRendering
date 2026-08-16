@@ -9,7 +9,7 @@ pub struct RRAutoExposureHistogramDescriptorSet {
 }
 
 impl RRAutoExposureHistogramDescriptorSet {
-    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+    pub fn layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
         let image_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
@@ -24,11 +24,13 @@ impl RRAutoExposureHistogramDescriptorSet {
             .stage_flags(vk::ShaderStageFlags::COMPUTE)
             .build();
 
-        let bindings = [image_sampler_binding, histogram_binding];
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        let layout = rrdevice.device.create_descriptor_set_layout(&info, None)?;
+        vec![image_sampler_binding, histogram_binding]
+    }
 
-        Ok(layout)
+    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+        let bindings = Self::layout_bindings();
+        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
+        Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
     }
 
     pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {
@@ -141,7 +143,7 @@ pub struct RRAutoExposureAverageDescriptorSet {
 }
 
 impl RRAutoExposureAverageDescriptorSet {
-    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+    pub fn layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
         let histogram_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
@@ -156,11 +158,13 @@ impl RRAutoExposureAverageDescriptorSet {
             .stage_flags(vk::ShaderStageFlags::COMPUTE)
             .build();
 
-        let bindings = [histogram_binding, luminance_binding];
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        let layout = rrdevice.device.create_descriptor_set_layout(&info, None)?;
+        vec![histogram_binding, luminance_binding]
+    }
 
-        Ok(layout)
+    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+        let bindings = Self::layout_bindings();
+        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
+        Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
     }
 
     pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {

@@ -10,7 +10,7 @@ pub struct RRFlameDescriptorSet {
 }
 
 impl RRFlameDescriptorSet {
-    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+    pub fn layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
         let flame_ubo_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
@@ -39,12 +39,16 @@ impl RRFlameDescriptorSet {
             .stage_flags(vk::ShaderStageFlags::FRAGMENT)
             .build();
 
-        let bindings = [
+        vec![
             flame_ubo_binding,
             history_sampler_binding,
             sdf_sampler_binding,
             scene_depth_sampler_binding,
-        ];
+        ]
+    }
+
+    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
+        let bindings = Self::layout_bindings();
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
     }

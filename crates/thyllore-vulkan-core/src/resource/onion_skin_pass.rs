@@ -201,6 +201,17 @@ impl OnionSkinPassResources {
         Ok(render_pass)
     }
 
+    pub fn composite_layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
+        let ghost_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
+            .binding(0)
+            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
+            .descriptor_count(1)
+            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
+            .build();
+
+        vec![ghost_sampler_binding]
+    }
+
     pub unsafe fn create_composite_descriptor(
         rrdevice: &RRDevice,
         ghost_image_view: vk::ImageView,
@@ -210,14 +221,7 @@ impl OnionSkinPassResources {
         vk::DescriptorPool,
         vk::DescriptorSet,
     )> {
-        let binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-
-        let bindings = [binding];
+        let bindings = Self::composite_layout_bindings();
         let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let layout = rrdevice
             .device

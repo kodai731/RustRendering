@@ -10,6 +10,7 @@ pub mod material;
 pub mod model;
 pub mod object;
 pub mod ray_query;
+pub mod reflection;
 pub mod tonemap;
 
 pub use auto_exposure::*;
@@ -24,4 +25,5 @@ pub use material::*;
 pub use model::*;
 pub use object::*;
 pub use ray_query::*;
+pub use reflection::*;
 pub use tonemap::*;

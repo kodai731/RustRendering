@@ -54,7 +54,7 @@ impl FrameDescriptorSet {
         Ok(frame_set)
     }
 
-    unsafe fn create_layout(rrdevice: &RRDevice) -> anyhow::Result<vk::DescriptorSetLayout> {
+    pub fn layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
         let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
             .binding(0)
             .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
@@ -63,11 +63,15 @@ impl FrameDescriptorSet {
                 vk::ShaderStageFlags::VERTEX
                     | vk::ShaderStageFlags::GEOMETRY
                     | vk::ShaderStageFlags::FRAGMENT,
-            );
+            )
+            .build();
 
-        let bindings = &[ubo_binding];
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
+        vec![ubo_binding]
+    }
 
+    unsafe fn create_layout(rrdevice: &RRDevice) -> anyhow::Result<vk::DescriptorSetLayout> {
+        let bindings = Self::layout_bindings();
+        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
     }
 
