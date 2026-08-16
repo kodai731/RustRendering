@@ -2,6 +2,7 @@
 //! backend) must never depend on this crate; the app's debug dump systems may
 //! use it to write full numerical traces (flame_field_trace) — offline
 //! analysis tooling, never part of a render path.
+#![recursion_limit = "256"]
 
 pub mod dump_effect;
 pub mod flame_fbm_mirror;

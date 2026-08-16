@@ -13,6 +13,10 @@ pub struct EditableAnimationClip {
     pub id: SourceClipId,
     pub name: String,
     pub duration: f32,
+    /// Authored length floor: the clip lasts at least this long even with no
+    /// keyframes, so a schedule can loop over an unkeyed clip.
+    #[serde(default)]
+    pub min_duration: f32,
     pub tracks: HashMap<BoneId, BoneTrack>,
     #[serde(default)]
     pub scalar_curves: Vec<PropertyCurve>,
@@ -26,6 +30,7 @@ impl EditableAnimationClip {
             id,
             name,
             duration: 0.0,
+            min_duration: 0.0,
             tracks: HashMap::new(),
             scalar_curves: Vec::new(),
             source_path: None,
@@ -161,6 +166,7 @@ impl Default for EditableAnimationClip {
             id: 0,
             name: String::new(),
             duration: 0.0,
+            min_duration: 0.0,
             tracks: HashMap::new(),
             scalar_curves: Vec::new(),
             source_path: None,

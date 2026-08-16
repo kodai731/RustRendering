@@ -787,13 +787,9 @@ unsafe fn update_ray_query_descriptor(
     device: &RRDevice,
     raytracing: &mut RayTracingData,
 ) -> Result<()> {
-    if let Some(ref accel_struct) = raytracing.acceleration_structure {
-        if let Some(tlas) = accel_struct.tlas.acceleration_structure {
-            if let Some(ref mut ray_query_desc) = raytracing.ray_query_descriptor {
-                ray_query_desc.update_tlas(device, tlas)?;
-                log!("Updated ray_query_descriptor with new TLAS");
-            }
-        }
+    raytracing.bind_ray_query_tlas(device)?;
+    if raytracing.has_valid_tlas() {
+        log!("Updated ray_query_descriptor with new TLAS");
     }
     Ok(())
 }

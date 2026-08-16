@@ -81,6 +81,14 @@ pub fn dispatch_scalar_clip_events(
                     scalar_clip_clear_keys(clip);
                 });
             }
+            UIEvent::ClipSetMinDuration { source_id, seconds } => {
+                let seconds = seconds.max(0.0);
+                edit_clip(world, *source_id, "Clip length edit", |clip| {
+                    clip.min_duration = seconds;
+                    crate::animation::editable::clip_recalculate_duration(clip);
+                });
+                sync_instances_to_clip_duration(world, *source_id);
+            }
             UIEvent::OpenScalarCurveEditor => {
                 let Some((clip_id, _, _)) = resolve_scalar_clip(world, assets) else {
                     continue;
@@ -143,6 +151,39 @@ fn extend_instance_to_clip_duration(
             .filter(|i| i.source_id == clip_id)
         {
             inst.clip_out = inst.clip_out.max(duration);
+        }
+    }
+}
+
+/// Every schedule instance of the clip spans the whole clip again, so a length
+/// edit shows up on the timeline blocks and in the loop extent (undoable per schedule).
+fn sync_instances_to_clip_duration(world: &mut World, clip_id: SourceClipId) {
+    let Some(duration) = world
+        .get_resource::<ClipLibrary>()
+        .and_then(|lib| lib.get(clip_id).map(|clip| clip.duration))
+    else {
+        return;
+    };
+    for entity in world.component_entities::<crate::ecs::component::ClipSchedule>() {
+        let Some(before) = world
+            .get_component::<crate::ecs::component::ClipSchedule>(entity)
+            .filter(|schedule| schedule.instances.iter().any(|i| i.source_id == clip_id))
+            .cloned()
+        else {
+            continue;
+        };
+        let mut after = before.clone();
+        for inst in after
+            .instances
+            .iter_mut()
+            .filter(|i| i.source_id == clip_id)
+        {
+            inst.clip_out = duration;
+            inst.clip_in = inst.clip_in.min(duration);
+        }
+        world.insert_component(entity, after.clone());
+        if let Some(mut history) = world.get_resource_mut::<EditHistory>() {
+            history.push_schedule_edit(entity, before, after, "Clip length edit");
         }
     }
 }
@@ -298,6 +339,33 @@ mod tests {
         let clip = lib.get(clip_id).expect("clip registered");
         assert_eq!(clip.name, crate::ecs::component::FLAME_DOMAIN.name);
         assert!(clip.scalar_curves.is_empty());
+    }
+
+    #[test]
+    fn test_set_min_duration_lengthens_unkeyed_clip_and_its_instance() {
+        let (mut world, mut assets) = make_world_with_flame();
+        dispatch_scalar_clip_events(&[UIEvent::AddFlame], &mut world, &mut assets);
+        let flame = world.query_flames()[1];
+        let clip_id = find_entity_clip_id(&world, flame).expect("clip scheduled");
+
+        dispatch_scalar_clip_events(
+            &[UIEvent::ClipSetMinDuration {
+                source_id: clip_id,
+                seconds: 12.0,
+            }],
+            &mut world,
+            &mut assets,
+        );
+
+        let lib = world.get_resource::<ClipLibrary>().unwrap();
+        let clip = lib.get(clip_id).expect("clip registered");
+        assert!(clip.scalar_curves.is_empty());
+        assert!((clip.duration - 12.0).abs() < 1e-6);
+        let schedule = world
+            .get_component::<crate::ecs::component::ClipSchedule>(flame)
+            .expect("schedule");
+        assert!((schedule.instances[0].clip_out - 12.0).abs() < 1e-6);
+        assert!((schedule.instances[0].end_time() - 12.0).abs() < 1e-6);
     }
 
     #[test]

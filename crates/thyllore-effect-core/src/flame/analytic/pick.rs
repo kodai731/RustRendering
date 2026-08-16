@@ -1,6 +1,6 @@
 use cgmath::{Matrix4, Vector3, Vector4};
 
-use crate::flame::{flame_bounding_radius, FlameEffect};
+use crate::flame::{flame_bounding_radius, flame_proxy_pad, FlameEffect, FlameProxyPad};
 use crate::flame_shell::{flame_shell_outer_radius, flame_shell_support_scale};
 
 /// Axis-aligned bounds of the shell proxy in flame-local units, widened by the wind bend so a
@@ -15,18 +15,18 @@ pub struct FlameLocalBounds {
 /// Emitter-dependent proxy widening for an effect (ring tubes reach past the
 /// cylinder support). See `flame_shell_support_scale`.
 pub fn flame_support_scale(effect: &FlameEffect) -> f32 {
-    let ring_major_norm = if effect.emitter_kind == 1 {
-        effect.ring_major_radius / flame_bounding_radius(effect).max(1e-6)
+    let ring_major_norm = if effect.emitter.kind == 1 {
+        effect.emitter.ring_major_radius / flame_bounding_radius(effect).max(1e-6)
     } else {
         0.0
     };
-    flame_shell_support_scale(effect.emitter_kind, ring_major_norm, effect.support_margin)
+    flame_shell_support_scale(effect.emitter.kind, ring_major_norm, effect.support_margin)
 }
 
 pub fn flame_bend_offset(effect: &FlameEffect) -> [f32; 2] {
     [
-        effect.wind_direction.x * effect.bend_amount,
-        effect.wind_direction.y * effect.bend_amount,
+        effect.wind.direction.x * effect.wind.bend_amount,
+        effect.wind.direction.y * effect.wind.bend_amount,
     ]
 }
 
@@ -34,9 +34,11 @@ pub fn flame_local_bounds(
     bend_offset: [f32; 2],
     support_scale: f32,
     support_margin: f32,
+    pad: FlameProxyPad,
 ) -> FlameLocalBounds {
     let radius = flame_shell_outer_radius(0.0, support_scale, support_margin)
-        .max(flame_shell_outer_radius(1.0, support_scale, support_margin));
+        .max(flame_shell_outer_radius(1.0, support_scale, support_margin))
+        + pad.radial;
 
     FlameLocalBounds {
         min: Vector3::new(
@@ -46,7 +48,7 @@ pub fn flame_local_bounds(
         ),
         max: Vector3::new(
             radius + bend_offset[0].max(0.0),
-            1.0,
+            1.0 + pad.top,
             radius + bend_offset[1].max(0.0),
         ),
     }
@@ -126,6 +128,7 @@ pub fn intersect_flame_proxy(
             flame_bend_offset(effect),
             flame_support_scale(effect),
             effect.support_margin,
+            flame_proxy_pad(effect, &crate::flame::FlameBaked::default()),
         ),
         local_origin.truncate(),
         local_direction.truncate(),
@@ -135,10 +138,11 @@ pub fn intersect_flame_proxy(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::flame::FlameWind;
     use cgmath::SquareMatrix;
 
     fn unit_bounds() -> FlameLocalBounds {
-        flame_local_bounds([0.0, 0.0], 1.0, 1.0)
+        flame_local_bounds([0.0, 0.0], 1.0, 1.0, FlameProxyPad::default())
     }
 
     #[test]
@@ -195,7 +199,7 @@ mod tests {
     #[test]
     fn bend_widens_the_bounds_only_towards_the_lean() {
         let straight = unit_bounds();
-        let bent = flame_local_bounds([0.4, 0.0], 1.0, 1.0);
+        let bent = flame_local_bounds([0.4, 0.0], 1.0, 1.0, FlameProxyPad::default());
 
         assert!(bent.max.x > straight.max.x);
         assert_eq!(bent.min.x, straight.min.x);
@@ -214,7 +218,10 @@ mod tests {
     #[test]
     fn world_space_test_matches_the_local_one_under_identity() {
         let effect = FlameEffect {
-            bend_amount: 0.0,
+            wind: FlameWind {
+                bend_amount: 0.0,
+                ..FlameWind::default()
+            },
             ..FlameEffect::default()
         };
         let hit = intersect_flame_proxy(
@@ -229,7 +236,10 @@ mod tests {
     #[test]
     fn a_translated_flame_is_hit_where_it_stands() {
         let effect = FlameEffect {
-            bend_amount: 0.0,
+            wind: FlameWind {
+                bend_amount: 0.0,
+                ..FlameWind::default()
+            },
             ..FlameEffect::default()
         };
         let model = Matrix4::from_translation(Vector3::new(4.0, 0.0, 0.0));
@@ -255,7 +265,10 @@ mod tests {
     #[test]
     fn scaling_keeps_the_parameter_in_world_units() {
         let effect = FlameEffect {
-            bend_amount: 0.0,
+            wind: FlameWind {
+                bend_amount: 0.0,
+                ..FlameWind::default()
+            },
             ..FlameEffect::default()
         };
         let model = Matrix4::from_nonuniform_scale(2.0, 1.0, 2.0);

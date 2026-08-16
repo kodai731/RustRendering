@@ -288,12 +288,21 @@ pub unsafe fn record_composite_to_hdr(
     let extent = hdr_buffer.extent();
     let (pipeline, descriptor, view_mode_value) = prepare_composite_resources(app)?;
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
+    let black_background = app
+        .resource::<crate::ecs::resource::DebugViewState>()
+        .black_background;
+    let background_radiance = if black_background {
+        0.0
+    } else {
+        thyllore_vulkan_core::renderer::BACKGROUND_RADIANCE
+    };
 
     thyllore_vulkan_core::renderer::begin_hdr_render_pass(
         &ctx,
         render_pass,
         framebuffer,
         extent,
+        background_radiance,
         command_buffer,
     );
 
@@ -306,8 +315,10 @@ pub unsafe fn record_composite_to_hdr(
         command_buffer,
     )?;
 
-    let pipeline_override = app.data.viewport.hdr_grid_pipeline_id;
-    super::OverlayRenderer::new(app).draw_grid_overlay(command_buffer, 0, pipeline_override)?;
+    if !black_background {
+        let pipeline_override = app.data.viewport.hdr_grid_pipeline_id;
+        super::OverlayRenderer::new(app).draw_grid_overlay(command_buffer, 0, pipeline_override)?;
+    }
 
     thyllore_vulkan_core::renderer::end_composite_render_pass(&ctx, command_buffer);
 
@@ -719,6 +730,13 @@ pub unsafe fn record_flame_passes(
             bend_offset,
             support_scale,
             ubo.support_motion.support_margin,
+            thyllore_effect_core::FlameProxyPad {
+                radial: thyllore_effect_core::flame_proxy_radial_pad(
+                    ubo.branch_field.bounding_pad,
+                    ubo.support_motion.meander_amp,
+                ),
+                top: ubo.branch_field.bounding_pad_y,
+            },
         ) else {
             continue;
         };
@@ -760,6 +778,7 @@ fn compute_flame_scissor(
     bend_offset: [f32; 2],
     support_scale: f32,
     support_margin: f32,
+    proxy_pad: thyllore_effect_core::FlameProxyPad,
 ) -> Option<vk::Rect2D> {
     use crate::ecs::resource::ProjectionData;
     const SCISSOR_MARGIN_PX: f32 = 2.0;
@@ -773,8 +792,12 @@ fn compute_flame_scissor(
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    let bounds =
-        thyllore_effect_core::flame_local_bounds(bend_offset, support_scale, support_margin);
+    let bounds = thyllore_effect_core::flame_local_bounds(
+        bend_offset,
+        support_scale,
+        support_margin,
+        proxy_pad,
+    );
     for corner in thyllore_effect_core::flame_local_bounds_corners(&bounds) {
         let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
         if clip.w <= 0.0 {
@@ -897,9 +920,9 @@ pub unsafe fn record_tonemap_to_offscreen(
                 ],
                 [plume.plume_height, effect.time, plume.turbulence_amp, 0.0],
                 [
-                    effect.wind_direction.x,
-                    effect.rise_speed,
-                    effect.wind_direction.y,
+                    effect.wind.direction.x,
+                    effect.warp.rise_speed,
+                    effect.wind.direction.y,
                     0.0,
                 ],
             ))

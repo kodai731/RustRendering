@@ -139,8 +139,11 @@ fn main() {
     let cam = camera_from_dump(&dump);
 
     // Check bend_amount is zero (non-zero means not mirrored)
-    if effect.bend_amount != 0.0 {
-        eprintln!("bend is not mirrored: bend_amount = {}", effect.bend_amount);
+    if effect.wind.bend_amount != 0.0 {
+        eprintln!(
+            "bend is not mirrored: bend_amount = {}",
+            effect.wind.bend_amount
+        );
         process::exit(1);
     }
 
@@ -151,7 +154,7 @@ fn main() {
             WAVE_K_RATIO,
             WAVE_ENV_MU,
             effect.boundary.amp * thyllore_effect_core::read_env_unified_tilt_gain_b(),
-            effect.contour_wiggle_amp * thyllore_effect_core::read_env_unified_tilt_gain_w(),
+            effect.contour.wiggle_amp * thyllore_effect_core::read_env_unified_tilt_gain_w(),
         )
     } else {
         let mut m = generate_wave_modes_with_ratio(WAVE_K_RATIO).to_vec();
@@ -171,7 +174,7 @@ fn main() {
     // The swirl phase drift is a frame constant, so it folds into the phase here.
     let warp_modes = generate_wave_warp_modes();
     let mut shear_modes = warp_modes.to_vec();
-    let drift_time = effect.noise_scroll_speed * effect.time;
+    let drift_time = effect.noise.scroll_speed * effect.time;
     for (i, mut mode) in thyllore_effect_core::flame::build_medium_swirl_modes(&effect, &warp_modes)
         .into_iter()
         .enumerate()
@@ -199,12 +202,12 @@ fn main() {
 
     // Ring support parameters
     let taper = FlameRadialTaper::from_effect(&effect, &baked);
-    let ring_major = if effect.emitter_kind == 1 {
-        effect.ring_major_radius / flame_bounding_radius(&effect).max(1e-3)
+    let ring_major = if effect.emitter.kind == 1 {
+        effect.emitter.ring_major_radius / flame_bounding_radius(&effect).max(1e-3)
     } else {
         0.0
     };
-    let wiggle_trim = 1.0 + effect.contour_wiggle_amp;
+    let wiggle_trim = 1.0 + effect.contour.wiggle_amp;
 
     // Build rays: grid over rect at res x res (pixel center sampling)
     let mut rays = Vec::new();
@@ -248,9 +251,9 @@ fn main() {
 
                 // Compute advect from wind_direction and rise_speed
                 let advect = [
-                    effect.wind_direction.x * effect.time,
-                    effect.rise_speed * effect.time,
-                    effect.wind_direction.y * effect.time,
+                    effect.wind.direction.x * effect.time,
+                    effect.warp.rise_speed * effect.time,
+                    effect.wind.direction.y * effect.time,
                 ];
 
                 // Flow warp with rate (strain params from the exact UBO packing)
@@ -261,9 +264,9 @@ fn main() {
                         ubo.warp_strain_params.inv_reach,
                         ubo.warp_strain_params.inv_strain_norm,
                     ],
-                    warp_freq: effect.warp_freq,
+                    warp_freq: effect.warp.freq,
                     advect,
-                    aniso_axis_advect: effect.aniso_axis_advect,
+                    aniso_axis_advect: effect.contour.aniso_axis_advect,
                     height_primitive: ubo.height_primitive_coefficients,
                     mu_zw: [
                         ubo.tip_carve_params.primitive_top,
@@ -294,14 +297,14 @@ fn main() {
                 // w = anisoCompress(q, noise_aniso_y) * noise_frequency - advect
                 // rate = anisoCompress(rate_raw, noise_aniso_y) * noise_frequency
                 let w = [
-                    q[0] * effect.noise_frequency - advect[0],
-                    q[1] * effect.noise_aniso_y * effect.noise_frequency - advect[1],
-                    q[2] * effect.noise_frequency - advect[2],
+                    q[0] * effect.noise.frequency - advect[0],
+                    q[1] * effect.noise.aniso_y * effect.noise.frequency - advect[1],
+                    q[2] * effect.noise.frequency - advect[2],
                 ];
                 let rate = [
-                    rate_raw[0] * effect.noise_frequency,
-                    rate_raw[1] * effect.noise_aniso_y * effect.noise_frequency,
-                    rate_raw[2] * effect.noise_frequency,
+                    rate_raw[0] * effect.noise.frequency,
+                    rate_raw[1] * effect.noise.aniso_y * effect.noise.frequency,
+                    rate_raw[2] * effect.noise.frequency,
                 ];
 
                 // node_spacing
@@ -314,7 +317,7 @@ fn main() {
                     w,
                     rate,
                     segment_dt,
-                    effect.time * effect.noise_scroll_speed,
+                    effect.time * effect.noise.scroll_speed,
                     [0.0, 0.0],
                     0.0,
                 );

@@ -223,16 +223,11 @@ impl HdrBuffer {
             return Ok(());
         }
 
-        let depth_image_view = self.depth_image_view;
-
+        // The depth attachment belongs to the G-buffer, which is resized after
+        // this call and re-attaches its new depth view; the old one has the
+        // previous extent and would not fit this framebuffer.
         self.destroy(&rrdevice.device);
-
-        let new_buf = Self::new(instance, rrdevice, new_width, new_height)?;
-        *self = new_buf;
-
-        if depth_image_view != vk::ImageView::null() {
-            self.attach_depth(rrdevice, depth_image_view)?;
-        }
+        *self = Self::new(instance, rrdevice, new_width, new_height)?;
 
         log!("Resized HDR buffer to: {}x{}", new_width, new_height);
         Ok(())

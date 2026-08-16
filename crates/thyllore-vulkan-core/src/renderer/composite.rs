@@ -115,6 +115,7 @@ pub unsafe fn begin_hdr_render_pass(
     render_pass: vk::RenderPass,
     framebuffer: vk::Framebuffer,
     extent: vk::Extent2D,
+    background_radiance: f32,
     cmd: vk::CommandBuffer,
 ) {
     let device = &ctx.device.device;
@@ -125,9 +126,9 @@ pub unsafe fn begin_hdr_render_pass(
     let color_clear_value = vk::ClearValue {
         color: vk::ClearColorValue {
             float32: [
-                BACKGROUND_RADIANCE,
-                BACKGROUND_RADIANCE,
-                BACKGROUND_RADIANCE,
+                background_radiance,
+                background_radiance,
+                background_radiance,
                 1.0,
             ],
         },
@@ -161,7 +162,14 @@ pub unsafe fn record_composite_to_hdr_pass(
     debug_view_mode_value: i32,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
-    begin_hdr_render_pass(ctx, render_pass, framebuffer, extent, cmd);
+    begin_hdr_render_pass(
+        ctx,
+        render_pass,
+        framebuffer,
+        extent,
+        BACKGROUND_RADIANCE,
+        cmd,
+    );
 
     record_composite_draw(
         ctx,

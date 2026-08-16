@@ -23,6 +23,7 @@ api.github.com
 objects.githubusercontent.com
 codeload.github.com
 raw.githubusercontent.com
+cli.github.com
 huggingface.co
 cdn-lfs.huggingface.co
 cdn-lfs.hf.co

@@ -439,6 +439,10 @@ pub enum UIEvent {
     InsertScalarDebugKeys {
         seed: u64,
     },
+    ClipSetMinDuration {
+        source_id: SourceClipId,
+        seconds: f32,
+    },
     SelectFlameInstance(usize),
     OpenScalarCurveEditor,
 }

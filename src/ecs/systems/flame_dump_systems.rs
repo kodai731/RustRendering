@@ -22,17 +22,17 @@ pub fn build_effect_json(
         "radius": effect.radius,
         "sigma_t": effect.sigma_t,
         "intensity": effect.intensity,
-        "color_base": [effect.color_base[0], effect.color_base[1], effect.color_base[2]],
-        "color_tip": [effect.color_tip[0], effect.color_tip[1], effect.color_tip[2]],
-        "temperature_base_k": effect.temperature_base_k,
-        "temperature_tip_k": effect.temperature_tip_k,
-        "use_blackbody": effect.use_blackbody,
-        "noise_amplitude": effect.noise_amplitude,
-        "noise_contrast": effect.noise_contrast,
-        "noise_frequency": effect.noise_frequency,
-        "noise_scroll_speed": effect.noise_scroll_speed,
-       "noise_aniso_y": effect.noise_aniso_y,
-        "warp_y_scale": effect.warp_y_scale,
+        "color_base": [effect.color.base[0], effect.color.base[1], effect.color.base[2]],
+        "color_tip": [effect.color.tip[0], effect.color.tip[1], effect.color.tip[2]],
+        "temperature_base_k": effect.color.temperature_base_k,
+        "temperature_tip_k": effect.color.temperature_tip_k,
+        "use_blackbody": effect.color.use_blackbody,
+        "noise_amplitude": effect.noise.amplitude,
+        "noise_contrast": effect.noise.contrast,
+        "noise_frequency": effect.noise.frequency,
+        "noise_scroll_speed": effect.noise.scroll_speed,
+       "noise_aniso_y": effect.noise.aniso_y,
+        "warp_y_scale": effect.warp.y_scale,
       "coefficients": {
             "height_primitive": effect.coefficients.height_primitive,
             "radial": effect.coefficients.radial,
@@ -42,23 +42,23 @@ pub fn build_effect_json(
         "temporal_weight": temporal.weight,
         "light_position_world": [effect.light_position_world.x, effect.light_position_world.y, effect.light_position_world.z],
         "self_shadow_strength": effect.self_shadow_strength,
-        "warp_amp": effect.warp_amp,
-        "warp_freq": effect.warp_freq,
-        "rise_speed": effect.rise_speed,
-        "taper_power": effect.taper_power,
-       "radius_tip_ratio": effect.radius_tip_ratio,
-        "edge_low": effect.edge_low,
-        "edge_high": effect.edge_high,
-        "white_boost": effect.white_boost,
-        "wind_direction": [effect.wind_direction.x, effect.wind_direction.y],
-        "bend_amount": effect.bend_amount,
-        "bend_power": effect.bend_power,
-        "envelope_peak": effect.envelope_peak,
-        "envelope_base": effect.envelope_base,
-        "envelope_tail": effect.envelope_tail,
+        "warp_amp": effect.warp.amp,
+        "warp_freq": effect.warp.freq,
+        "rise_speed": effect.warp.rise_speed,
+        "taper_power": effect.warp.taper_power,
+       "radius_tip_ratio": effect.edge.radius_tip_ratio,
+        "edge_low": effect.edge.low,
+        "edge_high": effect.edge.high,
+        "white_boost": effect.edge.white_boost,
+        "wind_direction": [effect.wind.direction.x, effect.wind.direction.y],
+        "bend_amount": effect.wind.bend_amount,
+        "bend_power": effect.wind.bend_power,
+        "envelope_peak": effect.envelope.peak,
+        "envelope_base": effect.envelope.base,
+        "envelope_tail": effect.envelope.tail,
         "radial_sharpness": effect.radial_sharpness,
-        "occlusion_lum_ref": effect.occlusion_lum_ref,
-        "contour_wiggle_amp": effect.contour_wiggle_amp
+        "occlusion_lum_ref": effect.color.occlusion_lum_ref,
+        "contour_wiggle_amp": effect.contour.wiggle_amp
     });
     value["rotation"] = json!([
         effect.rotation.s,
@@ -68,33 +68,52 @@ pub fn build_effect_json(
     ]);
     value["time_scale"] = json!(effect.time_scale);
     value["time_offset"] = json!(effect.time_offset);
-    value["emitter_kind"] = json!(effect.emitter_kind);
-    value["ring_major_radius"] = json!(effect.ring_major_radius);
-    value["ring_angular_speed"] = json!(effect.ring_angular_speed);
-    value["aniso_axis_advect"] = json!(effect.aniso_axis_advect);
-    value["rte_bands"] = json!(effect.rte_bands);
-    value["sigma_dispersion"] = json!(effect.sigma_dispersion);
-    value["edge_temperature_blend"] = json!(effect.edge_temperature_blend);
+    value["emitter_kind"] = json!(effect.emitter.kind);
+    value["ring_major_radius"] = json!(effect.emitter.ring_major_radius);
+    value["ring_angular_speed"] = json!(effect.emitter.ring_angular_speed);
+    value["aniso_axis_advect"] = json!(effect.contour.aniso_axis_advect);
+    value["rte_bands"] = json!(effect.contour.rte_bands);
+    value["sigma_dispersion"] = json!(effect.contour.sigma_dispersion);
     value["boundary_amp"] = json!(effect.boundary.amp);
     value["boundary_freq"] = json!(effect.boundary.freq);
     value["boundary_speed"] = json!(effect.boundary.speed);
     value["boundary_radius_ratio"] = json!(effect.boundary.radius_ratio);
-    value["tip_carve_depth"] = json!(effect.tip_carve.depth);
-    value["tip_carve_reach"] = json!(effect.tip_carve.reach);
-    value["warp_reach"] = json!(effect.warp_reach);
+    value["tip_carve_depth"] = json!(effect.carve.tip.depth);
+    value["tip_carve_reach"] = json!(effect.carve.tip.reach);
+    value["warp_reach"] = json!(effect.warp.reach);
     value["swirl_gain"] = json!(effect.swirl.gain);
     value["swirl_speed"] = json!(effect.swirl.speed);
     value["spread_gain"] = json!(effect.spread_gain);
     value["support_margin"] = json!(effect.support_margin);
-    value["edge_outer_sharpen"] = json!(effect.edge_outer_sharpen);
-    value["noise_scale_mode"] = json!(effect.noise_scale_mode);
-    value["erosion_noise_gain"] = json!(effect.erosion_noise_gain);
+    value["edge_outer_sharpen"] = json!(effect.edge.outer_sharpen);
+    value["noise_scale_mode"] = json!(effect.noise.scale_mode);
+    value["erosion_noise_gain"] = json!(effect.noise.erosion_gain);
     value["twist_gain"] = json!(effect.twist.gain);
     value["twist_speed"] = json!(effect.twist.speed);
-    value["burnout_gain"] = json!(effect.burnout_gain);
-    value["noise_shaping_scale"] = json!(effect.noise_shaping_scale);
+    value["burnout_gain"] = json!(effect.carve.burnout_gain);
+    value["noise_shaping_scale"] = json!(effect.noise.shaping_scale);
     value["optical_depth"] = json!(effect.optical_depth);
-    value["meander_amp"] = json!(effect.meander_amp);
+    value["meander_amp"] = json!(effect.meander.amp);
+    value["meander_frequency"] = json!(effect.meander.frequency);
+    value["mix_lo"] = json!(effect.mix.lo);
+    value["mix_hi"] = json!(effect.mix.hi);
+    value["mix_height_gain"] = json!(effect.mix.height_gain);
+    value["mix_scale"] = json!(effect.mix.scale);
+    value["mix_radial_gain"] = json!(effect.mix.radial_gain);
+    value["density_exp"] = json!(effect.thermal.density_exp);
+    value["temp_exp"] = json!(effect.thermal.temp_exp);
+    value["wien_c_k"] = json!(effect.thermal.wien_c_k);
+    value["wave_segments"] = json!(effect.wave_segments);
+    value["branch_period"] = json!(effect.branch.period);
+    value["branch_life"] = json!(effect.branch.life);
+    value["branch_gain"] = json!(effect.branch.gain);
+    value["branch_core_radius"] = json!(effect.branch.core_radius);
+    value["branch_core_offset"] = json!(effect.branch.core_offset);
+    value["branch_reach"] = json!(effect.branch.reach);
+    value["branch_spread"] = json!(effect.branch.spread);
+    value["branch_spawn_height"] = json!(effect.branch.spawn_height);
+    value["branch_spawn_range"] = json!(effect.branch.spawn_range);
+    value["branch_seed"] = json!(effect.branch.seed);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!([
         strain.strain_base,
@@ -150,9 +169,12 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "noise_scroll_speed": ubo.noise_scroll_speed,
         "color_base": [ubo.color_base.rgb[0], ubo.color_base.rgb[1], ubo.color_base.rgb[2], ubo.color_base.occlusion_lum_ref],
         "color_mid": ubo.color_mid.rgb,
-        "color_tip": [ubo.color_tip.rgb[0], ubo.color_tip.rgb[1], ubo.color_tip.rgb[2], ubo.color_tip.edge_temperature_blend],
+        "color_tip": ubo.color_tip.rgb,
         "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
         "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
+        "mix_params": [ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain],
+        "segment_params": [ubo.segment_params.count],
+        "thermal_params": [ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_c_k],
         "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],
         "support_margin": [
             ubo.support_motion.support_margin,
@@ -160,6 +182,39 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
             ubo.support_motion.swirl_speed,
             ubo.support_motion.twist_speed,
         ],
+        "branch_field": build_branch_field_json(&ubo.branch_field),
+    })
+}
+
+fn build_branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> serde_json::Value {
+    let count = (field.count as usize).min(thyllore_effect_core::BRANCH_MAX_ELEMENTS);
+    json!({
+        "count": field.count,
+        "period": field.period,
+        "life": field.life,
+        "gain": field.gain,
+        "rise_rate": field.rise_rate,
+        "drift_rate": field.drift_rate,
+        "aspect": field.aspect,
+        "core_radius": field.core_radius,
+        "core_offset": field.core_offset,
+        "reach": [field.reach_start, field.reach_end],
+        "envelope_time": field.envelope_time,
+        "bounding_pad": [field.bounding_pad, field.bounding_pad_y],
+        "elements": field.elements[..count]
+            .iter()
+            .map(|element| json!([
+                element.spawn_time,
+                element.side,
+                element.azimuth,
+                element.spawn_height,
+                element.size,
+                element.tilt,
+                element.along_offset,
+                element.hash01,
+                element.trunk_radius,
+            ]))
+            .collect::<Vec<_>>(),
     })
 }
 
@@ -557,20 +612,29 @@ mod tests {
     use cgmath::{Vector3, Vector4};
 
     fn sample_effect() -> FlameEffect {
+        use thyllore_effect_core::{
+            FlameColor, FlameEdge, FlameEnvelope, FlameNoise, FlameWarp, FlameWind,
+        };
         FlameEffect {
             position: Vector3::new(1.0, 2.0, 3.0),
             height: 1.0,
             radius: 0.5,
             sigma_t: 0.1,
             intensity: 1.0,
-            color_base: [1.0, 0.0, 0.0],
-            color_tip: [0.0, 1.0, 0.0],
-            temperature_base_k: 1000.0,
-            temperature_tip_k: 500.0,
-            use_blackbody: false,
-            noise_amplitude: 0.0,
-            noise_frequency: 0.0,
-            noise_scroll_speed: 0.0,
+            color: FlameColor {
+                base: [1.0, 0.0, 0.0],
+                tip: [0.0, 1.0, 0.0],
+                temperature_base_k: 1000.0,
+                temperature_tip_k: 500.0,
+                use_blackbody: false,
+                occlusion_lum_ref: 1.0,
+            },
+            noise: FlameNoise {
+                amplitude: 0.0,
+                frequency: 0.0,
+                scroll_speed: 0.0,
+                ..FlameNoise::default()
+            },
             time: 0.0,
             time_scale: 1.0,
             time_offset: 0.0,
@@ -579,22 +643,31 @@ mod tests {
             ),
             light_position_world: Vector3::new(2.0, 3.0, 2.0),
             self_shadow_strength: 0.5,
-            warp_amp: 0.25,
-            warp_freq: 2.5,
-            rise_speed: 0.8,
-            taper_power: 1.4,
-            radius_tip_ratio: 0.1,
-            edge_low: 0.3,
-            edge_high: 0.7,
-            white_boost: 0.0,
-            wind_direction: cgmath::Vector2::new(0.0, 0.0),
-            bend_amount: 0.0,
-            bend_power: 1.7,
-            envelope_peak: 0.35,
-            envelope_base: 0.45,
-            envelope_tail: 1.6,
+            warp: FlameWarp {
+                amp: 0.25,
+                freq: 2.5,
+                rise_speed: 0.8,
+                taper_power: 1.4,
+                ..FlameWarp::default()
+            },
+            edge: FlameEdge {
+                radius_tip_ratio: 0.1,
+                low: 0.3,
+                high: 0.7,
+                white_boost: 0.0,
+                ..FlameEdge::default()
+            },
+            wind: FlameWind {
+                direction: cgmath::Vector2::new(0.0, 0.0),
+                bend_amount: 0.0,
+                bend_power: 1.7,
+            },
+            envelope: FlameEnvelope {
+                peak: 0.35,
+                base: 0.45,
+                tail: 1.6,
+            },
             radial_sharpness: 4.0,
-            occlusion_lum_ref: 1.0,
             rotation: cgmath::Quaternion::new(1.0, 0.0, 0.0, 0.0),
             ..FlameEffect::default()
         }
@@ -651,7 +724,7 @@ mod tests {
     #[test]
     fn field_manifest_json_names_sources_targets_and_parameters() {
         let mut effect = sample_effect();
-        effect.noise_amplitude = 1.5;
+        effect.noise.amplitude = 1.5;
         effect.boundary.amp = 0.2;
         let manifest = thyllore_effect_core::flame_field_manifest(&effect);
         let value = build_field_manifest_json(&manifest);

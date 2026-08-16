@@ -37,12 +37,22 @@ impl<'a> OverlayRenderer<'a> {
         }
         self.draw_gizmo(&ctx, command_buffer)?;
         self.draw_transform_gizmo(&ctx, command_buffer)?;
-        self.draw_light_lines(&ctx, command_buffer)?;
         self.draw_bone_gizmo(&ctx, command_buffer)?;
         self.draw_constraint_gizmo(&ctx, command_buffer)?;
-        self.draw_billboard(&ctx, command_buffer)?;
+        if !self.reference_comparison_active() {
+            self.draw_light_lines(&ctx, command_buffer)?;
+            self.draw_billboard(&ctx, command_buffer)?;
+        }
 
         Ok(())
+    }
+
+    /// The light icon and its guide lines are editor chrome; the black-background
+    /// reference comparison renders the scene without them.
+    fn reference_comparison_active(&self) -> bool {
+        self.app
+            .get_resource::<crate::ecs::resource::DebugViewState>()
+            .is_some_and(|state| state.black_background)
     }
 
     pub unsafe fn draw_grid_overlay(

@@ -58,7 +58,7 @@ pub fn clip_recalculate_duration(clip: &mut EditableAnimationClip) {
         }
     }
 
-    clip.duration = max_time;
+    clip.duration = max_time.max(clip.min_duration);
 }
 
 pub fn clip_remap_bone_ids(
@@ -101,6 +101,22 @@ mod tests {
         assert!((curve.keyframes.first().unwrap().time - 0.0).abs() < 1e-6);
         assert!((curve.keyframes.last().unwrap().time - 1.0).abs() < 1e-4);
         assert!((curve_sample(curve, 0.5).unwrap() - 5.0).abs() < 0.2);
+    }
+
+    #[test]
+    fn recalculate_duration_keeps_the_authored_floor_without_keys() {
+        let mut clip = EditableAnimationClip::new(1, "unkeyed".to_string());
+        clip.min_duration = 12.0;
+
+        clip_recalculate_duration(&mut clip);
+        assert!((clip.duration - 12.0).abs() < 1e-6);
+
+        let curve = clip
+            .add_track(0, "root".to_string())
+            .get_curve_mut(PropertyType::TranslationX);
+        curve_add_keyframe(curve, 20.0, 1.0);
+        clip_recalculate_duration(&mut clip);
+        assert!((clip.duration - 20.0).abs() < 1e-6);
     }
 
     #[test]

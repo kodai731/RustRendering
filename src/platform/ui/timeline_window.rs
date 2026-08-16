@@ -529,7 +529,7 @@ fn build_clip_tracks_section(
             }
         }
 
-        build_clip_instance_properties(ui, ui_events, state, entry);
+        build_clip_instance_properties(ui, ui_events, state, clip_library, entry);
     }
 
     if mouse_clicked && !clicked_any_block {
@@ -607,6 +607,7 @@ fn build_clip_instance_properties(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
     state: &TimelineState,
+    clip_library: &ClipLibrary,
     entry: &ClipTrackEntry,
 ) {
     let Some((sel_entity, sel_id)) = state.selected_clip_instance else {
@@ -622,6 +623,9 @@ fn build_clip_instance_properties(
     };
 
     ui.text("  Properties:");
+    ui.same_line();
+
+    build_clip_length_field(ui, ui_events, clip_library, inst.source_id);
     ui.same_line();
 
     ui.set_next_item_width(60.0);
@@ -704,6 +708,35 @@ fn build_clip_instance_properties(
                 }
             }
         }
+    }
+}
+
+/// Clip length in seconds, editable even when the clip has no keyframes: the
+/// authored floor `min_duration` is what makes an unkeyed clip loop longer.
+fn build_clip_length_field(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    clip_library: &ClipLibrary,
+    source_id: SourceClipId,
+) {
+    let Some(clip) = clip_library.get(source_id) else {
+        return;
+    };
+    ui.set_next_item_width(80.0);
+    let mut seconds = clip.duration;
+    if imgui::Drag::new("##clip_length")
+        .range(0.0, 3600.0)
+        .speed(0.05)
+        .display_format("Len:%.2fs")
+        .build(ui, &mut seconds)
+    {
+        ui_events.send(UIEvent::ClipSetMinDuration { source_id, seconds });
+    }
+    if ui.is_item_hovered() {
+        ui.tooltip_text(
+            "Clip length: keyframes extend it, this value keeps it at least this long \
+             (drag to lengthen the loop of a clip without keys)",
+        );
     }
 }
 

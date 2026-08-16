@@ -54,17 +54,27 @@ macro_rules! declare_style_group {
 declare_style_group! {
     FlameStyleMotion, extract_motion_style, apply_motion_style, effect {
         direct {
-            noise_scroll_speed: f32 => noise_scroll_speed,
-            rise_speed: f32 => rise_speed,
-            warp_amp: f32 => warp_amp,
-            warp_freq: f32 => warp_freq,
+            noise_scroll_speed: f32 => noise.scroll_speed,
+            rise_speed: f32 => warp.rise_speed,
+            warp_amp: f32 => warp.amp,
+            warp_freq: f32 => warp.freq,
             swirl_gain: f32 => swirl.gain,
             swirl_speed: f32 => swirl.speed,
             twist_gain: f32 => twist.gain,
             twist_speed: f32 => twist.speed,
             spread_gain: f32 => spread_gain,
-            burnout_gain: f32 => burnout_gain,
-            aniso_axis_advect: f32 => aniso_axis_advect,
+            burnout_gain: f32 => carve.burnout_gain,
+            meander_frequency: f32 => meander.frequency,
+            aniso_axis_advect: f32 => contour.aniso_axis_advect,
+            branch_period: f32 => branch.period,
+            branch_life: f32 => branch.life,
+            branch_gain: f32 => branch.gain,
+            branch_core_radius: f32 => branch.core_radius,
+            branch_core_offset: f32 => branch.core_offset,
+            branch_reach: f32 => branch.reach,
+            branch_spread: f32 => branch.spread,
+            branch_spawn_height: f32 => branch.spawn_height,
+            branch_spawn_range: f32 => branch.spawn_range,
         }
         custom {
             meander_amp_over_r0: f32,
@@ -75,20 +85,26 @@ declare_style_group! {
 declare_style_group! {
     FlameStyleTexture, extract_texture_style, apply_texture_style, effect {
         direct {
-            noise_amplitude: f32 => noise_amplitude,
-            noise_contrast: f32 => noise_contrast,
-            noise_frequency: f32 => noise_frequency,
-            noise_shaping_scale: f32 => noise_shaping_scale,
-            erosion_noise_gain: f32 => erosion_noise_gain,
+            noise_amplitude: f32 => noise.amplitude,
+            noise_contrast: f32 => noise.contrast,
+            noise_frequency: f32 => noise.frequency,
+            noise_aniso_y: f32 => noise.aniso_y,
+            mix_lo: f32 => mix.lo,
+            mix_hi: f32 => mix.hi,
+            mix_height_gain: f32 => mix.height_gain,
+            mix_scale: f32 => mix.scale,
+            mix_radial_gain: f32 => mix.radial_gain,
+            noise_shaping_scale: f32 => noise.shaping_scale,
+            erosion_noise_gain: f32 => noise.erosion_gain,
             support_margin: f32 => support_margin,
-            contour_wiggle_amp: f32 => contour_wiggle_amp,
-            edge_outer_sharpen: f32 => edge_outer_sharpen,
-            noise_scale_mode: f32 => noise_scale_mode,
-            edge_low: f32 => edge_low,
-            edge_high: f32 => edge_high,
-            tip_carve_depth: f32 => tip_carve.depth,
-            tip_carve_reach: f32 => tip_carve.reach,
-            warp_reach: f32 => warp_reach,
+            contour_wiggle_amp: f32 => contour.wiggle_amp,
+            edge_outer_sharpen: f32 => edge.outer_sharpen,
+            noise_scale_mode: f32 => noise.scale_mode,
+            edge_low: f32 => edge.low,
+            edge_high: f32 => edge.high,
+            tip_carve_depth: f32 => carve.tip.depth,
+            tip_carve_reach: f32 => carve.tip.reach,
+            warp_reach: f32 => warp.reach,
         }
         custom {}
     }
@@ -98,17 +114,19 @@ declare_style_group! {
     FlameStyleOptics, extract_optics_style, apply_optics_style, effect {
         direct {
             intensity: f32 => intensity,
-            temperature_base_k: f32 => temperature_base_k,
-            temperature_tip_k: f32 => temperature_tip_k,
-            use_blackbody: bool => use_blackbody,
-            white_boost: f32 => white_boost,
+            temperature_base_k: f32 => color.temperature_base_k,
+            temperature_tip_k: f32 => color.temperature_tip_k,
+            use_blackbody: bool => color.use_blackbody,
+            white_boost: f32 => edge.white_boost,
+            density_exp: f32 => thermal.density_exp,
+            temp_exp: f32 => thermal.temp_exp,
+            wien_c_k: f32 => thermal.wien_c_k,
             self_shadow_strength: f32 => self_shadow_strength,
-            sigma_dispersion: f32 => sigma_dispersion,
-            rte_bands: f32 => rte_bands,
-            edge_temperature_blend: f32 => edge_temperature_blend,
-            occlusion_lum_ref: f32 => occlusion_lum_ref,
-            color_base: [f32; 3] => color_base,
-            color_tip: [f32; 3] => color_tip,
+            sigma_dispersion: f32 => contour.sigma_dispersion,
+            rte_bands: f32 => contour.rte_bands,
+            occlusion_lum_ref: f32 => color.occlusion_lum_ref,
+            color_base: [f32; 3] => color.base,
+            color_tip: [f32; 3] => color.tip,
         }
         custom {
             tau0: f32,
@@ -162,7 +180,7 @@ pub fn flame_style_from_effect(effect: &FlameEffect, name: &str) -> FlameStyle {
         version: FLAME_STYLE_VERSION,
         name: name.to_string(),
         motion: FlameStyleMotion {
-            meander_amp_over_r0: Some(effect.meander_amp / radius),
+            meander_amp_over_r0: Some(effect.meander.amp / radius),
             ..extract_motion_style(effect)
         },
         texture: extract_texture_style(effect),
@@ -190,7 +208,7 @@ pub fn apply_flame_style(
     if groups.motion {
         apply_motion_style(effect, &style.motion, &mut applied);
         if let Some(amp_over_r0) = style.motion.meander_amp_over_r0 {
-            effect.meander_amp = amp_over_r0 * effect.radius;
+            effect.meander.amp = amp_over_r0 * effect.radius;
             applied.push("meander_amp");
         }
     }
@@ -234,12 +252,28 @@ mod tests {
                 spread_gain: Some(0.4),
                 meander_amp_over_r0: Some(0.6),
                 burnout_gain: Some(2.0),
+                meander_frequency: Some(1.0),
                 aniso_axis_advect: Some(1.0),
+                branch_period: Some(0.5),
+                branch_life: Some(2.0),
+                branch_gain: Some(1.5),
+                branch_core_radius: Some(0.8),
+                branch_core_offset: Some(1.0),
+                branch_reach: Some(2.0),
+                branch_spread: Some(0.4),
+                branch_spawn_height: Some(0.5),
+                branch_spawn_range: Some(1.0),
             },
             texture: FlameStyleTexture {
                 noise_amplitude: Some(6.0),
                 noise_contrast: Some(4.0),
                 noise_frequency: Some(7.0),
+                noise_aniso_y: Some(0.5),
+                mix_lo: Some(0.2),
+                mix_hi: Some(1.8),
+                mix_height_gain: Some(0.3),
+                mix_scale: Some(0.5),
+                mix_radial_gain: Some(0.5),
                 noise_shaping_scale: Some(0.45),
                 erosion_noise_gain: Some(1.0),
                 support_margin: Some(2.0),
@@ -259,10 +293,12 @@ mod tests {
                 temperature_tip_k: Some(1350.0),
                 use_blackbody: Some(true),
                 white_boost: Some(0.5),
+                density_exp: Some(1.2),
+                temp_exp: Some(1.5),
+                wien_c_k: Some(10000.0),
                 self_shadow_strength: Some(0.3),
                 sigma_dispersion: Some(0.8),
                 rte_bands: Some(4.0),
-                edge_temperature_blend: Some(0.1),
                 occlusion_lum_ref: Some(0.9),
                 color_base: Some([1.0, 0.4, 0.1]),
                 color_tip: Some([1.0, 0.1, 0.0]),
@@ -375,7 +411,7 @@ mod tests {
             let mut effect = FlameEffect::default();
             effect.radius = radius;
             apply_flame_style(&mut effect, &style, StyleGroups::default());
-            assert!((effect.meander_amp / radius - 0.6).abs() < 1e-6);
+            assert!((effect.meander.amp / radius - 0.6).abs() < 1e-6);
             let tau = crate::flame::effective_sigma_t(&effect) * radius;
             assert!((tau - 4.0).abs() < 1e-5);
         }

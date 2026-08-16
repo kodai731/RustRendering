@@ -11,7 +11,7 @@ use crate::ecs::World;
 use super::viewport_window::ViewportInfo;
 
 const OVERLAY_MARGIN: f32 = 8.0;
-const OVERLAY_WIDTH: f32 = 280.0;
+const OVERLAY_WIDTH: f32 = 420.0;
 
 pub struct SceneOverlayState {
     pub model_path: String,
@@ -820,21 +820,21 @@ fn build_flame_section(
                     }
 
                     let emitter_labels: [&str; 3] = ["Cylinder", "Ring", "Mesh SDF"];
-                    let mut emitter_selected = effect_copy.emitter_kind as usize;
+                    let mut emitter_selected = effect_copy.emitter.kind as usize;
                     if ui.combo_simple_string("Emitter", &mut emitter_selected, &emitter_labels) {
-                        effect_copy.emitter_kind = emitter_selected as u32;
+                        effect_copy.emitter.kind = emitter_selected as u32;
                     }
 
-                    if effect_copy.emitter_kind == 1 {
+                    if effect_copy.emitter.kind == 1 {
                         ui.slider_config("Ring Radius", 0.2, 5.0)
                             .display_format("%.2f")
-                            .build(&mut effect_copy.ring_major_radius);
+                            .build(&mut effect_copy.emitter.ring_major_radius);
                         ui.same_line();
-                        let mut ring_speed = effect_copy.ring_angular_speed;
+                        let mut ring_speed = effect_copy.emitter.ring_angular_speed;
                         ui.slider_config("Ring Speed", 0.0, 6.28)
                             .display_format("%.2f")
                             .build(&mut ring_speed);
-                        effect_copy.ring_angular_speed = ring_speed;
+                        effect_copy.emitter.ring_angular_speed = ring_speed;
                     }
 
                     ui.slider_config("Height", 0.05, 10.0)
@@ -880,26 +880,56 @@ fn build_flame_section(
                         });
                     }
 
+                    ui.slider_config("Density Exp", 0.0, 4.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.thermal.density_exp);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Mass curve of a mixing parcel, (1 - m)^a: larger thins the mixed \
+                             regions faster",
+                        );
+                    }
+                    ui.slider_config("Temp Exp", 0.0, 4.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.thermal.temp_exp);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Temperature curve of a mixing parcel, T_cold + (T_hot - T_cold) \
+                             (1 - m)^b: larger than Density Exp cools before thinning (dark red \
+                             tufts remain), smaller thins before cooling",
+                        );
+                    }
+                    ui.slider_config("Wien C (K)", 0.0, 24000.0)
+                        .display_format("%.0f")
+                        .build(&mut effect_copy.thermal.wien_c_k);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Wien constant of the emissivity exp(-c/T): 24000 is physical at \
+                             0.6 um, smaller compresses the hot/cold brightness contrast like \
+                             camera exposure",
+                        );
+                    }
+
                     let mut color_changed = false;
-                    color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color_base);
-                    color_changed |= ui.color_edit3("Tip Color", &mut effect_copy.color_tip);
+                    color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color.base);
+                    color_changed |= ui.color_edit3("Tip Color", &mut effect_copy.color.tip);
                     if color_changed {
-                        effect_copy.use_blackbody = false;
+                        effect_copy.color.use_blackbody = false;
                     }
 
                     ui.slider_config("Noise Amplitude", 0.0, 3.0)
-                        .build(&mut effect_copy.noise_amplitude);
+                        .build(&mut effect_copy.noise.amplitude);
                     ui.same_line();
                     if ui.small_button("K##NoiseAmplitude") {
                         ui_events.send(UIEvent::InsertScalarKey {
                             property_type: FlameParam::NoiseAmplitude.property_type(),
-                            value: effect_copy.noise_amplitude,
+                            value: effect_copy.noise.amplitude,
                         });
                     }
 
                     ui.slider_config("Noise Contrast", 0.25, 4.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.noise_contrast);
+                        .build(&mut effect_copy.noise.contrast);
 
                     ui.slider_config("Swirl", 0.0, 1.5)
                         .display_format("%.2f")
@@ -911,16 +941,26 @@ fn build_flame_section(
                         );
                     }
 
+                    ui.slider_config("Noise Aspect", 0.05, 1.5)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.noise.aniso_y);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Vertical scale of the noise cells: small = tall streaks, 1 = \
+                             isotropic puffs (in the height-scaled mode)",
+                        );
+                    }
+
                     let mut noise_sharpness =
                         thyllore_effect_core::shaping_scale_to_noise_sharpness(
-                            effect_copy.noise_shaping_scale,
+                            effect_copy.noise.shaping_scale,
                         );
                     if ui
                         .slider_config("Noise Sharpness", 0.0, 1.0)
                         .display_format("%.2f")
                         .build(&mut noise_sharpness)
                     {
-                        effect_copy.noise_shaping_scale =
+                        effect_copy.noise.shaping_scale =
                             thyllore_effect_core::noise_sharpness_to_shaping_scale(noise_sharpness);
                     }
                     if ui.is_item_hovered() {
@@ -930,6 +970,73 @@ fn build_flame_section(
                              tanh into near-binary blobs; ~0.78 = scale 0.25, the measured \
                              perceptual sweet spot). Stateless — noise_shaping_scale stays \
                              the source of truth (0 = built-in 0.6)",
+                        );
+                    }
+
+                    ui.slider_config("Mix Lo", -3.0, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.mix.lo);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Erosion carrier level (std units, carve-positive) where a parcel \
+                             starts mixing with ambient air: lower mixes more of the body",
+                        );
+                    }
+                    ui.slider_config("Mix Hi", -3.0, 4.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.mix.hi);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Carrier level (std units) where a parcel counts as fully mixed \
+                             (thin and cold)",
+                        );
+                    }
+                    ui.slider_config("Mix Scale", 0.1, 2.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.mix.scale);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Wavenumber of the mixing eddies relative to the low erosion \
+                             octave: below 1 the mixed and unmixed regions grow larger than \
+                             the carve detail",
+                        );
+                    }
+                    ui.slider_config("Mix Radial Gain", 0.0, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.mix.radial_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Shear-layer ramp added to the mixing degree, gain * u^2 over the \
+                             normalized radius: the axis stays an unmixed bright core while \
+                             the rim thins and cools",
+                        );
+                    }
+                    ui.slider_config("Mix Height Gain", 0.0, 2.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.mix.height_gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Height ramp added to the mixing degree, gain * h^2: the plume \
+                             thins and cools toward the top",
+                        );
+                    }
+
+                    let mut wave_segments = effect_copy.wave_segments as i32;
+                    if ui
+                        .slider_config(
+                            "Noise Segments",
+                            thyllore_effect_core::WAVE_SEGMENTS_MIN as i32,
+                            thyllore_effect_core::WAVE_SEGMENTS_MAX as i32,
+                        )
+                        .build(&mut wave_segments)
+                    {
+                        effect_copy.wave_segments = wave_segments as u32;
+                    }
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Closed-form segments per ray: the noise grid aliases into a \
+                             pixel hatch above Noise Frequency ~2 at 64; 128 resolves \
+                             frequency ~4 at twice the cost",
                         );
                     }
 
@@ -976,7 +1083,7 @@ fn build_flame_section(
 
                     ui.slider_config("Burnout", 0.0, 32.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.burnout_gain);
+                        .build(&mut effect_copy.carve.burnout_gain);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Age-driven burnout of the rising material: deepens the erosion \
@@ -989,7 +1096,7 @@ fn build_flame_section(
 
                     ui.slider_config("Carve Residual", 0.0, 0.5)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.carve_residual);
+                        .build(&mut effect_copy.carve.residual);
                     if ui.is_item_hovered() {
                         ui.tooltip_text(
                             "Translucent floor left where the noise carves the medium away. \
@@ -1001,9 +1108,19 @@ fn build_flame_section(
 
                     ui.slider_config("Meander", 0.0, 2.0)
                         .display_format("%.2f")
-                        .build(&mut effect_copy.meander_amp);
+                        .build(&mut effect_copy.meander.amp);
                     if ui.is_item_hovered() {
                         ui.tooltip_text("Horizontal meandering motion of the flame (0 = off)");
+                    }
+                    ui.slider_config("Meander Frequency", 0.2, 30.0)
+                        .display_format("%.1f")
+                        .build(&mut effect_copy.meander.frequency);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Wavenumber multiplier of the meander modes: 1 = two long bends over \
+                             the height, ~12 folds the column into a snake with ~4 bends (pillar \
+                             reference)",
+                        );
                     }
 
                     ui.slider_config("Swirl Speed", 0.0, 4.0)
@@ -1025,6 +1142,100 @@ fn build_flame_section(
                         );
                     }
 
+                    ui.separator();
+                    ui.text("Branches");
+                    ui.slider_config("Branch Period", 0.0, 2.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.period);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Spawn period [s] of the branch elements (vortex lines that roll \
+                             the medium into side tongues); raised to life/31 when the table \
+                             is full, so shorter periods never shrink the tongues; 0 = off",
+                        );
+                    }
+                    ui.slider_config("Branch Life", 0.1, 6.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.life);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Lifetime [s] of one element (wind out fast, hold, burn out); the \
+                             spawn period is raised to life/31 when the element table is full",
+                        );
+                    }
+                    ui.slider_config("Branch Gain", -8.0, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.gain);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Rotation angle [rad] the core reaches at the end of winding; the \
+                             medium flows along the arcs toward the tongue tip at a constant \
+                             rate. Positive rolls trunk material down-out-up (cap curling \
+                             inward), negative rolls it up-out-down (KH crest leaning \
+                             upward). A compact rotation never folds; 0 = off",
+                        );
+                    }
+                    ui.slider_config("Branch Core", 0.05, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.core_radius);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Vortex core radius as a ratio of the local trunk radius: small \
+                             values shear the medium into thin spirals, near 1 the whole \
+                             disc turns together and tongues keep the trunk's thickness",
+                        );
+                    }
+                    ui.slider_config("Branch Core Offset", 0.0, 3.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.core_offset);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Lateral position of the core at spawn as a ratio of the local \
+                             trunk radius: 0 on the axis tilts the whole slab, 1 on the shear \
+                             layer rolls trunk material outward as a billow",
+                        );
+                    }
+                    ui.slider_config("Branch Reach", 0.5, 8.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.reach);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Compact reach of one element at the end of its life as a ratio \
+                             of the local trunk radius; nothing beyond it moves, so it bounds \
+                             how far tongues can extend sideways",
+                        );
+                    }
+                    ui.slider_config("Branch Spread", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.spread);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Scatter of azimuth, timing jitter, left/right alternation, \
+                             element size, line tilt and window shift (0 = identical \
+                             elements strictly alternating in one plane)",
+                        );
+                    }
+                    ui.slider_config("Branch Height", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.spawn_height);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text("Center of the spawn height band (0 = base, 1 = top)");
+                    }
+                    ui.slider_config("Branch Height Range", 0.0, 1.0)
+                        .display_format("%.2f")
+                        .build(&mut effect_copy.branch.spawn_range);
+                    if ui.is_item_hovered() {
+                        ui.tooltip_text(
+                            "Full width of the spawn height band; 1.0 with center 0.5 spawns \
+                             elements over the whole trunk",
+                        );
+                    }
+                    let mut branch_seed = effect_copy.branch.seed as i32;
+                    if ui.input_int("Branch Seed", &mut branch_seed).build() {
+                        effect_copy.branch.seed = branch_seed.max(0) as u32;
+                    }
+
+                    ui.separator();
                     ui.slider_config("Support", 1.0, 2.5)
                         .display_format("%.2f")
                         .build(&mut effect_copy.support_margin);

@@ -122,7 +122,6 @@
       "contour_wiggle_amp": 0.30000001192092896,
       "edge_high": 0.33000001311302185,
       "edge_low": 0.27000001072883606,
-      "edge_temperature_blend": 0.0,
       "emitter_kind": 1,
       "envelope_base": 0.05000000074505806,
       "envelope_peak": 0.25,

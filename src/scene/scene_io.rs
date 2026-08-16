@@ -293,6 +293,7 @@ pub fn load_scene(scene_path: &Path) -> SceneResult<LoadedScene> {
         && scene.version != 1
         && scene.version != 2
         && scene.version != 3
+        && scene.version != 4
     {
         return Err(SceneError::VersionMismatch {
             expected: SCENE_FORMAT_VERSION,
@@ -591,8 +592,9 @@ mod tests {
         assert_eq!(flame.effect.height, 8.0);
         assert_eq!(flame.effect.radius, 1.0);
         assert_eq!(flame.effect.radius_tip_ratio, 1.0);
-        assert_eq!(flame.effect.temperature_base_k, 1900.0);
-        assert_eq!(flame.effect.temperature_tip_k, 1350.0);
+        assert_eq!(flame.effect.temperature_base_k, 2900.0);
+        assert_eq!(flame.effect.temperature_tip_k, 1300.0);
+        assert_eq!(flame.effect.mix_scale, 0.5);
         assert_eq!(flame.effect.white_boost, 0.0);
         assert_eq!(flame.effect.noise_scale_mode, 1.0);
         assert!(flame.effect.meander_amp > 0.0);

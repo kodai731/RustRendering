@@ -159,7 +159,7 @@ fn test_flame_ubo_default_matches_effect_default() {
     let ubo = FlameUBO::default();
     let effect = FlameEffect::default();
     assert_eq!(ubo.sigma_t, effect.sigma_t);
-    assert_eq!(ubo.noise_amplitude, effect.noise_amplitude);
+    assert_eq!(ubo.noise_amplitude, effect.noise.amplitude);
     assert_eq!(
         ubo.height_primitive_coefficients,
         effect.coefficients.height_primitive
@@ -197,15 +197,28 @@ fn test_flame_ubo_layout_is_std140_compatible() {
     // trail_coefficients is [[f32; 4]; 4] (64 bytes) instead of [f32; 4] (16 bytes)
     assert_eq!(
         std::mem::size_of::<FlameUBO>(),
-        784 + 16 + 16 + 16 + 32 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
+        784 + 16 + 16 + 16 + 32 + 128 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
             + 48
             + 16
+            + std::mem::size_of::<FlameMixParams>()
+            + std::mem::size_of::<FlameSegmentParams>()
+            + std::mem::size_of::<FlameThermalParams>()
             + std::mem::size_of::<FlameTwistField>()
             + std::mem::size_of::<[FlameMeanderMode; 2]>()
+            + std::mem::size_of::<FlameBranchField>()
     );
     assert_eq!(std::mem::size_of::<FlameSupportMotion>(), 16);
+    assert_eq!(std::mem::size_of::<FlameMixParams>(), 32);
+    assert_eq!(std::mem::size_of::<FlameSegmentParams>(), 16);
+    assert_eq!(std::mem::size_of::<FlameThermalParams>(), 32);
     assert_eq!(std::mem::size_of::<FlameTwistField>(), 48);
     assert_eq!(std::mem::size_of::<[FlameMeanderMode; 2]>(), 64);
+    assert_eq!(std::mem::size_of::<FlameBranchElement>(), 48);
+    assert_eq!(std::mem::size_of::<FlameBranchAgeProfile>(), 32);
+    assert_eq!(
+        std::mem::size_of::<FlameBranchField>(),
+        64 + 32 + 48 * BRANCH_MAX_ELEMENTS
+    );
     assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
 }
 
@@ -437,19 +450,19 @@ fn test_flame_model_matrix_inverse_parity() {
 fn test_effective_edge_window() {
     // noise_amplitude = 1.5 (REF): should match original values exactly
     let mut effect = FlameEffect::default();
-    let (elo, ehi) = effective_edge_window(&effect);
+    let (elo, ehi) = effective_edge_window(&effect.edge, &effect.noise);
     assert!((elo - 0.27).abs() < 1e-6, "elo={}", elo);
     assert!((ehi - 0.33).abs() < 1e-6, "ehi={}", ehi);
 
     // noise_amplitude = 3.0: half-width doubles (gamma=1.0)
-    effect.noise_amplitude = 3.0;
-    let (elo, ehi) = effective_edge_window(&effect);
+    effect.noise.amplitude = 3.0;
+    let (elo, ehi) = effective_edge_window(&effect.edge, &effect.noise);
     assert!((elo - 0.24).abs() < 1e-6, "elo={}", elo);
     assert!((ehi - 0.36).abs() < 1e-6, "ehi={}", ehi);
 
     // noise_amplitude = 0.0: lower bound clamp applies (hw clamped to 0.25*hw0)
-    effect.noise_amplitude = 0.0;
-    let (elo, ehi) = effective_edge_window(&effect);
+    effect.noise.amplitude = 0.0;
+    let (elo, ehi) = effective_edge_window(&effect.edge, &effect.noise);
     // hw0 = 0.03, clamped hw = 0.25 * 0.03 = 0.0075
     // c = 0.3, so elo = 0.3 - 0.0075 = 0.2925, ehi = 0.3 + 0.0075 = 0.3075
     assert!((elo - 0.2925).abs() < 1e-6, "elo={}", elo);
@@ -460,31 +473,31 @@ fn test_effective_edge_window() {
 fn test_noise_contrast_scales_edge_window() {
     // contrast = 1.0: authored window returned bit-identically
     let mut effect = FlameEffect::default();
-    let (lo, hi) = contrast_scaled_edges(&effect);
-    assert_eq!(lo, effect.edge_low);
-    assert_eq!(hi, effect.edge_high);
+    let (lo, hi) = contrast_scaled_edges(&effect.edge, &effect.noise);
+    assert_eq!(lo, effect.edge.low);
+    assert_eq!(hi, effect.edge.high);
 
     // contrast = 2.0: half-width halves around fixed center 0.3
-    effect.noise_contrast = 2.0;
-    let (lo, hi) = contrast_scaled_edges(&effect);
+    effect.noise.contrast = 2.0;
+    let (lo, hi) = contrast_scaled_edges(&effect.edge, &effect.noise);
     assert!((lo - 0.285).abs() < 1e-6, "lo={}", lo);
     assert!((hi - 0.315).abs() < 1e-6, "hi={}", hi);
 
     // contrast = 0.5: half-width doubles (softer)
-    effect.noise_contrast = 0.5;
-    let (lo, hi) = contrast_scaled_edges(&effect);
+    effect.noise.contrast = 0.5;
+    let (lo, hi) = contrast_scaled_edges(&effect.edge, &effect.noise);
     assert!((lo - 0.24).abs() < 1e-6, "lo={}", lo);
     assert!((hi - 0.36).abs() < 1e-6, "hi={}", hi);
 
     // out-of-range contrast clamps to [0.25, 4.0]
-    effect.noise_contrast = 100.0;
-    let (lo, hi) = contrast_scaled_edges(&effect);
+    effect.noise.contrast = 100.0;
+    let (lo, hi) = contrast_scaled_edges(&effect.edge, &effect.noise);
     assert!((lo - (0.3 - 0.03 / 4.0)).abs() < 1e-6, "lo={}", lo);
     assert!((hi - (0.3 + 0.03 / 4.0)).abs() < 1e-6, "hi={}", hi);
 
     // effective window rides on top: amp at REF keeps the scaled window
-    effect.noise_contrast = 2.0;
-    let (elo, ehi) = effective_edge_window(&effect);
+    effect.noise.contrast = 2.0;
+    let (elo, ehi) = effective_edge_window(&effect.edge, &effect.noise);
     assert!((elo - 0.285).abs() < 1e-6, "elo={}", elo);
     assert!((ehi - 0.315).abs() < 1e-6, "ehi={}", ehi);
 }
