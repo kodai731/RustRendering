@@ -68,10 +68,11 @@ pub enum FlameDebugView {
     WarpStrain,
     WarpStretch,
     BranchElements,
+    EmissionLinear,
 }
 
 impl FlameDebugView {
-    pub const ALL: [FlameDebugView; 13] = [
+    pub const ALL: [FlameDebugView; 14] = [
         FlameDebugView::Off,
         FlameDebugView::ShapedNoise,
         FlameDebugView::Erosion,
@@ -85,6 +86,7 @@ impl FlameDebugView {
         FlameDebugView::WarpStrain,
         FlameDebugView::WarpStretch,
         FlameDebugView::BranchElements,
+        FlameDebugView::EmissionLinear,
     ];
 
     pub fn label(self) -> &'static str {
@@ -102,6 +104,7 @@ impl FlameDebugView {
             FlameDebugView::WarpStrain => "Warp Strain",
             FlameDebugView::WarpStretch => "Warp Stretch",
             FlameDebugView::BranchElements => "Branch Elements",
+            FlameDebugView::EmissionLinear => "Emission Linear (x0.25)",
         }
     }
 
@@ -120,6 +123,7 @@ impl FlameDebugView {
             FlameDebugView::WarpStrain => 10,
             FlameDebugView::WarpStretch => 11,
             FlameDebugView::BranchElements => 12,
+            FlameDebugView::EmissionLinear => 13,
         }
     }
 
@@ -138,6 +142,7 @@ impl FlameDebugView {
             "strain" | "warp-strain" => Some(FlameDebugView::WarpStrain),
             "stretch" | "warp-stretch" => Some(FlameDebugView::WarpStretch),
             "branch" | "branch-elements" => Some(FlameDebugView::BranchElements),
+            "emission-linear" => Some(FlameDebugView::EmissionLinear),
             _ => None,
         }
     }

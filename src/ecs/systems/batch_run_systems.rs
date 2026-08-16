@@ -1606,7 +1606,7 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "add_flame",
     "open_flame_curves",
     "view_mode=<final|position|normal|shadow_mask|ndotl|light_direction|view_depth|object_id|selection_view|selection_ubo>",
-    "black_background (clear the HDR viewport to black and hide the grid, for reference-footage comparison)",
+    "black_background (clear the HDR viewport to black and hide the grid and light gizmo, for reference-footage comparison)",
     "flame_clip_preview=<end_seconds> (draw the first flame's clip block as a mid-drag TrimEnd preview, without committing)",
     "timeline_select_flame_clip (enqueue TimelineSelectClip for the flame clip — the double-click path — to check it leaves the flame schedule's trim intact)",
     "dump_wall_probe (write camera pose + wall-regime ray diagnostics to log/flame/)",

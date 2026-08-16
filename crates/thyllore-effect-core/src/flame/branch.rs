@@ -104,7 +104,7 @@ fn spawn_branch_element(
     FlameBranchElement {
         spawn_time: (index as f32 + jitter) * period,
         side,
-        azimuth: spread * BRANCH_AZIMUTH_RANGE * (hash01(seed, index, 2) - 0.5),
+        azimuth: branch_element_azimuth(index, spread, hash01(seed, index, 2)),
         spawn_height,
         size: 1.0 + scatter(5, BRANCH_SIZE_SCATTER),
         tilt: scatter(6, BRANCH_TILT_RANGE),
@@ -113,6 +113,15 @@ fn spawn_branch_element(
         trunk_radius: trunk_radius_at(spawn_height.clamp(0.0, 1.0)),
         _padding: [0.0; 3],
     }
+}
+
+/// Golden-angle sequence around the full circle, so consecutive tongues leave the
+/// trunk in well-separated directions and the column reads the same from every
+/// azimuth; `spread` only jitters each element about its slot.
+fn branch_element_azimuth(index: i64, spread: f32, jitter01: f32) -> f32 {
+    let slot =
+        (index as f64 * BRANCH_AZIMUTH_GOLDEN_ANGLE).rem_euclid(std::f64::consts::TAU) as f32;
+    slot + spread * BRANCH_AZIMUTH_JITTER * (jitter01 - 0.5)
 }
 
 /// Trunk support radius at a normalized height, in flame-local units.
@@ -380,6 +389,23 @@ pub fn branch_pull_back(field: &FlameBranchField, p: [f32; 3], time: f32) -> [f3
 fn branch_ball_radius_max(branch: &FlameBranch, trunk_radius: f32) -> f32 {
     let size_max = 1.0 + branch.spread.clamp(0.0, 1.0) * BRANCH_SIZE_SCATTER;
     branch.reach.max(1e-3) * size_max * trunk_radius
+}
+
+/// Radial proxy pad the shader cone actually uses (`clampToShellCone` radiusPad):
+/// the branch pad plus the meander sway, which displaces the whole column by up
+/// to `meander_amp` at the tip in either direction. The scissor and picking must
+/// widen by the same amount, or steep views clip the swaying column.
+pub fn flame_proxy_radial_pad(branch_pad_radial: f32, meander_amp: f32) -> f32 {
+    branch_pad_radial + 2.0 * meander_amp.abs()
+}
+
+/// Full proxy pad of an effect: branch element geometry plus the meander sway.
+pub fn flame_proxy_pad(effect: &FlameEffect, baked: &FlameBaked) -> FlameProxyPad {
+    let branch = branch_proxy_pad(effect, baked);
+    FlameProxyPad {
+        radial: flame_proxy_radial_pad(branch.radial, effect.meander_amp),
+        top: branch.top,
+    }
 }
 
 /// Proxy pad from the element geometry alone: transported density only appears

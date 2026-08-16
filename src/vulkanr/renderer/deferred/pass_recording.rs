@@ -731,7 +731,10 @@ pub unsafe fn record_flame_passes(
             support_scale,
             ubo.support_motion.support_margin,
             thyllore_effect_core::FlameProxyPad {
-                radial: ubo.branch_field.bounding_pad,
+                radial: thyllore_effect_core::flame_proxy_radial_pad(
+                    ubo.branch_field.bounding_pad,
+                    ubo.support_motion.meander_amp,
+                ),
                 top: ubo.branch_field.bounding_pad_y,
             },
         ) else {

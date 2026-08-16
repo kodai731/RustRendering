@@ -30,7 +30,7 @@ pub fn twist_mode_phase_rate(kappa: f32) -> f32 {
 
 /// Animated meander modes: two horizontal sinusoids with frequencies derived
 /// from swirl speed, sent to the shader through the UBO.
-pub const MEANDER_MODE_DIRECTION: [[f32; 2]; 2] = [[1.0, 0.0], [0.6, 0.8]];
+pub const MEANDER_MODE_DIRECTION: [[f32; 2]; 2] = [[1.0, 0.0], [0.0, 1.0]];
 pub const MEANDER_MODE_KAPPA: [f32; 2] = [1.2, 2.1];
 pub const MEANDER_MODE_PHASE: [f32; 2] = [0.0, 2.4];
 pub const MEANDER_MODE_RATE_SCALE: [f32; 2] = [0.75, 1.15];
@@ -54,7 +54,11 @@ pub const BRANCH_BURNOUT_RELEASE_FRACTION: f32 = 0.1;
 pub const BRANCH_BURNOUT_MARGIN: f32 = 0.5;
 /// Trunk radius ratio inside which the burnout never touches the medium.
 pub const BRANCH_BURNOUT_TRUNK_INNER: f32 = 0.75;
-pub const BRANCH_AZIMUTH_RANGE: f32 = std::f32::consts::PI;
+/// Azimuth step between consecutive tongues: the golden angle 2pi(1 - 1/phi) fills
+/// the circle uniformly without periodic alignment.
+pub const BRANCH_AZIMUTH_GOLDEN_ANGLE: f64 = 2.399_963_229_728_653;
+/// Full-spread jitter range around an element's azimuth slot.
+pub const BRANCH_AZIMUTH_JITTER: f32 = std::f32::consts::PI;
 /// Spawn-time jitter range as a fraction of the period; below 1 keeps spawn order.
 pub const BRANCH_JITTER_RANGE: f32 = 0.5;
 /// Per-element scatter driven by `spread`: size multiplier range (+-), line tilt

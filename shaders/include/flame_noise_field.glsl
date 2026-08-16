@@ -33,19 +33,6 @@ float flameBiweight(float uSquared) {
     return inside * inside;
 }
 
-// S1 plateaued radial factor: max(biweight(u^2 * margin^2), plateau(u^2, margin)).
-// margin comes from flame.supportMotion.supportMargin (support_margin).
-// For margin == 1.0, plateau is zero and biweight(u^2 * 1) = biweight(u^2), so bit-identical.
-float flamePlateauRadialFactor(float uSquared) {
-    float margin = flame.supportMotion.supportMargin;
-    float core = flameBiweight(uSquared * margin * margin);
-    if (margin <= 1.0) { return core; }
-    const float PLATEAU_LEVEL = 0.35;
-    const float PLATEAU_EDGE_DELTA = 0.1;
-    float plateau = PLATEAU_LEVEL * (1.0 - smoothstep(1.0 - PLATEAU_EDGE_DELTA, 1.0, uSquared));
-    return max(core, plateau);
-}
-
 // Support radius S of the biweight profile in R(h) units. The curvature at the axis
 // matches the former Gaussian exp(-radialSharpness * u^2), so the sharpness parameter
 // keeps its direction; the shell headroom bounds the support so the proxy never cuts.
@@ -707,7 +694,7 @@ float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 b
     float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
     float u = rn / flameRadialSupportRadius();
     uSquared = u * u;
-   return evaluateHeightFalloff(hb) * flamePlateauRadialFactor(uSquared) * flameCapFade(h, boundary.x);
+   return evaluateHeightFalloff(hb) * flameBiweight(uSquared) * flameCapFade(h, boundary.x);
 }
 
 float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 boundary) {

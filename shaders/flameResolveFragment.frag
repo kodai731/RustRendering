@@ -597,6 +597,8 @@ FlameRaySegment buildRaySegment() {
     // Wind bend shifts the density sideways by at most |wind| * bendAmount (h^p <= 1);
     // the trail proxy must not cut it, so its cone is padded by that bound. Non-trail
     // emitters keep the unpadded cone (their integrators bend per evaluation).
+    // Meander + branch pads mirror flame_proxy_radial_pad (branch.rs): the CPU
+    // scissor and picking box must enclose exactly this cone.
    float radiusPad = flame.trailMeta.sampleCount >= 1.0
         ? length(flame.windBend.windDirection) * flame.windBend.bendAmount + 2.0 * flame.supportMotion.meanderAmp
         : 2.0 * flame.supportMotion.meanderAmp;
@@ -726,6 +728,12 @@ vec4 flameDebugViewColor(FlameRaySegment segment) {
     if (push.debugView == 6) {
         float total = integrateWaveOccupancy(o, d, tNear, tFar);
         return vec4(flameDebugHeat(total * 2.0), 1.0);
+    }
+    if (push.debugView == 13) {
+        // Linear occupancy integral (total / 4 in every channel): with tone
+        // mapping off this decodes to the raw line integral for view-invariance checks.
+        float total = integrateWaveOccupancy(o, d, tNear, tFar);
+        return vec4(vec3(total * 0.25), 1.0);
     }
     if (push.debugView == 9) {
         // Segment grid geometry: R = node-grid phase (level sets are the

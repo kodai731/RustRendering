@@ -1,6 +1,6 @@
 use cgmath::{Matrix4, Vector3, Vector4};
 
-use crate::flame::{branch_proxy_pad, flame_bounding_radius, FlameEffect, FlameProxyPad};
+use crate::flame::{flame_bounding_radius, flame_proxy_pad, FlameEffect, FlameProxyPad};
 use crate::flame_shell::{flame_shell_outer_radius, flame_shell_support_scale};
 
 /// Axis-aligned bounds of the shell proxy in flame-local units, widened by the wind bend so a
@@ -128,7 +128,7 @@ pub fn intersect_flame_proxy(
             flame_bend_offset(effect),
             flame_support_scale(effect),
             effect.support_margin,
-            branch_proxy_pad(effect, &crate::flame::FlameBaked::default()),
+            flame_proxy_pad(effect, &crate::flame::FlameBaked::default()),
         ),
         local_origin.truncate(),
         local_direction.truncate(),

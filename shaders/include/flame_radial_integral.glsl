@@ -43,7 +43,7 @@ float flameRadialSupportInvSq(float height01) {
 
 float flameRadialDensityFactor(vec3 p, float height01, out float uSquared) {
     uSquared = flameRadialSupportInvSq(height01) * dot(p.xz, p.xz);
-   return flamePlateauRadialFactor(uSquared);
+    return flameBiweight(uSquared);
 }
 
 float flameRadialDensityFactor(vec3 p, float height01) {

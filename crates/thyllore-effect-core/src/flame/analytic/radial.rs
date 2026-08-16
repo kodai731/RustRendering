@@ -1,7 +1,5 @@
 use crate::flame_shell::FLAME_SHELL_BASE_RADIUS;
-use thyllore_math_core::{
-    approximate_erf, biweight_profile, evaluate_chebyshev, plateau_radial_factor, ChebyshevSeries,
-};
+use thyllore_math_core::{approximate_erf, biweight_profile, evaluate_chebyshev, ChebyshevSeries};
 
 // Mirror of shaders/include/flame_radial_integral.glsl; the accuracy tests below cover both.
 //
@@ -85,9 +83,8 @@ pub fn evaluate_radial_density_factor(
 ) -> f32 {
     let height = point_local[1].clamp(0.0, 1.0);
     let radius_squared = point_local[0] * point_local[0] + point_local[2] * point_local[2];
-    plateau_radial_factor(
+    biweight_profile(
         support_inv_sq(height, taper, radial_sharpness, support_margin) * radius_squared,
-        support_margin,
     )
 }
 
@@ -184,7 +181,7 @@ pub fn evaluate_ring_smooth_density_displaced(
     let rho = (radius - ring_major_radius) / minor_scale;
     let rn = rho.abs() / (taper_radius * wiggle * boundary_scale[1]).max(1e-4);
     let u = rn / flame_radial_support_radius(radial_sharpness, support_margin);
-    evaluate_chebyshev(height_series, height) * plateau_radial_factor(u * u, support_margin)
+    evaluate_chebyshev(height_series, height) * biweight_profile(u * u)
 }
 
 /// Narrow `[t_near, t_far]` to the ray's crossing of the ring's outer support
