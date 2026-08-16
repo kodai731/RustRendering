@@ -9,23 +9,62 @@ use crate::descriptor::reflection::{
     kind_accepts, reflect_shader_bytes, DescriptorSetTable, ShaderReflection,
 };
 
-pub fn reflect_shader_files<P: AsRef<Path>>(paths: &[P]) -> Result<DescriptorSetTable> {
+fn load_reflections<P: AsRef<Path>>(paths: &[P]) -> Result<Vec<ShaderReflection>> {
     let mut reflections = Vec::with_capacity(paths.len());
     for path in paths {
         let path = path.as_ref();
         let bytes = std::fs::read(path)
             .with_context(|| format!("read shader {} for reflection", path.display()))?;
-        let reflection: ShaderReflection = reflect_shader_bytes(&bytes)
+        let reflection = reflect_shader_bytes(&bytes)
             .with_context(|| format!("reflect shader {}", path.display()))?;
         reflections.push(reflection);
     }
-    Ok(DescriptorSetTable::from_reflections(&reflections)?)
+    Ok(reflections)
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DescriptorTypeOverride {
     pub binding: u32,
     pub descriptor_type: vk::DescriptorType,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReflectedLayoutSpec {
+    pub shaders: Vec<&'static str>,
+    pub set: u32,
+    pub overrides: Vec<DescriptorTypeOverride>,
+}
+
+impl ReflectedLayoutSpec {
+    pub fn new(shaders: Vec<&'static str>, set: u32) -> Self {
+        Self {
+            shaders,
+            set,
+            overrides: Vec::new(),
+        }
+    }
+
+    pub fn with_override(mut self, binding: u32, descriptor_type: vk::DescriptorType) -> Self {
+        self.overrides.push(DescriptorTypeOverride {
+            binding,
+            descriptor_type,
+        });
+        self
+    }
+
+    pub fn reflect_table(&self) -> Result<DescriptorSetTable> {
+        let mut reflections = load_reflections(&self.shaders)?;
+        for reflection in &mut reflections {
+            reflection
+                .bindings
+                .retain(|binding| binding.set == self.set);
+        }
+        Ok(DescriptorSetTable::from_reflections(&reflections)?)
+    }
+
+    pub fn resolve_bindings(&self) -> Result<Vec<vk::DescriptorSetLayoutBinding>> {
+        ReflectedSetLayout::resolve_bindings(&self.reflect_table()?, self.set, &self.overrides)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -70,13 +109,8 @@ impl ReflectedSetLayout {
         Ok(bindings)
     }
 
-    pub unsafe fn create(
-        rrdevice: &RRDevice,
-        table: &DescriptorSetTable,
-        set: u32,
-        overrides: &[DescriptorTypeOverride],
-    ) -> Result<Self> {
-        let bindings = Self::resolve_bindings(table, set, overrides)?;
+    pub unsafe fn create(rrdevice: &RRDevice, spec: &ReflectedLayoutSpec) -> Result<Self> {
+        let bindings = spec.resolve_bindings()?;
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let handle = rrdevice.device.create_descriptor_set_layout(&info, None)?;
         Ok(Self { handle, bindings })
@@ -115,11 +149,13 @@ impl ReflectedSetLayout {
         &self,
         rrdevice: &RRDevice,
         max_sets: u32,
+        flags: vk::DescriptorPoolCreateFlags,
     ) -> Result<vk::DescriptorPool> {
         let pool_sizes = self.pool_sizes(max_sets);
         let info = vk::DescriptorPoolCreateInfo::builder()
             .pool_sizes(&pool_sizes)
-            .max_sets(max_sets);
+            .max_sets(max_sets)
+            .flags(flags);
         Ok(rrdevice.device.create_descriptor_pool(&info, None)?)
     }
 
@@ -142,6 +178,7 @@ impl ReflectedSetLayout {
             dst_set,
             buffer_infos: Vec::new(),
             image_infos: Vec::new(),
+            acceleration_structures: Vec::new(),
             entries: Vec::new(),
         }
     }
@@ -157,6 +194,7 @@ impl ReflectedSetLayout {
 enum WriteSource {
     Buffer(usize),
     Image(usize),
+    AccelerationStructure(usize),
 }
 
 struct WriteEntry {
@@ -170,6 +208,7 @@ pub struct DescriptorSetWriter<'a> {
     dst_set: vk::DescriptorSet,
     buffer_infos: Vec<vk::DescriptorBufferInfo>,
     image_infos: Vec<vk::DescriptorImageInfo>,
+    acceleration_structures: Vec<vk::AccelerationStructureKHR>,
     entries: Vec<WriteEntry>,
 }
 
@@ -220,7 +259,32 @@ impl DescriptorSetWriter<'_> {
         Ok(self)
     }
 
+    pub fn acceleration_structure(
+        mut self,
+        binding: u32,
+        acceleration_structure: vk::AccelerationStructureKHR,
+    ) -> Result<Self> {
+        let descriptor_type = self.layout.descriptor_type(binding)?;
+        self.acceleration_structures.push(acceleration_structure);
+        self.entries.push(WriteEntry {
+            binding,
+            descriptor_type,
+            source: WriteSource::AccelerationStructure(self.acceleration_structures.len() - 1),
+        });
+        Ok(self)
+    }
+
     pub unsafe fn apply(self, rrdevice: &RRDevice) {
+        let acceleration_infos: Vec<vk::WriteDescriptorSetAccelerationStructureKHR> = self
+            .acceleration_structures
+            .iter()
+            .map(|handle| {
+                vk::WriteDescriptorSetAccelerationStructureKHR::builder()
+                    .acceleration_structures(std::slice::from_ref(handle))
+                    .build()
+            })
+            .collect();
+
         let writes: Vec<vk::WriteDescriptorSet> = self
             .entries
             .iter()
@@ -237,6 +301,14 @@ impl DescriptorSetWriter<'_> {
                     WriteSource::Image(index) => write
                         .image_info(std::slice::from_ref(&self.image_infos[index]))
                         .build(),
+                    WriteSource::AccelerationStructure(index) => {
+                        let mut write = write.build();
+                        write.next = (&acceleration_infos[index]
+                            as *const vk::WriteDescriptorSetAccelerationStructureKHR)
+                            .cast();
+                        write.descriptor_count = 1;
+                        write
+                    }
                 }
             })
             .collect();

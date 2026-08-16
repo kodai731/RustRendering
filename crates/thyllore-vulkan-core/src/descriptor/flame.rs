@@ -1,14 +1,8 @@
 use crate::core::device::*;
-use crate::descriptor::reflected_layout::{
-    reflect_shader_files, DescriptorTypeOverride, ReflectedSetLayout,
-};
+use crate::descriptor::pass_shaders::{FLAME_DESCRIPTOR_SET, FLAME_RESOLVE_SHADERS};
+use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
-pub const FLAME_RESOLVE_SHADERS: [&str; 2] = [
-    "assets/shaders/tonemapVert.spv",
-    "assets/shaders/flameResolveFrag.spv",
-];
-pub const FLAME_DESCRIPTOR_SET: u32 = 1;
 const FLAME_HISTORY_SET_COUNT: usize = 2;
 
 const FLAME_UBO_BINDING: u32 = 0;
@@ -34,22 +28,21 @@ pub struct RRFlameDescriptorSet {
 }
 
 impl RRFlameDescriptorSet {
-    pub fn descriptor_type_overrides() -> [DescriptorTypeOverride; 1] {
-        [DescriptorTypeOverride {
-            binding: FLAME_UBO_BINDING,
-            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-        }]
+    pub fn layout_spec() -> ReflectedLayoutSpec {
+        ReflectedLayoutSpec::new(FLAME_RESOLVE_SHADERS.to_vec(), FLAME_DESCRIPTOR_SET)
+            .with_override(
+                FLAME_UBO_BINDING,
+                vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+            )
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
-        let table = reflect_shader_files(&FLAME_RESOLVE_SHADERS)?;
-        let layout = ReflectedSetLayout::create(
+        let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
+        let descriptor_pool = layout.create_pool(
             rrdevice,
-            &table,
-            FLAME_DESCRIPTOR_SET,
-            &Self::descriptor_type_overrides(),
+            FLAME_HISTORY_SET_COUNT as u32,
+            vk::DescriptorPoolCreateFlags::empty(),
         )?;
-        let descriptor_pool = layout.create_pool(rrdevice, FLAME_HISTORY_SET_COUNT as u32)?;
         let sets = layout.allocate_sets(rrdevice, descriptor_pool, FLAME_HISTORY_SET_COUNT)?;
         let scene_depth_sampler = create_scene_depth_sampler(rrdevice)?;
 

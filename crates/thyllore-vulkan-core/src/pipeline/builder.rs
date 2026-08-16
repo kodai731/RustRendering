@@ -1,7 +1,6 @@
 use crate::core::device::*;
 use crate::core::swapchain::*;
 use crate::data::*;
-use crate::descriptor::*;
 use crate::render::pass::RRRender;
 use crate::vulkan::*;
 use std::fs::File;
@@ -444,36 +443,6 @@ impl PipelineBuilder {
 }
 
 impl RRPipeline {
-    /// Create a standard model rendering pipeline (backward compatibility)
-    pub unsafe fn new(
-        rrdevice: &RRDevice,
-        rrswapchain: &RRSwapchain,
-        rrrender: &RRRender,
-        rrdescriptor_set: &RRDescriptorSet,
-        vertex_shader_path: &str,
-        fragment_shader_path: &str,
-        topology: PrimitiveTopology,
-        polygon_mode: vk::PolygonMode,
-        cull_mode: vk::CullModeFlags,
-    ) -> Result<Self> {
-        let mut builder = PipelineBuilder::new(vertex_shader_path, fragment_shader_path)
-            .vertex_input(VertexInputConfig::Standard)
-            .topology(topology)
-            .polygon_mode(polygon_mode)
-            .cull_mode(cull_mode)
-            .descriptor_layouts(vec![rrdescriptor_set.descriptor_set_layout]);
-
-        if topology == vk::PrimitiveTopology::LINE_LIST {
-            builder = builder.depth_test(DepthTestConfig {
-                test_enable: true,
-                write_enable: false,
-                compare_op: vk::CompareOp::GREATER_OR_EQUAL,
-            });
-        }
-
-        builder.build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
-    }
-
     /// Create a pipeline with GraphicsResources layouts (Set 0, 1, 2)
     pub unsafe fn new_with_graphics_resources(
         rrdevice: &RRDevice,

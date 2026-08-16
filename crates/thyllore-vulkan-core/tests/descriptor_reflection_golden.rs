@@ -4,25 +4,21 @@ use thyllore_effect_core::flame::analytic::ubo::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_vulkan_core::data::{SceneUniformData, UniformBufferObject};
 use thyllore_vulkan_core::descriptor::{
-    reflect_shader_bytes, DescriptorSetTable, DescriptorTypeOverride, FrameDescriptorSet,
-    LayoutMismatch, MaterialManager, ObjectDescriptorSet, RRAutoExposureAverageDescriptorSet,
-    RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
-    RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
-    RRToneMapDescriptorSet, ReflectedSetLayout, SelectionUBO, ShaderReflection,
-    FLAME_DESCRIPTOR_SET, FLAME_RESOLVE_SHADERS,
+    bloom_shaders, reflect_shader_bytes, standard_graphics_shaders, DescriptorSetTable,
+    FrameDescriptorSet, LayoutMismatch, MaterialManager, ObjectDescriptorSet,
+    RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
+    RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
+    RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet, ReflectedLayoutSpec,
+    SelectionUBO, ShaderReflection, AUTO_EXPOSURE_AVERAGE_SHADER, AUTO_EXPOSURE_HISTOGRAM_SHADER,
+    BILLBOARD_SHADERS, COMPOSITE_SHADERS, DOF_SHADERS, FLAME_RESOLVE_SHADERS,
+    ONION_SKIN_COMPOSITE_SHADERS, RAY_QUERY_SHADOW_SHADER, TONEMAP_SHADERS,
 };
 use thyllore_vulkan_core::resource::OnionSkinPassResources;
-use vulkanalia::vk;
-
-enum LayoutSource {
-    Handwritten(Vec<vk::DescriptorSetLayoutBinding>),
-    Reflected(Vec<DescriptorTypeOverride>),
-}
 
 struct PassGolden {
     name: &'static str,
-    shaders: Vec<String>,
-    sets: Vec<(u32, LayoutSource)>,
+    shaders: Vec<&'static str>,
+    sets: Vec<(u32, ReflectedLayoutSpec)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -40,20 +36,6 @@ struct BlockGolden {
     coverage: BlockCoverage,
 }
 
-const STANDARD_GRAPHICS_SHADERS: &[&str] = &[
-    "vert.spv",
-    "frag.spv",
-    "gbufferVert.spv",
-    "gbufferFrag.spv",
-    "gridVert.spv",
-    "gridFrag.spv",
-    "gizmoVert.spv",
-    "gizmoFrag.spv",
-    "boneVert.spv",
-    "boneFrag.spv",
-    "onionSkinFrag.spv",
-];
-
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .ancestors()
@@ -62,11 +44,8 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn shader_assets(file_names: &[&str]) -> Vec<String> {
-    file_names
-        .iter()
-        .map(|file_name| format!("assets/shaders/{file_name}"))
-        .collect()
+fn enter_workspace_root() {
+    std::env::set_current_dir(workspace_root()).expect("chdir to workspace root");
 }
 
 fn load_reflection(shader_path: &str) -> ShaderReflection {
@@ -76,7 +55,7 @@ fn load_reflection(shader_path: &str) -> ShaderReflection {
     reflect_shader_bytes(&bytes).unwrap_or_else(|error| panic!("reflect {shader_path}: {error}"))
 }
 
-fn build_table(shaders: &[String]) -> DescriptorSetTable {
+fn build_table(shaders: &[&str]) -> DescriptorSetTable {
     let reflections: Vec<ShaderReflection> = shaders
         .iter()
         .map(|shader| load_reflection(shader))
@@ -88,116 +67,65 @@ fn pass_goldens() -> Vec<PassGolden> {
     vec![
         PassGolden {
             name: "standard_graphics",
-            shaders: shader_assets(STANDARD_GRAPHICS_SHADERS),
+            shaders: standard_graphics_shaders(),
             sets: vec![
-                (
-                    0,
-                    LayoutSource::Handwritten(FrameDescriptorSet::layout_bindings()),
-                ),
-                (
-                    1,
-                    LayoutSource::Handwritten(MaterialManager::layout_bindings()),
-                ),
-                (
-                    2,
-                    LayoutSource::Handwritten(ObjectDescriptorSet::layout_bindings()),
-                ),
+                (0, FrameDescriptorSet::layout_spec()),
+                (1, MaterialManager::layout_spec()),
+                (2, ObjectDescriptorSet::layout_spec()),
             ],
         },
         PassGolden {
             name: "flame_resolve",
-            shaders: FLAME_RESOLVE_SHADERS
-                .iter()
-                .map(|path| path.to_string())
-                .collect(),
+            shaders: FLAME_RESOLVE_SHADERS.to_vec(),
             sets: vec![
-                (
-                    0,
-                    LayoutSource::Handwritten(FrameDescriptorSet::layout_bindings()),
-                ),
-                (
-                    FLAME_DESCRIPTOR_SET,
-                    LayoutSource::Reflected(
-                        RRFlameDescriptorSet::descriptor_type_overrides().to_vec(),
-                    ),
-                ),
+                (0, FrameDescriptorSet::layout_spec()),
+                (1, RRFlameDescriptorSet::layout_spec()),
             ],
         },
         PassGolden {
             name: "tonemap",
-            shaders: shader_assets(&["tonemapVert.spv", "tonemapFrag.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRToneMapDescriptorSet::layout_bindings()),
-            )],
+            shaders: TONEMAP_SHADERS.to_vec(),
+            sets: vec![(0, RRToneMapDescriptorSet::layout_spec())],
         },
         PassGolden {
             name: "bloom",
-            shaders: shader_assets(&[
-                "tonemapVert.spv",
-                "bloomDownsampleFrag.spv",
-                "bloomUpsampleFrag.spv",
-            ]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRBloomDescriptorSets::layout_bindings()),
-            )],
+            shaders: bloom_shaders(),
+            sets: vec![(0, RRBloomDescriptorSets::layout_spec())],
         },
         PassGolden {
             name: "dof",
-            shaders: shader_assets(&["tonemapVert.spv", "dofFrag.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRDofDescriptorSet::layout_bindings()),
-            )],
+            shaders: DOF_SHADERS.to_vec(),
+            sets: vec![(0, RRDofDescriptorSet::layout_spec())],
         },
         PassGolden {
             name: "auto_exposure_histogram",
-            shaders: shader_assets(&["autoExposureHistogram.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRAutoExposureHistogramDescriptorSet::layout_bindings()),
-            )],
+            shaders: vec![AUTO_EXPOSURE_HISTOGRAM_SHADER],
+            sets: vec![(0, RRAutoExposureHistogramDescriptorSet::layout_spec())],
         },
         PassGolden {
             name: "auto_exposure_average",
-            shaders: shader_assets(&["autoExposureAverage.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRAutoExposureAverageDescriptorSet::layout_bindings()),
-            )],
+            shaders: vec![AUTO_EXPOSURE_AVERAGE_SHADER],
+            sets: vec![(0, RRAutoExposureAverageDescriptorSet::layout_spec())],
         },
         PassGolden {
             name: "ray_query_shadow",
-            shaders: shader_assets(&["rayQueryShadow.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRRayQueryDescriptorSet::layout_bindings()),
-            )],
+            shaders: vec![RAY_QUERY_SHADOW_SHADER],
+            sets: vec![(0, RRRayQueryDescriptorSet::layout_spec())],
         },
         PassGolden {
             name: "composite",
-            shaders: shader_assets(&["compositeVert.spv", "compositeFrag.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRCompositeDescriptorSet::layout_bindings()),
-            )],
+            shaders: COMPOSITE_SHADERS.to_vec(),
+            sets: vec![(0, RRCompositeDescriptorSet::layout_spec())],
         },
         PassGolden {
             name: "billboard",
-            shaders: shader_assets(&["billboardVert.spv", "billboardFrag.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(RRBillboardDescriptorSet::layout_bindings()),
-            )],
+            shaders: BILLBOARD_SHADERS.to_vec(),
+            sets: vec![(0, RRBillboardDescriptorSet::layout_spec())],
         },
         PassGolden {
             name: "onion_skin_composite",
-            shaders: shader_assets(&["tonemapVert.spv", "onionSkinCompositeFrag.spv"]),
-            sets: vec![(
-                0,
-                LayoutSource::Handwritten(OnionSkinPassResources::composite_layout_bindings()),
-            )],
+            shaders: ONION_SKIN_COMPOSITE_SHADERS.to_vec(),
+            sets: vec![(0, OnionSkinPassResources::composite_layout_spec())],
         },
     ]
 }
@@ -325,36 +253,38 @@ fn describe_mismatch(pass: &str, set: u32, mismatch: &LayoutMismatch) -> String 
             layout_stages,
         } => format!("{pass} set {set} binding {binding}: shader stages {shader_stages:?} not covered by layout stages {layout_stages:?}"),
         LayoutMismatch::UnusedInShaders { binding } => {
-            format!("{pass} set {set} binding {binding}: layout binding is not declared by any shader")
+            format!("{pass} set {set} binding {binding}: layout binding is not declared by any shader of this pass")
         }
     }
 }
 
 #[test]
-fn handwritten_layouts_match_spirv_reflection() {
+fn pass_layout_specs_cover_their_shaders() {
+    enter_workspace_root();
     let mut failures = Vec::new();
 
     for pass in pass_goldens() {
-        let table = build_table(&pass.shaders);
-        for (set, source) in &pass.sets {
-            match source {
-                LayoutSource::Handwritten(layout) => {
-                    for mismatch in table.verify_layout(*set, layout) {
+        let pass_table = build_table(&pass.shaders);
+        for (set, spec) in &pass.sets {
+            if spec.set != *set {
+                failures.push(format!(
+                    "{}: layout spec targets set {} but the pass binds it at set {set}",
+                    pass.name, spec.set
+                ));
+                continue;
+            }
+            match spec.resolve_bindings() {
+                Ok(layout) => {
+                    for mismatch in pass_table.verify_layout(*set, &layout) {
                         failures.push(describe_mismatch(pass.name, *set, &mismatch));
                     }
                 }
-                LayoutSource::Reflected(overrides) => {
-                    if let Err(error) =
-                        ReflectedSetLayout::resolve_bindings(&table, *set, overrides)
-                    {
-                        failures.push(format!("{} set {set}: {error:#}", pass.name));
-                    }
-                }
+                Err(error) => failures.push(format!("{} set {set}: {error:#}", pass.name)),
             }
         }
 
         let declared_sets: Vec<u32> = pass.sets.iter().map(|(set, _)| *set).collect();
-        for set in table.set_indices() {
+        for set in pass_table.set_indices() {
             if !declared_sets.contains(&set) {
                 failures.push(format!(
                     "{}: shaders use descriptor set {set} but the pass binds no layout for it",
@@ -373,6 +303,7 @@ fn handwritten_layouts_match_spirv_reflection() {
 
 #[test]
 fn rust_uniform_structs_cover_shader_blocks() {
+    enter_workspace_root();
     let mut failures = Vec::new();
 
     for golden in block_goldens() {

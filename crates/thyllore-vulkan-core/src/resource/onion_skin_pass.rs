@@ -2,10 +2,12 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::RRDevice;
+use crate::descriptor::{ReflectedLayoutSpec, ReflectedSetLayout, ONION_SKIN_COMPOSITE_SHADERS};
 use crate::pipeline::RRPipeline;
 use crate::resource::image::{create_image, create_image_view};
 
 pub const GHOST_BUFFER_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
+const GHOST_SAMPLER_BINDING: u32 = 0;
 
 #[derive(Clone, Debug, Default)]
 pub struct OnionSkinPassResources {
@@ -21,7 +23,7 @@ pub struct OnionSkinPassResources {
     pub composite_render_pass: vk::RenderPass,
     pub composite_framebuffer: vk::Framebuffer,
     pub composite_pipeline: RRPipeline,
-    pub composite_descriptor_layout: vk::DescriptorSetLayout,
+    pub composite_descriptor_layout: ReflectedSetLayout,
     pub composite_descriptor_pool: vk::DescriptorPool,
     pub composite_descriptor_set: vk::DescriptorSet,
 
@@ -201,84 +203,47 @@ impl OnionSkinPassResources {
         Ok(render_pass)
     }
 
-    pub fn composite_layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
-        let ghost_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-
-        vec![ghost_sampler_binding]
+    pub fn composite_layout_spec() -> ReflectedLayoutSpec {
+        ReflectedLayoutSpec::new(ONION_SKIN_COMPOSITE_SHADERS.to_vec(), 0)
     }
 
     pub unsafe fn create_composite_descriptor(
         rrdevice: &RRDevice,
         ghost_image_view: vk::ImageView,
         ghost_sampler: vk::Sampler,
-    ) -> Result<(
-        vk::DescriptorSetLayout,
-        vk::DescriptorPool,
-        vk::DescriptorSet,
-    )> {
-        let bindings = Self::composite_layout_bindings();
-        let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        let layout = rrdevice
-            .device
-            .create_descriptor_set_layout(&layout_info, None)?;
-
-        let pool_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1);
-
-        let pool_sizes = [pool_size];
-        let pool_info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets(1);
-
-        let pool = rrdevice.device.create_descriptor_pool(&pool_info, None)?;
-
-        let layouts = [layout];
-        let alloc_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(pool)
-            .set_layouts(&layouts);
-
-        let sets = rrdevice.device.allocate_descriptor_sets(&alloc_info)?;
-        let descriptor_set = sets[0];
+    ) -> Result<(ReflectedSetLayout, vk::DescriptorPool, vk::DescriptorSet)> {
+        let layout = ReflectedSetLayout::create(rrdevice, &Self::composite_layout_spec())?;
+        let pool = layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
+        let descriptor_set = layout.allocate_sets(rrdevice, pool, 1)?[0];
 
         Self::update_composite_descriptor(
             rrdevice,
+            &layout,
             descriptor_set,
             ghost_image_view,
             ghost_sampler,
-        );
+        )?;
 
         Ok((layout, pool, descriptor_set))
     }
 
     pub unsafe fn update_composite_descriptor(
         rrdevice: &RRDevice,
+        layout: &ReflectedSetLayout,
         descriptor_set: vk::DescriptorSet,
         ghost_image_view: vk::ImageView,
         ghost_sampler: vk::Sampler,
-    ) {
-        let image_info = vk::DescriptorImageInfo::builder()
-            .image_view(ghost_image_view)
-            .sampler(ghost_sampler)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build();
-
-        let write = vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(std::slice::from_ref(&image_info))
-            .build();
-
-        rrdevice
-            .device
-            .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
+    ) -> Result<()> {
+        layout
+            .writer(descriptor_set)
+            .image(
+                GHOST_SAMPLER_BINDING,
+                ghost_image_view,
+                ghost_sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .apply(rrdevice);
+        Ok(())
     }
 
     pub unsafe fn create_single_framebuffer(
@@ -306,7 +271,7 @@ impl OnionSkinPassResources {
         self.composite_pipeline.destroy(device);
         device.destroy_render_pass(self.composite_render_pass, None);
         device.destroy_descriptor_pool(self.composite_descriptor_pool, None);
-        device.destroy_descriptor_set_layout(self.composite_descriptor_layout, None);
+        device.destroy_descriptor_set_layout(self.composite_descriptor_layout.handle, None);
 
         device.destroy_framebuffer(self.ghost_framebuffer, None);
         self.ghost_pipeline.destroy(device);
@@ -362,10 +327,11 @@ impl OnionSkinPassResources {
 
         Self::update_composite_descriptor(
             rrdevice,
+            &self.composite_descriptor_layout,
             self.composite_descriptor_set,
             self.ghost_image_view,
             self.ghost_sampler,
-        );
+        )?;
 
         self.width = width;
         self.height = height;

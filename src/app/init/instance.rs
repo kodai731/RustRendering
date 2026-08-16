@@ -172,8 +172,8 @@ impl App {
             &rrswapchain,
             &rrrender,
             &render_layouts,
-            "assets/shaders/vert.spv",
-            "assets/shaders/frag.spv",
+            MODEL_SHADERS[0],
+            MODEL_SHADERS[1],
             vk::PrimitiveTopology::TRIANGLE_LIST,
             vk::PolygonMode::FILL,
             vk::CullModeFlags::BACK,
@@ -382,33 +382,32 @@ impl App {
 
         let render_layouts = data.graphics_resources.get_layouts();
         if let Some(ref hdr_buffer) = data.viewport.hdr_buffer {
-            let hdr_grid =
-                PipelineBuilder::new("assets/shaders/gridVert.spv", "assets/shaders/gridFrag.spv")
-                    .vertex_input(VertexInputConfig::Gizmo)
-                    .topology(vk::PrimitiveTopology::LINE_LIST)
-                    .polygon_mode(vk::PolygonMode::LINE)
-                    .depth_test(DepthTestConfig {
-                        test_enable: true,
-                        write_enable: true,
-                        compare_op: vk::CompareOp::GREATER_OR_EQUAL,
-                    })
-                    .custom_render_pass(hdr_buffer.render_pass)
-                    .msaa_samples(vk::SampleCountFlags::_1)
-                    .descriptor_layouts(render_layouts.to_vec())
-                    // Opaque surface inside the HDR buffer: alpha 1 marks "background fully
-                    // covered", which the tonemap needs to keep the grid color. The flame
-                    // composites over it afterwards with premultiplied blending.
-                    .blend(BlendConfig {
-                        enable: true,
-                        src_color_factor: vk::BlendFactor::SRC_ALPHA,
-                        dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-                        color_op: vk::BlendOp::ADD,
-                        src_alpha_factor: vk::BlendFactor::ONE,
-                        dst_alpha_factor: vk::BlendFactor::ZERO,
-                        alpha_op: vk::BlendOp::ADD,
-                    })
-                    .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
-                    .context("Failed to create HDR grid pipeline")?;
+            let hdr_grid = PipelineBuilder::new(GRID_SHADERS[0], GRID_SHADERS[1])
+                .vertex_input(VertexInputConfig::Gizmo)
+                .topology(vk::PrimitiveTopology::LINE_LIST)
+                .polygon_mode(vk::PolygonMode::LINE)
+                .depth_test(DepthTestConfig {
+                    test_enable: true,
+                    write_enable: true,
+                    compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+                })
+                .custom_render_pass(hdr_buffer.render_pass)
+                .msaa_samples(vk::SampleCountFlags::_1)
+                .descriptor_layouts(render_layouts.to_vec())
+                // Opaque surface inside the HDR buffer: alpha 1 marks "background fully
+                // covered", which the tonemap needs to keep the grid color. The flame
+                // composites over it afterwards with premultiplied blending.
+                .blend(BlendConfig {
+                    enable: true,
+                    src_color_factor: vk::BlendFactor::SRC_ALPHA,
+                    dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    color_op: vk::BlendOp::ADD,
+                    src_alpha_factor: vk::BlendFactor::ONE,
+                    dst_alpha_factor: vk::BlendFactor::ZERO,
+                    alpha_op: vk::BlendOp::ADD,
+                })
+                .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
+                .context("Failed to create HDR grid pipeline")?;
             let hdr_grid_id = data.pipeline_storage.register(hdr_grid);
             data.viewport.hdr_grid_pipeline_id = Some(hdr_grid_id);
         }
@@ -424,33 +423,29 @@ impl App {
         pipeline_storage: &mut crate::vulkanr::resource::PipelineStorage,
         pipeline_manager: &mut PipelineManager,
     ) -> Result<GizmoPipelineIds> {
-        let grid =
-            PipelineBuilder::new("assets/shaders/gridVert.spv", "assets/shaders/gridFrag.spv")
-                .vertex_input(VertexInputConfig::Gizmo)
-                .topology(vk::PrimitiveTopology::LINE_LIST)
-                .polygon_mode(vk::PolygonMode::LINE)
-                .depth_test(DepthTestConfig {
-                    test_enable: true,
-                    write_enable: false,
-                    compare_op: vk::CompareOp::GREATER_OR_EQUAL,
-                })
-                .descriptor_layouts(render_layouts.to_vec())
-                .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
-                .context("Failed to create grid pipeline")?;
+        let grid = PipelineBuilder::new(GRID_SHADERS[0], GRID_SHADERS[1])
+            .vertex_input(VertexInputConfig::Gizmo)
+            .topology(vk::PrimitiveTopology::LINE_LIST)
+            .polygon_mode(vk::PolygonMode::LINE)
+            .depth_test(DepthTestConfig {
+                test_enable: true,
+                write_enable: false,
+                compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+            })
+            .descriptor_layouts(render_layouts.to_vec())
+            .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
+            .context("Failed to create grid pipeline")?;
         let grid = pipeline_storage.register(grid);
         pipeline_allocate_id(pipeline_manager);
 
-        let gizmo = PipelineBuilder::new(
-            "assets/shaders/gizmoVert.spv",
-            "assets/shaders/gizmoFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Gizmo)
-        .topology(vk::PrimitiveTopology::LINE_LIST)
-        .polygon_mode(vk::PolygonMode::LINE)
-        .no_depth_test()
-        .descriptor_layouts(render_layouts.to_vec())
-        .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
-        .context("Failed to create gizmo pipeline")?;
+        let gizmo = PipelineBuilder::new(GIZMO_SHADERS[0], GIZMO_SHADERS[1])
+            .vertex_input(VertexInputConfig::Gizmo)
+            .topology(vk::PrimitiveTopology::LINE_LIST)
+            .polygon_mode(vk::PolygonMode::LINE)
+            .no_depth_test()
+            .descriptor_layouts(render_layouts.to_vec())
+            .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
+            .context("Failed to create gizmo pipeline")?;
         let gizmo = pipeline_storage.register(gizmo);
         pipeline_allocate_id(pipeline_manager);
 
@@ -594,13 +589,12 @@ impl App {
         pipeline_manager: &mut PipelineManager,
         label: &str,
     ) -> Result<usize> {
-        let mut builder =
-            PipelineBuilder::new("assets/shaders/boneVert.spv", "assets/shaders/boneFrag.spv")
-                .vertex_input(VertexInputConfig::Gizmo)
-                .topology(topology)
-                .polygon_mode(polygon_mode)
-                .push_constants(push_constants)
-                .descriptor_layouts(render_layouts.to_vec());
+        let mut builder = PipelineBuilder::new(BONE_SHADERS[0], BONE_SHADERS[1])
+            .vertex_input(VertexInputConfig::Gizmo)
+            .topology(topology)
+            .polygon_mode(polygon_mode)
+            .push_constants(push_constants)
+            .descriptor_layouts(render_layouts.to_vec());
 
         if let Some(cull) = cull_mode {
             builder = builder.cull_mode(cull);
@@ -817,12 +811,9 @@ impl App {
             rrdevice,
             rrrender,
             rrswapchain,
-            billboard_data
-                .render_state
-                .descriptor_set
-                .descriptor_set_layout,
-            "assets/shaders/billboardVert.spv",
-            "assets/shaders/billboardFrag.spv",
+            billboard_data.render_state.descriptor_set.layout.handle,
+            BILLBOARD_SHADERS[0],
+            BILLBOARD_SHADERS[1],
         )
         .context("Failed to create billboard pipeline")?;
         let billboard_pipeline_id = data.pipeline_storage.register(billboard_pipeline);

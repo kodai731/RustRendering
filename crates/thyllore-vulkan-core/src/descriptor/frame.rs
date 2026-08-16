@@ -4,13 +4,17 @@ use std::ptr::copy_nonoverlapping as memcpy;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::device::RRDevice;
+use crate::descriptor::pass_shaders::{frame_set_shaders, FRAME_SET};
+use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::Instance;
 use thyllore_render_core::FrameUBO;
 
+const FRAME_UBO_BINDING: u32 = 0;
+
 #[derive(Clone, Debug, Default)]
 pub struct FrameDescriptorSet {
-    pub layout: vk::DescriptorSetLayout,
+    pub layout: ReflectedSetLayout,
     pub pool: vk::DescriptorPool,
     pub sets: Vec<vk::DescriptorSet>,
     pub buffers: Vec<vk::Buffer>,
@@ -23,9 +27,13 @@ impl FrameDescriptorSet {
         rrdevice: &RRDevice,
         swapchain_image_count: usize,
     ) -> anyhow::Result<Self> {
-        let layout = Self::create_layout(rrdevice)?;
-        let pool = Self::create_pool(rrdevice, swapchain_image_count)?;
-        let sets = Self::allocate_sets(rrdevice, layout, pool, swapchain_image_count)?;
+        let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
+        let pool = layout.create_pool(
+            rrdevice,
+            swapchain_image_count as u32,
+            vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
+        )?;
+        let sets = layout.allocate_sets(rrdevice, pool, swapchain_image_count)?;
 
         let mut buffers = Vec::with_capacity(swapchain_image_count);
         let mut buffer_memories = Vec::with_capacity(swapchain_image_count);
@@ -49,79 +57,23 @@ impl FrameDescriptorSet {
             buffers,
             buffer_memories,
         };
-        frame_set.write_descriptor_sets(rrdevice);
+        frame_set.write_descriptor_sets(rrdevice)?;
 
         Ok(frame_set)
     }
 
-    pub fn layout_bindings() -> Vec<vk::DescriptorSetLayoutBinding> {
-        let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(
-                vk::ShaderStageFlags::VERTEX
-                    | vk::ShaderStageFlags::GEOMETRY
-                    | vk::ShaderStageFlags::FRAGMENT,
-            )
-            .build();
-
-        vec![ubo_binding]
+    pub fn layout_spec() -> ReflectedLayoutSpec {
+        ReflectedLayoutSpec::new(frame_set_shaders(), FRAME_SET)
     }
 
-    unsafe fn create_layout(rrdevice: &RRDevice) -> anyhow::Result<vk::DescriptorSetLayout> {
-        let bindings = Self::layout_bindings();
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
-    }
-
-    unsafe fn create_pool(rrdevice: &RRDevice, count: usize) -> anyhow::Result<vk::DescriptorPool> {
-        let pool_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(count as u32);
-
-        let pool_sizes = &[pool_size];
-        let info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(pool_sizes)
-            .max_sets(count as u32)
-            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
-
-        Ok(rrdevice.device.create_descriptor_pool(&info, None)?)
-    }
-
-    unsafe fn allocate_sets(
-        rrdevice: &RRDevice,
-        layout: vk::DescriptorSetLayout,
-        pool: vk::DescriptorPool,
-        count: usize,
-    ) -> anyhow::Result<Vec<vk::DescriptorSet>> {
-        let layouts = vec![layout; count];
-        let info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(pool)
-            .set_layouts(&layouts);
-
-        Ok(rrdevice.device.allocate_descriptor_sets(&info)?)
-    }
-
-    unsafe fn write_descriptor_sets(&mut self, rrdevice: &RRDevice) {
-        for (i, &set) in self.sets.iter().enumerate() {
-            let buffer_info = vk::DescriptorBufferInfo::builder()
-                .buffer(self.buffers[i])
-                .offset(0)
-                .range(size_of::<FrameUBO>() as u64);
-
-            let buffer_infos = &[buffer_info];
-            let write = vk::WriteDescriptorSet::builder()
-                .dst_set(set)
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(buffer_infos);
-
-            rrdevice
-                .device
-                .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
+    unsafe fn write_descriptor_sets(&mut self, rrdevice: &RRDevice) -> anyhow::Result<()> {
+        for (set, buffer) in self.sets.iter().zip(&self.buffers) {
+            self.layout
+                .writer(*set)
+                .buffer(FRAME_UBO_BINDING, *buffer, 0, size_of::<FrameUBO>() as u64)?
+                .apply(rrdevice);
         }
+        Ok(())
     }
 
     pub unsafe fn update(
@@ -157,8 +109,6 @@ impl FrameDescriptorSet {
         if self.pool != vk::DescriptorPool::null() {
             device.destroy_descriptor_pool(self.pool, None);
         }
-        if self.layout != vk::DescriptorSetLayout::null() {
-            device.destroy_descriptor_set_layout(self.layout, None);
-        }
+        self.layout.destroy(device);
     }
 }
