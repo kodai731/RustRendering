@@ -4,19 +4,25 @@ use thyllore_effect_core::flame::analytic::ubo::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_vulkan_core::data::{SceneUniformData, UniformBufferObject};
 use thyllore_vulkan_core::descriptor::{
-    reflect_shader_bytes, DescriptorSetTable, FrameDescriptorSet, LayoutMismatch, MaterialManager,
-    ObjectDescriptorSet, RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
-    RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
-    RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet, SelectionUBO,
-    ShaderReflection,
+    reflect_shader_bytes, DescriptorSetTable, DescriptorTypeOverride, FrameDescriptorSet,
+    LayoutMismatch, MaterialManager, ObjectDescriptorSet, RRAutoExposureAverageDescriptorSet,
+    RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
+    RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
+    RRToneMapDescriptorSet, ReflectedSetLayout, SelectionUBO, ShaderReflection,
+    FLAME_DESCRIPTOR_SET, FLAME_RESOLVE_SHADERS,
 };
 use thyllore_vulkan_core::resource::OnionSkinPassResources;
 use vulkanalia::vk;
 
+enum LayoutSource {
+    Handwritten(Vec<vk::DescriptorSetLayoutBinding>),
+    Reflected(Vec<DescriptorTypeOverride>),
+}
+
 struct PassGolden {
     name: &'static str,
-    shaders: &'static [&'static str],
-    sets: Vec<(u32, Vec<vk::DescriptorSetLayoutBinding>)>,
+    shaders: Vec<String>,
+    sets: Vec<(u32, LayoutSource)>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -56,14 +62,21 @@ fn workspace_root() -> PathBuf {
         .to_path_buf()
 }
 
-fn load_reflection(shader_file: &str) -> ShaderReflection {
-    let path = workspace_root().join("assets/shaders").join(shader_file);
-    let bytes = std::fs::read(&path)
-        .unwrap_or_else(|error| panic!("read {} (run cargo build first): {error}", path.display()));
-    reflect_shader_bytes(&bytes).unwrap_or_else(|error| panic!("reflect {shader_file}: {error}"))
+fn shader_assets(file_names: &[&str]) -> Vec<String> {
+    file_names
+        .iter()
+        .map(|file_name| format!("assets/shaders/{file_name}"))
+        .collect()
 }
 
-fn build_table(shaders: &[&str]) -> DescriptorSetTable {
+fn load_reflection(shader_path: &str) -> ShaderReflection {
+    let path = workspace_root().join(shader_path);
+    let bytes = std::fs::read(&path)
+        .unwrap_or_else(|error| panic!("read {} (run cargo build first): {error}", path.display()));
+    reflect_shader_bytes(&bytes).unwrap_or_else(|error| panic!("reflect {shader_path}: {error}"))
+}
+
+fn build_table(shaders: &[String]) -> DescriptorSetTable {
     let reflections: Vec<ShaderReflection> = shaders
         .iter()
         .map(|shader| load_reflection(shader))
@@ -75,69 +88,116 @@ fn pass_goldens() -> Vec<PassGolden> {
     vec![
         PassGolden {
             name: "standard_graphics",
-            shaders: STANDARD_GRAPHICS_SHADERS,
+            shaders: shader_assets(STANDARD_GRAPHICS_SHADERS),
             sets: vec![
-                (0, FrameDescriptorSet::layout_bindings()),
-                (1, MaterialManager::layout_bindings()),
-                (2, ObjectDescriptorSet::layout_bindings()),
+                (
+                    0,
+                    LayoutSource::Handwritten(FrameDescriptorSet::layout_bindings()),
+                ),
+                (
+                    1,
+                    LayoutSource::Handwritten(MaterialManager::layout_bindings()),
+                ),
+                (
+                    2,
+                    LayoutSource::Handwritten(ObjectDescriptorSet::layout_bindings()),
+                ),
             ],
         },
         PassGolden {
             name: "flame_resolve",
-            shaders: &["tonemapVert.spv", "flameResolveFrag.spv"],
+            shaders: FLAME_RESOLVE_SHADERS
+                .iter()
+                .map(|path| path.to_string())
+                .collect(),
             sets: vec![
-                (0, FrameDescriptorSet::layout_bindings()),
-                (1, RRFlameDescriptorSet::layout_bindings()),
+                (
+                    0,
+                    LayoutSource::Handwritten(FrameDescriptorSet::layout_bindings()),
+                ),
+                (
+                    FLAME_DESCRIPTOR_SET,
+                    LayoutSource::Reflected(
+                        RRFlameDescriptorSet::descriptor_type_overrides().to_vec(),
+                    ),
+                ),
             ],
         },
         PassGolden {
             name: "tonemap",
-            shaders: &["tonemapVert.spv", "tonemapFrag.spv"],
-            sets: vec![(0, RRToneMapDescriptorSet::layout_bindings())],
+            shaders: shader_assets(&["tonemapVert.spv", "tonemapFrag.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRToneMapDescriptorSet::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "bloom",
-            shaders: &[
+            shaders: shader_assets(&[
                 "tonemapVert.spv",
                 "bloomDownsampleFrag.spv",
                 "bloomUpsampleFrag.spv",
-            ],
-            sets: vec![(0, RRBloomDescriptorSets::layout_bindings())],
+            ]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRBloomDescriptorSets::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "dof",
-            shaders: &["tonemapVert.spv", "dofFrag.spv"],
-            sets: vec![(0, RRDofDescriptorSet::layout_bindings())],
+            shaders: shader_assets(&["tonemapVert.spv", "dofFrag.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRDofDescriptorSet::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "auto_exposure_histogram",
-            shaders: &["autoExposureHistogram.spv"],
-            sets: vec![(0, RRAutoExposureHistogramDescriptorSet::layout_bindings())],
+            shaders: shader_assets(&["autoExposureHistogram.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRAutoExposureHistogramDescriptorSet::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "auto_exposure_average",
-            shaders: &["autoExposureAverage.spv"],
-            sets: vec![(0, RRAutoExposureAverageDescriptorSet::layout_bindings())],
+            shaders: shader_assets(&["autoExposureAverage.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRAutoExposureAverageDescriptorSet::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "ray_query_shadow",
-            shaders: &["rayQueryShadow.spv"],
-            sets: vec![(0, RRRayQueryDescriptorSet::layout_bindings())],
+            shaders: shader_assets(&["rayQueryShadow.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRRayQueryDescriptorSet::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "composite",
-            shaders: &["compositeVert.spv", "compositeFrag.spv"],
-            sets: vec![(0, RRCompositeDescriptorSet::layout_bindings())],
+            shaders: shader_assets(&["compositeVert.spv", "compositeFrag.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRCompositeDescriptorSet::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "billboard",
-            shaders: &["billboardVert.spv", "billboardFrag.spv"],
-            sets: vec![(0, RRBillboardDescriptorSet::layout_bindings())],
+            shaders: shader_assets(&["billboardVert.spv", "billboardFrag.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(RRBillboardDescriptorSet::layout_bindings()),
+            )],
         },
         PassGolden {
             name: "onion_skin_composite",
-            shaders: &["tonemapVert.spv", "onionSkinCompositeFrag.spv"],
-            sets: vec![(0, OnionSkinPassResources::composite_layout_bindings())],
+            shaders: shader_assets(&["tonemapVert.spv", "onionSkinCompositeFrag.spv"]),
+            sets: vec![(
+                0,
+                LayoutSource::Handwritten(OnionSkinPassResources::composite_layout_bindings()),
+            )],
         },
     ]
 }
@@ -275,10 +335,21 @@ fn handwritten_layouts_match_spirv_reflection() {
     let mut failures = Vec::new();
 
     for pass in pass_goldens() {
-        let table = build_table(pass.shaders);
-        for (set, layout) in &pass.sets {
-            for mismatch in table.verify_layout(*set, layout) {
-                failures.push(describe_mismatch(pass.name, *set, &mismatch));
+        let table = build_table(&pass.shaders);
+        for (set, source) in &pass.sets {
+            match source {
+                LayoutSource::Handwritten(layout) => {
+                    for mismatch in table.verify_layout(*set, layout) {
+                        failures.push(describe_mismatch(pass.name, *set, &mismatch));
+                    }
+                }
+                LayoutSource::Reflected(overrides) => {
+                    if let Err(error) =
+                        ReflectedSetLayout::resolve_bindings(&table, *set, overrides)
+                    {
+                        failures.push(format!("{} set {set}: {error:#}", pass.name));
+                    }
+                }
             }
         }
 
@@ -309,7 +380,7 @@ fn rust_uniform_structs_cover_shader_blocks() {
             .into_iter()
             .find(|pass| pass.name == golden.pass)
             .expect("block golden refers to a known pass");
-        let table = build_table(pass.shaders);
+        let table = build_table(&pass.shaders);
         let Some(binding) = table.binding(golden.set, golden.binding) else {
             failures.push(format!(
                 "{}: set {} binding {} is not declared by its shaders",

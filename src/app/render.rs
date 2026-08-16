@@ -9,6 +9,7 @@ use crate::ecs::systems::render_data_systems::{
 use crate::vulkanr::context::{
     CommandState, FrameSync, PipelineState, RenderTargets, SwapchainState,
 };
+use crate::vulkanr::descriptor::FlameImageBindings;
 use crate::vulkanr::renderer::deferred::create_gbuffer_framebuffer;
 use crate::vulkanr::renderer::scene_renderer::render_scene_objects;
 use crate::vulkanr::vulkan::*;
@@ -497,15 +498,17 @@ impl App {
         };
         flame_descriptor.update_image_views(
             &self.rrdevice,
-            flame_buffer.history_image_views,
-            flame_buffer.sampler,
-            self.data.raytracing.flame_sdf_image_view,
-            self.data.raytracing.flame_sdf_sampler,
-            {
-                let rt = self.resource::<RenderTargets>();
-                rt.render.gbuffer_depth_image_view
+            FlameImageBindings {
+                history_image_views: flame_buffer.history_image_views,
+                flame_sampler: flame_buffer.sampler,
+                sdf_image_view: self.data.raytracing.flame_sdf_image_view,
+                sdf_sampler: self.data.raytracing.flame_sdf_sampler,
+                scene_depth_view: self
+                    .resource::<RenderTargets>()
+                    .render
+                    .gbuffer_depth_image_view,
             },
-        );
+        )?;
 
         if let Some(mut state) = self
             .data

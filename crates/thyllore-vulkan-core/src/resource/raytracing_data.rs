@@ -7,9 +7,9 @@ use crate::core::device::RRDevice;
 use crate::core::swapchain::RRSwapchain;
 use crate::data::{self as vulkan_data, SceneUniformData};
 use crate::descriptor::{
-    RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
+    FlameImageBindings, RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
     RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
-    RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet,
+    RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet, FLAME_RESOLVE_SHADERS,
 };
 use crate::pipeline::{
     BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
@@ -442,68 +442,63 @@ impl RayTracingData {
         )?;
         self.write_initial_flame_ubo(rrdevice, flame_ubo_memory)?;
 
-        let mut flame_descriptor = RRFlameDescriptorSet {
-            descriptor_set_layout: RRFlameDescriptorSet::create_layout(rrdevice)?,
-            descriptor_pool: RRFlameDescriptorSet::create_pool(rrdevice)?,
-            descriptor_sets: [vk::DescriptorSet::null(); 2],
-            scene_depth_sampler: vk::Sampler::null(),
-        };
-        flame_descriptor.allocate_and_update(
+        let flame_descriptor = RRFlameDescriptorSet::new(rrdevice)?;
+        flame_descriptor.write_all(
             rrdevice,
             flame_ubo_buffer,
             slot_size,
-            flame_buffer.history_image_views,
-            flame_buffer.sampler,
-            position_image_view,
-            position_sampler,
-            scene_depth_view,
+            FlameImageBindings {
+                history_image_views: flame_buffer.history_image_views,
+                flame_sampler: flame_buffer.sampler,
+                sdf_image_view: position_image_view,
+                sdf_sampler: position_sampler,
+                scene_depth_view,
+            },
         )?;
 
-        let flame_shading_pipeline = PipelineBuilder::new(
-            "assets/shaders/tonemapVert.spv",
-            "assets/shaders/flameResolveFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Custom {
-            bindings: vec![],
-            attributes: vec![],
-        })
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .no_depth_test()
-        .custom_render_pass(flame_buffer.shading_render_pass)
-        .msaa_samples(vk::SampleCountFlags::_1)
-        .mrt_attachments(2)
-        .blend(BlendConfig {
-            enable: true,
-            src_color_factor: vk::BlendFactor::ONE,
-            dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-            color_op: vk::BlendOp::ADD,
-            src_alpha_factor: vk::BlendFactor::ONE,
-            dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-            alpha_op: vk::BlendOp::ADD,
-        })
-        .attachment_blend(
-            1,
-            BlendConfig {
-                enable: false,
-                src_color_factor: vk::BlendFactor::ONE,
-                dst_color_factor: vk::BlendFactor::ZERO,
-                color_op: vk::BlendOp::ADD,
-                src_alpha_factor: vk::BlendFactor::ONE,
-                dst_alpha_factor: vk::BlendFactor::ZERO,
-                alpha_op: vk::BlendOp::ADD,
-            },
-        )
-        .push_constants(PushConstantConfig {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            offset: 0,
-            size: std::mem::size_of::<crate::renderer::FlamePushConstants>() as u32,
-        })
-        .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
-        .descriptor_layouts(vec![
-            graphics_resources.frame_set.layout,
-            flame_descriptor.descriptor_set_layout,
-        ])
-        .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
+        let flame_shading_pipeline =
+            PipelineBuilder::new(FLAME_RESOLVE_SHADERS[0], FLAME_RESOLVE_SHADERS[1])
+                .vertex_input(VertexInputConfig::Custom {
+                    bindings: vec![],
+                    attributes: vec![],
+                })
+                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+                .no_depth_test()
+                .custom_render_pass(flame_buffer.shading_render_pass)
+                .msaa_samples(vk::SampleCountFlags::_1)
+                .mrt_attachments(2)
+                .blend(BlendConfig {
+                    enable: true,
+                    src_color_factor: vk::BlendFactor::ONE,
+                    dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    color_op: vk::BlendOp::ADD,
+                    src_alpha_factor: vk::BlendFactor::ONE,
+                    dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    alpha_op: vk::BlendOp::ADD,
+                })
+                .attachment_blend(
+                    1,
+                    BlendConfig {
+                        enable: false,
+                        src_color_factor: vk::BlendFactor::ONE,
+                        dst_color_factor: vk::BlendFactor::ZERO,
+                        color_op: vk::BlendOp::ADD,
+                        src_alpha_factor: vk::BlendFactor::ONE,
+                        dst_alpha_factor: vk::BlendFactor::ZERO,
+                        alpha_op: vk::BlendOp::ADD,
+                    },
+                )
+                .push_constants(PushConstantConfig {
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    offset: 0,
+                    size: std::mem::size_of::<crate::renderer::FlamePushConstants>() as u32,
+                })
+                .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
+                .descriptor_layouts(vec![
+                    graphics_resources.frame_set.layout,
+                    flame_descriptor.layout.handle,
+                ])
+                .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
 
         self.flame_shading_pipeline = Some(flame_shading_pipeline);
         self.flame_descriptor = Some(flame_descriptor);
