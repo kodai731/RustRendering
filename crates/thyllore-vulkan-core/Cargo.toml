@@ -13,6 +13,7 @@ thyllore-model-core = { path = "../thyllore-model-core" }
 thyllore-effect-core = { path = "../thyllore-effect-core" }
 thyllore-render-core = { path = "../thyllore-render-core" }
 thyllore-log-core = { path = "../thyllore-log-core" }
+thyllore-spirv-reflect = { path = "../thyllore-spirv-reflect" }
 anyhow = "1"
 cgmath = "0.18"
 log = "0.4"

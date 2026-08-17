@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 
-use super::types::{
+use crate::types::{
     DescriptorCount, DescriptorKind, ReflectError, ReflectedBinding, ShaderReflection, ShaderStage,
 };
 
 const SPIRV_MAGIC: u32 = 0x0723_0203;
 const HEADER_WORD_COUNT: usize = 5;
+const SUPPORTED_SPIRV_MAJOR: u32 = 1;
+const SUPPORTED_SPIRV_MAX_MINOR: u32 = 6;
 
 const OP_NAME: u32 = 5;
 const OP_ENTRY_POINT: u32 = 15;
@@ -63,6 +65,7 @@ pub fn reflect_shader_words(words: &[u32]) -> Result<ShaderReflection, ReflectEr
     if words[0] != SPIRV_MAGIC {
         return Err(ReflectError::InvalidMagic);
     }
+    check_spirv_version(words[1])?;
 
     let module = SpirvModule::decode(&words[HEADER_WORD_COUNT..])?;
     let mut bindings = Vec::new();
@@ -77,6 +80,15 @@ pub fn reflect_shader_words(words: &[u32]) -> Result<ShaderReflection, ReflectEr
         stages: module.stages,
         bindings,
     })
+}
+
+fn check_spirv_version(version_word: u32) -> Result<(), ReflectError> {
+    let major = (version_word >> 16) & 0xFF;
+    let minor = (version_word >> 8) & 0xFF;
+    if major != SUPPORTED_SPIRV_MAJOR || minor > SUPPORTED_SPIRV_MAX_MINOR {
+        return Err(ReflectError::UnsupportedVersion { major, minor });
+    }
+    Ok(())
 }
 
 #[derive(Debug)]
@@ -479,7 +491,7 @@ fn decode_literal_string(words: &[u32]) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     fn instruction(opcode: u32, operands: &[u32]) -> Vec<u32> {
@@ -510,7 +522,7 @@ mod tests {
         instruction(OP_NAME, &operands)
     }
 
-    fn fragment_module_with_block_and_sampler() -> Vec<u32> {
+    pub(crate) fn fragment_module_with_block_and_sampler() -> Vec<u32> {
         let mut entry_operands = vec![4, 1];
         entry_operands.extend(literal_string("main"));
 
@@ -626,6 +638,20 @@ mod tests {
             reflect_shader_bytes(&[1, 2, 3]),
             Err(ReflectError::Truncated)
         );
+    }
+
+    #[test]
+    fn rejects_spirv_versions_newer_than_supported() {
+        let mut words = fragment_module_with_block_and_sampler();
+        words[1] = 0x0001_0700;
+        assert_eq!(
+            reflect_shader_words(&words),
+            Err(ReflectError::UnsupportedVersion { major: 1, minor: 7 })
+        );
+
+        let mut words = fragment_module_with_block_and_sampler();
+        words[1] = 0x0001_0600;
+        assert!(reflect_shader_words(&words).is_ok());
     }
 
     #[test]

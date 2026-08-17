@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use vulkanalia::prelude::v1_0::*;
 
-use super::types::{
+use thyllore_spirv_reflect::{
     DescriptorCount, DescriptorKind, ReflectError, ReflectedBinding, ShaderReflection, ShaderStage,
 };
 

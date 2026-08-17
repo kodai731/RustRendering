@@ -79,6 +79,9 @@ features = ["extras", "names", "extensions"]
 rand = "0.8"
 tempfile = "3"
 
+[build-dependencies]
+thyllore-spirv-reflect = { path = "crates/thyllore-spirv-reflect" }
+
 [profile.release]
 opt-level = 3
 lto = true

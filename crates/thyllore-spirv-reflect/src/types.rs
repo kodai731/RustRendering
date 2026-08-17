@@ -60,6 +60,8 @@ pub enum ReflectError {
     InvalidMagic,
     #[error("SPIR-V word stream is truncated")]
     Truncated,
+    #[error("SPIR-V version {major}.{minor} is newer than the supported 1.0-1.6")]
+    UnsupportedVersion { major: u32, minor: u32 },
     #[error("unknown SPIR-V execution model {0}")]
     UnknownExecutionModel(u32),
     #[error("SPIR-V type id {0} is not defined")]
