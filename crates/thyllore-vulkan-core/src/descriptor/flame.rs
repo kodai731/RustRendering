@@ -1,5 +1,5 @@
 use crate::core::device::*;
-use crate::descriptor::pass_shaders::{FLAME_DESCRIPTOR_SET, FLAME_RESOLVE_SHADERS};
+use crate::descriptor::pass_manifest::FLAME_RESOLVE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
@@ -28,11 +28,10 @@ pub struct RRFlameDescriptorSet {
 
 impl RRFlameDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(FLAME_RESOLVE_SHADERS.to_vec(), FLAME_DESCRIPTOR_SET)
-            .with_override(
-                FLAME_UBO_BINDING,
-                vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
-            )
+        ReflectedLayoutSpec::local(&FLAME_RESOLVE).with_override(
+            FLAME_UBO_BINDING,
+            vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+        )
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {

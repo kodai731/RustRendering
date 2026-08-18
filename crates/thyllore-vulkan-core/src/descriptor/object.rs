@@ -4,7 +4,7 @@ use std::ptr::copy_nonoverlapping as memcpy;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::device::RRDevice;
-use crate::descriptor::pass_shaders::{standard_graphics_shaders, OBJECT_SET};
+use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::Instance;
@@ -48,7 +48,7 @@ impl ObjectDescriptorSet {
     }
 
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(standard_graphics_shaders(), OBJECT_SET)
+        ReflectedLayoutSpec::shared(SetRole::Object)
     }
 
     unsafe fn grow_to(

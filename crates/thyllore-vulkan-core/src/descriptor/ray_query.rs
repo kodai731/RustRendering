@@ -1,5 +1,5 @@
 use crate::core::device::*;
-use crate::descriptor::pass_shaders::RAY_QUERY_SHADOW_SHADER;
+use crate::descriptor::pass_manifest::RAY_QUERY_SHADOW;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
@@ -17,7 +17,7 @@ pub struct RRRayQueryDescriptorSet {
 
 impl RRRayQueryDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(vec![RAY_QUERY_SHADOW_SHADER], 0)
+        ReflectedLayoutSpec::local(&RAY_QUERY_SHADOW)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {

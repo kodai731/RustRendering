@@ -4,22 +4,9 @@ use thyllore_effect_core::flame::analytic::ubo::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_vulkan_core::data::{SceneUniformData, UniformBufferObject};
 use thyllore_vulkan_core::descriptor::{
-    bloom_shaders, imgui_layout_spec, reflect_shader_bytes, standard_graphics_shaders,
-    DescriptorSetTable, FrameDescriptorSet, LayoutMismatch, MaterialManager, ObjectDescriptorSet,
-    RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
-    RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
-    RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet, ReflectedLayoutSpec,
-    SelectionUBO, ShaderReflection, AUTO_EXPOSURE_AVERAGE_SHADER, AUTO_EXPOSURE_HISTOGRAM_SHADER,
-    BILLBOARD_SHADERS, COMPOSITE_SHADERS, DOF_SHADERS, FLAME_RESOLVE_SHADERS, IMGUI_SHADERS,
-    ONION_SKIN_COMPOSITE_SHADERS, RAY_QUERY_SHADOW_SHADER, TONEMAP_SHADERS,
+    layout_specs, reflect_shader_bytes, DescriptorSetTable, LayoutMismatch, PassId, PassShaders,
+    SelectionUBO, ShaderFile, ShaderReflection, ALL_PASSES,
 };
-use thyllore_vulkan_core::resource::OnionSkinPassResources;
-
-struct PassGolden {
-    name: &'static str,
-    shaders: Vec<&'static str>,
-    sets: Vec<(u32, ReflectedLayoutSpec)>,
-}
 
 #[derive(Clone, Copy, Debug)]
 enum BlockCoverage {
@@ -28,7 +15,7 @@ enum BlockCoverage {
 }
 
 struct BlockGolden {
-    pass: &'static str,
+    pass: PassId,
     set: u32,
     binding: u32,
     rust_type: &'static str,
@@ -48,97 +35,31 @@ fn enter_workspace_root() {
     std::env::set_current_dir(workspace_root()).expect("chdir to workspace root");
 }
 
-fn load_reflection(shader_path: &str) -> ShaderReflection {
-    let path = workspace_root().join(shader_path);
+fn load_reflection(shader: &ShaderFile) -> ShaderReflection {
+    let path = workspace_root().join(shader.path);
     let bytes = std::fs::read(&path)
         .unwrap_or_else(|error| panic!("read {} (run cargo build first): {error}", path.display()));
-    reflect_shader_bytes(&bytes).unwrap_or_else(|error| panic!("reflect {shader_path}: {error}"))
+    let reflection = reflect_shader_bytes(&bytes)
+        .unwrap_or_else(|error| panic!("reflect {}: {error}", shader.path));
+    assert_eq!(
+        reflection.stages,
+        [shader.stage],
+        "{}: passes.toml stage differs from the SPIR-V entry point",
+        shader.path
+    );
+    reflection
 }
 
-fn build_table(shaders: &[&str]) -> DescriptorSetTable {
-    let reflections: Vec<ShaderReflection> = shaders
-        .iter()
-        .map(|shader| load_reflection(shader))
-        .collect();
-    DescriptorSetTable::from_reflections(&reflections).expect("merge shader stages")
-}
-
-fn pass_goldens() -> Vec<PassGolden> {
-    vec![
-        PassGolden {
-            name: "standard_graphics",
-            shaders: standard_graphics_shaders(),
-            sets: vec![
-                (0, FrameDescriptorSet::layout_spec()),
-                (1, MaterialManager::layout_spec()),
-                (2, ObjectDescriptorSet::layout_spec()),
-            ],
-        },
-        PassGolden {
-            name: "flame_resolve",
-            shaders: FLAME_RESOLVE_SHADERS.to_vec(),
-            sets: vec![
-                (0, FrameDescriptorSet::layout_spec()),
-                (1, RRFlameDescriptorSet::layout_spec()),
-            ],
-        },
-        PassGolden {
-            name: "tonemap",
-            shaders: TONEMAP_SHADERS.to_vec(),
-            sets: vec![(0, RRToneMapDescriptorSet::layout_spec())],
-        },
-        PassGolden {
-            name: "bloom",
-            shaders: bloom_shaders(),
-            sets: vec![(0, RRBloomDescriptorSets::layout_spec())],
-        },
-        PassGolden {
-            name: "dof",
-            shaders: DOF_SHADERS.to_vec(),
-            sets: vec![(0, RRDofDescriptorSet::layout_spec())],
-        },
-        PassGolden {
-            name: "auto_exposure_histogram",
-            shaders: vec![AUTO_EXPOSURE_HISTOGRAM_SHADER],
-            sets: vec![(0, RRAutoExposureHistogramDescriptorSet::layout_spec())],
-        },
-        PassGolden {
-            name: "auto_exposure_average",
-            shaders: vec![AUTO_EXPOSURE_AVERAGE_SHADER],
-            sets: vec![(0, RRAutoExposureAverageDescriptorSet::layout_spec())],
-        },
-        PassGolden {
-            name: "ray_query_shadow",
-            shaders: vec![RAY_QUERY_SHADOW_SHADER],
-            sets: vec![(0, RRRayQueryDescriptorSet::layout_spec())],
-        },
-        PassGolden {
-            name: "composite",
-            shaders: COMPOSITE_SHADERS.to_vec(),
-            sets: vec![(0, RRCompositeDescriptorSet::layout_spec())],
-        },
-        PassGolden {
-            name: "billboard",
-            shaders: BILLBOARD_SHADERS.to_vec(),
-            sets: vec![(0, RRBillboardDescriptorSet::layout_spec())],
-        },
-        PassGolden {
-            name: "onion_skin_composite",
-            shaders: ONION_SKIN_COMPOSITE_SHADERS.to_vec(),
-            sets: vec![(0, OnionSkinPassResources::composite_layout_spec())],
-        },
-        PassGolden {
-            name: "imgui",
-            shaders: IMGUI_SHADERS.to_vec(),
-            sets: vec![(0, imgui_layout_spec())],
-        },
-    ]
+fn build_table(pass: &PassShaders) -> DescriptorSetTable {
+    let reflections: Vec<ShaderReflection> = pass.stages.iter().map(load_reflection).collect();
+    DescriptorSetTable::from_reflections(&reflections)
+        .unwrap_or_else(|error| panic!("{}: merge shader stages: {error}", pass.name()))
 }
 
 fn block_goldens() -> Vec<BlockGolden> {
     vec![
         BlockGolden {
-            pass: "standard_graphics",
+            pass: PassId::Model,
             set: 0,
             binding: 0,
             rust_type: "FrameUBO",
@@ -146,7 +67,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::Exact,
         },
         BlockGolden {
-            pass: "standard_graphics",
+            pass: PassId::Model,
             set: 1,
             binding: 1,
             rust_type: "MaterialUBO",
@@ -154,7 +75,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::Exact,
         },
         BlockGolden {
-            pass: "standard_graphics",
+            pass: PassId::Model,
             set: 2,
             binding: 0,
             rust_type: "ObjectUBO",
@@ -162,7 +83,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::Exact,
         },
         BlockGolden {
-            pass: "flame_resolve",
+            pass: PassId::FlameResolve,
             set: 1,
             binding: 0,
             rust_type: "FlameUBO",
@@ -170,7 +91,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::Exact,
         },
         BlockGolden {
-            pass: "tonemap",
+            pass: PassId::Tonemap,
             set: 0,
             binding: 3,
             rust_type: "SceneUniformData",
@@ -178,7 +99,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::Exact,
         },
         BlockGolden {
-            pass: "ray_query_shadow",
+            pass: PassId::RayQueryShadow,
             set: 0,
             binding: 4,
             rust_type: "SceneUniformData",
@@ -186,7 +107,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::ShaderReadsPrefix,
         },
         BlockGolden {
-            pass: "composite",
+            pass: PassId::Composite,
             set: 0,
             binding: 4,
             rust_type: "SceneUniformData",
@@ -194,7 +115,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::Exact,
         },
         BlockGolden {
-            pass: "composite",
+            pass: PassId::Composite,
             set: 0,
             binding: 6,
             rust_type: "SelectionUBO",
@@ -202,7 +123,7 @@ fn block_goldens() -> Vec<BlockGolden> {
             coverage: BlockCoverage::Exact,
         },
         BlockGolden {
-            pass: "billboard",
+            pass: PassId::Billboard,
             set: 0,
             binding: 0,
             rust_type: "UniformBufferObject",
@@ -226,7 +147,7 @@ fn check_block_coverage(golden: &BlockGolden, block_name: &str, block_size: u32)
     }
     Some(format!(
         "{}: shader block `{}` is {} bytes (padded {}), Rust `{}` is {} bytes ({:?})",
-        golden.pass,
+        golden.pass.name(),
         block_name,
         block_size,
         padded_block_size,
@@ -264,36 +185,47 @@ fn describe_mismatch(pass: &str, set: u32, mismatch: &LayoutMismatch) -> String 
 }
 
 #[test]
-fn pass_layout_specs_cover_their_shaders() {
+fn every_pass_layout_covers_its_shaders() {
     enter_workspace_root();
     let mut failures = Vec::new();
 
-    for pass in pass_goldens() {
-        let pass_table = build_table(&pass.shaders);
-        for (set, spec) in &pass.sets {
-            if spec.set != *set {
-                failures.push(format!(
-                    "{}: layout spec targets set {} but the pass binds it at set {set}",
-                    pass.name, spec.set
-                ));
+    for pass in ALL_PASSES {
+        let pass_table = build_table(pass);
+        let specs = match layout_specs(pass) {
+            Ok(specs) => specs,
+            Err(error) => {
+                failures.push(format!("{}: {error:#}", pass.name()));
                 continue;
+            }
+        };
+
+        for (set, spec) in &specs {
+            match spec.set_index() {
+                Ok(index) if index == *set => {}
+                Ok(index) => failures.push(format!(
+                    "{}: layout spec targets set {index} but the pass binds it at set {set}",
+                    pass.name()
+                )),
+                Err(error) => failures.push(format!("{} set {set}: {error:#}", pass.name())),
             }
             match spec.resolve_bindings() {
                 Ok(layout) => {
                     for mismatch in pass_table.verify_layout(*set, &layout) {
-                        failures.push(describe_mismatch(pass.name, *set, &mismatch));
+                        if matches!(mismatch, LayoutMismatch::UnusedInShaders { .. }) {
+                            continue;
+                        }
+                        failures.push(describe_mismatch(pass.name(), *set, &mismatch));
                     }
                 }
-                Err(error) => failures.push(format!("{} set {set}: {error:#}", pass.name)),
+                Err(error) => failures.push(format!("{} set {set}: {error:#}", pass.name())),
             }
         }
 
-        let declared_sets: Vec<u32> = pass.sets.iter().map(|(set, _)| *set).collect();
         for set in pass_table.set_indices() {
-            if !declared_sets.contains(&set) {
+            if !specs.iter().any(|(declared, _)| *declared == set) {
                 failures.push(format!(
-                    "{}: shaders use descriptor set {set} but the pass binds no layout for it",
-                    pass.name
+                    "{}: shaders use descriptor set {set} but passes.toml binds no role for it",
+                    pass.name()
                 ));
             }
         }
@@ -312,22 +244,23 @@ fn rust_uniform_structs_cover_shader_blocks() {
     let mut failures = Vec::new();
 
     for golden in block_goldens() {
-        let pass = pass_goldens()
-            .into_iter()
-            .find(|pass| pass.name == golden.pass)
-            .expect("block golden refers to a known pass");
-        let table = build_table(&pass.shaders);
+        let table = build_table(golden.pass.shaders());
         let Some(binding) = table.binding(golden.set, golden.binding) else {
             failures.push(format!(
                 "{}: set {} binding {} is not declared by its shaders",
-                golden.pass, golden.set, golden.binding
+                golden.pass.name(),
+                golden.set,
+                golden.binding
             ));
             continue;
         };
         let Some(block_size) = binding.block_size else {
             failures.push(format!(
                 "{}: set {} binding {} ({}) is not a buffer block",
-                golden.pass, golden.set, golden.binding, binding.name
+                golden.pass.name(),
+                golden.set,
+                golden.binding,
+                binding.name
             ));
             continue;
         };

@@ -23,6 +23,19 @@ Shader source files are located in `shaders/`:
 - `rayQueryShadow.comp` -> `assets/shaders/rayQueryShadow.spv`
 - etc.
 
+## Pass Manifest (`shaders/passes.toml`)
+
+`shaders/passes.toml` is the only hand-written pass definition. Each `[pass.<name>]` lists its `stages`
+(source file names; the stage is derived from the extension) and `sets` (set index -> role: `frame` = 0,
+`material` = 1, `object` = 2, `local` = pass-owned). `crates/thyllore-vulkan-core/build.rs` validates the file
+(missing source, orphan shader not referenced by any pass, bad stage composition, role/set convention) and
+generates `PassId`, `PassShaders` constants and `ALL_PASSES` into `$OUT_DIR/pass_manifest.rs`.
+
+- Create pipelines with `PipelineBuilder::from_pass(&FLAME_RESOLVE)` / `RRPipeline::new_compute_with_push_constants(.., &RAY_QUERY_SHADOW, ..)`.
+- Declare layouts with `ReflectedLayoutSpec::shared(SetRole::Frame)` or `ReflectedLayoutSpec::local(&TONEMAP)`.
+- A pass with a `local` set must be mapped in `descriptor/pass_layouts.rs` (`local_layout_spec`, exhaustive match).
+- Adding a shader = GLSL + `passes.toml` entry + `*DescriptorSet` + one `pass_layouts.rs` line.
+
 ## Shader Modifications
 
 After editing shaders in `shaders/`, the build system automatically compiles them to `assets/shaders/` directory during

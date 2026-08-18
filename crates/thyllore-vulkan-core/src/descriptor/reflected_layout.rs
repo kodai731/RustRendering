@@ -1,22 +1,28 @@
-use std::path::Path;
-
 use anyhow::{anyhow, Context, Result};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::descriptor_allocator::PoolSignature;
 use crate::core::device::RRDevice;
+use crate::descriptor::pass_manifest::{passes_with_role, PassShaders, SetRole, ShaderFile};
 use crate::descriptor::reflection::{
     kind_accepts, reflect_shader_bytes, DescriptorSetTable, ShaderReflection,
 };
 
-fn load_reflections<P: AsRef<Path>>(paths: &[P]) -> Result<Vec<ShaderReflection>> {
-    let mut reflections = Vec::with_capacity(paths.len());
-    for path in paths {
-        let path = path.as_ref();
-        let bytes = std::fs::read(path)
-            .with_context(|| format!("read shader {} for reflection", path.display()))?;
+fn load_reflections(files: &[ShaderFile]) -> Result<Vec<ShaderReflection>> {
+    let mut reflections = Vec::with_capacity(files.len());
+    for file in files {
+        let bytes = std::fs::read(file.path)
+            .with_context(|| format!("read shader {} for reflection", file.path))?;
         let reflection = reflect_shader_bytes(&bytes)
-            .with_context(|| format!("reflect shader {}", path.display()))?;
+            .with_context(|| format!("reflect shader {}", file.path))?;
+        if reflection.stages != [file.stage] {
+            return Err(anyhow!(
+                "shader {} is declared as {:?} in passes.toml but its SPIR-V entry points are {:?}",
+                file.path,
+                file.stage,
+                reflection.stages
+            ));
+        }
         reflections.push(reflection);
     }
     Ok(reflections)
@@ -30,18 +36,26 @@ pub struct DescriptorTypeOverride {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReflectedLayoutSpec {
-    pub shaders: Vec<&'static str>,
-    pub set: u32,
+    pub passes: Vec<&'static PassShaders>,
+    pub role: SetRole,
     pub overrides: Vec<DescriptorTypeOverride>,
 }
 
 impl ReflectedLayoutSpec {
-    pub fn new(shaders: Vec<&'static str>, set: u32) -> Self {
+    pub fn new(passes: Vec<&'static PassShaders>, role: SetRole) -> Self {
         Self {
-            shaders,
-            set,
+            passes,
+            role,
             overrides: Vec::new(),
         }
+    }
+
+    pub fn shared(role: SetRole) -> Self {
+        Self::new(passes_with_role(role), role)
+    }
+
+    pub fn local(pass: &'static PassShaders) -> Self {
+        Self::new(vec![pass], SetRole::Local)
     }
 
     pub fn with_override(mut self, binding: u32, descriptor_type: vk::DescriptorType) -> Self {
@@ -52,18 +66,56 @@ impl ReflectedLayoutSpec {
         self
     }
 
+    pub fn set_index(&self) -> Result<u32> {
+        let mut resolved = None;
+        for pass in &self.passes {
+            let set = pass.set_index(self.role).ok_or_else(|| {
+                anyhow!(
+                    "pass `{}` binds no {:?} descriptor set (see shaders/passes.toml)",
+                    pass.name(),
+                    self.role
+                )
+            })?;
+            match resolved {
+                None => resolved = Some(set),
+                Some(previous) if previous != set => {
+                    return Err(anyhow!(
+                        "{:?} set index differs between passes sharing one layout ({previous} vs {set} in `{}`)",
+                        self.role,
+                        pass.name()
+                    ));
+                }
+                Some(_) => {}
+            }
+        }
+        resolved.ok_or_else(|| anyhow!("layout spec for {:?} lists no pass", self.role))
+    }
+
+    pub fn shader_files(&self) -> Vec<ShaderFile> {
+        let mut files: Vec<ShaderFile> = Vec::new();
+        for file in self.passes.iter().flat_map(|pass| pass.stages.iter()) {
+            if !files.iter().any(|known| known.path == file.path) {
+                files.push(*file);
+            }
+        }
+        files
+    }
+
     pub fn reflect_table(&self) -> Result<DescriptorSetTable> {
-        let mut reflections = load_reflections(&self.shaders)?;
+        let set = self.set_index()?;
+        let mut reflections = load_reflections(&self.shader_files())?;
         for reflection in &mut reflections {
-            reflection
-                .bindings
-                .retain(|binding| binding.set == self.set);
+            reflection.bindings.retain(|binding| binding.set == set);
         }
         Ok(DescriptorSetTable::from_reflections(&reflections)?)
     }
 
     pub fn resolve_bindings(&self) -> Result<Vec<vk::DescriptorSetLayoutBinding>> {
-        ReflectedSetLayout::resolve_bindings(&self.reflect_table()?, self.set, &self.overrides)
+        ReflectedSetLayout::resolve_bindings(
+            &self.reflect_table()?,
+            self.set_index()?,
+            &self.overrides,
+        )
     }
 }
 
