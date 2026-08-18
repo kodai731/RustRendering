@@ -43,11 +43,10 @@ impl GraphicsResources {
         instance: &Instance,
         rrdevice: &RRDevice,
         swapchain_image_count: usize,
-        max_materials: u32,
         max_objects: usize,
     ) -> anyhow::Result<Self> {
         let frame_set = FrameDescriptorSet::new(instance, rrdevice, swapchain_image_count)?;
-        let materials = MaterialManager::new(rrdevice, max_materials)?;
+        let materials = MaterialManager::new(rrdevice)?;
         let objects =
             ObjectDescriptorSet::new(instance, rrdevice, swapchain_image_count, max_objects)?;
 
@@ -84,14 +83,14 @@ impl GraphicsResources {
 
     pub fn get_layouts(&self) -> [vk::DescriptorSetLayout; 3] {
         [
-            self.frame_set.layout,
-            self.materials.layout,
-            self.objects.layout,
+            self.frame_set.layout.handle,
+            self.materials.layout.handle,
+            self.objects.layout.handle,
         ]
     }
 
     pub fn get_layouts_without_material(&self) -> [vk::DescriptorSetLayout; 2] {
-        [self.frame_set.layout, self.objects.layout]
+        [self.frame_set.layout.handle, self.objects.layout.handle]
     }
 
     pub fn calculate_model_bounds(&self) -> Option<(Vector3<f32>, Vector3<f32>, Vector3<f32>)> {

@@ -1,0 +1,11 @@
+[package]
+name = "thyllore-spirv-reflect"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Dependency-free SPIR-V descriptor reflection and GLSL declaration cross-check for ThylloreAnimation. Usable from build scripts"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+thiserror = "1"

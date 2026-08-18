@@ -172,8 +172,8 @@ impl App {
             &rrswapchain,
             &rrrender,
             &render_layouts,
-            "assets/shaders/vert.spv",
-            "assets/shaders/frag.spv",
+            MODEL_SHADERS[0],
+            MODEL_SHADERS[1],
             vk::PrimitiveTopology::TRIANGLE_LIST,
             vk::PolygonMode::FILL,
             vk::CullModeFlags::BACK,
@@ -321,7 +321,7 @@ impl App {
     ) -> Result<()> {
         let swapchain_image_count = rrswapchain.swapchain_images.len();
         data.graphics_resources =
-            GraphicsResources::new(instance, rrdevice, swapchain_image_count, 16, 64)
+            GraphicsResources::new(instance, rrdevice, swapchain_image_count, 64)
                 .context("Failed to create render resources")?;
 
         let gpu_descriptors = GpuDescriptors::new(
@@ -382,33 +382,32 @@ impl App {
 
         let render_layouts = data.graphics_resources.get_layouts();
         if let Some(ref hdr_buffer) = data.viewport.hdr_buffer {
-            let hdr_grid =
-                PipelineBuilder::new("assets/shaders/gridVert.spv", "assets/shaders/gridFrag.spv")
-                    .vertex_input(VertexInputConfig::Gizmo)
-                    .topology(vk::PrimitiveTopology::LINE_LIST)
-                    .polygon_mode(vk::PolygonMode::LINE)
-                    .depth_test(DepthTestConfig {
-                        test_enable: true,
-                        write_enable: true,
-                        compare_op: vk::CompareOp::GREATER_OR_EQUAL,
-                    })
-                    .custom_render_pass(hdr_buffer.render_pass)
-                    .msaa_samples(vk::SampleCountFlags::_1)
-                    .descriptor_layouts(render_layouts.to_vec())
-                    // Opaque surface inside the HDR buffer: alpha 1 marks "background fully
-                    // covered", which the tonemap needs to keep the grid color. The flame
-                    // composites over it afterwards with premultiplied blending.
-                    .blend(BlendConfig {
-                        enable: true,
-                        src_color_factor: vk::BlendFactor::SRC_ALPHA,
-                        dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-                        color_op: vk::BlendOp::ADD,
-                        src_alpha_factor: vk::BlendFactor::ONE,
-                        dst_alpha_factor: vk::BlendFactor::ZERO,
-                        alpha_op: vk::BlendOp::ADD,
-                    })
-                    .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
-                    .context("Failed to create HDR grid pipeline")?;
+            let hdr_grid = PipelineBuilder::new(GRID_SHADERS[0], GRID_SHADERS[1])
+                .vertex_input(VertexInputConfig::Gizmo)
+                .topology(vk::PrimitiveTopology::LINE_LIST)
+                .polygon_mode(vk::PolygonMode::LINE)
+                .depth_test(DepthTestConfig {
+                    test_enable: true,
+                    write_enable: true,
+                    compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+                })
+                .custom_render_pass(hdr_buffer.render_pass)
+                .msaa_samples(vk::SampleCountFlags::_1)
+                .descriptor_layouts(render_layouts.to_vec())
+                // Opaque surface inside the HDR buffer: alpha 1 marks "background fully
+                // covered", which the tonemap needs to keep the grid color. The flame
+                // composites over it afterwards with premultiplied blending.
+                .blend(BlendConfig {
+                    enable: true,
+                    src_color_factor: vk::BlendFactor::SRC_ALPHA,
+                    dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    color_op: vk::BlendOp::ADD,
+                    src_alpha_factor: vk::BlendFactor::ONE,
+                    dst_alpha_factor: vk::BlendFactor::ZERO,
+                    alpha_op: vk::BlendOp::ADD,
+                })
+                .build(rrdevice, &rrrender, Some(rrswapchain.swapchain_extent))
+                .context("Failed to create HDR grid pipeline")?;
             let hdr_grid_id = data.pipeline_storage.register(hdr_grid);
             data.viewport.hdr_grid_pipeline_id = Some(hdr_grid_id);
         }
@@ -424,33 +423,29 @@ impl App {
         pipeline_storage: &mut crate::vulkanr::resource::PipelineStorage,
         pipeline_manager: &mut PipelineManager,
     ) -> Result<GizmoPipelineIds> {
-        let grid =
-            PipelineBuilder::new("assets/shaders/gridVert.spv", "assets/shaders/gridFrag.spv")
-                .vertex_input(VertexInputConfig::Gizmo)
-                .topology(vk::PrimitiveTopology::LINE_LIST)
-                .polygon_mode(vk::PolygonMode::LINE)
-                .depth_test(DepthTestConfig {
-                    test_enable: true,
-                    write_enable: false,
-                    compare_op: vk::CompareOp::GREATER_OR_EQUAL,
-                })
-                .descriptor_layouts(render_layouts.to_vec())
-                .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
-                .context("Failed to create grid pipeline")?;
+        let grid = PipelineBuilder::new(GRID_SHADERS[0], GRID_SHADERS[1])
+            .vertex_input(VertexInputConfig::Gizmo)
+            .topology(vk::PrimitiveTopology::LINE_LIST)
+            .polygon_mode(vk::PolygonMode::LINE)
+            .depth_test(DepthTestConfig {
+                test_enable: true,
+                write_enable: false,
+                compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+            })
+            .descriptor_layouts(render_layouts.to_vec())
+            .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
+            .context("Failed to create grid pipeline")?;
         let grid = pipeline_storage.register(grid);
         pipeline_allocate_id(pipeline_manager);
 
-        let gizmo = PipelineBuilder::new(
-            "assets/shaders/gizmoVert.spv",
-            "assets/shaders/gizmoFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Gizmo)
-        .topology(vk::PrimitiveTopology::LINE_LIST)
-        .polygon_mode(vk::PolygonMode::LINE)
-        .no_depth_test()
-        .descriptor_layouts(render_layouts.to_vec())
-        .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
-        .context("Failed to create gizmo pipeline")?;
+        let gizmo = PipelineBuilder::new(GIZMO_SHADERS[0], GIZMO_SHADERS[1])
+            .vertex_input(VertexInputConfig::Gizmo)
+            .topology(vk::PrimitiveTopology::LINE_LIST)
+            .polygon_mode(vk::PolygonMode::LINE)
+            .no_depth_test()
+            .descriptor_layouts(render_layouts.to_vec())
+            .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
+            .context("Failed to create gizmo pipeline")?;
         let gizmo = pipeline_storage.register(gizmo);
         pipeline_allocate_id(pipeline_manager);
 
@@ -594,13 +589,12 @@ impl App {
         pipeline_manager: &mut PipelineManager,
         label: &str,
     ) -> Result<usize> {
-        let mut builder =
-            PipelineBuilder::new("assets/shaders/boneVert.spv", "assets/shaders/boneFrag.spv")
-                .vertex_input(VertexInputConfig::Gizmo)
-                .topology(topology)
-                .polygon_mode(polygon_mode)
-                .push_constants(push_constants)
-                .descriptor_layouts(render_layouts.to_vec());
+        let mut builder = PipelineBuilder::new(BONE_SHADERS[0], BONE_SHADERS[1])
+            .vertex_input(VertexInputConfig::Gizmo)
+            .topology(topology)
+            .polygon_mode(polygon_mode)
+            .push_constants(push_constants)
+            .descriptor_layouts(render_layouts.to_vec());
 
         if let Some(cull) = cull_mode {
             builder = builder.cull_mode(cull);
@@ -790,9 +784,8 @@ impl App {
                 .context("Failed to create billboard buffers")?;
         }
 
-        billboard_data.render_state.descriptor_set =
-            RRBillboardDescriptorSet::new(rrdevice, rrswapchain)
-                .context("Failed to create billboard descriptor set")?;
+        billboard_data.render_state.descriptor_set = RRBillboardDescriptorSet::new(rrdevice)
+            .context("Failed to create billboard descriptor set")?;
         billboard_data
             .render_state
             .descriptor_set
@@ -817,12 +810,9 @@ impl App {
             rrdevice,
             rrrender,
             rrswapchain,
-            billboard_data
-                .render_state
-                .descriptor_set
-                .descriptor_set_layout,
-            "assets/shaders/billboardVert.spv",
-            "assets/shaders/billboardFrag.spv",
+            billboard_data.render_state.descriptor_set.layout.handle,
+            BILLBOARD_SHADERS[0],
+            BILLBOARD_SHADERS[1],
         )
         .context("Failed to create billboard pipeline")?;
         let billboard_pipeline_id = data.pipeline_storage.register(billboard_pipeline);
@@ -1270,8 +1260,8 @@ impl App {
         let image_view = Self::create_font_image_view(&rrdevice.device, image)?;
         let sampler = Self::create_font_sampler(&rrdevice.device)?;
 
-        let (descriptor_pool, descriptor_set_layout, descriptor_set) =
-            Self::setup_imgui_descriptors(&rrdevice.device, image_view, sampler)?;
+        let (descriptor_set_layout, descriptor_set) =
+            Self::setup_imgui_descriptors(rrdevice, image_view, sampler)?;
 
         let msaa_samples = {
             let render_config = data.ecs_world.resource::<RenderConfig>();
@@ -1285,9 +1275,9 @@ impl App {
         let imgui_pipeline = RRPipeline::new_imgui(
             rrdevice,
             rrrender,
-            descriptor_set_layout,
-            "assets/shaders/imguiVert.spv",
-            "assets/shaders/imguiFrag.spv",
+            descriptor_set_layout.handle,
+            IMGUI_SHADERS[0],
+            IMGUI_SHADERS[1],
             msaa_samples,
         )?;
 
@@ -1295,7 +1285,6 @@ impl App {
         data.imgui.pipeline_layout = Some(imgui_pipeline.pipeline_layout);
         data.imgui.descriptor_set = Some(descriptor_set);
         data.imgui.descriptor_set_layout = Some(descriptor_set_layout);
-        data.imgui.descriptor_pool = Some(descriptor_pool);
         data.imgui.font_image = Some(image);
         data.imgui.font_image_memory = Some(image_memory);
         data.imgui.font_image_view = Some(image_view);
@@ -1523,55 +1512,23 @@ impl App {
     }
 
     unsafe fn setup_imgui_descriptors(
-        device: &VkDevice,
+        rrdevice: &RRDevice,
         image_view: vk::ImageView,
         sampler: vk::Sampler,
-    ) -> Result<(
-        vk::DescriptorPool,
-        vk::DescriptorSetLayout,
-        vk::DescriptorSet,
-    )> {
-        let pool_sizes = [vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)];
+    ) -> Result<(ReflectedSetLayout, vk::DescriptorSet)> {
+        let layout = ReflectedSetLayout::create(rrdevice, &imgui_layout_spec())?;
+        let descriptor_set = layout.allocate_set(rrdevice)?;
 
-        let pool_info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets(1);
+        layout
+            .writer(descriptor_set)
+            .image(
+                IMGUI_TEXTURE_BINDING,
+                image_view,
+                sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .apply(rrdevice);
 
-        let descriptor_pool = device.create_descriptor_pool(&pool_info, None)?;
-
-        let bindings = [vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)];
-
-        let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        let descriptor_set_layout = device.create_descriptor_set_layout(&layout_info, None)?;
-
-        let layouts = [descriptor_set_layout];
-        let allocate_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&layouts);
-
-        let descriptor_sets = device.allocate_descriptor_sets(&allocate_info)?;
-        let descriptor_set = descriptor_sets[0];
-
-        let image_info = [vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(image_view)
-            .sampler(sampler)];
-
-        let descriptor_writes = [vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info)];
-
-        device.update_descriptor_sets(&descriptor_writes, &[] as &[vk::CopyDescriptorSet]);
-
-        Ok((descriptor_pool, descriptor_set_layout, descriptor_set))
+        Ok((layout, descriptor_set))
     }
 }

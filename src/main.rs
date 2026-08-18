@@ -21,6 +21,7 @@ use thyllore_animation::ecs::systems::{
 };
 use thyllore_animation::platform;
 
+use thyllore_vulkan_core::FlameImageBindings;
 use vulkanalia::vk;
 
 use anyhow::Result;
@@ -388,14 +389,17 @@ fn main() -> Result<()> {
             ) {
                 flame_descriptor.update_image_views(
                     &app.rrdevice,
-                    flame_buffer.history_image_views,
-                    flame_buffer.sampler,
-                    image_view,
-                    sampler,
-                    app.resource::<thyllore_animation::vulkanr::context::RenderTargets>()
-                        .render
-                        .gbuffer_depth_image_view,
-                );
+                    FlameImageBindings {
+                        history_image_views: flame_buffer.history_image_views,
+                        flame_sampler: flame_buffer.sampler,
+                        sdf_image_view: image_view,
+                        sdf_sampler: sampler,
+                        scene_depth_view: app
+                            .resource::<thyllore_animation::vulkanr::context::RenderTargets>()
+                            .render
+                            .gbuffer_depth_image_view,
+                    },
+                )?;
             }
         }
     }

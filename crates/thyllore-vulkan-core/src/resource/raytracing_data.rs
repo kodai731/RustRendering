@@ -7,9 +7,13 @@ use crate::core::device::RRDevice;
 use crate::core::swapchain::RRSwapchain;
 use crate::data::{self as vulkan_data, SceneUniformData};
 use crate::descriptor::{
-    RRAutoExposureAverageDescriptorSet, RRAutoExposureHistogramDescriptorSet,
-    RRBillboardDescriptorSet, RRBloomDescriptorSets, RRCompositeDescriptorSet, RRDofDescriptorSet,
-    RRFlameDescriptorSet, RRRayQueryDescriptorSet, RRToneMapDescriptorSet,
+    CompositeGBufferViews, FlameImageBindings, RRAutoExposureAverageDescriptorSet,
+    RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
+    RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
+    RRToneMapDescriptorSet, AUTO_EXPOSURE_AVERAGE_SHADER, AUTO_EXPOSURE_HISTOGRAM_SHADER,
+    BLOOM_DOWNSAMPLE_SHADERS, BLOOM_UPSAMPLE_SHADERS, COMPOSITE_SHADERS, DOF_SHADERS,
+    FLAME_RESOLVE_SHADERS, GBUFFER_SHADERS, ONION_SKIN_COMPOSITE_SHADERS, ONION_SKIN_GHOST_SHADERS,
+    RAY_QUERY_SHADOW_SHADER, TONEMAP_SHADERS,
 };
 use crate::pipeline::{
     BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
@@ -192,9 +196,9 @@ impl RayTracingData {
         hdr_render_pass: Option<vk::RenderPass>,
     ) -> Result<()> {
         let render_layouts = [
-            graphics_resources.frame_set.layout,
-            graphics_resources.materials.layout,
-            graphics_resources.objects.layout,
+            graphics_resources.frame_set.layout.handle,
+            graphics_resources.materials.layout.handle,
+            graphics_resources.objects.layout.handle,
         ];
 
         self.gbuffer_pipeline = Some(build_gbuffer_pipeline(
@@ -307,43 +311,41 @@ impl RayTracingData {
         let ghost_render_pass = OnionSkinPassResources::create_ghost_render_pass(rrdevice)?;
 
         let render_layouts = [
-            graphics_resources.frame_set.layout,
-            graphics_resources.materials.layout,
-            graphics_resources.objects.layout,
+            graphics_resources.frame_set.layout.handle,
+            graphics_resources.materials.layout.handle,
+            graphics_resources.objects.layout.handle,
         ];
 
-        let ghost_pipeline = PipelineBuilder::new(
-            "assets/shaders/gbufferVert.spv",
-            "assets/shaders/onionSkinFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Standard)
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .cull_mode(vk::CullModeFlags::BACK)
-        .custom_render_pass(ghost_render_pass)
-        .mrt_attachments(1)
-        .msaa_samples(vk::SampleCountFlags::_1)
-        .depth_test(DepthTestConfig {
-            test_enable: false,
-            write_enable: false,
-            compare_op: vk::CompareOp::ALWAYS,
-        })
-        .blend(BlendConfig {
-            enable: true,
-            src_color_factor: vk::BlendFactor::SRC_ALPHA,
-            dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-            color_op: vk::BlendOp::ADD,
-            src_alpha_factor: vk::BlendFactor::SRC_ALPHA,
-            dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-            alpha_op: vk::BlendOp::ADD,
-        })
-        .descriptor_layouts(render_layouts.to_vec())
-        .push_constants(PushConstantConfig {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            offset: 0,
-            size: std::mem::size_of::<OnionSkinPushConstants>() as u32,
-        })
-        .build(rrdevice, rrrender, Some(vk::Extent2D { width, height }))?;
+        let ghost_pipeline =
+            PipelineBuilder::new(ONION_SKIN_GHOST_SHADERS[0], ONION_SKIN_GHOST_SHADERS[1])
+                .vertex_input(VertexInputConfig::Standard)
+                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+                .polygon_mode(vk::PolygonMode::FILL)
+                .cull_mode(vk::CullModeFlags::BACK)
+                .custom_render_pass(ghost_render_pass)
+                .mrt_attachments(1)
+                .msaa_samples(vk::SampleCountFlags::_1)
+                .depth_test(DepthTestConfig {
+                    test_enable: false,
+                    write_enable: false,
+                    compare_op: vk::CompareOp::ALWAYS,
+                })
+                .blend(BlendConfig {
+                    enable: true,
+                    src_color_factor: vk::BlendFactor::SRC_ALPHA,
+                    dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    color_op: vk::BlendOp::ADD,
+                    src_alpha_factor: vk::BlendFactor::SRC_ALPHA,
+                    dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    alpha_op: vk::BlendOp::ADD,
+                })
+                .descriptor_layouts(render_layouts.to_vec())
+                .push_constants(PushConstantConfig {
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    offset: 0,
+                    size: std::mem::size_of::<OnionSkinPushConstants>() as u32,
+                })
+                .build(rrdevice, rrrender, Some(vk::Extent2D { width, height }))?;
 
         let ghost_framebuffer = OnionSkinPassResources::create_single_framebuffer(
             rrdevice,
@@ -356,7 +358,7 @@ impl RayTracingData {
         let composite_render_pass =
             OnionSkinPassResources::create_composite_render_pass(rrdevice, offscreen_format)?;
 
-        let (composite_descriptor_layout, composite_descriptor_pool, composite_descriptor_set) =
+        let (composite_descriptor_layout, composite_descriptor_set) =
             OnionSkinPassResources::create_composite_descriptor(
                 rrdevice,
                 ghost_image_view,
@@ -364,8 +366,8 @@ impl RayTracingData {
             )?;
 
         let composite_pipeline = PipelineBuilder::new(
-            "assets/shaders/tonemapVert.spv",
-            "assets/shaders/onionSkinCompositeFrag.spv",
+            ONION_SKIN_COMPOSITE_SHADERS[0],
+            ONION_SKIN_COMPOSITE_SHADERS[1],
         )
         .vertex_input(VertexInputConfig::Custom {
             bindings: vec![],
@@ -385,7 +387,7 @@ impl RayTracingData {
             dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
             alpha_op: vk::BlendOp::ADD,
         })
-        .descriptor_layouts(vec![composite_descriptor_layout])
+        .descriptor_layouts(vec![composite_descriptor_layout.handle])
         .build(rrdevice, rrrender, Some(vk::Extent2D { width, height }))?;
 
         let composite_framebuffer = OnionSkinPassResources::create_single_framebuffer(
@@ -408,7 +410,6 @@ impl RayTracingData {
             composite_framebuffer,
             composite_pipeline,
             composite_descriptor_layout,
-            composite_descriptor_pool,
             composite_descriptor_set,
             width,
             height,
@@ -442,68 +443,63 @@ impl RayTracingData {
         )?;
         self.write_initial_flame_ubo(rrdevice, flame_ubo_memory)?;
 
-        let mut flame_descriptor = RRFlameDescriptorSet {
-            descriptor_set_layout: RRFlameDescriptorSet::create_layout(rrdevice)?,
-            descriptor_pool: RRFlameDescriptorSet::create_pool(rrdevice)?,
-            descriptor_sets: [vk::DescriptorSet::null(); 2],
-            scene_depth_sampler: vk::Sampler::null(),
-        };
-        flame_descriptor.allocate_and_update(
+        let flame_descriptor = RRFlameDescriptorSet::new(rrdevice)?;
+        flame_descriptor.write_all(
             rrdevice,
             flame_ubo_buffer,
             slot_size,
-            flame_buffer.history_image_views,
-            flame_buffer.sampler,
-            position_image_view,
-            position_sampler,
-            scene_depth_view,
+            FlameImageBindings {
+                history_image_views: flame_buffer.history_image_views,
+                flame_sampler: flame_buffer.sampler,
+                sdf_image_view: position_image_view,
+                sdf_sampler: position_sampler,
+                scene_depth_view,
+            },
         )?;
 
-        let flame_shading_pipeline = PipelineBuilder::new(
-            "assets/shaders/tonemapVert.spv",
-            "assets/shaders/flameResolveFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Custom {
-            bindings: vec![],
-            attributes: vec![],
-        })
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .no_depth_test()
-        .custom_render_pass(flame_buffer.shading_render_pass)
-        .msaa_samples(vk::SampleCountFlags::_1)
-        .mrt_attachments(2)
-        .blend(BlendConfig {
-            enable: true,
-            src_color_factor: vk::BlendFactor::ONE,
-            dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-            color_op: vk::BlendOp::ADD,
-            src_alpha_factor: vk::BlendFactor::ONE,
-            dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
-            alpha_op: vk::BlendOp::ADD,
-        })
-        .attachment_blend(
-            1,
-            BlendConfig {
-                enable: false,
-                src_color_factor: vk::BlendFactor::ONE,
-                dst_color_factor: vk::BlendFactor::ZERO,
-                color_op: vk::BlendOp::ADD,
-                src_alpha_factor: vk::BlendFactor::ONE,
-                dst_alpha_factor: vk::BlendFactor::ZERO,
-                alpha_op: vk::BlendOp::ADD,
-            },
-        )
-        .push_constants(PushConstantConfig {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            offset: 0,
-            size: std::mem::size_of::<crate::renderer::FlamePushConstants>() as u32,
-        })
-        .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
-        .descriptor_layouts(vec![
-            graphics_resources.frame_set.layout,
-            flame_descriptor.descriptor_set_layout,
-        ])
-        .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
+        let flame_shading_pipeline =
+            PipelineBuilder::new(FLAME_RESOLVE_SHADERS[0], FLAME_RESOLVE_SHADERS[1])
+                .vertex_input(VertexInputConfig::Custom {
+                    bindings: vec![],
+                    attributes: vec![],
+                })
+                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+                .no_depth_test()
+                .custom_render_pass(flame_buffer.shading_render_pass)
+                .msaa_samples(vk::SampleCountFlags::_1)
+                .mrt_attachments(2)
+                .blend(BlendConfig {
+                    enable: true,
+                    src_color_factor: vk::BlendFactor::ONE,
+                    dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    color_op: vk::BlendOp::ADD,
+                    src_alpha_factor: vk::BlendFactor::ONE,
+                    dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                    alpha_op: vk::BlendOp::ADD,
+                })
+                .attachment_blend(
+                    1,
+                    BlendConfig {
+                        enable: false,
+                        src_color_factor: vk::BlendFactor::ONE,
+                        dst_color_factor: vk::BlendFactor::ZERO,
+                        color_op: vk::BlendOp::ADD,
+                        src_alpha_factor: vk::BlendFactor::ONE,
+                        dst_alpha_factor: vk::BlendFactor::ZERO,
+                        alpha_op: vk::BlendOp::ADD,
+                    },
+                )
+                .push_constants(PushConstantConfig {
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    offset: 0,
+                    size: std::mem::size_of::<crate::renderer::FlamePushConstants>() as u32,
+                })
+                .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
+                .descriptor_layouts(vec![
+                    graphics_resources.frame_set.layout.handle,
+                    flame_descriptor.layout.handle,
+                ])
+                .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
 
         self.flame_shading_pipeline = Some(flame_shading_pipeline);
         self.flame_descriptor = Some(flame_descriptor);
@@ -550,13 +546,8 @@ impl RayTracingData {
         offscreen_render_pass: vk::RenderPass,
         offscreen_extent: vk::Extent2D,
     ) -> Result<()> {
-        let mut tonemap_descriptor = RRToneMapDescriptorSet {
-            descriptor_set_layout: RRToneMapDescriptorSet::create_layout(rrdevice)?,
-            descriptor_pool: RRToneMapDescriptorSet::create_pool(rrdevice)?,
-            descriptor_set: vk::DescriptorSet::null(),
-        };
-
-        tonemap_descriptor.allocate_and_update(
+        let tonemap_descriptor = RRToneMapDescriptorSet::new(rrdevice)?;
+        tonemap_descriptor.write_all(
             rrdevice,
             hdr_image_view,
             hdr_sampler,
@@ -566,29 +557,26 @@ impl RayTracingData {
             scene_buffer_size,
         )?;
 
-        let tonemap_pipeline = PipelineBuilder::new(
-            "assets/shaders/tonemapVert.spv",
-            "assets/shaders/tonemapFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Custom {
-            bindings: vec![],
-            attributes: vec![],
-        })
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .depth_test(DepthTestConfig {
-            test_enable: true,
-            write_enable: true,
-            compare_op: vk::CompareOp::ALWAYS,
-        })
-        .custom_render_pass(offscreen_render_pass)
-        .descriptor_layouts(vec![tonemap_descriptor.descriptor_set_layout])
-        .push_constants(PushConstantConfig {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            offset: 0,
-            size: std::mem::size_of::<ToneMapPushConstants>() as u32,
-        })
-        .build(rrdevice, rrrender, Some(offscreen_extent))?;
+        let tonemap_pipeline = PipelineBuilder::new(TONEMAP_SHADERS[0], TONEMAP_SHADERS[1])
+            .vertex_input(VertexInputConfig::Custom {
+                bindings: vec![],
+                attributes: vec![],
+            })
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .depth_test(DepthTestConfig {
+                test_enable: true,
+                write_enable: true,
+                compare_op: vk::CompareOp::ALWAYS,
+            })
+            .custom_render_pass(offscreen_render_pass)
+            .descriptor_layouts(vec![tonemap_descriptor.layout.handle])
+            .push_constants(PushConstantConfig {
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                offset: 0,
+                size: std::mem::size_of::<ToneMapPushConstants>() as u32,
+            })
+            .build(rrdevice, rrrender, Some(offscreen_extent))?;
 
         self.tonemap_pipeline = Some(tonemap_pipeline);
         self.tonemap_descriptor = Some(tonemap_descriptor);
@@ -603,15 +591,7 @@ impl RayTracingData {
         hdr_image_view: vk::ImageView,
         bloom_chain: &BloomChain,
     ) -> Result<()> {
-        let mip_count = bloom_chain.mip_levels.len();
-        let total_sets = (mip_count + mip_count.saturating_sub(1)) as u32;
-
-        let mut bloom_descriptors = RRBloomDescriptorSets {
-            descriptor_set_layout: RRBloomDescriptorSets::create_layout(rrdevice)?,
-            descriptor_pool: RRBloomDescriptorSets::create_pool(rrdevice, total_sets)?,
-            downsample_sets: Vec::new(),
-            upsample_sets: Vec::new(),
-        };
+        let bloom_descriptors = RRBloomDescriptorSets::new(rrdevice, bloom_chain.mip_levels.len())?;
 
         let mip_views: Vec<vk::ImageView> = bloom_chain
             .mip_levels
@@ -619,63 +599,62 @@ impl RayTracingData {
             .map(|m| m.image_view)
             .collect();
 
-        bloom_descriptors.allocate_and_update(
+        bloom_descriptors.update_image_views(
             rrdevice,
             hdr_image_view,
             &mip_views,
             bloom_chain.sampler,
         )?;
 
-        let downsample_pipeline = PipelineBuilder::new(
-            "assets/shaders/tonemapVert.spv",
-            "assets/shaders/bloomDownsampleFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Custom {
-            bindings: vec![],
-            attributes: vec![],
-        })
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .no_depth_test()
-        .custom_render_pass(bloom_chain.downsample_render_pass)
-        .msaa_samples(vk::SampleCountFlags::_1)
-        .descriptor_layouts(vec![bloom_descriptors.descriptor_set_layout])
-        .push_constants(PushConstantConfig {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            offset: 0,
-            size: 12,
-        })
-        .build(rrdevice, rrrender, None)?;
+        let downsample_pipeline =
+            PipelineBuilder::new(BLOOM_DOWNSAMPLE_SHADERS[0], BLOOM_DOWNSAMPLE_SHADERS[1])
+                .vertex_input(VertexInputConfig::Custom {
+                    bindings: vec![],
+                    attributes: vec![],
+                })
+                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+                .polygon_mode(vk::PolygonMode::FILL)
+                .no_depth_test()
+                .custom_render_pass(bloom_chain.downsample_render_pass)
+                .msaa_samples(vk::SampleCountFlags::_1)
+                .descriptor_layouts(vec![bloom_descriptors.layout.handle])
+                .push_constants(PushConstantConfig {
+                    stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                    offset: 0,
+                    size: 12,
+                })
+                .build(rrdevice, rrrender, None)?;
 
-        let upsample_pipeline = PipelineBuilder::new(
-            "assets/shaders/tonemapVert.spv",
-            "assets/shaders/bloomUpsampleFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Custom {
-            bindings: vec![],
-            attributes: vec![],
-        })
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .no_depth_test()
-        .custom_render_pass(bloom_chain.upsample_render_pass)
-        .msaa_samples(vk::SampleCountFlags::_1)
-        .blend(BlendConfig {
-            enable: true,
-            src_color_factor: vk::BlendFactor::ONE,
-            dst_color_factor: vk::BlendFactor::ONE,
-            color_op: vk::BlendOp::ADD,
-            src_alpha_factor: vk::BlendFactor::ONE,
-            dst_alpha_factor: vk::BlendFactor::ONE,
-            alpha_op: vk::BlendOp::ADD,
-        })
-        .descriptor_layouts(vec![bloom_descriptors.descriptor_set_layout])
-        .build(rrdevice, rrrender, None)?;
+        let upsample_pipeline =
+            PipelineBuilder::new(BLOOM_UPSAMPLE_SHADERS[0], BLOOM_UPSAMPLE_SHADERS[1])
+                .vertex_input(VertexInputConfig::Custom {
+                    bindings: vec![],
+                    attributes: vec![],
+                })
+                .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+                .polygon_mode(vk::PolygonMode::FILL)
+                .no_depth_test()
+                .custom_render_pass(bloom_chain.upsample_render_pass)
+                .msaa_samples(vk::SampleCountFlags::_1)
+                .blend(BlendConfig {
+                    enable: true,
+                    src_color_factor: vk::BlendFactor::ONE,
+                    dst_color_factor: vk::BlendFactor::ONE,
+                    color_op: vk::BlendOp::ADD,
+                    src_alpha_factor: vk::BlendFactor::ONE,
+                    dst_alpha_factor: vk::BlendFactor::ONE,
+                    alpha_op: vk::BlendOp::ADD,
+                })
+                .descriptor_layouts(vec![bloom_descriptors.layout.handle])
+                .build(rrdevice, rrrender, None)?;
 
         self.bloom_downsample_pipeline = Some(downsample_pipeline);
         self.bloom_upsample_pipeline = Some(upsample_pipeline);
         self.bloom_descriptors = Some(bloom_descriptors);
-        log!("Created bloom pipelines with {} mip levels", mip_count);
+        log!(
+            "Created bloom pipelines with {} mip levels",
+            bloom_chain.mip_levels.len()
+        );
 
         Ok(())
     }
@@ -690,13 +669,8 @@ impl RayTracingData {
         depth_sampler: vk::Sampler,
         dof_render_pass: vk::RenderPass,
     ) -> Result<()> {
-        let mut dof_descriptor = RRDofDescriptorSet {
-            descriptor_set_layout: RRDofDescriptorSet::create_layout(rrdevice)?,
-            descriptor_pool: RRDofDescriptorSet::create_pool(rrdevice)?,
-            descriptor_set: vk::DescriptorSet::null(),
-        };
-
-        dof_descriptor.allocate_and_update(
+        let dof_descriptor = RRDofDescriptorSet::new(rrdevice)?;
+        dof_descriptor.update_image_views(
             rrdevice,
             hdr_image_view,
             hdr_sampler,
@@ -704,26 +678,23 @@ impl RayTracingData {
             depth_sampler,
         )?;
 
-        let dof_pipeline = PipelineBuilder::new(
-            "assets/shaders/tonemapVert.spv",
-            "assets/shaders/dofFrag.spv",
-        )
-        .vertex_input(VertexInputConfig::Custom {
-            bindings: vec![],
-            attributes: vec![],
-        })
-        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-        .polygon_mode(vk::PolygonMode::FILL)
-        .no_depth_test()
-        .custom_render_pass(dof_render_pass)
-        .msaa_samples(vk::SampleCountFlags::_1)
-        .descriptor_layouts(vec![dof_descriptor.descriptor_set_layout])
-        .push_constants(PushConstantConfig {
-            stage_flags: vk::ShaderStageFlags::FRAGMENT,
-            offset: 0,
-            size: 32,
-        })
-        .build(rrdevice, rrrender, None)?;
+        let dof_pipeline = PipelineBuilder::new(DOF_SHADERS[0], DOF_SHADERS[1])
+            .vertex_input(VertexInputConfig::Custom {
+                bindings: vec![],
+                attributes: vec![],
+            })
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .polygon_mode(vk::PolygonMode::FILL)
+            .no_depth_test()
+            .custom_render_pass(dof_render_pass)
+            .msaa_samples(vk::SampleCountFlags::_1)
+            .descriptor_layouts(vec![dof_descriptor.layout.handle])
+            .push_constants(PushConstantConfig {
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                offset: 0,
+                size: 32,
+            })
+            .build(rrdevice, rrrender, None)?;
 
         self.dof_pipeline = Some(dof_pipeline);
         self.dof_descriptor = Some(dof_descriptor);
@@ -742,13 +713,8 @@ impl RayTracingData {
         luminance_buffer: vk::Buffer,
         luminance_buffer_size: u64,
     ) -> Result<()> {
-        let mut histogram_descriptor = RRAutoExposureHistogramDescriptorSet {
-            descriptor_set_layout: RRAutoExposureHistogramDescriptorSet::create_layout(rrdevice)?,
-            descriptor_pool: RRAutoExposureHistogramDescriptorSet::create_pool(rrdevice)?,
-            descriptor_set: vk::DescriptorSet::null(),
-        };
-
-        histogram_descriptor.allocate_and_update(
+        let histogram_descriptor = RRAutoExposureHistogramDescriptorSet::new(rrdevice)?;
+        histogram_descriptor.update_bindings(
             rrdevice,
             hdr_image_view,
             hdr_sampler,
@@ -764,18 +730,13 @@ impl RayTracingData {
 
         let histogram_pipeline = RRPipeline::new_compute_with_push_constants(
             rrdevice,
-            "assets/shaders/autoExposureHistogram.spv",
-            &[histogram_descriptor.descriptor_set_layout],
+            AUTO_EXPOSURE_HISTOGRAM_SHADER,
+            &[histogram_descriptor.layout.handle],
             &[histogram_push_range],
         )?;
 
-        let mut average_descriptor = RRAutoExposureAverageDescriptorSet {
-            descriptor_set_layout: RRAutoExposureAverageDescriptorSet::create_layout(rrdevice)?,
-            descriptor_pool: RRAutoExposureAverageDescriptorSet::create_pool(rrdevice)?,
-            descriptor_set: vk::DescriptorSet::null(),
-        };
-
-        average_descriptor.allocate_and_update(
+        let average_descriptor = RRAutoExposureAverageDescriptorSet::new(rrdevice)?;
+        average_descriptor.update_bindings(
             rrdevice,
             histogram_buffer,
             histogram_buffer_size,
@@ -791,8 +752,8 @@ impl RayTracingData {
 
         let average_pipeline = RRPipeline::new_compute_with_push_constants(
             rrdevice,
-            "assets/shaders/autoExposureAverage.spv",
-            &[average_descriptor.descriptor_set_layout],
+            AUTO_EXPOSURE_AVERAGE_SHADER,
+            &[average_descriptor.layout.handle],
             &[average_push_range],
         )?;
 
@@ -811,24 +772,21 @@ unsafe fn build_gbuffer_pipeline(
     rrswapchain: &RRSwapchain,
     render_layouts: &[vk::DescriptorSetLayout],
 ) -> Result<RRPipeline> {
-    PipelineBuilder::new(
-        "assets/shaders/gbufferVert.spv",
-        "assets/shaders/gbufferFrag.spv",
-    )
-    .vertex_input(VertexInputConfig::Standard)
-    .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-    .polygon_mode(vk::PolygonMode::FILL)
-    .custom_render_pass(rrrender.gbuffer_render_pass)
-    .mrt_attachments(4)
-    .no_blend_attachment(3)
-    .msaa_samples(vk::SampleCountFlags::_1)
-    .descriptor_layouts(render_layouts.to_vec())
-    .push_constants(PushConstantConfig {
-        stage_flags: vk::ShaderStageFlags::FRAGMENT,
-        offset: 0,
-        size: std::mem::size_of::<GBufferPushConstants>() as u32,
-    })
-    .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
+    PipelineBuilder::new(GBUFFER_SHADERS[0], GBUFFER_SHADERS[1])
+        .vertex_input(VertexInputConfig::Standard)
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .custom_render_pass(rrrender.gbuffer_render_pass)
+        .mrt_attachments(4)
+        .no_blend_attachment(3)
+        .msaa_samples(vk::SampleCountFlags::_1)
+        .descriptor_layouts(render_layouts.to_vec())
+        .push_constants(PushConstantConfig {
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            offset: 0,
+            size: std::mem::size_of::<GBufferPushConstants>() as u32,
+        })
+        .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
 }
 
 unsafe fn build_ray_query_pipeline(
@@ -837,11 +795,7 @@ unsafe fn build_ray_query_pipeline(
     acceleration_structure: &Option<RRAccelerationStructure>,
     scene_buffer: vk::Buffer,
 ) -> Result<(RRRayQueryDescriptorSet, RRPipeline)> {
-    let mut descriptor = RRRayQueryDescriptorSet {
-        descriptor_set_layout: RRRayQueryDescriptorSet::create_layout(rrdevice)?,
-        descriptor_pool: RRRayQueryDescriptorSet::create_pool(rrdevice)?,
-        descriptor_set: vk::DescriptorSet::null(),
-    };
+    let mut descriptor = RRRayQueryDescriptorSet::new(rrdevice)?;
 
     if let (Some(gbuffer), Some(accel_struct)) = (gbuffer, acceleration_structure) {
         if let Some(tlas) = accel_struct.tlas.acceleration_structure {
@@ -864,8 +818,8 @@ unsafe fn build_ray_query_pipeline(
 
     let pipeline = RRPipeline::new_compute_with_push_constants(
         rrdevice,
-        "assets/shaders/rayQueryShadow.spv",
-        &[descriptor.descriptor_set_layout],
+        RAY_QUERY_SHADOW_SHADER,
+        &[descriptor.layout.handle],
         &[push_constant_range],
     )?;
 
@@ -887,29 +841,25 @@ unsafe fn build_composite_pipeline(
     offscreen_extent: Option<vk::Extent2D>,
     hdr_render_pass: Option<vk::RenderPass>,
 ) -> Result<(RRCompositeDescriptorSet, RRPipeline)> {
-    let mut descriptor = RRCompositeDescriptorSet {
-        descriptor_set_layout: RRCompositeDescriptorSet::create_layout(rrdevice)?,
-        descriptor_pool: RRCompositeDescriptorSet::create_pool(rrdevice)?,
-        descriptor_set: vk::DescriptorSet::null(),
-        selection_buffer: vk::Buffer::null(),
-        selection_buffer_memory: vk::DeviceMemory::null(),
-    };
+    let mut descriptor = RRCompositeDescriptorSet::new(rrdevice)?;
 
     if let Some(gbuffer) = gbuffer {
         descriptor.allocate_and_update(
             instance,
             rrdevice,
-            gbuffer.position_image_view,
-            gbuffer_sampler,
-            gbuffer.normal_image_view,
-            gbuffer_sampler,
-            gbuffer.shadow_mask_image_view,
-            gbuffer_sampler,
-            gbuffer.albedo_image_view,
-            gbuffer_sampler,
+            CompositeGBufferViews {
+                position_image_view: gbuffer.position_image_view,
+                position_sampler: gbuffer_sampler,
+                normal_image_view: gbuffer.normal_image_view,
+                normal_sampler: gbuffer_sampler,
+                shadow_mask_image_view: gbuffer.shadow_mask_image_view,
+                shadow_mask_sampler: gbuffer_sampler,
+                albedo_image_view: gbuffer.albedo_image_view,
+                albedo_sampler: gbuffer_sampler,
+                object_id_image_view: gbuffer.object_id_image_view,
+                object_id_sampler,
+            },
             scene_buffer,
-            gbuffer.object_id_image_view,
-            object_id_sampler,
         )?;
 
         billboard_descriptor_set.update_position_sampler(
@@ -920,22 +870,19 @@ unsafe fn build_composite_pipeline(
         )?;
     }
 
-    let mut builder = PipelineBuilder::new(
-        "assets/shaders/compositeVert.spv",
-        "assets/shaders/compositeFrag.spv",
-    )
-    .vertex_input(VertexInputConfig::Custom {
-        bindings: vec![],
-        attributes: vec![],
-    })
-    .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
-    .polygon_mode(vk::PolygonMode::FILL)
-    .descriptor_layouts(vec![descriptor.descriptor_set_layout])
-    .push_constants(PushConstantConfig {
-        stage_flags: vk::ShaderStageFlags::FRAGMENT,
-        offset: 0,
-        size: 4,
-    });
+    let mut builder = PipelineBuilder::new(COMPOSITE_SHADERS[0], COMPOSITE_SHADERS[1])
+        .vertex_input(VertexInputConfig::Custom {
+            bindings: vec![],
+            attributes: vec![],
+        })
+        .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+        .polygon_mode(vk::PolygonMode::FILL)
+        .descriptor_layouts(vec![descriptor.layout.handle])
+        .push_constants(PushConstantConfig {
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            offset: 0,
+            size: 4,
+        });
 
     if let Some(render_pass) = hdr_render_pass {
         builder = builder

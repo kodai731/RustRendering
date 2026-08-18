@@ -1,5 +1,7 @@
+use super::descriptor_allocator::{DescriptorAllocator, PoolSignature};
 use super::swapchain::*;
 use crate::vulkan::*;
+use std::cell::RefCell;
 use std::collections::HashSet;
 use std::ops::Deref;
 use thiserror::Error;
@@ -52,7 +54,7 @@ impl Deref for Device {
     }
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct RRDevice {
     pub device: Device,
     pub physical_device: vk::PhysicalDevice,
@@ -62,6 +64,7 @@ pub struct RRDevice {
     pub msaa_samples: vk::SampleCountFlags,
     pub min_uniform_buffer_offset_alignment: u64,
     pub timestamp_period: f32,
+    descriptor_allocator: RefCell<DescriptorAllocator>,
 }
 
 impl RRDevice {
@@ -75,6 +78,7 @@ impl RRDevice {
             msaa_samples: vk::SampleCountFlags::default(),
             min_uniform_buffer_offset_alignment: 256,
             timestamp_period: 1.0,
+            descriptor_allocator: RefCell::default(),
         }
     }
 
@@ -119,6 +123,7 @@ impl RRDevice {
             msaa_samples: sample_count,
             min_uniform_buffer_offset_alignment: min_ubo_alignment,
             timestamp_period,
+            descriptor_allocator: RefCell::default(),
         })
     }
 
@@ -160,6 +165,7 @@ impl RRDevice {
             msaa_samples: sample_count,
             min_uniform_buffer_offset_alignment: min_ubo_alignment,
             timestamp_period,
+            descriptor_allocator: RefCell::default(),
         })
     }
 
@@ -643,6 +649,7 @@ pub unsafe fn destroy_headless_instance(instance: &Instance) {
 
 pub unsafe fn destroy_headless_device(device: &RRDevice, instance: &Instance) {
     device.device.device_wait_idle().ok();
+    device.destroy_descriptor_pools();
     device.device.destroy_device(None);
     destroy_headless_instance(instance);
 }
@@ -654,6 +661,21 @@ impl RRDevice {
 
     pub fn has_present_queue(&self) -> bool {
         self.present_queue != vk::Queue::null()
+    }
+
+    pub unsafe fn allocate_descriptor_sets(
+        &self,
+        layout: vk::DescriptorSetLayout,
+        signature: &PoolSignature,
+        count: usize,
+    ) -> Result<Vec<vk::DescriptorSet>> {
+        self.descriptor_allocator
+            .borrow_mut()
+            .allocate(&self.device, layout, signature, count)
+    }
+
+    pub unsafe fn destroy_descriptor_pools(&self) {
+        self.descriptor_allocator.borrow_mut().destroy(&self.device);
     }
 
     pub unsafe fn wait_graphics_queue_idle(&self) -> Result<()> {

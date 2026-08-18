@@ -1,233 +1,115 @@
 use crate::core::device::*;
+use crate::descriptor::pass_shaders::{FLAME_DESCRIPTOR_SET, FLAME_RESOLVE_SHADERS};
+use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
+
+const FLAME_HISTORY_SET_COUNT: usize = 2;
+
+const FLAME_UBO_BINDING: u32 = 0;
+const HISTORY_SAMPLER_BINDING: u32 = 4;
+const SDF_SAMPLER_BINDING: u32 = 5;
+const SCENE_DEPTH_SAMPLER_BINDING: u32 = 6;
+
+#[derive(Clone, Copy, Debug)]
+pub struct FlameImageBindings {
+    pub history_image_views: [vk::ImageView; FLAME_HISTORY_SET_COUNT],
+    pub flame_sampler: vk::Sampler,
+    pub sdf_image_view: vk::ImageView,
+    pub sdf_sampler: vk::Sampler,
+    pub scene_depth_view: vk::ImageView,
+}
 
 #[derive(Clone, Debug, Default)]
 pub struct RRFlameDescriptorSet {
-    pub descriptor_set_layout: vk::DescriptorSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
-    pub descriptor_sets: [vk::DescriptorSet; 2],
+    pub layout: ReflectedSetLayout,
+    pub descriptor_sets: [vk::DescriptorSet; FLAME_HISTORY_SET_COUNT],
     pub scene_depth_sampler: vk::Sampler,
 }
 
 impl RRFlameDescriptorSet {
-    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
-        let flame_ubo_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-
-        let history_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(4)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-
-        let sdf_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(5)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-
-        let scene_depth_sampler_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(6)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-
-        let bindings = [
-            flame_ubo_binding,
-            history_sampler_binding,
-            sdf_sampler_binding,
-            scene_depth_sampler_binding,
-        ];
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
+    pub fn layout_spec() -> ReflectedLayoutSpec {
+        ReflectedLayoutSpec::new(FLAME_RESOLVE_SHADERS.to_vec(), FLAME_DESCRIPTOR_SET)
+            .with_override(
+                FLAME_UBO_BINDING,
+                vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
+            )
     }
 
-    pub unsafe fn create_pool(rrdevice: &RRDevice) -> Result<vk::DescriptorPool> {
-        let sampler_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(6);
-        let ubo_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-            .descriptor_count(2);
+    pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
+        let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
+        let sets = layout.allocate_sets(rrdevice, FLAME_HISTORY_SET_COUNT)?;
+        let scene_depth_sampler = create_scene_depth_sampler(rrdevice)?;
 
-        let pool_sizes = [sampler_size, ubo_size];
-        let info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets(2);
-
-        Ok(rrdevice.device.create_descriptor_pool(&info, None)?)
+        Ok(Self {
+            layout,
+            descriptor_sets: [sets[0], sets[1]],
+            scene_depth_sampler,
+        })
     }
 
-    pub unsafe fn allocate_and_update(
-        &mut self,
-        rrdevice: &RRDevice,
-        flame_ubo_buffer: vk::Buffer,
-        flame_ubo_size: vk::DeviceSize,
-        history_image_views: [vk::ImageView; 2],
-        flame_sampler: vk::Sampler,
-        sdf_image_view: vk::ImageView,
-        sdf_sampler: vk::Sampler,
-        scene_depth_view: vk::ImageView,
-    ) -> Result<()> {
-        let layouts = [self.descriptor_set_layout; 2];
-        let alloc_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(self.descriptor_pool)
-            .set_layouts(&layouts);
-
-        let descriptor_sets = rrdevice.device.allocate_descriptor_sets(&alloc_info)?;
-        self.descriptor_sets = [descriptor_sets[0], descriptor_sets[1]];
-
-        // Create scene depth sampler (NEAREST/CLAMP_TO_EDGE — depth formats must not use LINEAR)
-        let scene_depth_sampler_info = vk::SamplerCreateInfo::builder()
-            .mag_filter(vk::Filter::NEAREST)
-            .min_filter(vk::Filter::NEAREST)
-            .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
-            .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-            .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-            .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
-            .build();
-        self.scene_depth_sampler = rrdevice
-            .device
-            .create_sampler(&scene_depth_sampler_info, None)?;
-
-        // Write UBO to both sets
-        for i in 0..2 {
-            let buffer_info = vk::DescriptorBufferInfo::builder()
-                .buffer(flame_ubo_buffer)
-                .offset(0)
-                .range(flame_ubo_size)
-                .build();
-
-            let write = vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_sets[i])
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC)
-                .buffer_info(std::slice::from_ref(&buffer_info))
-                .build();
-
-            rrdevice
-                .device
-                .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
-        }
-
-        self.update_image_views(
-            rrdevice,
-            history_image_views,
-            flame_sampler,
-            sdf_image_view,
-            sdf_sampler,
-            scene_depth_view,
-        );
-
-        Ok(())
-    }
-
-    pub unsafe fn update_flame_ubo(
+    pub unsafe fn write_all(
         &self,
         rrdevice: &RRDevice,
         flame_ubo_buffer: vk::Buffer,
         flame_ubo_size: vk::DeviceSize,
-    ) {
-        let buffer_info = vk::DescriptorBufferInfo::builder()
-            .buffer(flame_ubo_buffer)
-            .offset(0)
-            .range(flame_ubo_size)
-            .build();
-
-        // Write to both descriptor sets
-        for i in 0..2 {
-            let write = vk::WriteDescriptorSet::builder()
-                .dst_set(self.descriptor_sets[i])
-                .dst_binding(0)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-                .buffer_info(std::slice::from_ref(&buffer_info))
-                .build();
-
-            rrdevice
-                .device
-                .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
+        images: FlameImageBindings,
+    ) -> Result<()> {
+        for descriptor_set in self.descriptor_sets {
+            self.layout
+                .writer(descriptor_set)
+                .buffer(FLAME_UBO_BINDING, flame_ubo_buffer, 0, flame_ubo_size)?
+                .apply(rrdevice);
         }
+        self.update_image_views(rrdevice, images)
     }
 
     pub unsafe fn update_image_views(
         &self,
         rrdevice: &RRDevice,
-        history_image_views: [vk::ImageView; 2],
-        flame_sampler: vk::Sampler,
-        sdf_image_view: vk::ImageView,
-        sdf_sampler: vk::Sampler,
-        scene_depth_view: vk::ImageView,
-    ) {
-        // Update both descriptor sets with ping-pong history views
-        for i in 0..2 {
-            let history_info = vk::DescriptorImageInfo::builder()
-                .image_view(history_image_views[1 - i])
-                .sampler(flame_sampler)
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .build();
-
-            let sdf_info = vk::DescriptorImageInfo::builder()
-                .image_view(sdf_image_view)
-                .sampler(sdf_sampler)
-                .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .build();
-
-            let scene_depth_info = vk::DescriptorImageInfo::builder()
-                .image_view(scene_depth_view)
-                .sampler(self.scene_depth_sampler)
-                .image_layout(vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL)
-                .build();
-
-            let writes = [
-                vk::WriteDescriptorSet::builder()
-                    .dst_set(self.descriptor_sets[i])
-                    .dst_binding(4)
-                    .dst_array_element(0)
-                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                    .image_info(std::slice::from_ref(&history_info))
-                    .build(),
-                vk::WriteDescriptorSet::builder()
-                    .dst_set(self.descriptor_sets[i])
-                    .dst_binding(5)
-                    .dst_array_element(0)
-                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                    .image_info(std::slice::from_ref(&sdf_info))
-                    .build(),
-                vk::WriteDescriptorSet::builder()
-                    .dst_set(self.descriptor_sets[i])
-                    .dst_binding(6)
-                    .dst_array_element(0)
-                    .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-                    .image_info(std::slice::from_ref(&scene_depth_info))
-                    .build(),
-            ];
-
-            rrdevice
-                .device
-                .update_descriptor_sets(&writes, &[] as &[vk::CopyDescriptorSet]);
+        images: FlameImageBindings,
+    ) -> Result<()> {
+        for (history_index, descriptor_set) in self.descriptor_sets.into_iter().enumerate() {
+            let previous_history_view = images.history_image_views[1 - history_index];
+            self.layout
+                .writer(descriptor_set)
+                .image(
+                    HISTORY_SAMPLER_BINDING,
+                    previous_history_view,
+                    images.flame_sampler,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                )?
+                .image(
+                    SDF_SAMPLER_BINDING,
+                    images.sdf_image_view,
+                    images.sdf_sampler,
+                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                )?
+                .image(
+                    SCENE_DEPTH_SAMPLER_BINDING,
+                    images.scene_depth_view,
+                    self.scene_depth_sampler,
+                    vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,
+                )?
+                .apply(rrdevice);
         }
+        Ok(())
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
-
-        if self.descriptor_set_layout != vk::DescriptorSetLayout::null() {
-            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            self.descriptor_set_layout = vk::DescriptorSetLayout::null();
-        }
-
+        self.layout.destroy(device);
         device.destroy_sampler(self.scene_depth_sampler, None);
     }
+}
+
+// Depth formats must not be sampled with LINEAR filtering.
+unsafe fn create_scene_depth_sampler(rrdevice: &RRDevice) -> Result<vk::Sampler> {
+    let info = vk::SamplerCreateInfo::builder()
+        .mag_filter(vk::Filter::NEAREST)
+        .min_filter(vk::Filter::NEAREST)
+        .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
+        .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+        .address_mode_v(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+        .address_mode_w(vk::SamplerAddressMode::CLAMP_TO_EDGE)
+        .build();
+    Ok(rrdevice.device.create_sampler(&info, None)?)
 }

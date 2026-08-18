@@ -9,6 +9,7 @@ use crate::ecs::systems::render_data_systems::{
 use crate::vulkanr::context::{
     CommandState, FrameSync, PipelineState, RenderTargets, SwapchainState,
 };
+use crate::vulkanr::descriptor::{CompositeGBufferViews, FlameImageBindings};
 use crate::vulkanr::renderer::deferred::create_gbuffer_framebuffer;
 use crate::vulkanr::renderer::scene_renderer::render_scene_objects;
 use crate::vulkanr::vulkan::*;
@@ -145,7 +146,7 @@ impl App {
                 hdr_buffer.color_image_view,
                 &mip_views,
                 bloom_chain.sampler,
-            );
+            )?;
         }
 
         {
@@ -168,7 +169,7 @@ impl App {
                     hdr_buffer.sampler,
                     depth_image_view,
                     depth_sampler,
-                );
+                )?;
             }
         }
 
@@ -195,7 +196,7 @@ impl App {
             )?;
         }
 
-        self.update_auto_exposure_descriptors_on_resize();
+        self.update_auto_exposure_descriptors_on_resize()?;
 
         Ok(())
     }
@@ -391,19 +392,19 @@ impl App {
         Ok(())
     }
 
-    unsafe fn update_auto_exposure_descriptors_on_resize(&self) {
+    unsafe fn update_auto_exposure_descriptors_on_resize(&self) -> Result<()> {
         let (hdr_image_view, hdr_sampler) =
             if let Some(ref dof_buffer) = self.data.viewport.dof_buffer {
                 (dof_buffer.output_image_view, dof_buffer.sampler)
             } else if let Some(ref hdr_buffer) = self.data.viewport.hdr_buffer {
                 (hdr_buffer.color_image_view, hdr_buffer.sampler)
             } else {
-                return;
+                return Ok(());
             };
 
         let ae_buffers = match self.data.viewport.auto_exposure_buffers {
             Some(ref buf) => buf,
-            None => return,
+            None => return Ok(()),
         };
 
         if let Some(ref hist_desc) = self.data.raytracing.auto_exposure_histogram_descriptor {
@@ -413,7 +414,7 @@ impl App {
                 hdr_sampler,
                 ae_buffers.histogram_buffer,
                 (256 * 4) as u64,
-            );
+            )?;
         }
 
         if let Some(ref avg_desc) = self.data.raytracing.auto_exposure_average_descriptor {
@@ -423,8 +424,9 @@ impl App {
                 (256 * 4) as u64,
                 ae_buffers.luminance_buffer,
                 (2 * 4) as u64,
-            );
+            )?;
         }
+        Ok(())
     }
 
     unsafe fn resize_gbuffer(&mut self, new_width: u32, new_height: u32) -> Result<()> {
@@ -497,15 +499,17 @@ impl App {
         };
         flame_descriptor.update_image_views(
             &self.rrdevice,
-            flame_buffer.history_image_views,
-            flame_buffer.sampler,
-            self.data.raytracing.flame_sdf_image_view,
-            self.data.raytracing.flame_sdf_sampler,
-            {
-                let rt = self.resource::<RenderTargets>();
-                rt.render.gbuffer_depth_image_view
+            FlameImageBindings {
+                history_image_views: flame_buffer.history_image_views,
+                flame_sampler: flame_buffer.sampler,
+                sdf_image_view: self.data.raytracing.flame_sdf_image_view,
+                sdf_sampler: self.data.raytracing.flame_sdf_sampler,
+                scene_depth_view: self
+                    .resource::<RenderTargets>()
+                    .render
+                    .gbuffer_depth_image_view,
             },
-        );
+        )?;
 
         if let Some(mut state) = self
             .data
@@ -573,17 +577,19 @@ impl App {
         if let Some(ref composite_desc) = self.data.raytracing.composite_descriptor {
             composite_desc.update_gbuffer_views(
                 &self.rrdevice,
-                position_view,
-                gbuffer_sampler,
-                normal_view,
-                gbuffer_sampler,
-                shadow_mask_view,
-                gbuffer_sampler,
-                albedo_view,
-                gbuffer_sampler,
-                object_id_view,
-                object_id_sampler,
-            );
+                CompositeGBufferViews {
+                    position_image_view: position_view,
+                    position_sampler: gbuffer_sampler,
+                    normal_image_view: normal_view,
+                    normal_sampler: gbuffer_sampler,
+                    shadow_mask_image_view: shadow_mask_view,
+                    shadow_mask_sampler: gbuffer_sampler,
+                    albedo_image_view: albedo_view,
+                    albedo_sampler: gbuffer_sampler,
+                    object_id_image_view: object_id_view,
+                    object_id_sampler,
+                },
+            )?;
         }
 
         if let Some(ref ray_query_desc) = self.data.raytracing.ray_query_descriptor {
@@ -592,7 +598,7 @@ impl App {
                 position_view,
                 normal_view,
                 shadow_mask_view,
-            );
+            )?;
         }
 
         {

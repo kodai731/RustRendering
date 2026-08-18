@@ -5,12 +5,17 @@ use std::ptr::copy_nonoverlapping as memcpy;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::device::RRDevice;
+use crate::descriptor::pass_shaders::{standard_graphics_shaders, MATERIAL_SET};
+use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::resource::buffer::create_buffer;
 use crate::resource::image::RRImage;
 use crate::vulkan::Instance;
 use thyllore_render_core::MaterialUBO;
 
 pub type MaterialId = u32;
+
+const MATERIAL_TEXTURE_BINDING: u32 = 0;
+const MATERIAL_UBO_BINDING: u32 = 1;
 
 #[derive(Clone, Debug)]
 pub struct Material {
@@ -25,83 +30,26 @@ pub struct Material {
 
 #[derive(Clone, Debug, Default)]
 pub struct MaterialManager {
-    pub layout: vk::DescriptorSetLayout,
-    pub pool: vk::DescriptorPool,
+    pub layout: ReflectedSetLayout,
     pub materials: HashMap<MaterialId, Material>,
     next_id: MaterialId,
-    capacity: u32,
+    recycled_sets: Vec<vk::DescriptorSet>,
 }
 
 impl MaterialManager {
-    pub unsafe fn new(rrdevice: &RRDevice, max_materials: u32) -> anyhow::Result<Self> {
-        let layout = Self::create_layout(rrdevice)?;
-        let pool = Self::create_pool(rrdevice, max_materials)?;
+    pub unsafe fn new(rrdevice: &RRDevice) -> anyhow::Result<Self> {
+        let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
 
         Ok(Self {
             layout,
-            pool,
             materials: HashMap::new(),
             next_id: 0,
-            capacity: max_materials,
+            recycled_sets: Vec::new(),
         })
     }
 
-    pub unsafe fn ensure_capacity(
-        &mut self,
-        rrdevice: &RRDevice,
-        required: u32,
-    ) -> anyhow::Result<()> {
-        if required <= self.capacity {
-            return Ok(());
-        }
-
-        if self.pool != vk::DescriptorPool::null() {
-            rrdevice.device.destroy_descriptor_pool(self.pool, None);
-        }
-
-        self.pool = Self::create_pool(rrdevice, required)?;
-        self.capacity = required;
-        Ok(())
-    }
-
-    unsafe fn create_layout(rrdevice: &RRDevice) -> anyhow::Result<vk::DescriptorSetLayout> {
-        let sampler_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-
-        let ubo_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(1)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT);
-
-        let bindings = &[sampler_binding, ubo_binding];
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(bindings);
-
-        Ok(rrdevice.device.create_descriptor_set_layout(&info, None)?)
-    }
-
-    unsafe fn create_pool(
-        rrdevice: &RRDevice,
-        max_materials: u32,
-    ) -> anyhow::Result<vk::DescriptorPool> {
-        let sampler_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(max_materials);
-
-        let ubo_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::UNIFORM_BUFFER)
-            .descriptor_count(max_materials);
-
-        let pool_sizes = &[sampler_size, ubo_size];
-        let info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(pool_sizes)
-            .max_sets(max_materials)
-            .flags(vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET);
-
-        Ok(rrdevice.device.create_descriptor_pool(&info, None)?)
+    pub fn layout_spec() -> ReflectedLayoutSpec {
+        ReflectedLayoutSpec::new(standard_graphics_shaders(), MATERIAL_SET)
     }
 
     pub unsafe fn create_material(
@@ -131,13 +79,10 @@ impl MaterialManager {
         sampler: vk::Sampler,
         properties: MaterialUBO,
     ) -> anyhow::Result<MaterialId> {
-        let layouts = &[self.layout];
-        let alloc_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(self.pool)
-            .set_layouts(layouts);
-
-        let descriptor_sets = rrdevice.device.allocate_descriptor_sets(&alloc_info)?;
-        let descriptor_set = descriptor_sets[0];
+        let descriptor_set = match self.recycled_sets.pop() {
+            Some(set) => set,
+            None => self.layout.allocate_set(rrdevice)?,
+        };
 
         let (uniform_buffer, uniform_buffer_memory) = create_buffer(
             instance,
@@ -156,36 +101,21 @@ impl MaterialManager {
         memcpy(&properties, memory.cast(), 1);
         rrdevice.device.unmap_memory(uniform_buffer_memory);
 
-        let image_info = vk::DescriptorImageInfo::builder()
-            .sampler(sampler)
-            .image_view(image_view)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL);
-
-        let buffer_info = vk::DescriptorBufferInfo::builder()
-            .buffer(uniform_buffer)
-            .offset(0)
-            .range(size_of::<MaterialUBO>() as u64);
-
-        let image_infos = &[image_info];
-        let buffer_infos = &[buffer_info];
-
-        let sampler_write = vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(image_infos);
-
-        let ubo_write = vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(1)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::UNIFORM_BUFFER)
-            .buffer_info(buffer_infos);
-
-        rrdevice
-            .device
-            .update_descriptor_sets(&[sampler_write, ubo_write], &[] as &[vk::CopyDescriptorSet]);
+        self.layout
+            .writer(descriptor_set)
+            .image(
+                MATERIAL_TEXTURE_BINDING,
+                image_view,
+                sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .buffer(
+                MATERIAL_UBO_BINDING,
+                uniform_buffer,
+                0,
+                size_of::<MaterialUBO>() as u64,
+            )?
+            .apply(rrdevice);
 
         let id = self.next_id;
         self.next_id += 1;
@@ -212,12 +142,7 @@ impl MaterialManager {
         for material in self.materials.values() {
             device.destroy_buffer(material.uniform_buffer, None);
             device.free_memory(material.uniform_buffer_memory, None);
-        }
-
-        if self.pool != vk::DescriptorPool::null() {
-            device
-                .reset_descriptor_pool(self.pool, vk::DescriptorPoolResetFlags::empty())
-                .ok();
+            self.recycled_sets.push(material.descriptor_set);
         }
 
         self.materials.clear();
@@ -229,12 +154,7 @@ impl MaterialManager {
             device.destroy_buffer(material.uniform_buffer, None);
             device.free_memory(material.uniform_buffer_memory, None);
         }
-
-        if self.pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.pool, None);
-        }
-        if self.layout != vk::DescriptorSetLayout::null() {
-            device.destroy_descriptor_set_layout(self.layout, None);
-        }
+        self.recycled_sets.clear();
+        self.layout.destroy(device);
     }
 }

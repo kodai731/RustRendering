@@ -3711,6 +3711,7 @@ dependencies = [
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-render-debug",
+ "thyllore-spirv-reflect",
  "thyllore-texture-fit-core",
  "thyllore-vulkan-core",
  "ufbx",
@@ -3865,6 +3866,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "thyllore-spirv-reflect"
+version = "0.0.1"
+dependencies = [
+ "thiserror 1.0.69",
+]
+
+[[package]]
 name = "thyllore-texture-fit-core"
 version = "0.0.1"
 dependencies = [
@@ -3888,6 +3896,7 @@ dependencies = [
  "thyllore-math-core",
  "thyllore-model-core",
  "thyllore-render-core",
+ "thyllore-spirv-reflect",
  "vulkanalia",
  "winit",
 ]
