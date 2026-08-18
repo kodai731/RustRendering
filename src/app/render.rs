@@ -9,11 +9,13 @@ use crate::ecs::systems::render_data_systems::{
 use crate::vulkanr::context::{
     CommandState, FrameSync, PipelineState, RenderTargets, SwapchainState,
 };
+use crate::vulkanr::descriptor::{CompositeGBufferViews, FlameImageBindings};
 use crate::vulkanr::renderer::deferred::create_gbuffer_framebuffer;
 use crate::vulkanr::renderer::scene_renderer::render_scene_objects;
 use crate::vulkanr::vulkan::*;
 
 use anyhow::{anyhow, Result};
+use std::fs::OpenOptions;
 
 impl App {
     pub unsafe fn begin_frame(&mut self) -> Result<usize> {
@@ -88,6 +90,7 @@ impl App {
             readback.pending_pixel = None;
             readback.copy_in_flight = false;
             readback.last_read_object_id = None;
+            readback.last_read_world_position = None;
         }
 
         Ok(())
@@ -143,7 +146,7 @@ impl App {
                 hdr_buffer.color_image_view,
                 &mip_views,
                 bloom_chain.sampler,
-            );
+            )?;
         }
 
         {
@@ -166,7 +169,7 @@ impl App {
                     hdr_buffer.sampler,
                     depth_image_view,
                     depth_sampler,
-                );
+                )?;
             }
         }
 
@@ -193,7 +196,7 @@ impl App {
             )?;
         }
 
-        self.update_auto_exposure_descriptors_on_resize();
+        self.update_auto_exposure_descriptors_on_resize()?;
 
         Ok(())
     }
@@ -262,7 +265,7 @@ impl App {
         let swapchain = self.resource::<SwapchainState>().swapchain.clone();
         match crate::app::model_loader::load_model_from_file_system_with_result(
             &load_result,
-            "Generated Mesh",
+            crate::scene::ModelReference::GENERATED_MESH,
             &self.instance,
             &self.rrdevice,
             &command_pool,
@@ -280,7 +283,8 @@ impl App {
                         .data
                         .ecs_world
                         .resource_mut::<crate::ecs::resource::ModelState>();
-                    model_state.model_path = "Generated Mesh".to_string();
+                    model_state.model_path =
+                        crate::scene::ModelReference::GENERATED_MESH.to_string();
                     model_state.load_status = "Loaded: Generated Mesh".to_string();
                 }
                 {
@@ -388,19 +392,19 @@ impl App {
         Ok(())
     }
 
-    unsafe fn update_auto_exposure_descriptors_on_resize(&self) {
+    unsafe fn update_auto_exposure_descriptors_on_resize(&self) -> Result<()> {
         let (hdr_image_view, hdr_sampler) =
             if let Some(ref dof_buffer) = self.data.viewport.dof_buffer {
                 (dof_buffer.output_image_view, dof_buffer.sampler)
             } else if let Some(ref hdr_buffer) = self.data.viewport.hdr_buffer {
                 (hdr_buffer.color_image_view, hdr_buffer.sampler)
             } else {
-                return;
+                return Ok(());
             };
 
         let ae_buffers = match self.data.viewport.auto_exposure_buffers {
             Some(ref buf) => buf,
-            None => return,
+            None => return Ok(()),
         };
 
         if let Some(ref hist_desc) = self.data.raytracing.auto_exposure_histogram_descriptor {
@@ -410,7 +414,7 @@ impl App {
                 hdr_sampler,
                 ae_buffers.histogram_buffer,
                 (256 * 4) as u64,
-            );
+            )?;
         }
 
         if let Some(ref avg_desc) = self.data.raytracing.auto_exposure_average_descriptor {
@@ -420,8 +424,9 @@ impl App {
                 (256 * 4) as u64,
                 ae_buffers.luminance_buffer,
                 (2 * 4) as u64,
-            );
+            )?;
         }
+        Ok(())
     }
 
     unsafe fn resize_gbuffer(&mut self, new_width: u32, new_height: u32) -> Result<()> {
@@ -434,6 +439,7 @@ impl App {
             .unwrap_or(false);
 
         if !needs_resize {
+            self.attach_gbuffer_depth_to_hdr()?;
             return Ok(());
         }
 
@@ -452,8 +458,9 @@ impl App {
         let shadow_mask_view = gbuffer.shadow_mask_image_view;
         let albedo_view = gbuffer.albedo_image_view;
         let object_id_view = gbuffer.object_id_image_view;
-
         self.recreate_gbuffer_framebuffer()?;
+        self.attach_gbuffer_depth_to_hdr()?;
+
         self.update_gbuffer_descriptors(
             position_view,
             normal_view,
@@ -462,8 +469,56 @@ impl App {
             object_id_view,
         )?;
         self.recreate_onion_skin_on_resize()?;
-
+        self.recreate_flame_on_resize()?;
         log!("G-Buffer resized to: {}x{}", new_width, new_height);
+        Ok(())
+    }
+
+    /// The HDR framebuffer borrows the G-buffer depth view; a resized HDR
+    /// buffer has no framebuffer until the current depth is attached here.
+    unsafe fn attach_gbuffer_depth_to_hdr(&mut self) -> Result<()> {
+        let depth_view = {
+            let rt = self.resource::<RenderTargets>();
+            rt.render.gbuffer_depth_image_view
+        };
+        if depth_view == vk::ImageView::null() {
+            return Ok(());
+        }
+        if let Some(hdr_buffer) = &mut self.data.viewport.hdr_buffer {
+            hdr_buffer.attach_depth(&self.rrdevice, depth_view)?;
+        }
+        Ok(())
+    }
+
+    unsafe fn recreate_flame_on_resize(&mut self) -> Result<()> {
+        let (Some(ref flame_buffer), Some(ref flame_descriptor)) = (
+            &self.data.viewport.flame_buffer,
+            &self.data.raytracing.flame_descriptor,
+        ) else {
+            return Ok(());
+        };
+        flame_descriptor.update_image_views(
+            &self.rrdevice,
+            FlameImageBindings {
+                history_image_views: flame_buffer.history_image_views,
+                flame_sampler: flame_buffer.sampler,
+                sdf_image_view: self.data.raytracing.flame_sdf_image_view,
+                sdf_sampler: self.data.raytracing.flame_sdf_sampler,
+                scene_depth_view: self
+                    .resource::<RenderTargets>()
+                    .render
+                    .gbuffer_depth_image_view,
+            },
+        )?;
+
+        if let Some(mut state) = self
+            .data
+            .ecs_world
+            .get_resource_mut::<crate::ecs::resource::FlameTemporalState>()
+        {
+            state.previous = None;
+        }
+
         Ok(())
     }
 
@@ -522,17 +577,19 @@ impl App {
         if let Some(ref composite_desc) = self.data.raytracing.composite_descriptor {
             composite_desc.update_gbuffer_views(
                 &self.rrdevice,
-                position_view,
-                gbuffer_sampler,
-                normal_view,
-                gbuffer_sampler,
-                shadow_mask_view,
-                gbuffer_sampler,
-                albedo_view,
-                gbuffer_sampler,
-                object_id_view,
-                object_id_sampler,
-            );
+                CompositeGBufferViews {
+                    position_image_view: position_view,
+                    position_sampler: gbuffer_sampler,
+                    normal_image_view: normal_view,
+                    normal_sampler: gbuffer_sampler,
+                    shadow_mask_image_view: shadow_mask_view,
+                    shadow_mask_sampler: gbuffer_sampler,
+                    albedo_image_view: albedo_view,
+                    albedo_sampler: gbuffer_sampler,
+                    object_id_image_view: object_id_view,
+                    object_id_sampler,
+                },
+            )?;
         }
 
         if let Some(ref ray_query_desc) = self.data.raytracing.ray_query_descriptor {
@@ -541,7 +598,7 @@ impl App {
                 position_view,
                 normal_view,
                 shadow_mask_view,
-            );
+            )?;
         }
 
         {
@@ -601,22 +658,27 @@ impl App {
             .map_memory(
                 gbuffer.readback_staging_memory,
                 0,
-                std::mem::size_of::<u32>() as u64,
+                thyllore_vulkan_core::resource::READBACK_STAGING_SIZE,
                 vk::MemoryMapFlags::empty(),
             )
             .ok();
 
-        let object_id = memory.map(|ptr| {
-            let value = *(ptr as *const u32);
+        let picked = memory.map(|ptr| {
+            let object_id = *(ptr as *const u32);
+            let position_ptr = (ptr as *const u8)
+                .add(thyllore_vulkan_core::resource::READBACK_POSITION_OFFSET as usize)
+                as *const f32;
+            let world_position = [*position_ptr, *position_ptr.add(1), *position_ptr.add(2)];
             self.rrdevice
                 .device
                 .unmap_memory(gbuffer.readback_staging_memory);
-            value
+            (object_id, world_position)
         });
 
-        if let Some(value) = object_id {
+        if let Some((object_id, world_position)) = picked {
             let mut readback = self.data.ecs_world.resource_mut::<ObjectIdReadback>();
-            readback.last_read_object_id = Some(value);
+            readback.last_read_object_id = Some(object_id);
+            readback.last_read_world_position = (object_id != 0).then_some(world_position);
             readback.copy_in_flight = false;
         }
     }
@@ -629,15 +691,64 @@ impl App {
             .map(|ae| ae.enabled)
             .unwrap_or(false);
 
+        // Get frame number from BatchRun if available, otherwise use internal counter
+        let frame = match self
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::BatchRun>()
+        {
+            Some(batch_run) => batch_run.frames_rendered,
+            None => match self
+                .data
+                .ecs_world
+                .get_resource_mut::<crate::ecs::resource::ExposureDumpSink>()
+            {
+                Some(mut sink) => {
+                    sink.last_frame += 1;
+                    sink.last_frame
+                }
+                None => 0,
+            },
+        };
+
         if !ae_enabled {
+            // Still record exposure dump even when AE is disabled
+            if let Some(mut sink) = self
+                .data
+                .ecs_world
+                .get_resource_mut::<crate::ecs::resource::ExposureDumpSink>()
+            {
+                let exposure_value = self
+                    .data
+                    .ecs_world
+                    .get_resource::<crate::ecs::resource::Exposure>()
+                    .map(|e| e.exposure_value)
+                    .unwrap_or(1.0);
+                let line = format!(
+                    "{{\"frame\":{},\"adapted\":0.0,\"exposure_value\":{},\"ae_enabled\":false}}\n",
+                    frame, exposure_value
+                );
+                append_jsonl(&sink.path, &line);
+            }
             self.restore_manual_exposure_if_needed();
             return;
         }
 
         self.save_manual_exposure_if_needed();
+        // batch 決定性: AE 読み戻しを直前フレーム完了後に固定する
+        if self
+            .data
+            .ecs_world
+            .contains_resource::<crate::ecs::resource::BatchRun>()
+        {
+            let _ = self.rrdevice.device.device_wait_idle();
+        }
 
         let adapted = match self.data.viewport.auto_exposure_buffers {
-            Some(ref ae_buffers) => ae_buffers.read_adapted_exposure(&self.rrdevice.device),
+            Some(ref ae_buffers) => {
+                let current_slot = self.resource::<FrameSync>().current_frame;
+                ae_buffers.read_adapted_exposure(&self.rrdevice.device, current_slot)
+            }
             None => return,
         };
 
@@ -649,6 +760,25 @@ impl App {
             {
                 exposure.exposure_value = adapted;
             }
+        }
+
+        // Record exposure dump
+        if let Some(mut sink) = self
+            .data
+            .ecs_world
+            .get_resource_mut::<crate::ecs::resource::ExposureDumpSink>()
+        {
+            let exposure_value = self
+                .data
+                .ecs_world
+                .get_resource::<crate::ecs::resource::Exposure>()
+                .map(|e| e.exposure_value)
+                .unwrap_or(1.0);
+            let line = format!(
+                "{{\"frame\":{},\"adapted\":{},\"exposure_value\":{},\"ae_enabled\":true}}\n",
+                frame, adapted, exposure_value
+            );
+            append_jsonl(&sink.path, &line);
         }
     }
 
@@ -710,9 +840,17 @@ impl App {
     }
 
     pub unsafe fn render(&mut self, image_index: usize, draw_data: &imgui::DrawData) -> Result<()> {
-        Self::update_imgui_buffers(&self.instance, &self.rrdevice, &mut self.data, draw_data)?;
+        let frame_slot = self.resource::<FrameSync>().current_frame;
 
-        self.record_command_buffer(image_index, draw_data)?;
+        Self::update_imgui_buffers(
+            &self.instance,
+            &self.rrdevice,
+            &mut self.data,
+            draw_data,
+            frame_slot,
+        )?;
+
+        self.record_command_buffer(image_index, draw_data, frame_slot)?;
 
         let image_available = self.resource::<FrameSync>().current_image_available();
         let render_finished = self.resource::<FrameSync>().current_render_finished();
@@ -1177,7 +1315,7 @@ impl App {
         let vertex_buffer = match self
             .data
             .buffer_registry
-            .get_vertex_buffer(billboard.mesh.vertex_buffer_handle)
+            .get_vertex_buffer(billboard.mesh.current_vertex_buffer_handle())
         {
             Some(b) => b,
             None => return,
@@ -1185,7 +1323,7 @@ impl App {
         let index_buffer = match self
             .data
             .buffer_registry
-            .get_index_buffer(billboard.mesh.index_buffer_handle)
+            .get_index_buffer(billboard.mesh.current_index_buffer_handle())
         {
             Some(b) => b,
             None => return,
@@ -1245,6 +1383,8 @@ impl App {
             return Ok(());
         }
 
+        let frame_slot = self.resource::<FrameSync>().current_frame;
+
         let pipeline = self
             .data
             .imgui
@@ -1260,15 +1400,9 @@ impl App {
             .imgui
             .descriptor_set
             .ok_or_else(|| anyhow!("ImGui descriptor set not initialized"))?;
-        let vertex_buffer = self
-            .data
-            .imgui
-            .vertex_buffer
+        let vertex_buffer = self.data.imgui.vertex_buffers[frame_slot]
             .ok_or_else(|| anyhow!("ImGui vertex buffer not initialized"))?;
-        let index_buffer = self
-            .data
-            .imgui
-            .index_buffer
+        let index_buffer = self.data.imgui.index_buffers[frame_slot]
             .ok_or_else(|| anyhow!("ImGui index buffer not initialized"))?;
 
         self.setup_imgui_render_state(
@@ -1527,4 +1661,12 @@ unsafe fn record_image_to_buffer_copy(
         &[] as &[vk::BufferMemoryBarrier],
         &[barrier_to_present.build()],
     );
+}
+
+fn append_jsonl(path: &str, line: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = file.write_all(line.as_bytes());
+    }
 }

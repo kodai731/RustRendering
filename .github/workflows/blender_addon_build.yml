@@ -38,6 +38,7 @@ on:
       - 'scripts/ci_v2_curve_copilot_inference_smoke.sh'
       - '.github/workflows/blender_addon_build.yml'
   pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
     paths:
       - 'blender_addon/**'
       - 'crates/thyllore-ml-api/**'
@@ -52,6 +53,7 @@ on:
 jobs:
   setup:
     name: Resolve build matrix
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.resolve.outputs.matrix }}
@@ -174,6 +176,7 @@ jobs:
 
   boundary-tests:
     name: A/B/C boundary structure (layer 1 + 2, Blender-free)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -205,6 +208,7 @@ jobs:
 
   boundary-smoke:
     name: A/B/C boundary smoke (layer 3, Blender 4.2 LTS)
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: ubuntu-latest
     env:
       THYLLORE_FEEDBACK_ENDPOINT: https://feedback.example.invalid/v1/feedback

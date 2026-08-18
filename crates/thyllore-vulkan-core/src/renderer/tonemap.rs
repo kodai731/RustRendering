@@ -8,13 +8,18 @@ use thyllore_render_core::{BloomSettings, Exposure, LensEffects, ToneMapping};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-struct ToneMapPushConstants {
+pub struct ToneMapPushConstants {
     tone_map_operator: i32,
     gamma: f32,
     exposure_value: f32,
     vignette_intensity: f32,
     chromatic_aberration_intensity: f32,
     bloom_intensity: f32,
+    _pad: [f32; 2],
+    plume_position: [f32; 4],
+    plume_params0: [f32; 4],
+    plume_params1: [f32; 4],
+    plume_params2: [f32; 4],
 }
 
 pub unsafe fn begin_tonemap_render_pass(
@@ -67,6 +72,7 @@ pub unsafe fn record_tonemap_draw(
     bloom: &BloomSettings,
     extent: vk::Extent2D,
     cmd: vk::CommandBuffer,
+    plume: Option<([f32; 4], [f32; 4], [f32; 4], [f32; 4])>,
 ) -> Result<()> {
     let device = &ctx.device.device;
 
@@ -113,6 +119,11 @@ pub unsafe fn record_tonemap_draw(
     };
     let bloom_intensity = if bloom.enabled { bloom.intensity } else { 0.0 };
 
+    let (plume_position, plume_params0, plume_params1, plume_params2) = match plume {
+        Some((pos, p0, p1, p2)) => (pos, p0, p1, p2),
+        None => ([0.0; 4], [0.0; 4], [0.0; 4], [0.0; 4]),
+    };
+
     let push_constants = ToneMapPushConstants {
         tone_map_operator: operator,
         gamma: tonemap.gamma,
@@ -120,6 +131,11 @@ pub unsafe fn record_tonemap_draw(
         vignette_intensity,
         chromatic_aberration_intensity,
         bloom_intensity,
+        _pad: [0.0; 2],
+        plume_position,
+        plume_params0,
+        plume_params1,
+        plume_params2,
     };
 
     let push_bytes = std::slice::from_raw_parts(

@@ -2,8 +2,71 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
+use thyllore_spirv_reflect::verify_spirv_against_glsl;
+
 fn main() {
     compile_shaders();
+}
+
+fn glslc_command(source_path: &Path) -> Command {
+    let mut cmd = Command::new("glslc");
+    cmd.arg(source_path.to_str().unwrap());
+    if let Ok(val) = std::env::var("THYLLORE_FLAME_NOISE_ROT_DEG") {
+        cmd.arg(format!("-DFLAME_NOISE_ROT_DEG_OVERRIDE={}", val));
+    }
+    cmd
+}
+
+fn verify_descriptor_declarations(source_path: &Path, spirv_path: &Path) {
+    let file_name = source_path.file_name().unwrap().to_str().unwrap();
+    let preprocessed = match glslc_command(source_path).arg("-E").output() {
+        Ok(output) if output.status.success() => {
+            String::from_utf8_lossy(&output.stdout).into_owned()
+        }
+        Ok(output) => {
+            eprintln!(
+                "glslc -E に失敗しました ({}):\n{}",
+                file_name,
+                String::from_utf8_lossy(&output.stderr)
+            );
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("glslc -E の実行に失敗しました ({}): {}", file_name, e);
+            std::process::exit(1);
+        }
+    };
+    let spirv = fs::read(spirv_path).unwrap_or_else(|e| {
+        eprintln!(
+            "SPIR-V の読み取りに失敗しました ({}): {}",
+            spirv_path.display(),
+            e
+        );
+        std::process::exit(1);
+    });
+
+    let mismatches = match verify_spirv_against_glsl(&preprocessed, &spirv) {
+        Ok(mismatches) => mismatches,
+        Err(e) => {
+            eprintln!(
+                "SPIR-V reflection に失敗しました ({}): {}\nglslc / SPIR-V の版が上がった可能性があります。crates/thyllore-spirv-reflect を更新してください。",
+                file_name, e
+            );
+            std::process::exit(1);
+        }
+    };
+    if mismatches.is_empty() {
+        return;
+    }
+    eprintln!(
+        "GLSL 宣言と SPIR-V reflection が一致しません ({}):",
+        file_name
+    );
+    for mismatch in &mismatches {
+        eprintln!("  {}", mismatch);
+    }
+    eprintln!("glslc の出力形式が変わったか、reflection parser が新しい構造を扱えていません。");
+    std::process::exit(1);
 }
 
 fn compile_shaders() {
@@ -13,6 +76,7 @@ fn compile_shaders() {
 
     // シェーダーディレクトリが変更されたら再ビルド
     println!("cargo:rerun-if-changed={}", shader_src_dir);
+    println!("cargo:rerun-if-env-changed=THYLLORE_FLAME_NOISE_ROT_DEG");
 
     // ディレクトリ内の全ての.vertと.fragファイルを取得
     let entries = match fs::read_dir(shader_src_dir) {
@@ -33,10 +97,10 @@ fn compile_shaders() {
 
         let path = entry.path();
 
-        // .vert、.frag、または.compファイルのみ処理
+        // .vert、.frag、.geom、または.compファイルのみ処理
         if let Some(extension) = path.extension() {
             let ext_str = extension.to_str().unwrap_or("");
-            if ext_str != "vert" && ext_str != "frag" && ext_str != "comp" {
+            if ext_str != "vert" && ext_str != "frag" && ext_str != "geom" && ext_str != "comp" {
                 continue;
             }
 
@@ -44,8 +108,9 @@ fn compile_shaders() {
             let file_stem = path.file_stem().unwrap().to_str().unwrap();
 
             // 出力ファイル名を生成
-            // ルール: ファイル名から"Vertex"/"vertex"または"Fragment"/"fragment"を削除し、
-            // 拡張子に応じて"Vert.spv"または"Frag.spv"を追加
+            // ルール: ファイル名から"Vertex"/"vertex"、"Fragment"/"fragment"、
+            // または"Geometry"/"geometry"を削除し、
+            // 拡張子に応じて"Vert.spv"、"Frag.spv"、または"Geom.spv"を追加
             // 例: vertex.vert -> vert.spv (vertexを削除)
             //     gridVertex.vert -> gridVert.spv (末尾のVertexを削除)
             //     imguiFragment.frag -> imguiFrag.spv (末尾のFragmentを削除)
@@ -53,7 +118,9 @@ fn compile_shaders() {
                 .trim_end_matches("Vertex")
                 .trim_end_matches("vertex")
                 .trim_end_matches("Fragment")
-                .trim_end_matches("fragment");
+                .trim_end_matches("fragment")
+                .trim_end_matches("Geometry")
+                .trim_end_matches("geometry");
 
             let out_name = if file_name.ends_with(".vert") {
                 if base_name.is_empty() {
@@ -66,6 +133,12 @@ fn compile_shaders() {
                     "frag.spv".to_string()
                 } else {
                     format!("{}Frag.spv", base_name)
+                }
+            } else if file_name.ends_with(".geom") {
+                if base_name.is_empty() {
+                    "geom.spv".to_string()
+                } else {
+                    format!("{}Geom.spv", base_name)
                 }
             } else if file_name.ends_with(".comp") {
                 // コンピュートシェーダーは単純に{file_stem}.spvとする
@@ -80,11 +153,9 @@ fn compile_shaders() {
             println!("cargo:rerun-if-changed={}", path.display());
 
             // シェーダーをコンパイル
-            let output = Command::new("glslc")
-                .arg(path.to_str().unwrap())
-                .arg("-o")
-                .arg(out_path.to_str().unwrap())
-                .output();
+            let mut cmd = glslc_command(&path);
+            cmd.arg("-o").arg(out_path.to_str().unwrap());
+            let output = cmd.output();
 
             match output {
                 Ok(output) => {
@@ -98,6 +169,7 @@ fn compile_shaders() {
                             "cargo:warning=シェーダーをコンパイルしました: {} -> {}",
                             file_name, out_name
                         );
+                        verify_descriptor_declarations(&path, &out_path);
                         shader_count += 1;
                     }
                 }

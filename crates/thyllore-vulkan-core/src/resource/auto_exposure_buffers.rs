@@ -7,7 +7,7 @@ use crate::vulkan::*;
 
 const HISTOGRAM_BIN_COUNT: u32 = 256;
 const HISTOGRAM_BUFFER_SIZE: u64 = (HISTOGRAM_BIN_COUNT * std::mem::size_of::<u32>() as u32) as u64;
-const LUMINANCE_BUFFER_SIZE: u64 = (2 * std::mem::size_of::<f32>() as u32) as u64;
+pub const LUMINANCE_BUFFER_SIZE: u64 = (2 * std::mem::size_of::<f32>() as u32) as u64;
 
 #[derive(Clone, Debug, Default)]
 pub struct AutoExposureBuffers {
@@ -15,6 +15,8 @@ pub struct AutoExposureBuffers {
     pub histogram_buffer_memory: vk::DeviceMemory,
     pub luminance_buffer: vk::Buffer,
     pub luminance_buffer_memory: vk::DeviceMemory,
+    pub readback_buffers: [vk::Buffer; 2],
+    pub readback_memories: [vk::DeviceMemory; 2],
     pub width: u32,
     pub height: u32,
 }
@@ -38,11 +40,27 @@ impl AutoExposureBuffers {
             instance,
             rrdevice,
             LUMINANCE_BUFFER_SIZE,
-            vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
+            vk::BufferUsageFlags::STORAGE_BUFFER | vk::BufferUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
         )?;
 
         Self::zero_luminance_buffer(&rrdevice.device, luminance_buffer_memory)?;
+
+        let mut readback_buffers = [vk::Buffer::null(); 2];
+        let mut readback_memories = [vk::DeviceMemory::null(); 2];
+
+        for i in 0..2 {
+            let (buf, mem) = create_buffer(
+                instance,
+                rrdevice,
+                LUMINANCE_BUFFER_SIZE,
+                vk::BufferUsageFlags::TRANSFER_DST,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+            Self::zero_readback_buffer(&rrdevice.device, mem)?;
+            readback_buffers[i] = buf;
+            readback_memories[i] = mem;
+        }
 
         log!("Created AutoExposure buffers: {}x{}", width, height);
 
@@ -51,6 +69,8 @@ impl AutoExposureBuffers {
             histogram_buffer_memory,
             luminance_buffer,
             luminance_buffer_memory,
+            readback_buffers,
+            readback_memories,
             width,
             height,
         })
@@ -73,9 +93,26 @@ impl AutoExposureBuffers {
         Ok(())
     }
 
-    pub unsafe fn read_adapted_exposure(&self, device: &vulkanalia::Device) -> f32 {
+    unsafe fn zero_readback_buffer(
+        device: &vulkanalia::Device,
+        memory: vk::DeviceMemory,
+    ) -> Result<()> {
+        let data = device.map_memory(
+            memory,
+            0,
+            LUMINANCE_BUFFER_SIZE,
+            vk::MemoryMapFlags::empty(),
+        )?;
+
+        std::ptr::write_bytes(data as *mut u8, 0, LUMINANCE_BUFFER_SIZE as usize);
+
+        device.unmap_memory(memory);
+        Ok(())
+    }
+
+    pub unsafe fn read_adapted_exposure(&self, device: &vulkanalia::Device, slot: usize) -> f32 {
         let data = match device.map_memory(
-            self.luminance_buffer_memory,
+            self.readback_memories[slot],
             0,
             LUMINANCE_BUFFER_SIZE,
             vk::MemoryMapFlags::empty(),
@@ -87,7 +124,7 @@ impl AutoExposureBuffers {
         let values = data as *const f32;
         let adapted = *values.add(1);
 
-        device.unmap_memory(self.luminance_buffer_memory);
+        device.unmap_memory(self.readback_memories[slot]);
         adapted
     }
 
@@ -126,6 +163,17 @@ impl AutoExposureBuffers {
         if self.luminance_buffer_memory != vk::DeviceMemory::null() {
             device.free_memory(self.luminance_buffer_memory, None);
             self.luminance_buffer_memory = vk::DeviceMemory::null();
+        }
+
+        for i in 0..2 {
+            if self.readback_buffers[i] != vk::Buffer::null() {
+                device.destroy_buffer(self.readback_buffers[i], None);
+                self.readback_buffers[i] = vk::Buffer::null();
+            }
+            if self.readback_memories[i] != vk::DeviceMemory::null() {
+                device.free_memory(self.readback_memories[i], None);
+                self.readback_memories[i] = vk::DeviceMemory::null();
+            }
         }
 
         log!("Destroyed AutoExposure buffers");

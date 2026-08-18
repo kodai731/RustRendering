@@ -1,11 +1,26 @@
 use crate::{IndexBufferHandle, PipelineId, VertexBufferHandle};
 
-#[derive(Clone, Debug, Default)]
+pub const FRAMES_IN_FLIGHT: usize = 2;
+
+#[derive(Clone, Debug)]
 pub struct DynamicMesh<V> {
     pub vertices: Vec<V>,
     pub indices: Vec<u32>,
-    pub vertex_buffer_handle: VertexBufferHandle,
-    pub index_buffer_handle: IndexBufferHandle,
+    pub vertex_buffer_handles: [VertexBufferHandle; FRAMES_IN_FLIGHT],
+    pub index_buffer_handles: [IndexBufferHandle; FRAMES_IN_FLIGHT],
+    pub last_written_slot: usize,
+}
+
+impl<V> Default for DynamicMesh<V> {
+    fn default() -> Self {
+        Self {
+            vertices: Vec::new(),
+            indices: Vec::new(),
+            vertex_buffer_handles: [VertexBufferHandle::INVALID; FRAMES_IN_FLIGHT],
+            index_buffer_handles: [IndexBufferHandle::INVALID; FRAMES_IN_FLIGHT],
+            last_written_slot: 0,
+        }
+    }
 }
 
 impl<V> DynamicMesh<V> {
@@ -13,12 +28,15 @@ impl<V> DynamicMesh<V> {
     where
         V: Default,
     {
-        Self {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-            vertex_buffer_handle: VertexBufferHandle::default(),
-            index_buffer_handle: IndexBufferHandle::default(),
-        }
+        Self::default()
+    }
+
+    pub fn current_vertex_buffer_handle(&self) -> VertexBufferHandle {
+        self.vertex_buffer_handles[self.last_written_slot]
+    }
+
+    pub fn current_index_buffer_handle(&self) -> IndexBufferHandle {
+        self.index_buffer_handles[self.last_written_slot]
     }
 
     pub fn index_count(&self) -> u32 {

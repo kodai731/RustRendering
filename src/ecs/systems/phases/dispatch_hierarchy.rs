@@ -245,7 +245,7 @@ fn sync_curve_editor_on_selection(events: &[UIEvent], world: &mut World, assets:
 
                 if let Some(bone_id) = bone_id {
                     let mut editor = world.resource_mut::<CurveEditorState>();
-                    editor.selected_bone_id = Some(bone_id);
+                    editor.select_bone(bone_id);
                 }
             }
 
@@ -261,7 +261,7 @@ fn sync_curve_editor_on_selection(events: &[UIEvent], world: &mut World, assets:
 
                 if has_track {
                     let mut editor = world.resource_mut::<CurveEditorState>();
-                    editor.selected_bone_id = Some(*bone_id);
+                    editor.select_bone(*bone_id);
                 }
             }
 

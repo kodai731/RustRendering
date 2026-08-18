@@ -25,6 +25,33 @@ impl GBufferPushConstants {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct FlamePushConstants {
+    pub mode: i32,
+    pub step_count: i32,
+    pub debug_view: i32,
+}
+
+impl FlamePushConstants {
+    pub fn new(mode: i32, step_count: i32, debug_view: i32) -> Self {
+        Self {
+            mode,
+            step_count,
+            debug_view,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self) as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct OnionSkinPushConstants {
     pub ghost_tint_r: f32,
     pub ghost_tint_g: f32,

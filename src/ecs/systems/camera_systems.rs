@@ -1,6 +1,6 @@
 use cgmath::{Deg, InnerSpace, Rad, Vector2, Vector3};
 
-use crate::ecs::resource::Camera;
+use crate::ecs::resource::{Camera, CameraFlyInput};
 
 pub fn create_camera(position: Vector3<f32>, target: Vector3<f32>) -> Camera {
     let diff = position - target;
@@ -54,6 +54,8 @@ pub fn camera_input_system_inner(
     camera: &mut Camera,
     is_right_clicked: bool,
     is_wheel_clicked: bool,
+    is_alt_held: bool,
+    fly: &CameraFlyInput,
     mouse_wheel: f32,
     mouse_diff: [f32; 2],
     mouse_pos: [f32; 2],
@@ -61,8 +63,15 @@ pub fn camera_input_system_inner(
 ) {
     let diff = Vector2::new(mouse_diff[0], mouse_diff[1]);
 
-    if is_right_clicked && diff.magnitude() > 0.001 {
-        camera_orbit(camera, diff);
+    if is_right_clicked && is_alt_held {
+        if diff.magnitude() > 0.001 {
+            camera_orbit(camera, diff);
+        }
+    } else if is_right_clicked {
+        if diff.magnitude() > 0.001 {
+            camera_look(camera, diff);
+        }
+        camera_fly_move(camera, fly);
     } else if is_wheel_clicked && diff.magnitude() > 0.001 {
         let screen = Vector2::new(screen_size[0], screen_size[1]);
         camera_pan(camera, diff, screen);
@@ -75,13 +84,36 @@ pub fn camera_input_system_inner(
     }
 }
 
-pub fn camera_orbit(camera: &mut Camera, mouse_diff: Vector2<f32>) {
+fn apply_yaw_pitch(camera: &mut Camera, mouse_diff: Vector2<f32>) {
     let sensitivity = 0.005;
     camera.yaw -= mouse_diff.x * sensitivity;
     camera.pitch += mouse_diff.y * sensitivity;
 
     let max_pitch = std::f32::consts::FRAC_PI_2 - 0.001;
     camera.pitch = camera.pitch.clamp(-max_pitch, max_pitch);
+}
+
+pub fn camera_orbit(camera: &mut Camera, mouse_diff: Vector2<f32>) {
+    apply_yaw_pitch(camera, mouse_diff);
+}
+
+pub fn camera_look(camera: &mut Camera, mouse_diff: Vector2<f32>) {
+    let position = compute_camera_position(camera);
+    apply_yaw_pitch(camera, mouse_diff);
+    camera.pivot = position - compute_camera_backward(camera) * camera.distance;
+}
+
+pub fn camera_fly_move(camera: &mut Camera, fly: &CameraFlyInput) {
+    let movement = compute_camera_direction(camera) * fly.forward
+        + compute_camera_right(camera) * fly.right
+        + compute_camera_up(camera) * fly.up;
+    if movement.magnitude() < 1e-6 || fly.delta_seconds <= 0.0 {
+        return;
+    }
+
+    let boost = if fly.boost { 3.0 } else { 1.0 };
+    let speed = camera.distance.max(0.5) * 1.5 * boost;
+    camera.pivot += movement.normalize() * speed * fly.delta_seconds;
 }
 
 pub fn camera_pan(camera: &mut Camera, mouse_diff: Vector2<f32>, screen_size: Vector2<f32>) {

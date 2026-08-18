@@ -218,7 +218,7 @@ impl OffscreenFramebuffer {
             .depth_stencil_attachment(&depth_attachment_ref)
             .resolve_attachments(&resolve_attachments);
 
-        let dependency = vk::SubpassDependency::builder()
+        let dependency_in = vk::SubpassDependency::builder()
             .src_subpass(vk::SUBPASS_EXTERNAL)
             .dst_subpass(0)
             .src_stage_mask(
@@ -235,13 +235,29 @@ impl OffscreenFramebuffer {
                     | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
             );
 
+        let dependency_out = vk::SubpassDependency::builder()
+            .src_subpass(0)
+            .dst_subpass(vk::SUBPASS_EXTERNAL)
+            .src_stage_mask(
+                vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                    | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+            )
+            .src_access_mask(
+                vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                    | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+            )
+            .dst_stage_mask(
+                vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+            )
+            .dst_access_mask(vk::AccessFlags::SHADER_READ);
+
         let attachments = [
             msaa_color_attachment,
             depth_attachment,
             resolve_color_attachment,
         ];
         let subpasses = [subpass];
-        let dependencies = [dependency];
+        let dependencies = [dependency_in, dependency_out];
 
         let info = vk::RenderPassCreateInfo::builder()
             .attachments(&attachments)

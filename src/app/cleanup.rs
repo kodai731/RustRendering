@@ -88,6 +88,23 @@ impl App {
             composite_pipeline.destroy(&self.rrdevice.device);
         }
 
+        if let Some(mut flame_descriptor) = self.data.raytracing.flame_descriptor.take() {
+            flame_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(flame_shading_pipeline) = self.data.raytracing.flame_shading_pipeline.take() {
+            flame_shading_pipeline.destroy(&self.rrdevice.device);
+        }
+
+        if let (Some(buffer), Some(memory)) = (
+            self.data.raytracing.flame_uniform_buffer.take(),
+            self.data.raytracing.flame_uniform_buffer_memory.take(),
+        ) {
+            self.rrdevice.device.destroy_buffer(buffer, None);
+            self.rrdevice.device.free_memory(memory, None);
+            log!("Destroyed flame uniform buffer");
+        }
+
         if let (Some(buffer), Some(memory)) = (
             self.data.raytracing.scene_uniform_buffer,
             self.data.raytracing.scene_uniform_buffer_memory,
@@ -120,8 +137,17 @@ impl App {
 
         self.data.buffer_registry.destroy_all(&self.rrdevice);
 
+        thyllore_vulkan_core::GpuTimestampProfiler::destroy(
+            &mut self.gpu_timestamp_profiler,
+            &self.rrdevice.device,
+        );
+        log!("Destroyed GPU timestamp profiler");
+
         self.data.graphics_resources.destroy(&self.rrdevice);
         log!("Destroyed render resources");
+
+        self.rrdevice.destroy_descriptor_pools();
+        log!("Destroyed descriptor pools");
 
         log!("All application resources destroyed");
     }

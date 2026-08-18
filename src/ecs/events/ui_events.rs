@@ -8,14 +8,14 @@ use crate::animation::BoneId;
 use crate::animation::{ConstraintId, ConstraintType};
 use crate::app::data::LightMoveTarget;
 use crate::ecs::component::{
-    ColliderShape, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
+    ColliderShape, FlameEffect, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
     SpringColliderGroupId, SpringColliderId, SpringJointParam,
 };
 use crate::ecs::resource::gizmo::BoneDisplayStyle;
 use crate::ecs::resource::{
-    AutoExposure, CoordinateSpace, DepthOfField, HierarchyDisplayMode, OnionSkinningConfig,
-    PhysicalCameraParameters, SelectedKeyframe, SelectionModifier, TransformGizmoMode,
-    TransformGizmoState,
+    AutoExposure, CoordinateSpace, CurveTrackRef, DepthOfField, FlameRenderSettings,
+    HierarchyDisplayMode, OnionSkinningConfig, PhysicalCameraParameters, SelectedKeyframe,
+    SelectionModifier, TransformGizmoMode, TransformGizmoState,
 };
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;
@@ -53,6 +53,9 @@ pub enum UIEvent {
     DebugBillboardDepth,
     DumpDebugInfo,
     DumpAnimationDebug,
+    DumpFlameWallProbe {
+        viewport_size: [f32; 2],
+    },
 
     SelectEntity(Entity),
     DeselectAll,
@@ -86,13 +89,13 @@ pub enum UIEvent {
     TimelineExpandTrack(BoneId),
     TimelineCollapseTrack(BoneId),
     TimelineSelectKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         modifier: SelectionModifier,
     },
     TimelineAddKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         time: f32,
         value: f32,
@@ -106,39 +109,39 @@ pub enum UIEvent {
         modifier: SelectionModifier,
     },
     TimelineDeleteKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
     },
     TimelineMoveKeyframe {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         new_time: f32,
         new_value: f32,
     },
     TimelineSetKeyframeInterpolation {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         interpolation: InterpolationType,
     },
     TimelineSetKeyframeTangent {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         in_tangent: BezierHandle,
         out_tangent: BezierHandle,
     },
     TimelineSetTangentType {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         tangent_type: TangentType,
     },
 
     TimelineSetTangentWeightMode {
-        bone_id: BoneId,
+        track: CurveTrackRef,
         property_type: PropertyType,
         keyframe_id: KeyframeId,
         weight_mode: TangentWeightMode,
@@ -404,8 +407,45 @@ pub enum UIEvent {
     UpdatePhysicalCamera(PhysicalCameraParameters),
     UpdateAutoExposure(AutoExposure),
     UpdateOnionSkinning(OnionSkinningConfig),
+    UpdateFlameEffect(Box<FlameEffect>),
+    UpdateFlameBaked(Box<thyllore_effect_core::FlameBaked>),
+    ApplyFlamePreset(String),
+    ApplyFlameTextureFit {
+        path: String,
+        blend: f32,
+        groups: [bool; 4],
+        profile: bool,
+    },
+    ApplyFlameStyle {
+        path: String,
+        groups: [bool; 3],
+    },
+    SaveFlameStyle {
+        name: String,
+    },
+    AddFlame,
+    UpdateFlameRenderSettings(FlameRenderSettings),
+    UpdateFlameTrailEnabled(bool),
+    UpdateFlameTrailFade(f32),
     SetGridShowYAxis(bool),
     ClearMessageLog,
+    InsertScalarKey {
+        property_type: PropertyType,
+        value: f32,
+    },
+    InsertScalarKeyAtPlayhead {
+        property_type: PropertyType,
+    },
+    ClearScalarKeys,
+    InsertScalarDebugKeys {
+        seed: u64,
+    },
+    ClipSetMinDuration {
+        source_id: SourceClipId,
+        seconds: f32,
+    },
+    SelectFlameInstance(usize),
+    OpenScalarCurveEditor,
 }
 
 #[derive(Default)]

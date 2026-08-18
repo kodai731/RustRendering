@@ -2,8 +2,9 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::vulkanr::core::RRDevice;
+use crate::vulkanr::descriptor::{imgui_layout_spec, ReflectedSetLayout, IMGUI_TEXTURE_BINDING};
 use crate::vulkanr::resource::{
-    AutoExposureBuffers, BloomChain, DofBuffer, HdrBuffer, OffscreenFramebuffer,
+    AutoExposureBuffers, BloomChain, DofBuffer, FlameBuffer, HdrBuffer, OffscreenFramebuffer,
 };
 
 #[derive(Debug, Default)]
@@ -13,13 +14,14 @@ pub struct ViewportState {
     pub bloom_chain: Option<BloomChain>,
     pub dof_buffer: Option<DofBuffer>,
     pub auto_exposure_buffers: Option<AutoExposureBuffers>,
-    pub descriptor_pool: vk::DescriptorPool,
-    pub descriptor_set_layout: vk::DescriptorSetLayout,
+    pub flame_buffer: Option<FlameBuffer>,
+    pub descriptor_set_layout: ReflectedSetLayout,
     pub descriptor_set: vk::DescriptorSet,
     pub width: u32,
     pub height: u32,
     pub focused: bool,
     pub hovered: bool,
+    pub hdr_grid_pipeline_id: Option<usize>,
 }
 
 impl ViewportState {
@@ -50,7 +52,16 @@ impl ViewportState {
 
         let auto_exposure_buffers = AutoExposureBuffers::new(instance, rrdevice, width, height)?;
 
-        let (descriptor_pool, descriptor_set_layout, descriptor_set) =
+        let flame_buffer = FlameBuffer::new(
+            instance,
+            rrdevice,
+            command_pool,
+            width,
+            height,
+            hdr_buffer.color_image_view,
+        )?;
+
+        let (descriptor_set_layout, descriptor_set) =
             Self::create_imgui_descriptor(rrdevice, &offscreen)?;
 
         Ok(Self {
@@ -59,84 +70,44 @@ impl ViewportState {
             bloom_chain: Some(bloom_chain),
             dof_buffer: Some(dof_buffer),
             auto_exposure_buffers: Some(auto_exposure_buffers),
-            descriptor_pool,
+            flame_buffer: Some(flame_buffer),
             descriptor_set_layout,
             descriptor_set,
             width,
             height,
             focused: false,
             hovered: false,
+            hdr_grid_pipeline_id: None,
         })
     }
 
     unsafe fn create_imgui_descriptor(
         rrdevice: &RRDevice,
         offscreen: &OffscreenFramebuffer,
-    ) -> Result<(
-        vk::DescriptorPool,
-        vk::DescriptorSetLayout,
-        vk::DescriptorSet,
-    )> {
-        let pool_sizes = [vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .build()];
+    ) -> Result<(ReflectedSetLayout, vk::DescriptorSet)> {
+        let layout = ReflectedSetLayout::create(rrdevice, &imgui_layout_spec())?;
+        let descriptor_set = layout.allocate_set(rrdevice)?;
 
-        let pool_info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets(1);
+        Self::update_descriptor_set(rrdevice, &layout, descriptor_set, offscreen)?;
 
-        let descriptor_pool = rrdevice.device.create_descriptor_pool(&pool_info, None)?;
-
-        let bindings = [vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build()];
-
-        let layout_info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-
-        let descriptor_set_layout = rrdevice
-            .device
-            .create_descriptor_set_layout(&layout_info, None)?;
-
-        let layouts = [descriptor_set_layout];
-        let allocate_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(descriptor_pool)
-            .set_layouts(&layouts);
-
-        let descriptor_sets = rrdevice.device.allocate_descriptor_sets(&allocate_info)?;
-        let descriptor_set = descriptor_sets[0];
-
-        Self::update_descriptor_set(rrdevice, descriptor_set, offscreen)?;
-
-        Ok((descriptor_pool, descriptor_set_layout, descriptor_set))
+        Ok((layout, descriptor_set))
     }
 
     unsafe fn update_descriptor_set(
         rrdevice: &RRDevice,
+        layout: &ReflectedSetLayout,
         descriptor_set: vk::DescriptorSet,
         offscreen: &OffscreenFramebuffer,
     ) -> Result<()> {
-        let image_info = [vk::DescriptorImageInfo::builder()
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .image_view(offscreen.resolve_image_view())
-            .sampler(offscreen.sampler)
-            .build()];
-
-        let descriptor_writes = [vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(&image_info)
-            .build()];
-
-        rrdevice
-            .device
-            .update_descriptor_sets(&descriptor_writes, &[] as &[vk::CopyDescriptorSet]);
-
+        layout
+            .writer(descriptor_set)
+            .image(
+                IMGUI_TEXTURE_BINDING,
+                offscreen.resolve_image_view(),
+                offscreen.sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .apply(rrdevice);
         Ok(())
     }
 
@@ -158,7 +129,12 @@ impl ViewportState {
 
         if let Some(ref mut offscreen) = self.offscreen {
             offscreen.resize(instance, rrdevice, command_pool, new_width, new_height)?;
-            Self::update_descriptor_set(rrdevice, self.descriptor_set, offscreen)?;
+            Self::update_descriptor_set(
+                rrdevice,
+                &self.descriptor_set_layout,
+                self.descriptor_set,
+                offscreen,
+            )?;
         }
 
         if let Some(ref mut hdr_buffer) = self.hdr_buffer {
@@ -177,6 +153,19 @@ impl ViewportState {
             ae_buffers.resize(instance, rrdevice, new_width, new_height)?;
         }
 
+        if let (Some(ref mut flame_buffer), Some(ref hdr_buffer)) =
+            (&mut self.flame_buffer, &self.hdr_buffer)
+        {
+            flame_buffer.resize(
+                instance,
+                rrdevice,
+                command_pool,
+                new_width,
+                new_height,
+                hdr_buffer.color_image_view,
+            )?;
+        }
+
         self.width = new_width;
         self.height = new_height;
 
@@ -185,8 +174,7 @@ impl ViewportState {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        device.destroy_descriptor_pool(self.descriptor_pool, None);
-        device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
+        self.descriptor_set_layout.destroy(device);
 
         if let Some(ref mut offscreen) = self.offscreen {
             offscreen.destroy(device);
@@ -206,6 +194,10 @@ impl ViewportState {
 
         if let Some(ref mut ae_buffers) = self.auto_exposure_buffers {
             ae_buffers.destroy(device);
+        }
+
+        if let Some(ref mut flame_buffer) = self.flame_buffer {
+            flame_buffer.destroy(device);
         }
 
         log!("Destroyed viewport state");

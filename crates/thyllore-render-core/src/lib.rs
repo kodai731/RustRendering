@@ -17,7 +17,7 @@ pub use gizmo::{
     TransformGizmoHandle,
 };
 pub use gizmo_data::{BoneGizmoData, ConstraintGizmoData, GridMeshData, LightGizmoData};
-pub use mesh::{DynamicMesh, GpuMeshRef, LineMesh, MeshScale, RenderInfo};
+pub use mesh::{DynamicMesh, GpuMeshRef, LineMesh, MeshScale, RenderInfo, FRAMES_IN_FLIGHT};
 pub use projection::{DistanceAttenuation, ProjectionData};
 pub use render_data::{MeshHandle, ObjectIndex, RenderData, SkeletonHandle};
 pub use settings::{

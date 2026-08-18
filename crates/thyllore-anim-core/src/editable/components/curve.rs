@@ -15,6 +15,9 @@ pub enum PropertyType {
     ScaleX,
     ScaleY,
     ScaleZ,
+    /// Application-defined scalar channel (e.g. effect parameters). The u16 code's
+    /// meaning is owned by the application; core treats it as an opaque curve key.
+    Custom(u16),
 }
 
 impl PropertyType {
@@ -29,6 +32,7 @@ impl PropertyType {
             PropertyType::ScaleX => "Scale X",
             PropertyType::ScaleY => "Scale Y",
             PropertyType::ScaleZ => "Scale Z",
+            PropertyType::Custom(_) => "Custom",
         }
     }
 
@@ -43,6 +47,7 @@ impl PropertyType {
             PropertyType::ScaleX => "Scl.X",
             PropertyType::ScaleY => "Scl.Y",
             PropertyType::ScaleZ => "Scl.Z",
+            PropertyType::Custom(_) => "Custom",
         }
     }
 }

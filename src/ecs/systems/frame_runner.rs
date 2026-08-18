@@ -1,6 +1,7 @@
 use anyhow::Result;
 use cgmath::Vector3;
 
+use super::batch_run_systems::batch_run_tick;
 #[cfg(feature = "ml")]
 use super::curve_copilot::curve_suggestion_poll_results;
 use super::helm::batch_driver;
@@ -25,8 +26,22 @@ use crate::ml::FeedbackSenderHandle;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 
 pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
-    let mesh_positions = collect_mesh_positions(ctx.graphics);
+    let mut stages: Vec<(String, f32)> = Vec::new();
+    let t = std::time::Instant::now();
+    batch_run_tick(ctx.world);
+    stages.push((
+        "batch_run_tick".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
+    let t = std::time::Instant::now();
+    let mesh_positions = collect_mesh_positions(ctx.graphics);
+    stages.push((
+        "collect_mesh_positions".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
+
+    let t = std::time::Instant::now();
     {
         let mut ecs_ctx = EcsContext {
             time: ctx.time,
@@ -45,16 +60,51 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
         batch_driver::run_after_helm(&mut ecs_ctx);
         run_transform_phase_ecs(&mut ecs_ctx);
     }
+    stages.push((
+        "input_transform".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
 
+    let t = std::time::Instant::now();
     run_timeline_phase(ctx);
     #[cfg(feature = "ml")]
     run_inference_actor_phase(ctx);
-    let animation_updates = run_animation_phase_ecs(ctx);
-    run_animation_phase_gpu(ctx, &animation_updates)?;
-    run_onion_skin_phase(ctx, &animation_updates.updated_meshes)?;
+    stages.push(("timeline".to_string(), t.elapsed().as_secs_f32() * 1000.0));
 
+    let t = std::time::Instant::now();
+    let animation_updates = run_animation_phase_ecs(ctx);
+    stages.push((
+        "animation_ecs".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
+
+    let t = std::time::Instant::now();
+    run_animation_phase_gpu(ctx, &animation_updates)?;
+    stages.push((
+        "animation_gpu".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
+
+    let t = std::time::Instant::now();
+    run_onion_skin_phase(ctx, &animation_updates.updated_meshes)?;
+    stages.push(("onion_skin".to_string(), t.elapsed().as_secs_f32() * 1000.0));
+
+    let t = std::time::Instant::now();
     run_transform_phase_gpu(ctx)?;
+    stages.push((
+        "transform_gpu".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
+
+    let t = std::time::Instant::now();
     run_render_prep_phase(ctx)?;
+    stages.push((
+        "render_prep".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
+
+    ctx.world
+        .insert_resource(crate::ecs::resource::UpdatePhaseTimings { stages });
     Ok(())
 }
 
@@ -106,9 +156,20 @@ fn run_timeline_phase(ctx: &mut FrameContext) {
         timeline_state.target_entity = selected_entity;
     }
 
+    let schedule_extent = super::timeline_systems::schedule_extent_seconds(ctx.world);
     let mut timeline_state = ctx.world.resource_mut::<TimelineState>();
+    timeline_state.schedule_extent_seconds = schedule_extent;
     let clip_library = ctx.world.resource::<ClipLibrary>();
-    timeline_update(&mut timeline_state, &*clip_library, ctx.delta_time);
+    // Use fixed delta for deterministic batch playback (same reason as auto exposure)
+    let timeline_delta = if ctx
+        .world
+        .contains_resource::<crate::ecs::resource::BatchRun>()
+    {
+        1.0 / 60.0
+    } else {
+        ctx.delta_time
+    };
+    timeline_update(&mut timeline_state, &*clip_library, timeline_delta);
     drop(clip_library);
     drop(timeline_state);
 

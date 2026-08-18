@@ -1,0 +1,15 @@
+[package]
+name = "thyllore-effect-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Concrete effect layer for ThylloreAnimation — effect parameter components, the closed-form analytic core mirrored by the shaders, and offline bake helpers. No ECS, rendering-pipeline or Vulkan dependency, so it can also ship standalone (e.g. as a Blender addon wheel)"
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+cgmath = "0.18"
+serde = { version = "1", features = ["derive"] }
+thyllore-color-core = { path = "../thyllore-color-core" }
+thyllore-math-core = { path = "../thyllore-math-core" }
+thyllore-texture-fit-core = { path = "../thyllore-texture-fit-core" }

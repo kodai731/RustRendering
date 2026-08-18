@@ -48,6 +48,9 @@ impl BoneTrack {
             PropertyType::ScaleX => &self.scale_x,
             PropertyType::ScaleY => &self.scale_y,
             PropertyType::ScaleZ => &self.scale_z,
+            PropertyType::Custom(_) => {
+                panic!("BoneTrack has no custom scalar curves; use EditableAnimationClip::get_scalar_curve")
+            }
         }
     }
 
@@ -62,6 +65,9 @@ impl BoneTrack {
             PropertyType::ScaleX => &mut self.scale_x,
             PropertyType::ScaleY => &mut self.scale_y,
             PropertyType::ScaleZ => &mut self.scale_z,
+            PropertyType::Custom(_) => {
+                panic!("BoneTrack has no custom scalar curves; use EditableAnimationClip::get_scalar_curve_mut")
+            }
         }
     }
 

@@ -1,122 +1,52 @@
 use crate::core::device::*;
+use crate::descriptor::pass_shaders::bloom_shaders;
+use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
+
+const INPUT_SAMPLER_BINDING: u32 = 0;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRBloomDescriptorSets {
-    pub descriptor_set_layout: vk::DescriptorSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
+    pub layout: ReflectedSetLayout,
     pub downsample_sets: Vec<vk::DescriptorSet>,
     pub upsample_sets: Vec<vk::DescriptorSet>,
 }
 
 impl RRBloomDescriptorSets {
-    pub unsafe fn create_layout(rrdevice: &RRDevice) -> Result<vk::DescriptorSetLayout> {
-        let sampler_binding = vk::DescriptorSetLayoutBinding::builder()
-            .binding(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(1)
-            .stage_flags(vk::ShaderStageFlags::FRAGMENT)
-            .build();
-
-        let bindings = [sampler_binding];
-        let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
-        let layout = rrdevice.device.create_descriptor_set_layout(&info, None)?;
-
-        Ok(layout)
+    pub fn layout_spec() -> ReflectedLayoutSpec {
+        ReflectedLayoutSpec::new(bloom_shaders(), 0)
     }
 
-    pub unsafe fn create_pool(rrdevice: &RRDevice, set_count: u32) -> Result<vk::DescriptorPool> {
-        let sampler_size = vk::DescriptorPoolSize::builder()
-            .type_(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .descriptor_count(set_count);
+    pub unsafe fn new(rrdevice: &RRDevice, mip_count: usize) -> Result<Self> {
+        let downsample_count = mip_count;
+        let upsample_count = mip_count.saturating_sub(1);
+        let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
+        let downsample_sets = layout.allocate_sets(rrdevice, downsample_count)?;
+        let upsample_sets = layout.allocate_sets(rrdevice, upsample_count)?;
 
-        let pool_sizes = [sampler_size];
-        let info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets(set_count);
-
-        let pool = rrdevice.device.create_descriptor_pool(&info, None)?;
-        Ok(pool)
+        Ok(Self {
+            layout,
+            downsample_sets,
+            upsample_sets,
+        })
     }
 
-    unsafe fn allocate_set(&self, rrdevice: &RRDevice) -> Result<vk::DescriptorSet> {
-        let layouts = [self.descriptor_set_layout];
-        let alloc_info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(self.descriptor_pool)
-            .set_layouts(&layouts);
-
-        let sets = rrdevice.device.allocate_descriptor_sets(&alloc_info)?;
-        Ok(sets[0])
-    }
-
-    unsafe fn update_set(
+    unsafe fn write_input(
+        &self,
         rrdevice: &RRDevice,
         descriptor_set: vk::DescriptorSet,
         image_view: vk::ImageView,
         sampler: vk::Sampler,
-    ) {
-        let image_info = vk::DescriptorImageInfo::builder()
-            .image_view(image_view)
-            .sampler(sampler)
-            .image_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .build();
-
-        let write = vk::WriteDescriptorSet::builder()
-            .dst_set(descriptor_set)
-            .dst_binding(0)
-            .dst_array_element(0)
-            .descriptor_type(vk::DescriptorType::COMBINED_IMAGE_SAMPLER)
-            .image_info(std::slice::from_ref(&image_info))
-            .build();
-
-        rrdevice
-            .device
-            .update_descriptor_sets(&[write], &[] as &[vk::CopyDescriptorSet]);
-    }
-
-    pub unsafe fn allocate_and_update(
-        &mut self,
-        rrdevice: &RRDevice,
-        hdr_image_view: vk::ImageView,
-        mip_image_views: &[vk::ImageView],
-        sampler: vk::Sampler,
     ) -> Result<()> {
-        self.allocate_downsample_sets(rrdevice, hdr_image_view, mip_image_views, sampler)?;
-        self.allocate_upsample_sets(rrdevice, mip_image_views, sampler)?;
-        Ok(())
-    }
-
-    unsafe fn allocate_downsample_sets(
-        &mut self,
-        rrdevice: &RRDevice,
-        hdr_image_view: vk::ImageView,
-        mip_image_views: &[vk::ImageView],
-        sampler: vk::Sampler,
-    ) -> Result<()> {
-        for i in 0..mip_image_views.len() {
-            let set = self.allocate_set(rrdevice)?;
-            let input_view = if i == 0 {
-                hdr_image_view
-            } else {
-                mip_image_views[i - 1]
-            };
-            Self::update_set(rrdevice, set, input_view, sampler);
-            self.downsample_sets.push(set);
-        }
-        Ok(())
-    }
-
-    unsafe fn allocate_upsample_sets(
-        &mut self,
-        rrdevice: &RRDevice,
-        mip_image_views: &[vk::ImageView],
-        sampler: vk::Sampler,
-    ) -> Result<()> {
-        for i in (0..mip_image_views.len() - 1).rev() {
-            let set = self.allocate_set(rrdevice)?;
-            Self::update_set(rrdevice, set, mip_image_views[i + 1], sampler);
-            self.upsample_sets.push(set);
-        }
+        self.layout
+            .writer(descriptor_set)
+            .image(
+                INPUT_SAMPLER_BINDING,
+                image_view,
+                sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .apply(rrdevice);
         Ok(())
     }
 
@@ -126,33 +56,24 @@ impl RRBloomDescriptorSets {
         hdr_image_view: vk::ImageView,
         mip_image_views: &[vk::ImageView],
         sampler: vk::Sampler,
-    ) {
-        for (i, set) in self.downsample_sets.iter().enumerate() {
-            let input_view = if i == 0 {
-                hdr_image_view
-            } else {
-                mip_image_views[i - 1]
+    ) -> Result<()> {
+        for (mip_index, set) in self.downsample_sets.iter().enumerate() {
+            let input_view = match mip_index {
+                0 => hdr_image_view,
+                _ => mip_image_views[mip_index - 1],
             };
-            Self::update_set(rrdevice, *set, input_view, sampler);
+            self.write_input(rrdevice, *set, input_view, sampler)?;
         }
 
-        for (pass_idx, set) in self.upsample_sets.iter().enumerate() {
-            let source_view_idx = mip_image_views.len() - 1 - pass_idx;
-            Self::update_set(rrdevice, *set, mip_image_views[source_view_idx], sampler);
+        for (pass_index, set) in self.upsample_sets.iter().enumerate() {
+            let source_view_index = mip_image_views.len() - 1 - pass_index;
+            self.write_input(rrdevice, *set, mip_image_views[source_view_index], sampler)?;
         }
+        Ok(())
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
-
-        if self.descriptor_set_layout != vk::DescriptorSetLayout::null() {
-            device.destroy_descriptor_set_layout(self.descriptor_set_layout, None);
-            self.descriptor_set_layout = vk::DescriptorSetLayout::null();
-        }
-
+        self.layout.destroy(device);
         self.downsample_sets.clear();
         self.upsample_sets.clear();
     }

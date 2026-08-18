@@ -87,9 +87,10 @@ void main() {
         gl_FragDepth = worldToClipDepth(worldPosition, sceneData.view, sceneData.proj);
     }
 
+    // No opaque surface here: leave the target untouched so the pass clear color,
+    // which carries the background radiance, stays as the scene behind volumetrics.
     if (isBackground) {
-        outColor = vec4(0.0, 0.0, 0.0, 1.0);
-        return;
+        discard;
     }
 
     // Debug view modes

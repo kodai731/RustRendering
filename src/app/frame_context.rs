@@ -29,6 +29,7 @@ pub struct FrameContext<'a> {
     pub time: f32,
     pub delta_time: f32,
     pub image_index: usize,
+    pub frame_slot: usize,
     pub swapchain_extent: (u32, u32),
 
     pub graphics: &'a mut GraphicsResources,

@@ -169,7 +169,8 @@ fn test_shader_count_matches() {
             path.is_file()
                 && (path.extension() == Some("vert".as_ref())
                     || path.extension() == Some("frag".as_ref())
-                    || path.extension() == Some("comp".as_ref()))
+                    || path.extension() == Some("comp".as_ref())
+                    || path.extension() == Some("geom".as_ref()))
         })
         .count();
 

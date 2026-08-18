@@ -133,6 +133,7 @@ pub fn channel_for_property_type(property_type: PropertyType) -> FeedbackChannel
         PropertyType::ScaleX => ("scale", 0),
         PropertyType::ScaleY => ("scale", 1),
         PropertyType::ScaleZ => ("scale", 2),
+        PropertyType::Custom(code) => ("custom", code as u32),
     };
     FeedbackChannel {
         kind: kind.to_string(),

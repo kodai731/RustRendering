@@ -90,13 +90,20 @@ pub fn clip_schedule_find_group(
         .find(|g| g.contains_instance(instance_id))
 }
 
+/// Repoint the schedule's first instance at a newly selected clip. Reselecting
+/// the clip the schedule already plays is a no-op, so user-trimmed `clip_out`
+/// (e.g. a drag-extended flame clip) survives double-click / combo reselection.
 pub fn clip_schedule_switch_source(
     schedule: &mut ClipSchedule,
     source_id: SourceClipId,
     duration: f32,
 ) {
     if let Some(first) = schedule.instances.first_mut() {
+        if first.source_id == source_id {
+            return;
+        }
         first.source_id = source_id;
+        first.clip_in = 0.0;
         first.clip_out = duration;
     }
 }
@@ -113,5 +120,42 @@ pub fn clip_schedule_effective_weight(schedule: &ClipSchedule, instance_id: Clip
         Some(group) if group.muted => 0.0,
         Some(group) => inst_weight * group.weight,
         None => inst_weight,
+    }
+}
+
+#[cfg(test)]
+mod switch_source_tests {
+    use super::*;
+
+    fn schedule_with_instance(
+        source_id: SourceClipId,
+        clip_in: f32,
+        clip_out: f32,
+    ) -> ClipSchedule {
+        let mut schedule = ClipSchedule::new();
+        let mut inst = ClipInstance::new(1, source_id, 0.0);
+        inst.clip_in = clip_in;
+        inst.clip_out = clip_out;
+        schedule.instances.push(inst);
+        schedule
+    }
+
+    #[test]
+    fn reselecting_same_source_preserves_trim() {
+        let mut schedule = schedule_with_instance(3, 0.5, 3.0);
+        clip_schedule_switch_source(&mut schedule, 3, 0.0);
+        let inst = schedule.first_instance().unwrap();
+        assert!((inst.clip_in - 0.5).abs() < 1e-6);
+        assert!((inst.clip_out - 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn switching_to_other_source_resets_range_to_new_duration() {
+        let mut schedule = schedule_with_instance(3, 0.5, 3.0);
+        clip_schedule_switch_source(&mut schedule, 7, 2.0);
+        let inst = schedule.first_instance().unwrap();
+        assert_eq!(inst.source_id, 7);
+        assert!((inst.clip_in - 0.0).abs() < 1e-6);
+        assert!((inst.clip_out - 2.0).abs() < 1e-6);
     }
 }

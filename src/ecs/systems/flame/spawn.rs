@@ -1,0 +1,73 @@
+use crate::asset::AssetStorage;
+use crate::ecs::component::{EntityIcon, FlameEffect, FLAME_DOMAIN};
+use crate::ecs::resource::HierarchyState;
+use crate::ecs::world::{Entity, Transform, World};
+
+pub const DEFAULT_FLAME_NAME: &str = "Flame";
+
+/// Spawns a flame as a regular scene entity so the hierarchy, inspector and transform gizmo
+/// can all reach it through the same components they use for every other object.
+pub fn spawn_flame(world: &mut World, name: &str, effect: FlameEffect) -> Entity {
+    let transform = Transform {
+        translation: effect.position,
+        rotation: effect.rotation,
+        ..Default::default()
+    };
+
+    world
+        .entity()
+        .with_name(name)
+        .with_transform(transform)
+        .with_editor_display(EntityIcon::Flame, false)
+        .with_flame(effect)
+        .build()
+}
+
+/// Spawn a flame entity together with its (empty) animation clip and schedule
+/// instance, so every created flame is animatable and shows a Timeline clip
+/// lane immediately instead of waiting for the first inserted key.
+pub fn spawn_flame_with_clip(
+    world: &mut World,
+    assets: &mut AssetStorage,
+    name: &str,
+    effect: FlameEffect,
+) -> Entity {
+    let entity = spawn_flame(world, name, effect);
+    crate::ecs::systems::scalar_clip_systems::ensure_entity_clip(
+        world,
+        assets,
+        entity,
+        &FLAME_DOMAIN,
+    );
+    entity
+}
+
+/// The flame the UI and the flame events act on: the selected entity when it is a flame,
+/// otherwise the first one. Keeping this in one place is what lets the hierarchy selection
+/// stay the single source of truth.
+pub fn resolve_selected_flame(world: &World) -> Option<Entity> {
+    let selected = world
+        .get_resource::<HierarchyState>()
+        .and_then(|state| state.selected_entity);
+
+    if let Some(entity) = selected {
+        if world.get_component::<FlameEffect>(entity).is_some() {
+            return Some(entity);
+        }
+    }
+
+    world.query_flames().first().copied()
+}
+
+/// Position and rotation live on the Transform; the effect only mirrors them for the UBO.
+pub fn write_flame_transform(
+    world: &mut World,
+    entity: Entity,
+    translation: cgmath::Vector3<f32>,
+    rotation: cgmath::Quaternion<f32>,
+) {
+    if let Some(transform) = world.get_component_mut::<Transform>(entity) {
+        transform.translation = translation;
+        transform.rotation = rotation;
+    }
+}

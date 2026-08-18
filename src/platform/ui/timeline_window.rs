@@ -10,6 +10,7 @@ use crate::ecs::resource::{
     ClipDragState, ClipDragType, ClipLibrary, CurveEditorState, TimelineInteractionState,
     TimelineState,
 };
+use crate::ecs::systems::{clip_drag_preview_times, timeline_effective_duration};
 
 use super::layout_snapshot::LayoutSnapshot;
 
@@ -19,6 +20,7 @@ pub(crate) const PIXELS_PER_SECOND: f32 = 80.0;
 const PLAYHEAD_HANDLE_SIZE: f32 = 10.0;
 const CLIP_TRACK_HEIGHT: f32 = 28.0;
 const CLIP_EDGE_DRAG_WIDTH: f32 = 5.0;
+const CLIP_BLOCK_MIN_WIDTH: f32 = 12.0;
 const CLIP_BLOCK_COLORS: [[f32; 4]; 4] = [
     [0.3, 0.5, 0.8, 0.9],
     [0.5, 0.7, 0.3, 0.9],
@@ -59,11 +61,7 @@ pub fn build_timeline_window(
                 curve_editor_state,
                 clip_track_snapshot,
             );
-            let clip_duration = state
-                .current_clip_id
-                .and_then(|id| clip_library.get(id))
-                .map(|c| c.duration)
-                .unwrap_or(5.0);
+            let clip_duration = timeline_effective_duration(state, clip_library);
             handle_timeline_shortcuts(ui, ui_events, state);
             handle_mouse_wheel_zoom(ui, ui_events, state, clip_duration);
         });
@@ -97,8 +95,7 @@ fn build_transport_controls(
 
     ui.same_line();
     let current_clip = state.current_clip_id.and_then(|id| clip_library.get(id));
-
-    let duration = current_clip.map(|c| c.duration).unwrap_or(0.0);
+    let duration = timeline_effective_duration(state, clip_library);
 
     ui.text(format!(
         "Time: {:.2}s / {:.2}s",
@@ -106,10 +103,9 @@ fn build_transport_controls(
     ));
 
     let available_width = state.last_visible_width.max(1.0);
-    let clip_duration = duration.max(1.0);
     let (min_zoom, max_zoom) = compute_zoom_limits(
         available_width,
-        clip_duration,
+        duration.max(1.0),
         state.snap_settings.frame_rate,
     );
 
@@ -129,12 +125,12 @@ fn build_transport_controls(
         curve_editor_state.is_open = true;
         curve_editor_state.needs_focus = true;
         let previous_bone_exists = current_clip
-            .zip(curve_editor_state.selected_bone_id)
+            .zip(curve_editor_state.selected_bone_id())
             .is_some_and(|(c, id)| c.tracks.contains_key(&id));
 
         if !previous_bone_exists {
             if let Some(first_bone_id) = current_clip.and_then(|c| c.tracks.keys().min().copied()) {
-                curve_editor_state.selected_bone_id = Some(first_bone_id);
+                curve_editor_state.select_bone(first_bone_id);
             }
         }
         curve_editor_state.view_initialized = false;
@@ -194,11 +190,9 @@ fn build_timeline_content(
     let visible_width = (content_region[0] - TRACK_LABEL_WIDTH).max(1.0);
     state.last_visible_width = visible_width;
 
-    let current_clip = state.current_clip_id.and_then(|id| clip_library.get(id));
-    let duration = current_clip.map(|c| c.duration).unwrap_or(5.0);
+    let duration = timeline_effective_duration(state, clip_library);
     let pixels_per_second = PIXELS_PER_SECOND * state.zoom_level;
-    let display_duration = duration;
-    let timeline_width = (display_duration * pixels_per_second).max(visible_width);
+    let timeline_width = (duration * pixels_per_second).max(visible_width);
 
     let ruler_child_height = TIME_RULER_HEIGHT + ui.text_line_height_with_spacing() + 4.0;
     let synced_scroll_x = state.scroll_offset;
@@ -215,7 +209,7 @@ fn build_timeline_content(
                 state,
                 interaction,
                 timeline_width,
-                display_duration,
+                duration,
             );
         });
     ui.separator();
@@ -242,7 +236,6 @@ fn build_timeline_content(
                     timeline_width,
                 );
             }
-            state.scroll_offset = ui.scroll_x();
         });
 }
 
@@ -352,6 +345,14 @@ fn draw_playhead_handle(draw_list: &imgui::DrawListMut, x: f32, y: f32, ruler_he
         .build();
 }
 
+/// Raw-io mouse handling below must not react while the pointer is over a
+/// window stacked above the timeline (e.g. the scene overlay panel) or while
+/// another widget is being dragged — otherwise a slider drag in the overlay
+/// falls through and scrubs the playhead underneath.
+fn timeline_pointer_available(ui: &imgui::Ui) -> bool {
+    ui.is_window_hovered() && !ui.is_any_item_active()
+}
+
 fn handle_scrub_interaction(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
@@ -375,7 +376,7 @@ fn handle_scrub_interaction(
         && mouse_pos[1] >= rect_min[1]
         && mouse_pos[1] <= rect_max[1];
 
-    if !interaction.scrubbing && !is_mouse_in_ruler {
+    if !interaction.scrubbing && !(is_mouse_in_ruler && timeline_pointer_available(ui)) {
         return;
     }
 
@@ -427,8 +428,10 @@ fn build_clip_tracks_section(
     let pixels_per_second = PIXELS_PER_SECOND * state.zoom_level;
     let mouse_pos = ui.io().mouse_pos;
     let mouse_down = ui.io().mouse_down[0];
-    let mouse_clicked = ui.is_mouse_clicked(imgui::MouseButton::Left);
-    let mouse_double_clicked = ui.is_mouse_double_clicked(imgui::MouseButton::Left);
+    let pointer_available = timeline_pointer_available(ui);
+    let mouse_clicked = ui.is_mouse_clicked(imgui::MouseButton::Left) && pointer_available;
+    let mouse_double_clicked =
+        ui.is_mouse_double_clicked(imgui::MouseButton::Left) && pointer_available;
 
     handle_clip_drag_release(ui, ui_events, interaction, pixels_per_second);
 
@@ -457,8 +460,16 @@ fn build_clip_tracks_section(
             .build();
 
         for (inst_idx, inst) in entry.instances.iter().enumerate() {
-            let block_x = track_origin[0] + inst.start_time * pixels_per_second;
-            let block_w = (inst.end_time - inst.start_time) * pixels_per_second;
+            let (draw_start, draw_end) = clip_block_display_times(
+                interaction,
+                entry.entity,
+                inst,
+                mouse_pos,
+                mouse_down,
+                pixels_per_second,
+            );
+            let block_x = track_origin[0] + draw_start * pixels_per_second;
+            let block_w = ((draw_end - draw_start) * pixels_per_second).max(CLIP_BLOCK_MIN_WIDTH);
             let block_min = [block_x, track_origin[1] + 2.0];
             let block_max = [block_x + block_w, track_origin[1] + CLIP_TRACK_HEIGHT - 2.0];
 
@@ -519,7 +530,7 @@ fn build_clip_tracks_section(
             }
         }
 
-        build_clip_instance_properties(ui, ui_events, state, entry);
+        build_clip_instance_properties(ui, ui_events, state, clip_library, entry);
     }
 
     if mouse_clicked && !clicked_any_block {
@@ -533,7 +544,6 @@ fn build_clip_tracks_section(
     }
 
     handle_delete_key(ui, ui_events, state);
-    update_clip_drag(interaction, mouse_pos, mouse_down, pixels_per_second);
 }
 
 fn build_group_headers(ui: &imgui::Ui, ui_events: &mut UIEventQueue, entry: &ClipTrackEntry) {
@@ -598,6 +608,7 @@ fn build_clip_instance_properties(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
     state: &TimelineState,
+    clip_library: &ClipLibrary,
     entry: &ClipTrackEntry,
 ) {
     let Some((sel_entity, sel_id)) = state.selected_clip_instance else {
@@ -613,6 +624,9 @@ fn build_clip_instance_properties(
     };
 
     ui.text("  Properties:");
+    ui.same_line();
+
+    build_clip_length_field(ui, ui_events, clip_library, inst.source_id);
     ui.same_line();
 
     ui.set_next_item_width(60.0);
@@ -698,6 +712,35 @@ fn build_clip_instance_properties(
     }
 }
 
+/// Clip length in seconds, editable even when the clip has no keyframes: the
+/// authored floor `min_duration` is what makes an unkeyed clip loop longer.
+fn build_clip_length_field(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    clip_library: &ClipLibrary,
+    source_id: SourceClipId,
+) {
+    let Some(clip) = clip_library.get(source_id) else {
+        return;
+    };
+    ui.set_next_item_width(80.0);
+    let mut seconds = clip.duration;
+    if imgui::Drag::new("##clip_length")
+        .range(0.0, 3600.0)
+        .speed(0.05)
+        .display_format("Len:%.2fs")
+        .build(ui, &mut seconds)
+    {
+        ui_events.send(UIEvent::ClipSetMinDuration { source_id, seconds });
+    }
+    if ui.is_item_hovered() {
+        ui.tooltip_text(
+            "Clip length: keyframes extend it, this value keeps it at least this long \
+             (drag to lengthen the loop of a clip without keys)",
+        );
+    }
+}
+
 fn handle_clip_drag_release(
     ui: &imgui::Ui,
     ui_events: &mut UIEventQueue,
@@ -751,8 +794,16 @@ fn begin_clip_drag(
 ) {
     let near_left_edge = (mouse_pos[0] - block_min[0]).abs() < CLIP_EDGE_DRAG_WIDTH;
     let near_right_edge = (mouse_pos[0] - block_max[0]).abs() < CLIP_EDGE_DRAG_WIDTH;
+    let block_width = block_max[0] - block_min[0];
+    let block_narrower_than_edges = block_width <= CLIP_BLOCK_MIN_WIDTH;
 
-    let (drag_type, original_value) = if near_left_edge {
+    let (drag_type, original_value) = if block_narrower_than_edges {
+        if mouse_pos[0] >= (block_min[0] + block_max[0]) * 0.5 {
+            (ClipDragType::TrimEnd, inst.clip_out)
+        } else {
+            (ClipDragType::Move, inst.start_time)
+        }
+    } else if near_left_edge {
         (ClipDragType::TrimStart, inst.clip_in)
     } else if near_right_edge {
         (ClipDragType::TrimEnd, inst.clip_out)
@@ -769,12 +820,41 @@ fn begin_clip_drag(
     });
 }
 
-fn update_clip_drag(
-    _interaction: &mut TimelineInteractionState,
-    _mouse_pos: [f32; 2],
-    _mouse_down: bool,
-    _pixels_per_second: f32,
-) {
+/// Where a clip block should be drawn this frame: an externally injected
+/// preview (batch debug action) wins, then a live drag previews from the
+/// current mouse position, otherwise the committed instance times.
+fn clip_block_display_times(
+    interaction: &TimelineInteractionState,
+    entity: crate::ecs::world::Entity,
+    inst: &ClipInstanceSnapshot,
+    mouse_pos: [f32; 2],
+    mouse_down: bool,
+    pixels_per_second: f32,
+) -> (f32, f32) {
+    if let Some(preview) = &interaction.drag_preview {
+        if preview.entity == entity && preview.instance_id == inst.instance_id {
+            return (preview.start_time, preview.end_time);
+        }
+    }
+
+    if mouse_down {
+        if let Some(drag) = &interaction.dragging_clip {
+            if drag.entity == entity && drag.instance_id == inst.instance_id {
+                let delta_time = (mouse_pos[0] - drag.drag_start_x) / pixels_per_second;
+                return clip_drag_preview_times(
+                    &drag.drag_type,
+                    drag.original_value,
+                    delta_time,
+                    inst.start_time,
+                    inst.end_time,
+                    inst.clip_in,
+                    inst.clip_out,
+                );
+            }
+        }
+    }
+
+    (inst.start_time, inst.end_time)
 }
 
 fn handle_clip_mute_button(
@@ -1063,13 +1143,21 @@ fn open_curve_editor_for_clip(
 
     if let Some(clip) = clip_library.get(source_id) {
         let previous_bone_exists = curve_editor_state
-            .selected_bone_id
+            .selected_bone_id()
             .is_some_and(|id| clip.tracks.contains_key(&id));
 
         if !previous_bone_exists {
             let target_bone = mesh_bone_id.filter(|id| clip.tracks.contains_key(id));
-            curve_editor_state.selected_bone_id =
-                target_bone.or_else(|| clip.tracks.keys().min().copied());
+            if let Some(bone_id) = target_bone.or_else(|| clip.tracks.keys().min().copied()) {
+                curve_editor_state.select_bone(bone_id);
+            } else if clip.has_scalar_keyframes() {
+                curve_editor_state.select_scalars();
+                for curve in &clip.scalar_curves {
+                    curve_editor_state
+                        .visible_curves
+                        .insert(curve.property_type);
+                }
+            }
         }
 
         curve_editor_state.view_initialized = false;

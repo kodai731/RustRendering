@@ -77,13 +77,15 @@ pub fn mirror_keyframes(
         .entries
         .iter()
         .map(|entry| {
-            let mirrored_bone_id = pair_map
-                .get(&entry.bone_id)
-                .copied()
-                .unwrap_or(entry.bone_id);
+            let mirrored_bone_id = entry
+                .bone_id
+                .map(|bone_id| pair_map.get(&bone_id).copied().unwrap_or(bone_id));
 
-            let mirrored_value =
-                compute_mirrored_value(entry.value, entry.property_type, mapping.symmetry_axis);
+            let mirrored_value = if mirrored_bone_id.is_some() {
+                compute_mirrored_value(entry.value, entry.property_type, mapping.symmetry_axis)
+            } else {
+                entry.value
+            };
 
             CopiedKeyframe {
                 bone_id: mirrored_bone_id,
@@ -154,7 +156,7 @@ mod tests {
 
         let buffer = KeyframeCopyBuffer {
             entries: vec![CopiedKeyframe {
-                bone_id: 1,
+                bone_id: Some(1),
                 property_type: PropertyType::TranslationX,
                 relative_time: 0.0,
                 value: 5.0,
@@ -174,7 +176,7 @@ mod tests {
 
         let result = mirror_keyframes(&buffer, &mapping);
         assert_eq!(result.entries.len(), 1);
-        assert_eq!(result.entries[0].bone_id, 2);
+        assert_eq!(result.entries[0].bone_id, Some(2));
         assert!((result.entries[0].value - (-5.0)).abs() < 1e-6);
     }
 

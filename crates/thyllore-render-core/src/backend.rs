@@ -13,6 +13,7 @@ pub trait RenderBackend {
     unsafe fn create_gizmo_buffers(
         &mut self,
         mesh: &mut LineMesh,
+        frame_slot: usize,
         memory_type: BufferMemoryType,
     ) -> Result<()>;
 
@@ -20,7 +21,11 @@ pub trait RenderBackend {
 
     unsafe fn destroy_gizmo_buffers(&mut self, mesh: &mut LineMesh);
 
-    unsafe fn update_or_create_line_buffers(&mut self, mesh: &mut LineMesh) -> Result<()>;
+    unsafe fn update_or_create_line_buffers(
+        &mut self,
+        mesh: &mut LineMesh,
+        frame_slot: usize,
+    ) -> Result<()>;
 
     unsafe fn destroy_line_buffers(&mut self, mesh: &mut LineMesh);
 

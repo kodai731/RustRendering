@@ -251,12 +251,8 @@ unsafe fn ensure_graphics_capacity(
 ) -> Result<()> {
     let mesh_count = load_result.meshes.len();
     let reserved_scene_objects = 4;
-    let required_materials = mesh_count as u32 + reserved_scene_objects as u32;
     let required_objects = graphics.objects.get_next_slot() + mesh_count + reserved_scene_objects;
 
-    graphics
-        .materials
-        .ensure_capacity(device, required_materials)?;
     graphics.objects.ensure_capacity(
         instance,
         device,
@@ -787,13 +783,9 @@ unsafe fn update_ray_query_descriptor(
     device: &RRDevice,
     raytracing: &mut RayTracingData,
 ) -> Result<()> {
-    if let Some(ref accel_struct) = raytracing.acceleration_structure {
-        if let Some(tlas) = accel_struct.tlas.acceleration_structure {
-            if let Some(ref mut ray_query_desc) = raytracing.ray_query_descriptor {
-                ray_query_desc.update_tlas(device, tlas)?;
-                log!("Updated ray_query_descriptor with new TLAS");
-            }
-        }
+    raytracing.bind_ray_query_tlas(device)?;
+    if raytracing.has_valid_tlas() {
+        log!("Updated ray_query_descriptor with new TLAS");
     }
     Ok(())
 }

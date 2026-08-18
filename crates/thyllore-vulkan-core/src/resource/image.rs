@@ -730,6 +730,26 @@ pub unsafe fn create_texture_image_pixel(
     width: u32,
     height: u32,
 ) -> Result<(vk::Image, vk::DeviceMemory, u32)> {
+    create_texture_image_pixel_with_format(
+        instance,
+        rrdevice,
+        rrcommand_pool,
+        pixels,
+        width,
+        height,
+        vk::Format::R8G8B8A8_SRGB,
+    )
+}
+
+pub unsafe fn create_texture_image_pixel_with_format(
+    instance: &Instance,
+    rrdevice: &RRDevice,
+    rrcommand_pool: &Rc<RRCommandPool>,
+    pixels: &Vec<u8>,
+    width: u32,
+    height: u32,
+    format: vk::Format,
+) -> Result<(vk::Image, vk::DeviceMemory, u32)> {
     /*TODO :
      Try to experiment with this by creating a setup_command_buffer that the helper functions record commands into,
      and add a flush_setup_commands to execute the commands that have been recorded so far.
@@ -760,7 +780,7 @@ pub unsafe fn create_texture_image_pixel(
         height,
         mip_levels,
         vk::SampleCountFlags::_1,
-        vk::Format::R8G8B8A8_SRGB,
+        format,
         vk::ImageTiling::OPTIMAL,
         vk::ImageUsageFlags::SAMPLED
             | vk::ImageUsageFlags::TRANSFER_DST
@@ -773,7 +793,7 @@ pub unsafe fn create_texture_image_pixel(
         rrdevice.graphics_queue,
         rrcommand_pool.command_pool,
         texture_image,
-        vk::Format::R8G8B8A8_SRGB,
+        format,
         vk::ImageLayout::UNDEFINED,
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         mip_levels,
@@ -792,7 +812,7 @@ pub unsafe fn create_texture_image_pixel(
         rrdevice,
         rrcommand_pool,
         texture_image,
-        vk::Format::R8G8B8A8_SRGB,
+        format,
         width,
         height,
         mip_levels,

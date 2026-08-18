@@ -147,13 +147,29 @@ unsafe fn create_render_pass(
                 | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         );
 
+    let dependency_out = vk::SubpassDependency::builder()
+        .src_subpass(0)
+        .dst_subpass(vk::SUBPASS_EXTERNAL)
+        .src_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        )
+        .src_access_mask(
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        )
+        .dst_stage_mask(
+            vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+        )
+        .dst_access_mask(vk::AccessFlags::SHADER_READ);
+
     let attachments = &[
         color_attachment,
         depth_stencil_attachment,
         color_resolve_attachment,
     ];
     let subpasses = &[subpass];
-    let dependencies = &[dependency];
+    let dependencies = &[dependency, dependency_out];
     let info = vk::RenderPassCreateInfo::builder()
         .attachments(attachments)
         .subpasses(subpasses)
@@ -359,6 +375,27 @@ pub unsafe fn create_gbuffer_render_pass(
                 | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
         );
 
+    let dependency_out = vk::SubpassDependency::builder()
+        .src_subpass(0)
+        .dst_subpass(vk::SUBPASS_EXTERNAL)
+        .src_stage_mask(
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+                | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        )
+        .src_access_mask(
+            vk::AccessFlags::COLOR_ATTACHMENT_WRITE
+                | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_WRITE,
+        )
+        .dst_stage_mask(
+            vk::PipelineStageFlags::FRAGMENT_SHADER
+                | vk::PipelineStageFlags::COMPUTE_SHADER
+                | vk::PipelineStageFlags::EARLY_FRAGMENT_TESTS
+                | vk::PipelineStageFlags::LATE_FRAGMENT_TESTS,
+        )
+        .dst_access_mask(
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::DEPTH_STENCIL_ATTACHMENT_READ,
+        );
+
     let attachments = [
         position_attachment,
         normal_attachment,
@@ -367,7 +404,7 @@ pub unsafe fn create_gbuffer_render_pass(
         depth_attachment,
     ];
     let subpasses = [subpass];
-    let dependencies = [dependency];
+    let dependencies = [dependency, dependency_out];
 
     let info = vk::RenderPassCreateInfo::builder()
         .attachments(&attachments)

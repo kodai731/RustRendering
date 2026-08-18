@@ -75,8 +75,9 @@ pub fn create_light_gizmo(position: Vector3<f32>) -> LightGizmoData {
         mesh: LineMesh {
             vertices,
             indices,
-            vertex_buffer_handle: VertexBufferHandle::INVALID,
-            index_buffer_handle: IndexBufferHandle::INVALID,
+            vertex_buffer_handles: [VertexBufferHandle::INVALID; 2],
+            index_buffer_handles: [IndexBufferHandle::INVALID; 2],
+            last_written_slot: 0,
         },
         render_info: RenderInfo::default(),
         position: GizmoPosition { position },
@@ -117,8 +118,9 @@ pub fn create_grid_gizmo() -> GridGizmoData {
         mesh: LineMesh {
             vertices,
             indices,
-            vertex_buffer_handle: VertexBufferHandle::INVALID,
-            index_buffer_handle: IndexBufferHandle::INVALID,
+            vertex_buffer_handles: [VertexBufferHandle::INVALID; 2],
+            index_buffer_handles: [IndexBufferHandle::INVALID; 2],
+            last_written_slot: 0,
         },
         render_info: RenderInfo::default(),
     }
@@ -321,9 +323,10 @@ pub fn gizmo_update_rotation(mesh: &mut LineMesh, rotation_matrix: &Matrix3<f32>
 pub unsafe fn gizmo_create_buffers(
     mesh: &mut LineMesh,
     backend: &mut dyn RenderBackend,
+    frame_slot: usize,
     memory_type: BufferMemoryType,
 ) -> Result<()> {
-    backend.create_gizmo_buffers(mesh, memory_type)
+    backend.create_gizmo_buffers(mesh, frame_slot, memory_type)
 }
 
 pub unsafe fn gizmo_update_vertex_buffer(
@@ -379,8 +382,9 @@ pub fn gizmo_update_ray_to_model(
 pub unsafe fn gizmo_update_or_create_ray_buffers(
     ray: &mut LineMesh,
     backend: &mut dyn RenderBackend,
+    frame_slot: usize,
 ) -> Result<()> {
-    backend.update_or_create_line_buffers(ray)
+    backend.update_or_create_line_buffers(ray, frame_slot)
 }
 
 pub unsafe fn gizmo_destroy_ray_buffers(ray: &mut LineMesh, backend: &mut dyn RenderBackend) {
@@ -402,14 +406,16 @@ pub unsafe fn run_vertical_lines_update(ctx: &mut crate::app::FrameContext) -> R
     };
 
     {
+        let frame_slot = ctx.frame_slot;
         let mut backend = ctx.create_backend();
-        backend.update_or_create_line_buffers(&mut mesh_clone)?;
+        backend.update_or_create_line_buffers(&mut mesh_clone, frame_slot)?;
     }
 
     {
         let mut gizmo = ctx.light_gizmo_mut();
-        gizmo.vertical_lines.vertex_buffer_handle = mesh_clone.vertex_buffer_handle;
-        gizmo.vertical_lines.index_buffer_handle = mesh_clone.index_buffer_handle;
+        gizmo.vertical_lines.vertex_buffer_handles = mesh_clone.vertex_buffer_handles;
+        gizmo.vertical_lines.index_buffer_handles = mesh_clone.index_buffer_handles;
+        gizmo.vertical_lines.last_written_slot = mesh_clone.last_written_slot;
     }
 
     Ok(())
@@ -456,8 +462,9 @@ pub fn gizmo_update_vertical_lines(
 pub unsafe fn gizmo_update_or_create_vertical_line_buffers(
     lines: &mut LineMesh,
     backend: &mut dyn RenderBackend,
+    frame_slot: usize,
 ) -> Result<()> {
-    backend.update_or_create_line_buffers(lines)
+    backend.update_or_create_line_buffers(lines, frame_slot)
 }
 
 pub unsafe fn gizmo_destroy_vertical_line_buffers(

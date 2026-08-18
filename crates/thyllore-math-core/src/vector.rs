@@ -282,6 +282,10 @@ pub fn array4_from_vec(v: cgmath::Vector4<f32>) -> [f32; 4] {
     v.to_array()
 }
 
+pub fn dot3(a: [f32; 3], b: [f32; 3]) -> f32 {
+    a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+}
+
 pub fn approx_equal_array3(a: &[f32; 3], b: &[f32; 3]) -> bool {
     (a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5 && (a[2] - b[2]).abs() < 1e-5
 }

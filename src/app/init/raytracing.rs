@@ -31,6 +31,10 @@ impl App {
         }
         log::info!("Created G-Buffer render pass and framebuffer");
 
+        if let Some(hdr_buffer) = &mut data.viewport.hdr_buffer {
+            hdr_buffer.attach_depth(rrdevice, rrrender.gbuffer_depth_image_view)?;
+        }
+
         log::info!("Ray Tracing initialization complete");
         Ok(())
     }
@@ -85,7 +89,53 @@ impl App {
         Self::create_dof_pipeline_with_resources(rrdevice, data, rrrender)?;
         Self::create_auto_exposure_pipelines_with_resources(rrdevice, data)?;
         Self::create_onion_skin_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
+        Self::create_flame_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
 
+        Ok(())
+    }
+
+    pub(crate) unsafe fn create_flame_pipeline_with_resources(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        data: &mut AppData,
+        rrrender: &RRRender,
+    ) -> Result<()> {
+        let flame_buffer = match data.viewport.flame_buffer {
+            Some(ref flame) => flame,
+            None => {
+                log!("Flame buffer not available, skipping flame pipeline");
+                return Ok(());
+            }
+        };
+
+        let position_image_view = match data.raytracing.gbuffer {
+            Some(ref gbuffer) => gbuffer.position_image_view,
+            None => {
+                log!("GBuffer not available, skipping flame pipeline");
+                return Ok(());
+            }
+        };
+
+        let position_sampler = match data.raytracing.gbuffer_sampler {
+            Some(sampler) => sampler,
+            None => {
+                log!("GBuffer sampler not available, skipping flame pipeline");
+                return Ok(());
+            }
+        };
+
+        data.raytracing.create_flame_pipeline(
+            instance,
+            rrdevice,
+            rrrender,
+            &data.graphics_resources,
+            flame_buffer,
+            position_image_view,
+            position_sampler,
+            rrrender.gbuffer_depth_image_view,
+        )?;
+
+        log!("Flame pipeline created successfully");
         Ok(())
     }
 
@@ -316,7 +366,7 @@ impl App {
             None => {
                 log!(
                     "AutoExposure buffers not available, \
-                     skipping pipeline"
+                    skipping pipeline"
                 );
                 return Ok(());
             }

@@ -1,7 +1,6 @@
 use crate::core::device::*;
 use crate::core::swapchain::*;
 use crate::data::*;
-use crate::descriptor::*;
 use crate::render::pass::RRRender;
 use crate::vulkan::*;
 use std::fs::File;
@@ -62,6 +61,7 @@ impl Default for DepthTestConfig {
 }
 
 /// Blend configuration
+#[derive(Clone, Copy)]
 pub struct BlendConfig {
     pub enable: bool,
     pub src_color_factor: vk::BlendFactor,
@@ -97,6 +97,7 @@ pub struct PushConstantConfig {
 pub struct PipelineBuilder {
     vertex_shader_path: String,
     fragment_shader_path: String,
+    geometry_shader_path: Option<String>,
     vertex_input: VertexInputConfig,
     topology: vk::PrimitiveTopology,
     polygon_mode: vk::PolygonMode,
@@ -110,6 +111,7 @@ pub struct PipelineBuilder {
     custom_render_pass: Option<vk::RenderPass>,
     mrt_attachment_count: u32,
     no_blend_attachments: Vec<u32>,
+    attachment_blend_overrides: Vec<(u32, BlendConfig)>,
 }
 
 impl PipelineBuilder {
@@ -117,6 +119,7 @@ impl PipelineBuilder {
         Self {
             vertex_shader_path: vertex_shader.to_string(),
             fragment_shader_path: fragment_shader.to_string(),
+            geometry_shader_path: None,
             vertex_input: VertexInputConfig::Standard,
             topology: vk::PrimitiveTopology::TRIANGLE_LIST,
             polygon_mode: vk::PolygonMode::FILL,
@@ -134,7 +137,21 @@ impl PipelineBuilder {
             custom_render_pass: None,
             mrt_attachment_count: 1,
             no_blend_attachments: vec![],
+            attachment_blend_overrides: vec![],
         }
+    }
+
+    /// Set geometry shader stage (requires the geometry_shader device feature)
+    pub fn geometry_shader(mut self, path: &str) -> Self {
+        self.geometry_shader_path = Some(path.to_string());
+        self
+    }
+
+    /// Override blend configuration for a single MRT attachment
+    pub fn attachment_blend(mut self, attachment_index: u32, config: BlendConfig) -> Self {
+        self.attachment_blend_overrides
+            .push((attachment_index, config));
+        self
     }
 
     pub fn no_blend_attachment(mut self, attachment_index: u32) -> Self {
@@ -233,6 +250,10 @@ impl PipelineBuilder {
         // Load shaders
         let vert_shader_module = load_shader_module(rrdevice, &self.vertex_shader_path)?;
         let frag_shader_module = load_shader_module(rrdevice, &self.fragment_shader_path)?;
+        let geom_shader_module = match &self.geometry_shader_path {
+            Some(path) => Some(load_shader_module(rrdevice, path)?),
+            None => None,
+        };
 
         // Shader stages
         let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
@@ -243,7 +264,16 @@ impl PipelineBuilder {
             .stage(vk::ShaderStageFlags::FRAGMENT)
             .module(frag_shader_module)
             .name(b"main\0");
-        let shader_stages = [vert_stage, frag_stage];
+        let mut shader_stages = vec![vert_stage];
+        if let Some(module) = geom_shader_module {
+            shader_stages.push(
+                vk::PipelineShaderStageCreateInfo::builder()
+                    .stage(vk::ShaderStageFlags::GEOMETRY)
+                    .module(module)
+                    .name(b"main\0"),
+            );
+        }
+        shader_stages.push(frag_stage);
 
         let (binding_descriptions, attribute_descriptions) =
             resolve_vertex_input(self.vertex_input);
@@ -323,16 +353,22 @@ impl PipelineBuilder {
 
         let color_blend_attachments: Vec<_> = (0..self.mrt_attachment_count)
             .map(|i| {
-                let blend_enable = self.blend.enable && !self.no_blend_attachments.contains(&i);
+                let blend = self
+                    .attachment_blend_overrides
+                    .iter()
+                    .find(|(index, _)| *index == i)
+                    .map(|(_, config)| *config)
+                    .unwrap_or(self.blend);
+                let blend_enable = blend.enable && !self.no_blend_attachments.contains(&i);
                 vk::PipelineColorBlendAttachmentState::builder()
                     .color_write_mask(vk::ColorComponentFlags::all())
                     .blend_enable(blend_enable)
-                    .src_color_blend_factor(self.blend.src_color_factor)
-                    .dst_color_blend_factor(self.blend.dst_color_factor)
-                    .color_blend_op(self.blend.color_op)
-                    .src_alpha_blend_factor(self.blend.src_alpha_factor)
-                    .dst_alpha_blend_factor(self.blend.dst_alpha_factor)
-                    .alpha_blend_op(self.blend.alpha_op)
+                    .src_color_blend_factor(blend.src_color_factor)
+                    .dst_color_blend_factor(blend.dst_color_factor)
+                    .color_blend_op(blend.color_op)
+                    .src_alpha_blend_factor(blend.src_alpha_factor)
+                    .dst_alpha_blend_factor(blend.dst_alpha_factor)
+                    .alpha_blend_op(blend.alpha_op)
                     .build()
             })
             .collect();
@@ -395,6 +431,11 @@ impl PipelineBuilder {
         rrdevice
             .device
             .destroy_shader_module(frag_shader_module, None);
+        for stage in &shader_stages {
+            if stage.stage == vk::ShaderStageFlags::GEOMETRY {
+                rrdevice.device.destroy_shader_module(stage.module, None);
+            }
+        }
 
         println!("Pipeline created successfully");
         Ok(rrpipeline)
@@ -402,36 +443,6 @@ impl PipelineBuilder {
 }
 
 impl RRPipeline {
-    /// Create a standard model rendering pipeline (backward compatibility)
-    pub unsafe fn new(
-        rrdevice: &RRDevice,
-        rrswapchain: &RRSwapchain,
-        rrrender: &RRRender,
-        rrdescriptor_set: &RRDescriptorSet,
-        vertex_shader_path: &str,
-        fragment_shader_path: &str,
-        topology: PrimitiveTopology,
-        polygon_mode: vk::PolygonMode,
-        cull_mode: vk::CullModeFlags,
-    ) -> Result<Self> {
-        let mut builder = PipelineBuilder::new(vertex_shader_path, fragment_shader_path)
-            .vertex_input(VertexInputConfig::Standard)
-            .topology(topology)
-            .polygon_mode(polygon_mode)
-            .cull_mode(cull_mode)
-            .descriptor_layouts(vec![rrdescriptor_set.descriptor_set_layout]);
-
-        if topology == vk::PrimitiveTopology::LINE_LIST {
-            builder = builder.depth_test(DepthTestConfig {
-                test_enable: true,
-                write_enable: false,
-                compare_op: vk::CompareOp::GREATER_OR_EQUAL,
-            });
-        }
-
-        builder.build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
-    }
-
     /// Create a pipeline with GraphicsResources layouts (Set 0, 1, 2)
     pub unsafe fn new_with_graphics_resources(
         rrdevice: &RRDevice,
