@@ -13,7 +13,6 @@ const AVERAGE_LUMINANCE_BUFFER_BINDING: u32 = 1;
 #[derive(Clone, Debug, Default)]
 pub struct RRAutoExposureHistogramDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_set: vk::DescriptorSet,
 }
 
@@ -24,13 +23,10 @@ impl RRAutoExposureHistogramDescriptorSet {
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let descriptor_pool =
-            layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
-        let descriptor_set = layout.allocate_sets(rrdevice, descriptor_pool, 1)?[0];
+        let descriptor_set = layout.allocate_set(rrdevice)?;
 
         Ok(Self {
             layout,
-            descriptor_pool,
             descriptor_set,
         })
     }
@@ -62,10 +58,6 @@ impl RRAutoExposureHistogramDescriptorSet {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
         self.layout.destroy(device);
     }
 }
@@ -73,7 +65,6 @@ impl RRAutoExposureHistogramDescriptorSet {
 #[derive(Clone, Debug, Default)]
 pub struct RRAutoExposureAverageDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_set: vk::DescriptorSet,
 }
 
@@ -84,13 +75,10 @@ impl RRAutoExposureAverageDescriptorSet {
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let descriptor_pool =
-            layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
-        let descriptor_set = layout.allocate_sets(rrdevice, descriptor_pool, 1)?[0];
+        let descriptor_set = layout.allocate_set(rrdevice)?;
 
         Ok(Self {
             layout,
-            descriptor_pool,
             descriptor_set,
         })
     }
@@ -122,10 +110,6 @@ impl RRAutoExposureAverageDescriptorSet {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
         self.layout.destroy(device);
     }
 }

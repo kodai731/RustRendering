@@ -8,7 +8,6 @@ const INPUT_SAMPLER_BINDING: u32 = 0;
 #[derive(Clone, Debug, Default)]
 pub struct RRBloomDescriptorSets {
     pub layout: ReflectedSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
     pub downsample_sets: Vec<vk::DescriptorSet>,
     pub upsample_sets: Vec<vk::DescriptorSet>,
 }
@@ -22,17 +21,11 @@ impl RRBloomDescriptorSets {
         let downsample_count = mip_count;
         let upsample_count = mip_count.saturating_sub(1);
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let descriptor_pool = layout.create_pool(
-            rrdevice,
-            (downsample_count + upsample_count) as u32,
-            vk::DescriptorPoolCreateFlags::empty(),
-        )?;
-        let downsample_sets = layout.allocate_sets(rrdevice, descriptor_pool, downsample_count)?;
-        let upsample_sets = layout.allocate_sets(rrdevice, descriptor_pool, upsample_count)?;
+        let downsample_sets = layout.allocate_sets(rrdevice, downsample_count)?;
+        let upsample_sets = layout.allocate_sets(rrdevice, upsample_count)?;
 
         Ok(Self {
             layout,
-            descriptor_pool,
             downsample_sets,
             upsample_sets,
         })
@@ -80,10 +73,6 @@ impl RRBloomDescriptorSets {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
         self.layout.destroy(device);
         self.downsample_sets.clear();
         self.upsample_sets.clear();

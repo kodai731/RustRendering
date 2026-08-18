@@ -8,12 +8,10 @@ use crate::vulkan::*;
 const UBO_BINDING: u32 = 0;
 const TEXTURE_SAMPLER_BINDING: u32 = 1;
 const POSITION_SAMPLER_BINDING: u32 = 2;
-const MAX_BILLBOARDS_PER_SWAPCHAIN_IMAGE: usize = 5;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRBillboardDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: Vec<vk::DescriptorSet>,
     pub rrdata: Vec<RRData>,
 }
@@ -23,18 +21,11 @@ impl RRBillboardDescriptorSet {
         ReflectedLayoutSpec::new(BILLBOARD_SHADERS.to_vec(), 0)
     }
 
-    pub unsafe fn new(rrdevice: &RRDevice, rrswapchain: &RRSwapchain) -> Result<Self> {
+    pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let max_sets = rrswapchain.swapchain_images.len() * MAX_BILLBOARDS_PER_SWAPCHAIN_IMAGE;
-        let descriptor_pool = layout.create_pool(
-            rrdevice,
-            max_sets as u32,
-            vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
-        )?;
 
         Ok(Self {
             layout,
-            descriptor_pool,
             descriptor_sets: Vec::new(),
             rrdata: Vec::new(),
         })
@@ -46,9 +37,7 @@ impl RRBillboardDescriptorSet {
         rrswapchain: &RRSwapchain,
     ) -> Result<()> {
         let count = self.rrdata.len() * rrswapchain.swapchain_images.len();
-        self.descriptor_sets = self
-            .layout
-            .allocate_sets(rrdevice, self.descriptor_pool, count)?;
+        self.descriptor_sets = self.layout.allocate_sets(rrdevice, count)?;
         Ok(())
     }
 
@@ -110,17 +99,7 @@ impl RRBillboardDescriptorSet {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if !self.descriptor_sets.is_empty() {
-            device
-                .free_descriptor_sets(self.descriptor_pool, &self.descriptor_sets)
-                .ok();
-            self.descriptor_sets.clear();
-        }
-
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
+        self.descriptor_sets.clear();
         self.layout.destroy(device);
     }
 }

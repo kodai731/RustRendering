@@ -1,9 +1,9 @@
-use std::collections::BTreeMap;
 use std::path::Path;
 
 use anyhow::{anyhow, Context, Result};
 use vulkanalia::prelude::v1_0::*;
 
+use crate::core::descriptor_allocator::PoolSignature;
 use crate::core::device::RRDevice;
 use crate::descriptor::reflection::{
     kind_accepts, reflect_shader_bytes, DescriptorSetTable, ShaderReflection,
@@ -128,48 +128,19 @@ impl ReflectedSetLayout {
             .ok_or_else(|| anyhow!("descriptor set layout has no binding {binding}"))
     }
 
-    pub fn pool_sizes(&self, max_sets: u32) -> Vec<vk::DescriptorPoolSize> {
-        let mut counts: BTreeMap<i32, u32> = BTreeMap::new();
-        for binding in &self.bindings {
-            *counts.entry(binding.descriptor_type.as_raw()).or_default() +=
-                binding.descriptor_count * max_sets;
-        }
-        counts
-            .into_iter()
-            .map(|(raw_type, count)| {
-                vk::DescriptorPoolSize::builder()
-                    .type_(vk::DescriptorType::from_raw(raw_type))
-                    .descriptor_count(count)
-                    .build()
-            })
-            .collect()
-    }
-
-    pub unsafe fn create_pool(
-        &self,
-        rrdevice: &RRDevice,
-        max_sets: u32,
-        flags: vk::DescriptorPoolCreateFlags,
-    ) -> Result<vk::DescriptorPool> {
-        let pool_sizes = self.pool_sizes(max_sets);
-        let info = vk::DescriptorPoolCreateInfo::builder()
-            .pool_sizes(&pool_sizes)
-            .max_sets(max_sets)
-            .flags(flags);
-        Ok(rrdevice.device.create_descriptor_pool(&info, None)?)
-    }
-
     pub unsafe fn allocate_sets(
         &self,
         rrdevice: &RRDevice,
-        pool: vk::DescriptorPool,
         count: usize,
     ) -> Result<Vec<vk::DescriptorSet>> {
-        let layouts = vec![self.handle; count];
-        let info = vk::DescriptorSetAllocateInfo::builder()
-            .descriptor_pool(pool)
-            .set_layouts(&layouts);
-        Ok(rrdevice.device.allocate_descriptor_sets(&info)?)
+        let signature = PoolSignature::from_bindings(&self.bindings);
+        rrdevice.allocate_descriptor_sets(self.handle, &signature, count)
+    }
+
+    pub unsafe fn allocate_set(&self, rrdevice: &RRDevice) -> Result<vk::DescriptorSet> {
+        self.allocate_sets(rrdevice, 1)?
+            .pop()
+            .ok_or_else(|| anyhow!("descriptor allocator returned no set"))
     }
 
     pub fn writer(&self, dst_set: vk::DescriptorSet) -> DescriptorSetWriter<'_> {

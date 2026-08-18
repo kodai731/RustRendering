@@ -22,7 +22,6 @@ pub struct FlameImageBindings {
 #[derive(Clone, Debug, Default)]
 pub struct RRFlameDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_sets: [vk::DescriptorSet; FLAME_HISTORY_SET_COUNT],
     pub scene_depth_sampler: vk::Sampler,
 }
@@ -38,17 +37,11 @@ impl RRFlameDescriptorSet {
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let descriptor_pool = layout.create_pool(
-            rrdevice,
-            FLAME_HISTORY_SET_COUNT as u32,
-            vk::DescriptorPoolCreateFlags::empty(),
-        )?;
-        let sets = layout.allocate_sets(rrdevice, descriptor_pool, FLAME_HISTORY_SET_COUNT)?;
+        let sets = layout.allocate_sets(rrdevice, FLAME_HISTORY_SET_COUNT)?;
         let scene_depth_sampler = create_scene_depth_sampler(rrdevice)?;
 
         Ok(Self {
             layout,
-            descriptor_pool,
             descriptor_sets: [sets[0], sets[1]],
             scene_depth_sampler,
         })
@@ -103,10 +96,6 @@ impl RRFlameDescriptorSet {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
         self.layout.destroy(device);
         device.destroy_sampler(self.scene_depth_sampler, None);
     }

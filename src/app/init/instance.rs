@@ -321,7 +321,7 @@ impl App {
     ) -> Result<()> {
         let swapchain_image_count = rrswapchain.swapchain_images.len();
         data.graphics_resources =
-            GraphicsResources::new(instance, rrdevice, swapchain_image_count, 16, 64)
+            GraphicsResources::new(instance, rrdevice, swapchain_image_count, 64)
                 .context("Failed to create render resources")?;
 
         let gpu_descriptors = GpuDescriptors::new(
@@ -784,9 +784,8 @@ impl App {
                 .context("Failed to create billboard buffers")?;
         }
 
-        billboard_data.render_state.descriptor_set =
-            RRBillboardDescriptorSet::new(rrdevice, rrswapchain)
-                .context("Failed to create billboard descriptor set")?;
+        billboard_data.render_state.descriptor_set = RRBillboardDescriptorSet::new(rrdevice)
+            .context("Failed to create billboard descriptor set")?;
         billboard_data
             .render_state
             .descriptor_set
@@ -1261,7 +1260,7 @@ impl App {
         let image_view = Self::create_font_image_view(&rrdevice.device, image)?;
         let sampler = Self::create_font_sampler(&rrdevice.device)?;
 
-        let (descriptor_pool, descriptor_set_layout, descriptor_set) =
+        let (descriptor_set_layout, descriptor_set) =
             Self::setup_imgui_descriptors(rrdevice, image_view, sampler)?;
 
         let msaa_samples = {
@@ -1286,7 +1285,6 @@ impl App {
         data.imgui.pipeline_layout = Some(imgui_pipeline.pipeline_layout);
         data.imgui.descriptor_set = Some(descriptor_set);
         data.imgui.descriptor_set_layout = Some(descriptor_set_layout);
-        data.imgui.descriptor_pool = Some(descriptor_pool);
         data.imgui.font_image = Some(image);
         data.imgui.font_image_memory = Some(image_memory);
         data.imgui.font_image_view = Some(image_view);
@@ -1517,11 +1515,9 @@ impl App {
         rrdevice: &RRDevice,
         image_view: vk::ImageView,
         sampler: vk::Sampler,
-    ) -> Result<(vk::DescriptorPool, ReflectedSetLayout, vk::DescriptorSet)> {
+    ) -> Result<(ReflectedSetLayout, vk::DescriptorSet)> {
         let layout = ReflectedSetLayout::create(rrdevice, &imgui_layout_spec())?;
-        let descriptor_pool =
-            layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
-        let descriptor_set = layout.allocate_sets(rrdevice, descriptor_pool, 1)?[0];
+        let descriptor_set = layout.allocate_set(rrdevice)?;
 
         layout
             .writer(descriptor_set)
@@ -1533,6 +1529,6 @@ impl App {
             )?
             .apply(rrdevice);
 
-        Ok((descriptor_pool, layout, descriptor_set))
+        Ok((layout, descriptor_set))
     }
 }

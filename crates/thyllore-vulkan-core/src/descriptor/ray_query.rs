@@ -12,7 +12,6 @@ const SCENE_UBO_BINDING: u32 = 4;
 #[derive(Clone, Debug, Default)]
 pub struct RRRayQueryDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_set: vk::DescriptorSet,
 }
 
@@ -23,12 +22,9 @@ impl RRRayQueryDescriptorSet {
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let descriptor_pool =
-            layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
 
         Ok(Self {
             layout,
-            descriptor_pool,
             descriptor_set: vk::DescriptorSet::null(),
         })
     }
@@ -42,9 +38,7 @@ impl RRRayQueryDescriptorSet {
         tlas: vk::AccelerationStructureKHR,
         scene_uniform_buffer: vk::Buffer,
     ) -> Result<()> {
-        self.descriptor_set = self
-            .layout
-            .allocate_sets(rrdevice, self.descriptor_pool, 1)?[0];
+        self.descriptor_set = self.layout.allocate_set(rrdevice)?;
 
         self.update_gbuffer_views(
             rrdevice,
@@ -118,10 +112,6 @@ impl RRRayQueryDescriptorSet {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
         self.layout.destroy(device);
     }
 }

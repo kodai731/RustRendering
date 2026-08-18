@@ -15,7 +15,6 @@ const FRAME_UBO_BINDING: u32 = 0;
 #[derive(Clone, Debug, Default)]
 pub struct FrameDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub pool: vk::DescriptorPool,
     pub sets: Vec<vk::DescriptorSet>,
     pub buffers: Vec<vk::Buffer>,
     pub buffer_memories: Vec<vk::DeviceMemory>,
@@ -28,12 +27,7 @@ impl FrameDescriptorSet {
         swapchain_image_count: usize,
     ) -> anyhow::Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let pool = layout.create_pool(
-            rrdevice,
-            swapchain_image_count as u32,
-            vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
-        )?;
-        let sets = layout.allocate_sets(rrdevice, pool, swapchain_image_count)?;
+        let sets = layout.allocate_sets(rrdevice, swapchain_image_count)?;
 
         let mut buffers = Vec::with_capacity(swapchain_image_count);
         let mut buffer_memories = Vec::with_capacity(swapchain_image_count);
@@ -52,7 +46,6 @@ impl FrameDescriptorSet {
 
         let mut frame_set = Self {
             layout,
-            pool,
             sets,
             buffers,
             buffer_memories,
@@ -101,13 +94,6 @@ impl FrameDescriptorSet {
         }
         for &memory in &self.buffer_memories {
             device.free_memory(memory, None);
-        }
-
-        if !self.sets.is_empty() {
-            device.free_descriptor_sets(self.pool, &self.sets).ok();
-        }
-        if self.pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.pool, None);
         }
         self.layout.destroy(device);
     }

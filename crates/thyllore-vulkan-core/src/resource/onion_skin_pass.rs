@@ -24,7 +24,6 @@ pub struct OnionSkinPassResources {
     pub composite_framebuffer: vk::Framebuffer,
     pub composite_pipeline: RRPipeline,
     pub composite_descriptor_layout: ReflectedSetLayout,
-    pub composite_descriptor_pool: vk::DescriptorPool,
     pub composite_descriptor_set: vk::DescriptorSet,
 
     pub width: u32,
@@ -211,10 +210,9 @@ impl OnionSkinPassResources {
         rrdevice: &RRDevice,
         ghost_image_view: vk::ImageView,
         ghost_sampler: vk::Sampler,
-    ) -> Result<(ReflectedSetLayout, vk::DescriptorPool, vk::DescriptorSet)> {
+    ) -> Result<(ReflectedSetLayout, vk::DescriptorSet)> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::composite_layout_spec())?;
-        let pool = layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
-        let descriptor_set = layout.allocate_sets(rrdevice, pool, 1)?[0];
+        let descriptor_set = layout.allocate_set(rrdevice)?;
 
         Self::update_composite_descriptor(
             rrdevice,
@@ -224,7 +222,7 @@ impl OnionSkinPassResources {
             ghost_sampler,
         )?;
 
-        Ok((layout, pool, descriptor_set))
+        Ok((layout, descriptor_set))
     }
 
     pub unsafe fn update_composite_descriptor(
@@ -270,7 +268,6 @@ impl OnionSkinPassResources {
         device.destroy_framebuffer(self.composite_framebuffer, None);
         self.composite_pipeline.destroy(device);
         device.destroy_render_pass(self.composite_render_pass, None);
-        device.destroy_descriptor_pool(self.composite_descriptor_pool, None);
         device.destroy_descriptor_set_layout(self.composite_descriptor_layout.handle, None);
 
         device.destroy_framebuffer(self.ghost_framebuffer, None);

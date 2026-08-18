@@ -358,7 +358,7 @@ impl RayTracingData {
         let composite_render_pass =
             OnionSkinPassResources::create_composite_render_pass(rrdevice, offscreen_format)?;
 
-        let (composite_descriptor_layout, composite_descriptor_pool, composite_descriptor_set) =
+        let (composite_descriptor_layout, composite_descriptor_set) =
             OnionSkinPassResources::create_composite_descriptor(
                 rrdevice,
                 ghost_image_view,
@@ -410,7 +410,6 @@ impl RayTracingData {
             composite_framebuffer,
             composite_pipeline,
             composite_descriptor_layout,
-            composite_descriptor_pool,
             composite_descriptor_set,
             width,
             height,

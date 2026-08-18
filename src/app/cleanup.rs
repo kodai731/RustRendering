@@ -146,6 +146,9 @@ impl App {
         self.data.graphics_resources.destroy(&self.rrdevice);
         log!("Destroyed render resources");
 
+        self.rrdevice.destroy_descriptor_pools();
+        log!("Destroyed descriptor pools");
+
         log!("All application resources destroyed");
     }
 

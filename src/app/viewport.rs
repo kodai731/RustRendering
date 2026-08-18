@@ -15,7 +15,6 @@ pub struct ViewportState {
     pub dof_buffer: Option<DofBuffer>,
     pub auto_exposure_buffers: Option<AutoExposureBuffers>,
     pub flame_buffer: Option<FlameBuffer>,
-    pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_set_layout: ReflectedSetLayout,
     pub descriptor_set: vk::DescriptorSet,
     pub width: u32,
@@ -62,7 +61,7 @@ impl ViewportState {
             hdr_buffer.color_image_view,
         )?;
 
-        let (descriptor_pool, descriptor_set_layout, descriptor_set) =
+        let (descriptor_set_layout, descriptor_set) =
             Self::create_imgui_descriptor(rrdevice, &offscreen)?;
 
         Ok(Self {
@@ -72,7 +71,6 @@ impl ViewportState {
             dof_buffer: Some(dof_buffer),
             auto_exposure_buffers: Some(auto_exposure_buffers),
             flame_buffer: Some(flame_buffer),
-            descriptor_pool,
             descriptor_set_layout,
             descriptor_set,
             width,
@@ -86,15 +84,13 @@ impl ViewportState {
     unsafe fn create_imgui_descriptor(
         rrdevice: &RRDevice,
         offscreen: &OffscreenFramebuffer,
-    ) -> Result<(vk::DescriptorPool, ReflectedSetLayout, vk::DescriptorSet)> {
+    ) -> Result<(ReflectedSetLayout, vk::DescriptorSet)> {
         let layout = ReflectedSetLayout::create(rrdevice, &imgui_layout_spec())?;
-        let descriptor_pool =
-            layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
-        let descriptor_set = layout.allocate_sets(rrdevice, descriptor_pool, 1)?[0];
+        let descriptor_set = layout.allocate_set(rrdevice)?;
 
         Self::update_descriptor_set(rrdevice, &layout, descriptor_set, offscreen)?;
 
-        Ok((descriptor_pool, layout, descriptor_set))
+        Ok((layout, descriptor_set))
     }
 
     unsafe fn update_descriptor_set(
@@ -178,7 +174,6 @@ impl ViewportState {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        device.destroy_descriptor_pool(self.descriptor_pool, None);
         self.descriptor_set_layout.destroy(device);
 
         if let Some(ref mut offscreen) = self.offscreen {

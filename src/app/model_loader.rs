@@ -251,12 +251,8 @@ unsafe fn ensure_graphics_capacity(
 ) -> Result<()> {
     let mesh_count = load_result.meshes.len();
     let reserved_scene_objects = 4;
-    let required_materials = mesh_count as u32 + reserved_scene_objects as u32;
     let required_objects = graphics.objects.get_next_slot() + mesh_count + reserved_scene_objects;
 
-    graphics
-        .materials
-        .ensure_capacity(device, required_materials)?;
     graphics.objects.ensure_capacity(
         instance,
         device,

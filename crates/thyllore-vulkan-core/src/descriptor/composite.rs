@@ -49,7 +49,6 @@ pub struct CompositeGBufferViews {
 #[derive(Clone, Debug, Default)]
 pub struct RRCompositeDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_pool: vk::DescriptorPool,
     pub descriptor_set: vk::DescriptorSet,
     pub selection_buffer: vk::Buffer,
     pub selection_buffer_memory: vk::DeviceMemory,
@@ -62,12 +61,9 @@ impl RRCompositeDescriptorSet {
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let descriptor_pool =
-            layout.create_pool(rrdevice, 1, vk::DescriptorPoolCreateFlags::empty())?;
 
         Ok(Self {
             layout,
-            descriptor_pool,
             descriptor_set: vk::DescriptorSet::null(),
             selection_buffer: vk::Buffer::null(),
             selection_buffer_memory: vk::DeviceMemory::null(),
@@ -81,9 +77,7 @@ impl RRCompositeDescriptorSet {
         gbuffer_views: CompositeGBufferViews,
         scene_uniform_buffer: vk::Buffer,
     ) -> Result<()> {
-        self.descriptor_set = self
-            .layout
-            .allocate_sets(rrdevice, self.descriptor_pool, 1)?[0];
+        self.descriptor_set = self.layout.allocate_set(rrdevice)?;
 
         let (selection_buffer, selection_buffer_memory) =
             Self::create_selection_buffer(instance, rrdevice)?;
@@ -205,10 +199,6 @@ impl RRCompositeDescriptorSet {
             self.selection_buffer_memory = vk::DeviceMemory::null();
         }
 
-        if self.descriptor_pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.descriptor_pool, None);
-            self.descriptor_pool = vk::DescriptorPool::null();
-        }
         self.layout.destroy(device);
     }
 }

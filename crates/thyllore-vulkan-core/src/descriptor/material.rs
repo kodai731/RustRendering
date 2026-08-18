@@ -31,50 +31,21 @@ pub struct Material {
 #[derive(Clone, Debug, Default)]
 pub struct MaterialManager {
     pub layout: ReflectedSetLayout,
-    pub pool: vk::DescriptorPool,
     pub materials: HashMap<MaterialId, Material>,
     next_id: MaterialId,
-    capacity: u32,
+    recycled_sets: Vec<vk::DescriptorSet>,
 }
 
 impl MaterialManager {
-    pub unsafe fn new(rrdevice: &RRDevice, max_materials: u32) -> anyhow::Result<Self> {
+    pub unsafe fn new(rrdevice: &RRDevice) -> anyhow::Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let pool = layout.create_pool(
-            rrdevice,
-            max_materials,
-            vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
-        )?;
 
         Ok(Self {
             layout,
-            pool,
             materials: HashMap::new(),
             next_id: 0,
-            capacity: max_materials,
+            recycled_sets: Vec::new(),
         })
-    }
-
-    pub unsafe fn ensure_capacity(
-        &mut self,
-        rrdevice: &RRDevice,
-        required: u32,
-    ) -> anyhow::Result<()> {
-        if required <= self.capacity {
-            return Ok(());
-        }
-
-        if self.pool != vk::DescriptorPool::null() {
-            rrdevice.device.destroy_descriptor_pool(self.pool, None);
-        }
-
-        self.pool = self.layout.create_pool(
-            rrdevice,
-            required,
-            vk::DescriptorPoolCreateFlags::FREE_DESCRIPTOR_SET,
-        )?;
-        self.capacity = required;
-        Ok(())
     }
 
     pub fn layout_spec() -> ReflectedLayoutSpec {
@@ -108,7 +79,10 @@ impl MaterialManager {
         sampler: vk::Sampler,
         properties: MaterialUBO,
     ) -> anyhow::Result<MaterialId> {
-        let descriptor_set = self.layout.allocate_sets(rrdevice, self.pool, 1)?[0];
+        let descriptor_set = match self.recycled_sets.pop() {
+            Some(set) => set,
+            None => self.layout.allocate_set(rrdevice)?,
+        };
 
         let (uniform_buffer, uniform_buffer_memory) = create_buffer(
             instance,
@@ -168,12 +142,7 @@ impl MaterialManager {
         for material in self.materials.values() {
             device.destroy_buffer(material.uniform_buffer, None);
             device.free_memory(material.uniform_buffer_memory, None);
-        }
-
-        if self.pool != vk::DescriptorPool::null() {
-            device
-                .reset_descriptor_pool(self.pool, vk::DescriptorPoolResetFlags::empty())
-                .ok();
+            self.recycled_sets.push(material.descriptor_set);
         }
 
         self.materials.clear();
@@ -185,10 +154,7 @@ impl MaterialManager {
             device.destroy_buffer(material.uniform_buffer, None);
             device.free_memory(material.uniform_buffer_memory, None);
         }
-
-        if self.pool != vk::DescriptorPool::null() {
-            device.destroy_descriptor_pool(self.pool, None);
-        }
+        self.recycled_sets.clear();
         self.layout.destroy(device);
     }
 }

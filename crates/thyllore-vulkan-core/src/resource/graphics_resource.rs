@@ -43,11 +43,10 @@ impl GraphicsResources {
         instance: &Instance,
         rrdevice: &RRDevice,
         swapchain_image_count: usize,
-        max_materials: u32,
         max_objects: usize,
     ) -> anyhow::Result<Self> {
         let frame_set = FrameDescriptorSet::new(instance, rrdevice, swapchain_image_count)?;
-        let materials = MaterialManager::new(rrdevice, max_materials)?;
+        let materials = MaterialManager::new(rrdevice)?;
         let objects =
             ObjectDescriptorSet::new(instance, rrdevice, swapchain_image_count, max_objects)?;
 
