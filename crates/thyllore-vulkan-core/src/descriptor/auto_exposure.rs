@@ -1,7 +1,5 @@
 use crate::core::device::*;
-use crate::descriptor::pass_shaders::{
-    AUTO_EXPOSURE_AVERAGE_SHADER, AUTO_EXPOSURE_HISTOGRAM_SHADER,
-};
+use crate::descriptor::pass_manifest::{AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM};
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
@@ -18,7 +16,7 @@ pub struct RRAutoExposureHistogramDescriptorSet {
 
 impl RRAutoExposureHistogramDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(vec![AUTO_EXPOSURE_HISTOGRAM_SHADER], 0)
+        ReflectedLayoutSpec::local(&AUTO_EXPOSURE_HISTOGRAM)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
@@ -70,7 +68,7 @@ pub struct RRAutoExposureAverageDescriptorSet {
 
 impl RRAutoExposureAverageDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(vec![AUTO_EXPOSURE_AVERAGE_SHADER], 0)
+        ReflectedLayoutSpec::local(&AUTO_EXPOSURE_AVERAGE)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {

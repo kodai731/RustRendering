@@ -59,7 +59,7 @@ fn test_all_compiled_shaders_exist() {
         "assets/shaders/gizmoFrag.spv",
         "assets/shaders/imguiVert.spv",
         "assets/shaders/imguiFrag.spv",
-        "assets/shaders/rayQueryShadow.spv",
+        "assets/shaders/rayQueryShadowComp.spv",
     ];
 
     for shader in &compiled_shaders {

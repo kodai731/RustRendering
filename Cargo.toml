@@ -81,6 +81,7 @@ tempfile = "3"
 
 [build-dependencies]
 thyllore-spirv-reflect = { path = "crates/thyllore-spirv-reflect" }
+thyllore-shader-manifest = { path = "crates/thyllore-shader-manifest" }
 
 [profile.release]
 opt-level = 3

@@ -1,7 +1,7 @@
 use crate::core::device::*;
 use crate::core::swapchain::*;
 use crate::data::*;
-use crate::descriptor::pass_shaders::BILLBOARD_SHADERS;
+use crate::descriptor::pass_manifest::BILLBOARD;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
@@ -18,7 +18,7 @@ pub struct RRBillboardDescriptorSet {
 
 impl RRBillboardDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(BILLBOARD_SHADERS.to_vec(), 0)
+        ReflectedLayoutSpec::local(&BILLBOARD)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {

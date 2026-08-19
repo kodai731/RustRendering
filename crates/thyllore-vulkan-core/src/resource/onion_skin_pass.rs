@@ -2,7 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::RRDevice;
-use crate::descriptor::{ReflectedLayoutSpec, ReflectedSetLayout, ONION_SKIN_COMPOSITE_SHADERS};
+use crate::descriptor::{onion_skin_composite_layout_spec, ReflectedSetLayout};
 use crate::pipeline::RRPipeline;
 use crate::resource::image::{create_image, create_image_view};
 
@@ -202,16 +202,12 @@ impl OnionSkinPassResources {
         Ok(render_pass)
     }
 
-    pub fn composite_layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(ONION_SKIN_COMPOSITE_SHADERS.to_vec(), 0)
-    }
-
     pub unsafe fn create_composite_descriptor(
         rrdevice: &RRDevice,
         ghost_image_view: vk::ImageView,
         ghost_sampler: vk::Sampler,
     ) -> Result<(ReflectedSetLayout, vk::DescriptorSet)> {
-        let layout = ReflectedSetLayout::create(rrdevice, &Self::composite_layout_spec())?;
+        let layout = ReflectedSetLayout::create(rrdevice, &onion_skin_composite_layout_spec())?;
         let descriptor_set = layout.allocate_set(rrdevice)?;
 
         Self::update_composite_descriptor(

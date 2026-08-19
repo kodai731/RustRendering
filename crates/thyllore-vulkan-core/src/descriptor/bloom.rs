@@ -1,5 +1,5 @@
 use crate::core::device::*;
-use crate::descriptor::pass_shaders::bloom_shaders;
+use crate::descriptor::pass_manifest::{SetRole, BLOOM_DOWNSAMPLE, BLOOM_UPSAMPLE};
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
@@ -14,7 +14,7 @@ pub struct RRBloomDescriptorSets {
 
 impl RRBloomDescriptorSets {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(bloom_shaders(), 0)
+        ReflectedLayoutSpec::new(vec![&BLOOM_DOWNSAMPLE, &BLOOM_UPSAMPLE], SetRole::Local)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice, mip_count: usize) -> Result<Self> {

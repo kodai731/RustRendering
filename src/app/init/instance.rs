@@ -172,8 +172,7 @@ impl App {
             &rrswapchain,
             &rrrender,
             &render_layouts,
-            MODEL_SHADERS[0],
-            MODEL_SHADERS[1],
+            &MODEL,
             vk::PrimitiveTopology::TRIANGLE_LIST,
             vk::PolygonMode::FILL,
             vk::CullModeFlags::BACK,
@@ -382,7 +381,7 @@ impl App {
 
         let render_layouts = data.graphics_resources.get_layouts();
         if let Some(ref hdr_buffer) = data.viewport.hdr_buffer {
-            let hdr_grid = PipelineBuilder::new(GRID_SHADERS[0], GRID_SHADERS[1])
+            let hdr_grid = PipelineBuilder::from_pass(&GRID)
                 .vertex_input(VertexInputConfig::Gizmo)
                 .topology(vk::PrimitiveTopology::LINE_LIST)
                 .polygon_mode(vk::PolygonMode::LINE)
@@ -423,7 +422,7 @@ impl App {
         pipeline_storage: &mut crate::vulkanr::resource::PipelineStorage,
         pipeline_manager: &mut PipelineManager,
     ) -> Result<GizmoPipelineIds> {
-        let grid = PipelineBuilder::new(GRID_SHADERS[0], GRID_SHADERS[1])
+        let grid = PipelineBuilder::from_pass(&GRID)
             .vertex_input(VertexInputConfig::Gizmo)
             .topology(vk::PrimitiveTopology::LINE_LIST)
             .polygon_mode(vk::PolygonMode::LINE)
@@ -438,7 +437,7 @@ impl App {
         let grid = pipeline_storage.register(grid);
         pipeline_allocate_id(pipeline_manager);
 
-        let gizmo = PipelineBuilder::new(GIZMO_SHADERS[0], GIZMO_SHADERS[1])
+        let gizmo = PipelineBuilder::from_pass(&GIZMO)
             .vertex_input(VertexInputConfig::Gizmo)
             .topology(vk::PrimitiveTopology::LINE_LIST)
             .polygon_mode(vk::PolygonMode::LINE)
@@ -589,7 +588,7 @@ impl App {
         pipeline_manager: &mut PipelineManager,
         label: &str,
     ) -> Result<usize> {
-        let mut builder = PipelineBuilder::new(BONE_SHADERS[0], BONE_SHADERS[1])
+        let mut builder = PipelineBuilder::from_pass(&BONE)
             .vertex_input(VertexInputConfig::Gizmo)
             .topology(topology)
             .polygon_mode(polygon_mode)
@@ -811,8 +810,7 @@ impl App {
             rrrender,
             rrswapchain,
             billboard_data.render_state.descriptor_set.layout.handle,
-            BILLBOARD_SHADERS[0],
-            BILLBOARD_SHADERS[1],
+            &BILLBOARD,
         )
         .context("Failed to create billboard pipeline")?;
         let billboard_pipeline_id = data.pipeline_storage.register(billboard_pipeline);
@@ -1276,8 +1274,7 @@ impl App {
             rrdevice,
             rrrender,
             descriptor_set_layout.handle,
-            IMGUI_SHADERS[0],
-            IMGUI_SHADERS[1],
+            &IMGUI,
             msaa_samples,
         )?;
 
