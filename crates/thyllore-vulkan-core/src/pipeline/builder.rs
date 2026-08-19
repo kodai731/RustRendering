@@ -1,6 +1,8 @@
 use crate::core::device::*;
 use crate::core::swapchain::*;
-use crate::descriptor::{shader_stage_flags, PassShaders, ShaderStage};
+use crate::descriptor::{
+    shader_stage_flags, verify_pass_layouts, PassShaders, ReflectedSetLayout, ShaderStage,
+};
 use crate::render::pass::RRRender;
 use crate::vulkan::*;
 use std::fs::File;
@@ -104,7 +106,7 @@ pub struct PipelineBuilder {
     blend: BlendConfig,
     push_constants: Option<PushConstantConfig>,
     dynamic_states: Vec<vk::DynamicState>,
-    descriptor_layouts: Vec<vk::DescriptorSetLayout>,
+    descriptor_layouts: Vec<ReflectedSetLayout>,
     msaa_samples: vk::SampleCountFlags,
     custom_render_pass: Option<vk::RenderPass>,
     mrt_attachment_count: u32,
@@ -216,9 +218,9 @@ impl PipelineBuilder {
         self
     }
 
-    /// Set descriptor set layouts
-    pub fn descriptor_layouts(mut self, layouts: Vec<vk::DescriptorSetLayout>) -> Self {
-        self.descriptor_layouts = layouts;
+    /// Set descriptor set layouts, ordered by set index
+    pub fn descriptor_layouts(mut self, layouts: &[&ReflectedSetLayout]) -> Self {
+        self.descriptor_layouts = layouts.iter().map(|layout| (*layout).clone()).collect();
         self
     }
 
@@ -243,6 +245,7 @@ impl PipelineBuilder {
                 self.pass.name()
             ));
         }
+        verify_pass_layouts(self.pass, &self.descriptor_layouts)?;
         let shader_stages = load_pass_stages(rrdevice, self.pass)?;
 
         let (binding_descriptions, attribute_descriptions) =
@@ -363,8 +366,13 @@ impl PipelineBuilder {
             })
             .unwrap_or_default();
 
+        let layout_handles: Vec<vk::DescriptorSetLayout> = self
+            .descriptor_layouts
+            .iter()
+            .map(|layout| layout.handle)
+            .collect();
         let pipeline_layout_info = vk::PipelineLayoutCreateInfo::builder()
-            .set_layouts(&self.descriptor_layouts)
+            .set_layouts(&layout_handles)
             .push_constant_ranges(&push_constant_ranges);
 
         rrpipeline.pipeline_layout = rrdevice
@@ -409,7 +417,7 @@ impl RRPipeline {
         rrdevice: &RRDevice,
         rrswapchain: &RRSwapchain,
         rrrender: &RRRender,
-        layouts: &[vk::DescriptorSetLayout; 3],
+        layouts: &[&ReflectedSetLayout; 3],
         pass: &'static PassShaders,
         topology: PrimitiveTopology,
         polygon_mode: vk::PolygonMode,
@@ -420,7 +428,7 @@ impl RRPipeline {
             .topology(topology)
             .polygon_mode(polygon_mode)
             .cull_mode(cull_mode)
-            .descriptor_layouts(layouts.to_vec());
+            .descriptor_layouts(layouts);
 
         if topology == vk::PrimitiveTopology::LINE_LIST {
             builder = builder.depth_test(DepthTestConfig {
@@ -438,7 +446,7 @@ impl RRPipeline {
         rrdevice: &RRDevice,
         rrswapchain: &RRSwapchain,
         rrrender: &RRRender,
-        layouts: &[vk::DescriptorSetLayout; 2],
+        layouts: &[&ReflectedSetLayout; 2],
         pass: &'static PassShaders,
         topology: PrimitiveTopology,
         polygon_mode: vk::PolygonMode,
@@ -449,7 +457,7 @@ impl RRPipeline {
             .topology(topology)
             .polygon_mode(polygon_mode)
             .cull_mode(cull_mode)
-            .descriptor_layouts(layouts.to_vec());
+            .descriptor_layouts(layouts);
 
         if topology == vk::PrimitiveTopology::LINE_LIST {
             builder = builder.depth_test(DepthTestConfig {
@@ -466,7 +474,7 @@ impl RRPipeline {
     pub unsafe fn new_imgui(
         rrdevice: &RRDevice,
         rrrender: &RRRender,
-        descriptor_set_layout: vk::DescriptorSetLayout,
+        descriptor_set_layout: &ReflectedSetLayout,
         pass: &'static PassShaders,
         msaa_samples: vk::SampleCountFlags,
     ) -> Result<Self> {
@@ -479,7 +487,7 @@ impl RRPipeline {
                 size: std::mem::size_of::<[f32; 4]>() as u32,
             })
             .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
-            .descriptor_layouts(vec![descriptor_set_layout])
+            .descriptor_layouts(&[descriptor_set_layout])
             .msaa_samples(msaa_samples)
             .build(rrdevice, rrrender, None)
     }
@@ -489,7 +497,7 @@ impl RRPipeline {
         rrdevice: &RRDevice,
         rrrender: &RRRender,
         rrswapchain: &RRSwapchain,
-        descriptor_set_layout: vk::DescriptorSetLayout,
+        descriptor_set_layout: &ReflectedSetLayout,
         pass: &'static PassShaders,
     ) -> Result<Self> {
         PipelineBuilder::from_pass(pass)
@@ -497,7 +505,7 @@ impl RRPipeline {
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .polygon_mode(vk::PolygonMode::FILL)
             .blend(BlendConfig::default())
-            .descriptor_layouts(vec![descriptor_set_layout])
+            .descriptor_layouts(&[descriptor_set_layout])
             .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
     }
 
@@ -505,7 +513,7 @@ impl RRPipeline {
     pub unsafe fn new_compute(
         rrdevice: &RRDevice,
         pass: &'static PassShaders,
-        descriptor_set_layouts: &[vk::DescriptorSetLayout],
+        descriptor_set_layouts: &[&ReflectedSetLayout],
     ) -> Result<Self> {
         Self::new_compute_with_push_constants(rrdevice, pass, descriptor_set_layouts, &[])
     }
@@ -514,10 +522,18 @@ impl RRPipeline {
     pub unsafe fn new_compute_with_push_constants(
         rrdevice: &RRDevice,
         pass: &'static PassShaders,
-        descriptor_set_layouts: &[vk::DescriptorSetLayout],
+        descriptor_set_layouts: &[&ReflectedSetLayout],
         push_constant_ranges: &[vk::PushConstantRange],
     ) -> Result<Self> {
         let device = &rrdevice.device;
+
+        let owned_layouts: Vec<ReflectedSetLayout> = descriptor_set_layouts
+            .iter()
+            .map(|layout| (*layout).clone())
+            .collect();
+        verify_pass_layouts(pass, &owned_layouts)?;
+        let layout_handles: Vec<vk::DescriptorSetLayout> =
+            owned_layouts.iter().map(|layout| layout.handle).collect();
 
         let compute_shader = pass.stage(ShaderStage::Compute).ok_or_else(|| {
             anyhow::anyhow!(
@@ -535,8 +551,7 @@ impl RRPipeline {
             .build();
 
         // Create pipeline layout
-        let mut layout_info =
-            vk::PipelineLayoutCreateInfo::builder().set_layouts(descriptor_set_layouts);
+        let mut layout_info = vk::PipelineLayoutCreateInfo::builder().set_layouts(&layout_handles);
         if !push_constant_ranges.is_empty() {
             layout_info = layout_info.push_constant_ranges(push_constant_ranges);
         }

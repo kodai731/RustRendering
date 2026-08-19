@@ -2,7 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::vulkanr::core::RRDevice;
-use crate::vulkanr::descriptor::{imgui_layout_spec, ReflectedSetLayout, IMGUI_TEXTURE_BINDING};
+use crate::vulkanr::descriptor::{imgui_layout_spec, shader_bindings, ReflectedSetLayout};
 use crate::vulkanr::resource::{
     AutoExposureBuffers, BloomChain, DofBuffer, FlameBuffer, HdrBuffer, OffscreenFramebuffer,
 };
@@ -102,7 +102,7 @@ impl ViewportState {
         layout
             .writer(descriptor_set)
             .image(
-                IMGUI_TEXTURE_BINDING,
+                shader_bindings::imgui::TEX_SAMPLER,
                 offscreen.resolve_image_view(),
                 offscreen.sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,

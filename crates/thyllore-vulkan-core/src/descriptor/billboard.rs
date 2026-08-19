@@ -3,11 +3,8 @@ use crate::core::swapchain::*;
 use crate::data::*;
 use crate::descriptor::pass_manifest::BILLBOARD;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::billboard;
 use crate::vulkan::*;
-
-const UBO_BINDING: u32 = 0;
-const TEXTURE_SAMPLER_BINDING: u32 = 1;
-const POSITION_SAMPLER_BINDING: u32 = 2;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRBillboardDescriptorSet {
@@ -56,13 +53,13 @@ impl RRBillboardDescriptorSet {
                 self.layout
                     .writer(descriptor_set)
                     .buffer(
-                        UBO_BINDING,
+                        billboard::UBO,
                         rrdata.rruniform_buffers[image_index].buffer,
                         0,
                         std::mem::size_of::<UniformBufferObject>() as u64,
                     )?
                     .image(
-                        TEXTURE_SAMPLER_BINDING,
+                        billboard::TEX_SAMPLER,
                         billboard_texture.image_view,
                         billboard_texture.sampler,
                         vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
@@ -87,7 +84,7 @@ impl RRBillboardDescriptorSet {
             self.layout
                 .writer(*descriptor_set)
                 .image(
-                    POSITION_SAMPLER_BINDING,
+                    billboard::POSITION_SAMPLER,
                     position_image_view,
                     position_sampler,
                     vk::ImageLayout::GENERAL,

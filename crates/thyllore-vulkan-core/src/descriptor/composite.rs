@@ -1,6 +1,7 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::COMPOSITE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::composite;
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::*;
 
@@ -23,14 +24,6 @@ impl Default for SelectionUBO {
         }
     }
 }
-
-const POSITION_SAMPLER_BINDING: u32 = 0;
-const NORMAL_SAMPLER_BINDING: u32 = 1;
-const SHADOW_MASK_SAMPLER_BINDING: u32 = 2;
-const ALBEDO_SAMPLER_BINDING: u32 = 3;
-const SCENE_UBO_BINDING: u32 = 4;
-const OBJECT_ID_SAMPLER_BINDING: u32 = 5;
-const SELECTION_UBO_BINDING: u32 = 6;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CompositeGBufferViews {
@@ -88,13 +81,13 @@ impl RRCompositeDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .buffer(
-                SCENE_UBO_BINDING,
+                composite::SCENE_DATA,
                 scene_uniform_buffer,
                 0,
                 std::mem::size_of::<crate::data::SceneUniformData>() as u64,
             )?
             .buffer(
-                SELECTION_UBO_BINDING,
+                composite::SELECTION,
                 selection_buffer,
                 0,
                 std::mem::size_of::<SelectionUBO>() as u64,
@@ -115,31 +108,31 @@ impl RRCompositeDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                POSITION_SAMPLER_BINDING,
+                composite::POSITION_SAMPLER,
                 views.position_image_view,
                 views.position_sampler,
                 vk::ImageLayout::GENERAL,
             )?
             .image(
-                NORMAL_SAMPLER_BINDING,
+                composite::NORMAL_SAMPLER,
                 views.normal_image_view,
                 views.normal_sampler,
                 vk::ImageLayout::GENERAL,
             )?
             .image(
-                SHADOW_MASK_SAMPLER_BINDING,
+                composite::SHADOW_MASK_SAMPLER,
                 views.shadow_mask_image_view,
                 views.shadow_mask_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .image(
-                ALBEDO_SAMPLER_BINDING,
+                composite::ALBEDO_SAMPLER,
                 views.albedo_image_view,
                 views.albedo_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .image(
-                OBJECT_ID_SAMPLER_BINDING,
+                composite::OBJECT_ID_SAMPLER,
                 views.object_id_image_view,
                 views.object_id_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,

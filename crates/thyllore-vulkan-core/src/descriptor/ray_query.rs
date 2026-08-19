@@ -1,13 +1,8 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::RAY_QUERY_SHADOW;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::ray_query_shadow;
 use crate::vulkan::*;
-
-const POSITION_IMAGE_BINDING: u32 = 0;
-const NORMAL_IMAGE_BINDING: u32 = 1;
-const SHADOW_MASK_IMAGE_BINDING: u32 = 2;
-const TLAS_BINDING: u32 = 3;
-const SCENE_UBO_BINDING: u32 = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRRayQueryDescriptorSet {
@@ -50,7 +45,7 @@ impl RRRayQueryDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .buffer(
-                SCENE_UBO_BINDING,
+                ray_query_shadow::SCENE_DATA,
                 scene_uniform_buffer,
                 0,
                 std::mem::size_of::<crate::data::SceneUniformData>() as u64,
@@ -74,19 +69,19 @@ impl RRRayQueryDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                POSITION_IMAGE_BINDING,
+                ray_query_shadow::POSITION_IMAGE,
                 position_image_view,
                 storage_sampler,
                 vk::ImageLayout::GENERAL,
             )?
             .image(
-                NORMAL_IMAGE_BINDING,
+                ray_query_shadow::NORMAL_IMAGE,
                 normal_image_view,
                 storage_sampler,
                 vk::ImageLayout::GENERAL,
             )?
             .image(
-                SHADOW_MASK_IMAGE_BINDING,
+                ray_query_shadow::SHADOW_MASK_IMAGE,
                 shadow_mask_image_view,
                 storage_sampler,
                 vk::ImageLayout::GENERAL,
@@ -106,7 +101,7 @@ impl RRRayQueryDescriptorSet {
 
         self.layout
             .writer(self.descriptor_set)
-            .acceleration_structure(TLAS_BINDING, tlas)?
+            .acceleration_structure(ray_query_shadow::TOP_LEVEL_AS, tlas)?
             .apply(rrdevice);
         Ok(())
     }

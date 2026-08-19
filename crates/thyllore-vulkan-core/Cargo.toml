@@ -25,3 +25,4 @@ imgui = { path = "../../vendor/imgui", features = ["tables-api", "docking"] }
 
 [build-dependencies]
 thyllore-shader-manifest = { path = "../thyllore-shader-manifest" }
+thyllore-spirv-reflect = { path = "../thyllore-spirv-reflect" }

@@ -1,12 +1,8 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::{AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM};
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::{auto_exposure_average, auto_exposure_histogram};
 use crate::vulkan::*;
-
-const HISTOGRAM_HDR_SAMPLER_BINDING: u32 = 0;
-const HISTOGRAM_BUFFER_BINDING: u32 = 1;
-const AVERAGE_HISTOGRAM_BUFFER_BINDING: u32 = 0;
-const AVERAGE_LUMINANCE_BUFFER_BINDING: u32 = 1;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRAutoExposureHistogramDescriptorSet {
@@ -40,13 +36,13 @@ impl RRAutoExposureHistogramDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                HISTOGRAM_HDR_SAMPLER_BINDING,
+                auto_exposure_histogram::HDR_IMAGE,
                 hdr_image_view,
                 hdr_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .buffer(
-                HISTOGRAM_BUFFER_BINDING,
+                auto_exposure_histogram::HISTOGRAM,
                 histogram_buffer,
                 0,
                 histogram_buffer_size,
@@ -92,13 +88,13 @@ impl RRAutoExposureAverageDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .buffer(
-                AVERAGE_HISTOGRAM_BUFFER_BINDING,
+                auto_exposure_average::HISTOGRAM,
                 histogram_buffer,
                 0,
                 histogram_buffer_size,
             )?
             .buffer(
-                AVERAGE_LUMINANCE_BUFFER_BINDING,
+                auto_exposure_average::RESULT,
                 luminance_buffer,
                 0,
                 luminance_buffer_size,

@@ -6,11 +6,10 @@ use vulkanalia::prelude::v1_0::*;
 use crate::core::device::RRDevice;
 use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::model;
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::Instance;
 use thyllore_render_core::FrameUBO;
-
-const FRAME_UBO_BINDING: u32 = 0;
 
 #[derive(Clone, Debug, Default)]
 pub struct FrameDescriptorSet {
@@ -63,7 +62,7 @@ impl FrameDescriptorSet {
         for (set, buffer) in self.sets.iter().zip(&self.buffers) {
             self.layout
                 .writer(*set)
-                .buffer(FRAME_UBO_BINDING, *buffer, 0, size_of::<FrameUBO>() as u64)?
+                .buffer(model::FRAME, *buffer, 0, size_of::<FrameUBO>() as u64)?
                 .apply(rrdevice);
         }
         Ok(())

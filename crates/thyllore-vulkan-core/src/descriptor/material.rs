@@ -7,15 +7,13 @@ use vulkanalia::prelude::v1_0::*;
 use crate::core::device::RRDevice;
 use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::model;
 use crate::resource::buffer::create_buffer;
 use crate::resource::image::RRImage;
 use crate::vulkan::Instance;
 use thyllore_render_core::MaterialUBO;
 
 pub type MaterialId = u32;
-
-const MATERIAL_TEXTURE_BINDING: u32 = 0;
-const MATERIAL_UBO_BINDING: u32 = 1;
 
 #[derive(Clone, Debug)]
 pub struct Material {
@@ -104,13 +102,13 @@ impl MaterialManager {
         self.layout
             .writer(descriptor_set)
             .image(
-                MATERIAL_TEXTURE_BINDING,
+                model::TEX_SAMPLER,
                 image_view,
                 sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .buffer(
-                MATERIAL_UBO_BINDING,
+                model::MATERIAL,
                 uniform_buffer,
                 0,
                 size_of::<MaterialUBO>() as u64,

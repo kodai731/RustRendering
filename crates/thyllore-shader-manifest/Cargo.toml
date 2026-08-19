@@ -9,4 +9,5 @@ repository = "https://github.com/kodai731/Thyllore-Animation"
 
 [dependencies]
 thiserror = "1"
+thyllore-spirv-reflect = { path = "../thyllore-spirv-reflect" }
 toml = "0.8"
