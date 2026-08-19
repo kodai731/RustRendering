@@ -7,10 +7,11 @@ use anyhow::{anyhow, Result};
 use cgmath::{SquareMatrix, Vector4};
 use vulkanalia::prelude::v1_0::*;
 
+use crate::animation::decompose_transform;
 use crate::animation::editable::SourceClipId;
 use crate::app::AppData;
 use crate::asset::{AssetStorage, MeshAsset, NodeAsset, SkeletonAsset};
-use crate::ecs::component::{AnimationMeta, ClipSchedule, EntityIcon};
+use crate::ecs::component::{AnimationMeta, CameraComponent, ClipSchedule, EntityIcon};
 use crate::ecs::resource::billboard::BillboardData;
 use crate::ecs::resource::gizmo::{BoneGizmoData, ConstraintGizmoData};
 use crate::ecs::resource::{
@@ -20,7 +21,7 @@ use crate::ecs::resource::{
 use crate::ecs::world::{Animator, Transform, World};
 use crate::loader::fbx::FbxModel;
 use crate::loader::load_png_image;
-use crate::loader::{ModelLoadResult, TextureSource};
+use crate::loader::{CameraProjection, ModelLoadResult, TextureSource};
 use crate::render::MaterialUBO;
 use crate::vulkanr::buffer::{RRIndexBuffer, RRVertexBuffer};
 use crate::vulkanr::command::RRCommandPool;
@@ -208,6 +209,7 @@ unsafe fn apply_model_to_resources(
         );
     }
 
+    spawn_loaded_cameras(load_result, world, parent_entity);
     apply_loaded_constraints(load_result, world);
     apply_loaded_spring_bones(load_result, world);
     initialize_bone_gizmo_visibility(
@@ -1103,6 +1105,60 @@ fn compute_bone_gizmo_mesh_scale(node_animation_scale: f32, category: MeshCatego
     }
 }
 
+fn spawn_loaded_cameras(
+    load_result: &ModelLoadResult,
+    world: &mut World,
+    parent_entity: crate::ecs::world::Entity,
+) {
+    for (index, camera) in load_result.cameras.iter().enumerate() {
+        let (translation, rotation, scale) = decompose_transform(&camera.world_transform);
+        let transform = Transform {
+            translation,
+            rotation,
+            scale,
+        };
+
+        let name = if camera.name.is_empty() {
+            format!("Camera_{:02}", index + 1)
+        } else {
+            camera.name.clone()
+        };
+
+        let camera_component = match &camera.projection {
+            CameraProjection::Perspective {
+                yfov, znear, zfar, ..
+            } => CameraComponent {
+                fov_y: cgmath::Deg(yfov.to_degrees()),
+                near_plane: *znear,
+                far_plane: *zfar,
+                physical: Default::default(),
+            },
+            CameraProjection::Orthographic { znear, zfar, .. } => CameraComponent {
+                near_plane: *znear,
+                far_plane: Some(*zfar),
+                ..CameraComponent::default()
+            },
+        };
+
+        let entity = world
+            .entity()
+            .with_name(&name)
+            .with_transform(transform)
+            .with_visible(true)
+            .with_parent(parent_entity)
+            .with_editor_display(EntityIcon::Camera, false)
+            .build();
+        world.insert_component(entity, camera_component);
+
+        log!(
+            "Spawned camera entity '{}' from glTF node {}: entity_id={}",
+            name,
+            camera.node_index,
+            entity
+        );
+    }
+}
+
 fn apply_loaded_constraints(load_result: &ModelLoadResult, world: &mut World) {
     use crate::ecs::component::{Constrained, ConstraintSet};
 
@@ -1425,5 +1481,63 @@ fn build_mesh_entities_range(
             entity,
             parent_entity
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::ecs::component::CameraComponent;
+    use crate::ecs::world::{Parent, Transform};
+    use crate::loader::LoadedCamera;
+
+    #[test]
+    fn test_spawn_loaded_cameras() {
+        let mut world = World::new();
+
+        let parent_entity = world.entity().build();
+
+        let result = ModelLoadResult {
+            cameras: vec![LoadedCamera {
+                node_index: 0,
+                name: "Cam".into(),
+                world_transform: cgmath::Matrix4::from_translation(cgmath::Vector3::new(
+                    1.0, 2.0, 3.0,
+                )),
+                projection: CameraProjection::Perspective {
+                    yfov: 0.6911,
+                    aspect_ratio: None,
+                    znear: 0.1,
+                    zfar: Some(100.0),
+                },
+            }],
+            ..Default::default()
+        };
+
+        spawn_loaded_cameras(&result, &mut world, parent_entity);
+
+        let cameras: Vec<_> = world.iter_components::<CameraComponent>().collect();
+        assert_eq!(cameras.len(), 1, "Expected exactly 1 camera entity");
+
+        let (entity, camera) = &cameras[0];
+
+        let transform = world
+            .get_component::<Transform>(*entity)
+            .expect("Camera entity should have a Transform");
+        assert!((transform.translation.x - 1.0).abs() < 1e-6);
+        assert!((transform.translation.y - 2.0).abs() < 1e-6);
+        assert!((transform.translation.z - 3.0).abs() < 1e-6);
+
+        let fov_deg = camera.fov_y.0;
+        assert!(
+            (fov_deg - 39.6).abs() < 0.1,
+            "Expected fov_y ~39.6°, got {}",
+            fov_deg
+        );
+
+        let parent = world
+            .get_component::<Parent>(*entity)
+            .expect("Camera entity should have a Parent");
+        assert_eq!(parent.0, parent_entity);
     }
 }

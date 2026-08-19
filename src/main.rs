@@ -231,18 +231,23 @@ fn main() -> Result<()> {
 
     // Auto-load model when scene_path override is provided: if the scene restored a model path
     // (via apply_loaded_scene -> ModelState), send UIEvent::LoadModel to load it.
-    if let Some(ref _scene_path) = overrides.scene_path {
+    let model_load_queued: bool = if let Some(ref _scene_path) = overrides.scene_path {
         let model_state = app
             .data
             .ecs_world
             .resource::<thyllore_animation::ecs::resource::ModelState>();
-        if !model_state.model_path.is_empty() && model_state.model_path != "Generated Mesh" {
+        let should_load =
+            !model_state.model_path.is_empty() && model_state.model_path != "Generated Mesh";
+        if should_load {
             let mut ui_events = app.data.ecs_world.resource_mut::<UIEventQueue>();
             ui_events.send(UIEvent::LoadModel {
                 path: model_state.model_path.clone(),
             });
         }
-    }
+        should_load
+    } else {
+        false
+    };
 
     // Apply flame_orbit override: insert BatchFlameOrbit resource into world
     if let Some((radius, period)) = overrides.flame_orbit {
@@ -281,10 +286,23 @@ fn main() -> Result<()> {
         );
     }
     if !overrides.anim_edits.is_empty() {
-        batch_apply_anim_edits(
-            &mut app.data.ecs_world,
-            &mut app.data.ecs_assets,
-            &overrides.anim_edits,
+        if overrides.scene_path.is_some() && model_load_queued {
+            app.data.ecs_world.insert_resource(
+                thyllore_animation::ecs::systems::BatchPendingAnimEdits {
+                    edits: overrides.anim_edits.clone(),
+                },
+            );
+        } else {
+            batch_apply_anim_edits(
+                &mut app.data.ecs_world,
+                &mut app.data.ecs_assets,
+                &overrides.anim_edits,
+            );
+        }
+    }
+    if let Some(name) = overrides.active_camera.clone() {
+        app.data.ecs_world.insert_resource(
+            thyllore_animation::ecs::systems::BatchPendingActiveCamera(name),
         );
     }
     if !overrides.debug_actions.is_empty() {

@@ -1,3 +1,5 @@
+pub mod active_camera_systems;
+pub mod aim_solver;
 pub mod animation;
 pub mod animation_debug_dump;
 #[cfg(feature = "auto-rig")]
@@ -6,6 +8,9 @@ mod batch_run_systems;
 mod billboard_systems;
 mod bone_gizmo_systems;
 mod bone_pose_override_systems;
+pub mod camera_aim_systems;
+pub mod camera_curve_systems;
+pub mod camera_shot_systems;
 pub mod camera_systems;
 pub mod clip_library_systems;
 pub mod clip_schedule_systems;
@@ -62,6 +67,8 @@ pub mod transform_gizmo_systems;
 mod ui_event_systems;
 mod weight_heatmap_systems;
 
+pub use active_camera_systems::*;
+pub use aim_solver::*;
 pub use animation::*;
 #[cfg(feature = "auto-rig")]
 pub use auto_rig_systems::*;
@@ -69,6 +76,9 @@ pub use batch_run_systems::*;
 pub use billboard_systems::*;
 pub use bone_gizmo_systems::*;
 pub use bone_pose_override_systems::*;
+pub use camera_aim_systems::*;
+pub use camera_curve_systems::*;
+pub use camera_shot_systems::*;
 pub use camera_systems::*;
 pub use clip_library_systems::*;
 pub use clip_schedule_systems::*;

@@ -6,6 +6,7 @@ mod keyboard_modifiers;
 mod mouse_input;
 mod viewport_input;
 
+mod active_camera;
 mod auto_exposure;
 #[cfg(feature = "auto-rig")]
 mod auto_rig_state;
@@ -81,6 +82,7 @@ pub use keyboard_modifiers::*;
 pub use mouse_input::*;
 pub use viewport_input::*;
 
+pub use active_camera::*;
 pub use auto_exposure::*;
 #[cfg(feature = "auto-rig")]
 pub use auto_rig_state::*;

@@ -52,6 +52,10 @@ fn direct_call(route: Route, normalized_utterance: &str) -> BindOutcome {
             let speed = extract_speed_modifier(normalized_utterance).unwrap_or(SpeedPreset::Normal);
             ToolCall::GenerateMotion(category, speed)
         }
+        Route::CameraShot(preset) => {
+            let speed = extract_speed_modifier(normalized_utterance).unwrap_or(SpeedPreset::Normal);
+            ToolCall::CameraShot(preset, speed)
+        }
         // ObjectName slot routes are handled by resolve_object_name
         Route::SelectObject | Route::SetObjectVisibility(_) => unreachable!(
             "slot() returned None for {:?}, but it has an ObjectName slot",

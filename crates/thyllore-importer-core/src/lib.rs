@@ -10,7 +10,10 @@ pub use fbx::{
     load_fbx_to_graphics_resources, FbxLoadResult, FbxMeshData, FbxModel, FbxNodeInfo,
     LoadedConstraint,
 };
-pub use gltf::{load_gltf_file, GltfLoadResult, GltfMeshData, ImageData, NodeInfo};
+pub use gltf::{
+    load_gltf_file, CameraProjection, GltfLoadResult, GltfMeshData, ImageData, LoadedCamera,
+    NodeInfo,
+};
 pub use model_result::{LoadedMesh, LoadedNode, ModelLoadResult, TextureData, TextureSource};
 pub use texture::load_png_image;
 

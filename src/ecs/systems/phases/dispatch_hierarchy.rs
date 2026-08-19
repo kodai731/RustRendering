@@ -8,8 +8,8 @@ use crate::ecs::resource::{Camera, ClipLibrary, HierarchyState, TimelineState};
 use crate::ecs::systems::{
     camera_move_to_look_at, collapse_entity, expand_entity, hierarchy_collapse_bone,
     hierarchy_deselect_all, hierarchy_deselect_bone, hierarchy_expand_bone, hierarchy_select,
-    hierarchy_select_bone, hierarchy_toggle_selection, rename_entity, resolve_mesh_bone_id,
-    resolve_transform_entity, update_entity_scale, update_entity_translation,
+    hierarchy_select_bone, hierarchy_toggle_selection, plan_camera_shot, rename_entity,
+    resolve_mesh_bone_id, resolve_transform_entity, update_entity_scale, update_entity_translation,
     update_entity_visible,
 };
 use crate::ecs::world::{Children, Entity, Transform, World};
@@ -131,6 +131,28 @@ fn dispatch_hierarchy_entity_events(
                     let mut camera = world.resource_mut::<Camera>();
                     camera_move_to_look_at(&mut camera, target, offset);
                 }
+            }
+
+            UIEvent::CameraShot {
+                preset,
+                speed,
+                target,
+            } => {
+                let target_pos = if let Some(entity) = target {
+                    let transform_entity = resolve_transform_entity(world, *entity);
+                    world
+                        .get_component::<Transform>(transform_entity)
+                        .map(|t| t.translation)
+                } else {
+                    None
+                };
+
+                let camera = world.resource::<Camera>();
+                let tween = plan_camera_shot(&camera, *preset, *speed, target_pos);
+                drop(camera);
+
+                let mut motion = world.resource_mut::<crate::ecs::systems::CameraShotMotion>();
+                motion.active = Some(tween);
             }
 
             _ => {}

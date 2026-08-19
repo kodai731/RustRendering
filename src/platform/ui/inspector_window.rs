@@ -46,6 +46,8 @@ pub fn build_inspector_window(
 
                 build_visible_section(ui, ui_events, &data);
 
+                build_camera_section(ui, ui_events, world, data.entity);
+
                 let (mut add_type_index, mut bake_fps) = world
                     .get_resource::<ConstraintEditorState>()
                     .map(|s| (s.add_type_index, s.bake_fps))
@@ -182,6 +184,42 @@ fn build_visible_section(
                     data.entity,
                     Visibility::from(vis),
                 ));
+            }
+        }
+    }
+}
+
+fn build_camera_section(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    world: &World,
+    entity: crate::ecs::world::Entity,
+) {
+    if !world.has_component::<crate::ecs::component::CameraComponent>(entity) {
+        return;
+    }
+
+    let camera = match world.get_component::<crate::ecs::component::CameraComponent>(entity) {
+        Some(c) => c,
+        None => return,
+    };
+
+    if ui.collapsing_header("Camera", imgui::TreeNodeFlags::DEFAULT_OPEN) {
+        ui.text(&format!("FOV Y       {:.1}°", camera.fov_y.0));
+        ui.text(&format!("Near Plane  {:.2}", camera.near_plane));
+
+        let is_active = match world.get_resource::<crate::ecs::resource::ActiveCamera>() {
+            Some(ac) => ac.0 == Some(entity),
+            None => false,
+        };
+
+        if is_active {
+            if ui.button("Release camera##active") {
+                ui_events.send(UIEvent::SetActiveCamera(None));
+            }
+        } else {
+            if ui.button("Look through this camera##active") {
+                ui_events.send(UIEvent::SetActiveCamera(Some(entity)));
             }
         }
     }

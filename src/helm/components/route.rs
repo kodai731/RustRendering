@@ -5,7 +5,8 @@
 //! zero-argument target far more reliably than it fills one in.
 
 use super::tool_call::{
-    FocusTarget, MotionCategory, ObjectName, SeekPosition, SpeedPreset, ToolCall, VisibilityState,
+    FocusTarget, MotionCategory, ObjectName, SeekPosition, ShotPreset, SpeedPreset, ToolCall,
+    VisibilityState,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -44,10 +45,11 @@ pub enum Route {
     Redo,
     SaveScene,
     GenerateMotion(MotionCategory),
+    CameraShot(ShotPreset),
     EscapeAnchor,
 }
 
-pub const ALL_ROUTES: [Route; 29] = [
+pub const ALL_ROUTES: [Route; 35] = [
     Route::ListObjects,
     Route::DescribeSelection,
     Route::GetPlaybackState,
@@ -77,6 +79,12 @@ pub const ALL_ROUTES: [Route; 29] = [
     Route::GenerateMotion(MotionCategory::Idle),
     Route::GenerateMotion(MotionCategory::Jump),
     Route::GenerateMotion(MotionCategory::Turn),
+    Route::CameraShot(ShotPreset::LookAtSelection),
+    Route::CameraShot(ShotPreset::OrbitAroundSelection),
+    Route::CameraShot(ShotPreset::DollyIn),
+    Route::CameraShot(ShotPreset::DollyOut),
+    Route::CameraShot(ShotPreset::CraneUp),
+    Route::CameraShot(ShotPreset::CraneDown),
 ];
 
 /// Values the router fills in before a route can become a `ToolCall`. Slots come
@@ -111,6 +119,7 @@ impl Route {
             }
             Route::FocusCamera(target) => format!("focus_camera:{}", target.as_str()),
             Route::GenerateMotion(category) => format!("generate_motion:{}", category.as_str()),
+            Route::CameraShot(preset) => format!("camera_shot:{}", preset.as_str()),
             Route::EscapeAnchor => "__escape__".to_string(),
             other => other.tool_name().to_string(),
         }
@@ -145,6 +154,7 @@ impl Route {
             Route::Redo => "redo",
             Route::SaveScene => "save_scene",
             Route::GenerateMotion(_) => "generate_motion",
+            Route::CameraShot(_) => "camera_shot",
             Route::EscapeAnchor => "__escape__",
         }
     }
@@ -193,6 +203,7 @@ impl Route {
             Route::SaveScene => Ok(ToolCall::SaveScene),
             Route::FocusCamera(target) => Ok(ToolCall::FocusCamera(target)),
             Route::GenerateMotion(category) => Ok(ToolCall::GenerateMotion(category, speed)),
+            Route::CameraShot(preset) => Ok(ToolCall::CameraShot(preset, speed)),
 
             Route::SelectObject => Ok(ToolCall::SelectObject(self.take_object_name(slots)?)),
             Route::SetObjectVisibility(state) => Ok(ToolCall::SetObjectVisibility(
@@ -232,7 +243,7 @@ mod tests {
 
     /// The router index in `AnimationModelTraining scripts/helm_router/route_schema.py` must expand
     /// to exactly these ids, or the measured accuracy does not describe this build.
-    const EXPECTED_ROUTE_IDS: [&str; 29] = [
+    const EXPECTED_ROUTE_IDS: [&str; 35] = [
         "list_objects",
         "describe_selection",
         "get_playback_state",
@@ -262,6 +273,12 @@ mod tests {
         "generate_motion:idle",
         "generate_motion:jump",
         "generate_motion:turn",
+        "camera_shot:look_at_selection",
+        "camera_shot:orbit_around_selection",
+        "camera_shot:dolly_in",
+        "camera_shot:dolly_out",
+        "camera_shot:crane_up",
+        "camera_shot:crane_down",
     ];
 
     #[test]
@@ -306,7 +323,7 @@ mod tests {
 
     #[test]
     fn allow_edit_mode_exposes_every_route() {
-        assert_eq!(routes_for_mode(HelmMode::AllowEdit).len(), 29);
+        assert_eq!(routes_for_mode(HelmMode::AllowEdit).len(), 35);
     }
 
     #[test]

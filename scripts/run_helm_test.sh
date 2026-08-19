@@ -5,7 +5,7 @@ cd "$REPO_ROOT"
 source "$REPO_ROOT/scripts/lib/onnxruntime.sh"
 MAIN_ROOT="$(cd "$(dirname "$(git rev-parse --git-common-dir)")" && pwd)"
 # Bundle name SSoT: src/ecs/resource/helm_state.rs EXPORTS_BUNDLE_DIR
-EXPORTS_BUNDLE_DIR="helm_router_20260728"
+EXPORTS_BUNDLE_DIR="helm_router_20260819"
 
 # ORT resolution
 if [[ -f "$ORT_DYLIB" ]]; then
@@ -24,10 +24,10 @@ fi
 
 # Router Model Dir (bundle name SSoT: src/ecs/resource/helm_state.rs EXPORTS_BUNDLE_DIR)
 if [[ -z "${THYLLORE_ROUTER_MODEL_DIR:-}" ]]; then
-    if [[ -n "${THYLLORE_SHARED_DATA_DIR:-}" ]] && [[ -d "${THYLLORE_SHARED_DATA_DIR}/exports/${EXPORTS_BUNDLE_DIR}/setfit-3ep-p2" ]]; then
-        export THYLLORE_ROUTER_MODEL_DIR="${THYLLORE_SHARED_DATA_DIR}/exports/${EXPORTS_BUNDLE_DIR}/setfit-3ep-p2"
+    if [[ -n "${THYLLORE_SHARED_DATA_DIR:-}" ]] && [[ -d "${THYLLORE_SHARED_DATA_DIR}/exports/${EXPORTS_BUNDLE_DIR}/setfit-3ep-cam" ]]; then
+        export THYLLORE_ROUTER_MODEL_DIR="${THYLLORE_SHARED_DATA_DIR}/exports/${EXPORTS_BUNDLE_DIR}/setfit-3ep-cam"
     else
-        export THYLLORE_ROUTER_MODEL_DIR="$REPO_ROOT/models/gemma/setfit-3ep-p2"
+        export THYLLORE_ROUTER_MODEL_DIR="$REPO_ROOT/models/gemma/setfit-3ep-cam"
     fi
 fi
 

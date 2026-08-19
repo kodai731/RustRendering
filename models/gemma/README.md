@@ -25,16 +25,17 @@ This repo only contains the adopted variant. Experimental variants have been mov
 
 `setfit-3ep-p2` is the variant to load (adopted 2026-07-28; retrained on 1093 exemplars incl. 397 synthesized paraphrases (undo/redo と 一つ 系の境界汚染 32 件を剪定済み), epoch 3 chosen on a validation split; AND-gate thresholds 0.93/0.90, delta 0.0025).
 
+`setfit-3ep-cam` supersedes it (adopted 2026-08-19): retrained on 1165 exemplars after adding the 6 `camera_shot:*` routes (look_at_selection / orbit_around_selection / dolly_in / dolly_out / crane_up / crane_down); heldout route accuracy 0.905 (p2 0.845), Rust heldout correct 105/116, retained 82/85; adding the exemplars to p2's index without retraining regressed heldout to 0.819.
+
 ## Reproduce
 
 ```bash
 # run from the AnimationModelTraining checkout
 .venv-setfit-container/bin/python scripts/orchestrator_router/train_setfit.py \
-    --output-dir <this repo>/models/gemma/setfit-3ep-p2 --epochs 3
+    --output-dir <this repo>/models/gemma/setfit-3ep-cam --epochs 3
 
 .venv-setfit-container/bin/python scripts/orchestrator_router/eval_router.py \
-    --model-dir <this repo>/models/gemma/setfit-3ep-p2
-```
+    --model-dir <this repo>/models/gemma/setfit-3ep-cam
 ```
 
 Training is CPU-only and deterministic under the seed in `train_setfit.py`:

@@ -53,6 +53,8 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     sub.insert("orbit".to_string(), t.elapsed().as_secs_f32() * 1000.0);
     let t = Instant::now();
     crate::ecs::systems::motion_path_sync(ctx);
+    crate::ecs::systems::sync_camera_curves(&mut ctx.world);
+    crate::ecs::systems::sync_camera_aim(&mut ctx.world);
     sub.insert(
         "motion_path".to_string(),
         t.elapsed().as_secs_f32() * 1000.0,

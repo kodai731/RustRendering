@@ -8,7 +8,7 @@ use crate::ecs::events::UIEvent;
 use crate::ecs::resource::{HierarchyState, TimelineState};
 use crate::ecs::world::{Entity, World};
 use crate::helm::components::tool_call::{
-    FocusTarget, MotionCategory, ObjectName, SpeedPreset, ToolCall, VisibilityState,
+    FocusTarget, MotionCategory, ObjectName, ShotPreset, SpeedPreset, ToolCall, VisibilityState,
 };
 use crate::helm::systems::seek::{resolve_seek_time, TimelineContext};
 
@@ -80,6 +80,8 @@ pub fn dispatch_tool_call(
             category: *category,
             speed: *speed,
         },
+
+        ToolCall::CameraShot(preset, speed) => dispatch_camera_shot(world, *preset, *speed),
     }
 }
 
@@ -124,6 +126,29 @@ fn dispatch_camera_focus(world: &World, target: FocusTarget) -> DispatchOutcome 
             Some(entity) => DispatchOutcome::Command(UIEvent::FocusOnEntity(entity)),
             None => DispatchOutcome::Rejected(DispatchError::NothingSelected),
         },
+    }
+}
+
+fn dispatch_camera_shot(world: &World, preset: ShotPreset, speed: SpeedPreset) -> DispatchOutcome {
+    match preset {
+        ShotPreset::LookAtSelection | ShotPreset::OrbitAroundSelection => {
+            match read_selected_entity(world) {
+                Some(entity) => DispatchOutcome::Command(UIEvent::CameraShot {
+                    preset,
+                    speed,
+                    target: Some(entity),
+                }),
+                None => DispatchOutcome::Rejected(DispatchError::NothingSelected),
+            }
+        }
+        ShotPreset::DollyIn
+        | ShotPreset::DollyOut
+        | ShotPreset::CraneUp
+        | ShotPreset::CraneDown => DispatchOutcome::Command(UIEvent::CameraShot {
+            preset,
+            speed,
+            target: None,
+        }),
     }
 }
 
@@ -480,5 +505,52 @@ mod tests {
         let world = World::new();
         let outcome = dispatch(&world, ToolCall::SelectObject(ObjectName("Ghost".into())));
         assert!(matches!(outcome, DispatchOutcome::Rejected(_)));
+    }
+
+    #[test]
+    fn camera_shot_dolly_in_without_selection_has_no_target() {
+        let world = World::new();
+        let outcome = dispatch(
+            &world,
+            ToolCall::CameraShot(ShotPreset::DollyIn, SpeedPreset::Fast),
+        );
+        assert!(matches!(
+            outcome,
+            DispatchOutcome::Command(UIEvent::CameraShot {
+                preset: ShotPreset::DollyIn,
+                speed: SpeedPreset::Fast,
+                target: None,
+            })
+        ));
+    }
+
+    #[test]
+    fn camera_shot_look_at_selection_without_selection_is_rejected() {
+        let world = World::new();
+        let outcome = dispatch(
+            &world,
+            ToolCall::CameraShot(ShotPreset::LookAtSelection, SpeedPreset::Normal),
+        );
+        assert_eq!(expect_rejection(outcome), DispatchError::NothingSelected);
+    }
+
+    #[test]
+    fn camera_shot_look_at_selection_with_selection_has_target() {
+        let mut world = World::new();
+        let hero = spawn_named(&mut world, "Hero");
+        select(&mut world, hero);
+
+        let outcome = dispatch(
+            &world,
+            ToolCall::CameraShot(ShotPreset::LookAtSelection, SpeedPreset::Normal),
+        );
+        assert!(matches!(
+            expect_command(outcome),
+            UIEvent::CameraShot {
+                preset: ShotPreset::LookAtSelection,
+                speed: SpeedPreset::Normal,
+                target: Some(e)
+            } if e == hero
+        ));
     }
 }

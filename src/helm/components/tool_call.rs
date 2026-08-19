@@ -84,6 +84,29 @@ impl FocusTarget {
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
+pub enum ShotPreset {
+    LookAtSelection,
+    OrbitAroundSelection,
+    DollyIn,
+    DollyOut,
+    CraneUp,
+    CraneDown,
+}
+
+impl ShotPreset {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ShotPreset::LookAtSelection => "look_at_selection",
+            ShotPreset::OrbitAroundSelection => "orbit_around_selection",
+            ShotPreset::DollyIn => "dolly_in",
+            ShotPreset::DollyOut => "dolly_out",
+            ShotPreset::CraneUp => "crane_up",
+            ShotPreset::CraneDown => "crane_down",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub enum MotionCategory {
     Walk,
     Run,
@@ -134,6 +157,7 @@ pub enum ToolCall {
     Redo,
     SaveScene,
     GenerateMotion(MotionCategory, SpeedPreset),
+    CameraShot(ShotPreset, SpeedPreset),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -166,6 +190,7 @@ impl ToolCall {
             | ToolCall::SelectObject(_)
             | ToolCall::SetObjectVisibility(_, _)
             | ToolCall::FocusCamera(_)
+            | ToolCall::CameraShot(_, _)
             | ToolCall::Undo
             | ToolCall::Redo => RiskLevel::Mutating,
 
@@ -192,6 +217,7 @@ impl ToolCall {
             ToolCall::Redo => "redo",
             ToolCall::SaveScene => "save_scene",
             ToolCall::GenerateMotion(_, _) => "generate_motion",
+            ToolCall::CameraShot(_, _) => "camera_shot",
         }
     }
 }

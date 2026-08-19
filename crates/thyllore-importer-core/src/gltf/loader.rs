@@ -49,6 +49,30 @@ impl Default for NodeInfo {
     }
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub enum CameraProjection {
+    Perspective {
+        yfov: f32,
+        aspect_ratio: Option<f32>,
+        znear: f32,
+        zfar: Option<f32>,
+    },
+    Orthographic {
+        xmag: f32,
+        ymag: f32,
+        znear: f32,
+        zfar: f32,
+    },
+}
+
+#[derive(Clone, Debug)]
+pub struct LoadedCamera {
+    pub node_index: usize,
+    pub name: String,
+    pub world_transform: Matrix4<f32>,
+    pub projection: CameraProjection,
+}
+
 pub struct GltfLoadResult {
     pub meshes: Vec<GltfMeshData>,
     pub nodes: Vec<NodeInfo>,
@@ -58,6 +82,7 @@ pub struct GltfLoadResult {
     pub has_skinned_meshes: bool,
     pub has_armature: bool,
     pub spring_bone_setup: Option<SpringBoneSetup>,
+    pub cameras: Vec<LoadedCamera>,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -195,6 +220,7 @@ struct GltfParseContext {
     has_armature: bool,
     skeleton_root_transform: Option<[[f32; 4]; 4]>,
     spring_bone_setup: Option<SpringBoneSetup>,
+    cameras: Vec<LoadedCamera>,
 }
 
 impl Default for GltfParseContext {
@@ -212,6 +238,7 @@ impl Default for GltfParseContext {
             has_armature: false,
             skeleton_root_transform: None,
             spring_bone_setup: None,
+            cameras: Vec::new(),
         }
     }
 }
@@ -754,6 +781,29 @@ unsafe fn process_node(
     let cumulative_transform = *parent_transform * node_transform;
     let node_name = node.name().unwrap_or("");
 
+    if let Some(camera) = node.camera() {
+        let projection = match camera.projection() {
+            gltf::camera::Projection::Perspective(p) => CameraProjection::Perspective {
+                yfov: p.yfov(),
+                aspect_ratio: p.aspect_ratio(),
+                znear: p.znear(),
+                zfar: p.zfar(),
+            },
+            gltf::camera::Projection::Orthographic(o) => CameraProjection::Orthographic {
+                xmag: o.xmag(),
+                ymag: o.ymag(),
+                znear: o.znear(),
+                zfar: o.zfar(),
+            },
+        };
+        ctx.cameras.push(LoadedCamera {
+            node_index: node.index(),
+            name: camera.name().unwrap_or(node_name).to_string(),
+            world_transform: cumulative_transform,
+            projection,
+        });
+    }
+
     if let Some(mesh) = node.mesh() {
         for primitive in mesh.primitives() {
             let reader = primitive.reader(|buffer| Some(&buffers[buffer.index()]));
@@ -1274,6 +1324,7 @@ fn build_result(ctx: GltfParseContext) -> GltfLoadResult {
         has_skinned_meshes: ctx.has_skinned_meshes,
         has_armature: ctx.has_armature,
         spring_bone_setup: ctx.spring_bone_setup,
+        cameras: ctx.cameras,
     }
 }
 

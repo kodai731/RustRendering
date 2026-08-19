@@ -1,0 +1,1 @@
+{"asset":{"version":"2.0"},"scene":0,"scenes":[{"nodes":[0]}],"nodes":[{"name":"Camera","camera":0,"translation":[7.36,4.96,6.93],"rotation":[0.4837,0.2088,0.4837,0.6949]}],"cameras":[{"name":"Camera","type":"perspective","perspective":{"yfov":0.6911,"aspectRatio":1.7778,"znear":0.1,"zfar":100.0}}]}

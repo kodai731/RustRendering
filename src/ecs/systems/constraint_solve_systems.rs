@@ -6,6 +6,10 @@ use crate::animation::{
     ScaleConstraintData, Skeleton, SkeletonPose,
 };
 use crate::ecs::component::ConstraintSet;
+use crate::ecs::systems::aim_solver::{
+    conjugate_quat, quat_mul, quaternion_from_axis_angle, rotation_between_vectors,
+    solve_aim_world_rotation, AimSolveInput,
+};
 use crate::ecs::systems::compute_pose_global_transforms;
 
 pub fn apply_constraints(
@@ -68,57 +72,6 @@ fn get_parent_global_transform(
 
 fn lerp_vec3(a: Vector3<f32>, b: Vector3<f32>, t: f32) -> Vector3<f32> {
     a + (b - a) * t
-}
-
-fn conjugate_quat(q: Quaternion<f32>) -> Quaternion<f32> {
-    Quaternion::new(q.s, -q.v.x, -q.v.y, -q.v.z)
-}
-
-fn quat_mul(a: Quaternion<f32>, b: Quaternion<f32>) -> Quaternion<f32> {
-    Quaternion::new(
-        a.s * b.s - a.v.x * b.v.x - a.v.y * b.v.y - a.v.z * b.v.z,
-        a.s * b.v.x + a.v.x * b.s + a.v.y * b.v.z - a.v.z * b.v.y,
-        a.s * b.v.y - a.v.x * b.v.z + a.v.y * b.s + a.v.z * b.v.x,
-        a.s * b.v.z + a.v.x * b.v.y - a.v.y * b.v.x + a.v.z * b.s,
-    )
-}
-
-fn rotation_between_vectors(from: Vector3<f32>, to: Vector3<f32>) -> Quaternion<f32> {
-    let from_n = from.normalize();
-    let to_n = to.normalize();
-    let dot = from_n.dot(to_n);
-
-    if dot > 0.9999 {
-        return Quaternion::new(1.0, 0.0, 0.0, 0.0);
-    }
-
-    if dot < -0.9999 {
-        let perp = if from_n.x.abs() < 0.9 {
-            Vector3::new(1.0, 0.0, 0.0)
-        } else {
-            Vector3::new(0.0, 1.0, 0.0)
-        };
-        let axis = from_n.cross(perp).normalize();
-        return Quaternion::new(0.0, axis.x, axis.y, axis.z);
-    }
-
-    let axis = from_n.cross(to_n);
-    let s = ((1.0 + dot) * 2.0).sqrt();
-    let inv_s = 1.0 / s;
-    normalize_quat(Quaternion::new(
-        s * 0.5,
-        axis.x * inv_s,
-        axis.y * inv_s,
-        axis.z * inv_s,
-    ))
-}
-
-fn quaternion_from_axis_angle(axis: Vector3<f32>, angle: f32) -> Quaternion<f32> {
-    let half = angle * 0.5;
-    let s = half.sin();
-    let c = half.cos();
-    let a = axis.normalize();
-    Quaternion::new(c, a.x * s, a.y * s, a.z * s)
 }
 
 fn solve_position_constraint(
@@ -358,42 +311,32 @@ fn solve_aim_constraint(
 
     let source_pos = extract_translation(&globals[source_idx]);
     let target_pos = extract_translation(&globals[target_idx]);
-    let direction = target_pos - source_pos;
-
-    if direction.magnitude2() < 1e-8 {
-        return;
-    }
-    let direction = direction.normalize();
 
     let (_, source_rot, _) = decompose_transform(&globals[source_idx]);
-    let current_aim = rotate_vector_by_quat(source_rot, data.aim_axis);
-
-    let aim_rotation = rotation_between_vectors(current_aim, direction);
 
     let up_world = if let Some(up_bone) = data.up_target {
         let up_idx = up_bone as usize;
         if up_idx < globals.len() {
             let up_pos = extract_translation(&globals[up_idx]);
-            (up_pos - source_pos).normalize()
+            Some((up_pos - source_pos).normalize())
         } else {
-            data.up_axis
+            None
         }
     } else {
-        data.up_axis
+        None
     };
 
-    let rotated_up = rotate_vector_by_quat(
-        aim_rotation,
-        rotate_vector_by_quat(source_rot, data.up_axis),
-    );
-    let desired_up = up_world - direction * direction.dot(up_world);
-    let actual_up = rotated_up - direction * direction.dot(rotated_up);
+    let input = AimSolveInput {
+        source_pos,
+        source_rot,
+        target_pos,
+        aim_axis: data.aim_axis,
+        up_axis: data.up_axis,
+        up_world,
+    };
 
-    let final_rot = if desired_up.magnitude2() > 1e-8 && actual_up.magnitude2() > 1e-8 {
-        let twist = rotation_between_vectors(actual_up.normalize(), desired_up.normalize());
-        normalize_quat(quat_mul(twist, quat_mul(aim_rotation, source_rot)))
-    } else {
-        normalize_quat(quat_mul(aim_rotation, source_rot))
+    let Some(final_rot) = solve_aim_world_rotation(&input) else {
+        return;
     };
 
     let parent_global = get_parent_global_transform(data.source_bone, skeleton, globals);
@@ -671,11 +614,4 @@ fn compute_bend_plane_normal(
         Vector3::new(0.0, 1.0, 0.0)
     };
     target_dir.cross(fallback).normalize()
-}
-
-fn rotate_vector_by_quat(q: Quaternion<f32>, v: Vector3<f32>) -> Vector3<f32> {
-    let qv = Vector3::new(q.v.x, q.v.y, q.v.z);
-    let uv = qv.cross(v);
-    let uuv = qv.cross(uv);
-    v + (uv * q.s + uuv) * 2.0
 }

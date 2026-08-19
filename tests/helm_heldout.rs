@@ -275,21 +275,21 @@ fn helm_heldout_evaluation() {
     println!("  post-gate acc:   {:.4}", post_gate_accuracy);
     println!("  nearmiss rescued: {}/{}", nearmiss_rescued, routed_count);
 
-    // Assertions (based on setfit-3ep-p2 p2_final_heldout.json)
+    // Assertions (measured on setfit-3ep-cam, 35 routes incl. camera_shot, 2026-08-19)
     assert_eq!(
         routed_count, 116,
         "expected 116 routed samples, got {}",
         routed_count
     );
-    assert_eq!(correct, 100, "expected 100 correct routes, got {}", correct);
+    assert_eq!(correct, 105, "expected 105 correct routes, got {}", correct);
     assert_eq!(
         escape_rejected, 10,
         "expected 10 escape rejected, got {}",
         escape_rejected
     );
     assert_eq!(
-        retained_correct, 79,
-        "expected 79 retained correct, got {}",
+        retained_correct, 82,
+        "expected 82 retained correct, got {}",
         retained_correct
     );
 }

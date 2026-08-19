@@ -19,6 +19,7 @@ use crate::ecs::resource::{
 };
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;
+use crate::helm::components::tool_call::{ShotPreset, SpeedPreset};
 
 #[cfg(feature = "auto-rig")]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -40,6 +41,12 @@ pub enum UIEvent {
     ResetCamera,
     ResetCameraUp,
     MoveCameraToModel,
+    CameraShot {
+        preset: ShotPreset,
+        speed: SpeedPreset,
+        target: Option<Entity>,
+    },
+    SetActiveCamera(Option<Entity>),
     MoveCameraToLightGizmo,
 
     SetLightPosition(Vector3<f32>),

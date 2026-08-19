@@ -47,6 +47,7 @@ const BATCH_FLAME_TRACE_FLAG: &str = "--batch-flame-trace";
 const BATCH_WALL_PROBE_FLAG: &str = "--batch-wall-probe";
 const BATCH_DEBUG_ACTION_FLAG: &str = "--batch-debug-action";
 pub const BATCH_LIST_DEBUG_ACTIONS_FLAG: &str = "--batch-list-debug-actions";
+const BATCH_ACTIVE_CAMERA_FLAG: &str = "--batch-active-camera";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct BatchCameraPose {
@@ -85,6 +86,7 @@ pub struct EngineCliOverrides {
     pub debug_actions: Vec<BatchDebugAction>,
     pub flame_trace_path: Option<String>,
     pub wall_probe_path: Option<String>,
+    pub active_camera: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum BatchAnimEdit {
@@ -161,6 +163,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         debug_actions: debug_actions_resolve_from_args(args)?,
         flame_trace_path: flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?,
         wall_probe_path: flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?,
+        active_camera: flag_value_resolve_from_args(args, BATCH_ACTIVE_CAMERA_FLAG)?,
     })
 }
 
@@ -1517,6 +1520,66 @@ fn anim_edit_parse_spec(spec: &str) -> Result<BatchAnimEdit> {
         });
     }
     bail!("unknown anim edit spec '{spec}'. Expected debug_keys=<seed> | key=<param>@<time>=<value> | key_at_playhead=<param> | trim_end=<seconds> | clear")
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct BatchPendingAnimEdits {
+    pub edits: Vec<BatchAnimEdit>,
+}
+
+#[derive(Clone, Debug)]
+pub struct BatchPendingActiveCamera(pub String);
+
+fn flush_pending_anim_edits(world: &mut World, assets: &mut AssetStorage) {
+    if !world.contains_resource::<BatchPendingAnimEdits>() {
+        return;
+    }
+    let load_status = match world.get_resource::<crate::ecs::resource::ModelState>() {
+        Some(ms) => ms.load_status.clone(),
+        None => return,
+    };
+    if load_status.starts_with("Loaded:") {
+        if let Some(pending) = world.remove_resource::<BatchPendingAnimEdits>() {
+            batch_apply_anim_edits(world, assets, &pending.edits);
+        }
+    } else if load_status.starts_with("Error:") {
+        world.remove_resource::<BatchPendingAnimEdits>();
+        log!("[batch] anim edits dropped: model failed to load");
+    }
+}
+
+pub fn batch_flush_pending_anim_edits(ctx: &mut crate::ecs::context::EcsContext) {
+    flush_pending_anim_edits(ctx.world, ctx.assets);
+}
+
+fn flush_pending_active_camera(world: &mut World) {
+    let Some(name) = world
+        .get_resource::<BatchPendingActiveCamera>()
+        .map(|p| p.0.clone())
+    else {
+        return;
+    };
+    let entities: Vec<_> = world
+        .iter_components::<crate::ecs::component::CameraComponent>()
+        .map(|(e, _)| e)
+        .collect();
+    let found = entities.into_iter().find(|&e| {
+        world
+            .get_component::<crate::ecs::world::Name>(e)
+            .map(|n| n.0 == name)
+            .unwrap_or(false)
+    });
+    let Some(entity) = found else {
+        return;
+    };
+    if let Some(mut active) = world.get_resource_mut::<crate::ecs::resource::ActiveCamera>() {
+        active.0 = Some(entity);
+    }
+    world.remove_resource::<BatchPendingActiveCamera>();
+}
+
+pub fn batch_flush_pending_active_camera(ctx: &mut crate::ecs::context::EcsContext) {
+    flush_pending_active_camera(ctx.world);
 }
 
 /// Apply anim edits through the production scalar-clip event dispatcher, so batch
@@ -2923,6 +2986,66 @@ mod tests {
     }
 
     #[test]
+    fn pending_anim_edits_deferred_until_loaded() {
+        let mut world = World::new();
+        crate::ecs::systems::spawn_flame(
+            &mut world,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            FlameEffect::default(),
+        );
+        world.insert_resource(ClipLibrary::new());
+        world.insert_resource(TimelineState::new());
+        world.insert_resource(crate::ecs::resource::EditHistory::new(10));
+        world.insert_resource(crate::ecs::resource::ModelState {
+            load_status: "Loading".to_string(),
+            ..Default::default()
+        });
+        let mut assets = AssetStorage::new();
+
+        // Insert pending edits
+        world.insert_resource(BatchPendingAnimEdits {
+            edits: vec![BatchAnimEdit::DebugKeys { seed: 7 }],
+        });
+
+        // Flush while "Loading" — should be a no-op, resource stays, edits not applied
+        flush_pending_anim_edits(&mut world, &mut assets);
+        assert!(
+            world.contains_resource::<BatchPendingAnimEdits>(),
+            "resource should remain while load_status is Loading"
+        );
+        let dump = batch_anim_dump_json(&world);
+        let clips = dump["clips"].as_array().unwrap();
+        assert_eq!(
+            clips.len(),
+            0,
+            "no clip should be created while load_status is Loading"
+        );
+
+        // Set load_status to "Loaded:" and flush again — should apply edits and remove resource
+        world.insert_resource(crate::ecs::resource::ModelState {
+            load_status: "Loaded: /path/to/model.glb".to_string(),
+            ..Default::default()
+        });
+        world.insert_resource(BatchPendingAnimEdits {
+            edits: vec![BatchAnimEdit::DebugKeys { seed: 7 }],
+        });
+
+        // Flush while "Loaded:" — should apply edits and remove resource
+        flush_pending_anim_edits(&mut world, &mut assets);
+        assert!(
+            !world.contains_resource::<BatchPendingAnimEdits>(),
+            "resource should be removed after successful flush"
+        );
+        let dump = batch_anim_dump_json(&world);
+        let clips = dump["clips"].as_array().unwrap();
+        assert_eq!(
+            clips.len(),
+            1,
+            "clip should be created when load_status is Loaded:"
+        );
+    }
+
+    #[test]
     fn flame_clip_preview_parses_and_rejects_invalid() {
         let actions = debug_actions_resolve_from_args(&args(&[
             "bin",
@@ -3222,6 +3345,34 @@ mod tests {
         assert!(err_msg.contains("JPG") || err_msg.contains("jpg"));
     }
 
+    #[test]
+    fn test_batch_flush_pending_active_camera() {
+        let mut world = World::new();
+        world.insert_resource(crate::ecs::resource::ActiveCamera(None));
+        world.insert_resource(BatchPendingActiveCamera("Cam".into()));
+        let e = world.spawn();
+        world.insert_component(e, crate::ecs::component::CameraComponent::default());
+        world.insert_component(e, crate::ecs::world::Name("Cam".into()));
+
+        batch_flush_pending_active_camera(&mut crate::ecs::context::EcsContext {
+            time: 0.0,
+            delta_time: 0.0,
+            image_index: 0,
+            world: &mut world,
+            assets: &mut AssetStorage::default(),
+            swapchain_extent: (800, 600),
+            mesh_positions: Vec::new(),
+        });
+
+        assert_eq!(
+            world
+                .get_resource::<crate::ecs::resource::ActiveCamera>()
+                .unwrap()
+                .0,
+            Some(e)
+        );
+        assert!(!world.contains_resource::<BatchPendingActiveCamera>());
+    }
     /// Write a simple 2x2 RGB PNG with all pixels having the same color value.
     fn write_test_png(path: &Path, width: u32, height: u32, value: u8) {
         let file = std::fs::File::create(path).unwrap();

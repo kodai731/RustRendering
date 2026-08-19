@@ -41,6 +41,14 @@ pub fn dispatch_camera_light_debug_events(
                 }
             }
 
+            UIEvent::SetActiveCamera(target) => {
+                if let Some(mut active_camera) =
+                    world.get_resource_mut::<crate::ecs::resource::ActiveCamera>()
+                {
+                    active_camera.0 = *target;
+                }
+            }
+
             UIEvent::MoveCameraToLightGizmo => {
                 let light_pos = rt_debug.light_position;
                 let offset = Vector3::new(2.0, 2.0, 2.0);

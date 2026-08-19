@@ -54,6 +54,8 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
         };
 
         process_pending_mesh_selection(&mut ecs_ctx);
+        crate::ecs::systems::batch_flush_pending_anim_edits(&mut ecs_ctx);
+        crate::ecs::systems::batch_flush_pending_active_camera(&mut ecs_ctx);
         run_input_phase(&mut ecs_ctx)?;
         batch_driver::run_before_helm(&mut ecs_ctx);
         run_helm_phase(&mut ecs_ctx);

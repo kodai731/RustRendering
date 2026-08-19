@@ -55,6 +55,8 @@ pub struct LoadedNode {
     pub local_transform: Matrix4<f32>,
 }
 
+use crate::gltf::LoadedCamera;
+
 #[derive(Clone, Debug, Default)]
 pub struct ModelLoadResult {
     pub meshes: Vec<LoadedMesh>,
@@ -67,6 +69,7 @@ pub struct ModelLoadResult {
     pub node_animation_scale: f32,
     pub constraints: Vec<LoadedConstraint>,
     pub spring_bone_setup: Option<SpringBoneSetup>,
+    pub cameras: Vec<LoadedCamera>,
 }
 
 impl ModelLoadResult {
@@ -117,6 +120,7 @@ impl ModelLoadResult {
             node_animation_scale,
             constraints: Vec::new(),
             spring_bone_setup: result.spring_bone_setup,
+            cameras: result.cameras,
         }
     }
 
@@ -159,6 +163,7 @@ impl ModelLoadResult {
             node_animation_scale: 1.0,
             constraints: result.constraints,
             spring_bone_setup: None,
+            cameras: Vec::new(),
         }
     }
 }
