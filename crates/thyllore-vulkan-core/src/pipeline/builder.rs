@@ -1,6 +1,6 @@
 use crate::core::device::*;
 use crate::core::swapchain::*;
-use crate::data::*;
+use crate::descriptor::{shader_stage_flags, PassShaders, ShaderStage};
 use crate::render::pass::RRRender;
 use crate::vulkan::*;
 use std::fs::File;
@@ -95,9 +95,7 @@ pub struct PushConstantConfig {
 
 /// Pipeline builder for flexible pipeline creation
 pub struct PipelineBuilder {
-    vertex_shader_path: String,
-    fragment_shader_path: String,
-    geometry_shader_path: Option<String>,
+    pass: &'static PassShaders,
     vertex_input: VertexInputConfig,
     topology: vk::PrimitiveTopology,
     polygon_mode: vk::PolygonMode,
@@ -115,11 +113,9 @@ pub struct PipelineBuilder {
 }
 
 impl PipelineBuilder {
-    pub fn new(vertex_shader: &str, fragment_shader: &str) -> Self {
+    pub fn from_pass(pass: &'static PassShaders) -> Self {
         Self {
-            vertex_shader_path: vertex_shader.to_string(),
-            fragment_shader_path: fragment_shader.to_string(),
-            geometry_shader_path: None,
+            pass,
             vertex_input: VertexInputConfig::Standard,
             topology: vk::PrimitiveTopology::TRIANGLE_LIST,
             polygon_mode: vk::PolygonMode::FILL,
@@ -139,12 +135,6 @@ impl PipelineBuilder {
             no_blend_attachments: vec![],
             attachment_blend_overrides: vec![],
         }
-    }
-
-    /// Set geometry shader stage (requires the geometry_shader device feature)
-    pub fn geometry_shader(mut self, path: &str) -> Self {
-        self.geometry_shader_path = Some(path.to_string());
-        self
     }
 
     /// Override blend configuration for a single MRT attachment
@@ -247,33 +237,13 @@ impl PipelineBuilder {
     ) -> Result<RRPipeline> {
         let mut rrpipeline = RRPipeline::default();
 
-        // Load shaders
-        let vert_shader_module = load_shader_module(rrdevice, &self.vertex_shader_path)?;
-        let frag_shader_module = load_shader_module(rrdevice, &self.fragment_shader_path)?;
-        let geom_shader_module = match &self.geometry_shader_path {
-            Some(path) => Some(load_shader_module(rrdevice, path)?),
-            None => None,
-        };
-
-        // Shader stages
-        let vert_stage = vk::PipelineShaderStageCreateInfo::builder()
-            .stage(vk::ShaderStageFlags::VERTEX)
-            .module(vert_shader_module)
-            .name(b"main\0");
-        let frag_stage = vk::PipelineShaderStageCreateInfo::builder()
-            .stage(vk::ShaderStageFlags::FRAGMENT)
-            .module(frag_shader_module)
-            .name(b"main\0");
-        let mut shader_stages = vec![vert_stage];
-        if let Some(module) = geom_shader_module {
-            shader_stages.push(
-                vk::PipelineShaderStageCreateInfo::builder()
-                    .stage(vk::ShaderStageFlags::GEOMETRY)
-                    .module(module)
-                    .name(b"main\0"),
-            );
+        if self.pass.is_compute() {
+            return Err(anyhow::anyhow!(
+                "pass `{}` is a compute pass; use RRPipeline::new_compute",
+                self.pass.name()
+            ));
         }
-        shader_stages.push(frag_stage);
+        let shader_stages = load_pass_stages(rrdevice, self.pass)?;
 
         let (binding_descriptions, attribute_descriptions) =
             resolve_vertex_input(self.vertex_input);
@@ -424,17 +394,8 @@ impl PipelineBuilder {
 
         rrpipeline.pipeline = pipelines.0[0];
 
-        // Clean up shader modules
-        rrdevice
-            .device
-            .destroy_shader_module(vert_shader_module, None);
-        rrdevice
-            .device
-            .destroy_shader_module(frag_shader_module, None);
         for stage in &shader_stages {
-            if stage.stage == vk::ShaderStageFlags::GEOMETRY {
-                rrdevice.device.destroy_shader_module(stage.module, None);
-            }
+            rrdevice.device.destroy_shader_module(stage.module, None);
         }
 
         println!("Pipeline created successfully");
@@ -449,13 +410,12 @@ impl RRPipeline {
         rrswapchain: &RRSwapchain,
         rrrender: &RRRender,
         layouts: &[vk::DescriptorSetLayout; 3],
-        vertex_shader_path: &str,
-        fragment_shader_path: &str,
+        pass: &'static PassShaders,
         topology: PrimitiveTopology,
         polygon_mode: vk::PolygonMode,
         cull_mode: vk::CullModeFlags,
     ) -> Result<Self> {
-        let mut builder = PipelineBuilder::new(vertex_shader_path, fragment_shader_path)
+        let mut builder = PipelineBuilder::from_pass(pass)
             .vertex_input(VertexInputConfig::Standard)
             .topology(topology)
             .polygon_mode(polygon_mode)
@@ -479,13 +439,12 @@ impl RRPipeline {
         rrswapchain: &RRSwapchain,
         rrrender: &RRRender,
         layouts: &[vk::DescriptorSetLayout; 2],
-        vertex_shader_path: &str,
-        fragment_shader_path: &str,
+        pass: &'static PassShaders,
         topology: PrimitiveTopology,
         polygon_mode: vk::PolygonMode,
         cull_mode: vk::CullModeFlags,
     ) -> Result<Self> {
-        let mut builder = PipelineBuilder::new(vertex_shader_path, fragment_shader_path)
+        let mut builder = PipelineBuilder::from_pass(pass)
             .vertex_input(VertexInputConfig::Standard)
             .topology(topology)
             .polygon_mode(polygon_mode)
@@ -508,11 +467,10 @@ impl RRPipeline {
         rrdevice: &RRDevice,
         rrrender: &RRRender,
         descriptor_set_layout: vk::DescriptorSetLayout,
-        vertex_shader_path: &str,
-        fragment_shader_path: &str,
+        pass: &'static PassShaders,
         msaa_samples: vk::SampleCountFlags,
     ) -> Result<Self> {
-        PipelineBuilder::new(vertex_shader_path, fragment_shader_path)
+        PipelineBuilder::from_pass(pass)
             .vertex_input(VertexInputConfig::ImGui)
             .no_depth_test()
             .push_constants(PushConstantConfig {
@@ -532,10 +490,9 @@ impl RRPipeline {
         rrrender: &RRRender,
         rrswapchain: &RRSwapchain,
         descriptor_set_layout: vk::DescriptorSetLayout,
-        vertex_shader_path: &str,
-        fragment_shader_path: &str,
+        pass: &'static PassShaders,
     ) -> Result<Self> {
-        PipelineBuilder::new(vertex_shader_path, fragment_shader_path)
+        PipelineBuilder::from_pass(pass)
             .vertex_input(VertexInputConfig::Billboard)
             .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
             .polygon_mode(vk::PolygonMode::FILL)
@@ -547,28 +504,28 @@ impl RRPipeline {
     /// Create compute pipeline for ray query or other compute shaders
     pub unsafe fn new_compute(
         rrdevice: &RRDevice,
-        compute_shader_path: &str,
+        pass: &'static PassShaders,
         descriptor_set_layouts: &[vk::DescriptorSetLayout],
     ) -> Result<Self> {
-        Self::new_compute_with_push_constants(
-            rrdevice,
-            compute_shader_path,
-            descriptor_set_layouts,
-            &[],
-        )
+        Self::new_compute_with_push_constants(rrdevice, pass, descriptor_set_layouts, &[])
     }
 
     /// Create compute pipeline with push constants
     pub unsafe fn new_compute_with_push_constants(
         rrdevice: &RRDevice,
-        compute_shader_path: &str,
+        pass: &'static PassShaders,
         descriptor_set_layouts: &[vk::DescriptorSetLayout],
         push_constant_ranges: &[vk::PushConstantRange],
     ) -> Result<Self> {
         let device = &rrdevice.device;
 
-        // Load compute shader
-        let comp_shader_module = load_shader_module(rrdevice, compute_shader_path)?;
+        let compute_shader = pass.stage(ShaderStage::Compute).ok_or_else(|| {
+            anyhow::anyhow!(
+                "pass `{}` has no compute stage; use PipelineBuilder::from_pass",
+                pass.name()
+            )
+        })?;
+        let comp_shader_module = load_shader_module(rrdevice, compute_shader.path)?;
 
         // Create shader stage
         let comp_stage = vk::PipelineShaderStageCreateInfo::builder()
@@ -615,7 +572,23 @@ impl RRPipeline {
     }
 }
 
-/// Load a shader module from file path
+unsafe fn load_pass_stages(
+    rrdevice: &RRDevice,
+    pass: &PassShaders,
+) -> Result<Vec<vk::PipelineShaderStageCreateInfoBuilder<'static>>> {
+    let mut stages = Vec::with_capacity(pass.stages.len());
+    for file in pass.stages {
+        let module = load_shader_module(rrdevice, file.path)?;
+        stages.push(
+            vk::PipelineShaderStageCreateInfo::builder()
+                .stage(shader_stage_flags(file.stage))
+                .module(module)
+                .name(b"main\0"),
+        );
+    }
+    Ok(stages)
+}
+
 unsafe fn load_shader_module(rrdevice: &RRDevice, path: &str) -> Result<vk::ShaderModule> {
     let mut file = File::open(path)?;
     let mut bytecode = Vec::new();

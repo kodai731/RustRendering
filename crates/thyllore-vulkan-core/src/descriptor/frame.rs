@@ -4,7 +4,7 @@ use std::ptr::copy_nonoverlapping as memcpy;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::device::RRDevice;
-use crate::descriptor::pass_shaders::{frame_set_shaders, FRAME_SET};
+use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::Instance;
@@ -56,7 +56,7 @@ impl FrameDescriptorSet {
     }
 
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(frame_set_shaders(), FRAME_SET)
+        ReflectedLayoutSpec::shared(SetRole::Frame)
     }
 
     unsafe fn write_descriptor_sets(&mut self, rrdevice: &RRDevice) -> anyhow::Result<()> {

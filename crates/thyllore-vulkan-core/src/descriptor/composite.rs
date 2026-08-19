@@ -1,5 +1,5 @@
 use crate::core::device::*;
-use crate::descriptor::pass_shaders::COMPOSITE_SHADERS;
+use crate::descriptor::pass_manifest::COMPOSITE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::*;
@@ -56,7 +56,7 @@ pub struct RRCompositeDescriptorSet {
 
 impl RRCompositeDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(COMPOSITE_SHADERS.to_vec(), 0)
+        ReflectedLayoutSpec::local(&COMPOSITE)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {

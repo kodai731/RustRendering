@@ -1,5 +1,5 @@
 use crate::core::device::*;
-use crate::descriptor::pass_shaders::DOF_SHADERS;
+use crate::descriptor::pass_manifest::DOF;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
@@ -14,7 +14,7 @@ pub struct RRDofDescriptorSet {
 
 impl RRDofDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(DOF_SHADERS.to_vec(), 0)
+        ReflectedLayoutSpec::local(&DOF)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {

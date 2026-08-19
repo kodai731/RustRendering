@@ -1,5 +1,5 @@
 use crate::core::device::*;
-use crate::descriptor::pass_shaders::TONEMAP_SHADERS;
+use crate::descriptor::pass_manifest::TONEMAP;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::vulkan::*;
 
@@ -16,7 +16,7 @@ pub struct RRToneMapDescriptorSet {
 
 impl RRToneMapDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
-        ReflectedLayoutSpec::new(TONEMAP_SHADERS.to_vec(), 0)
+        ReflectedLayoutSpec::local(&TONEMAP)
     }
 
     pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {

@@ -1,0 +1,75 @@
+# Single hand-written source of pass definitions.
+# build.rs of thyllore-vulkan-core generates PassId / PassShaders / ALL_PASSES from this file.
+# Set roles: frame = set 0, material = set 1, object = set 2, local = pass-owned set.
+
+[pass.model]
+stages = ["vertex.vert", "fragment.frag"]
+sets = { 0 = "frame", 1 = "material", 2 = "object" }
+
+[pass.gbuffer]
+stages = ["gbufferVertex.vert", "gbufferFragment.frag"]
+sets = { 0 = "frame", 1 = "material", 2 = "object" }
+
+[pass.grid]
+stages = ["gridVertex.vert", "gridFragment.frag"]
+sets = { 0 = "frame", 1 = "material", 2 = "object" }
+
+[pass.gizmo]
+stages = ["gizmoVertex.vert", "gizmoFragment.frag"]
+sets = { 0 = "frame", 1 = "material", 2 = "object" }
+
+[pass.bone]
+stages = ["boneVertex.vert", "boneFragment.frag"]
+sets = { 0 = "frame", 1 = "material", 2 = "object" }
+
+[pass.onion_skin_ghost]
+stages = ["gbufferVertex.vert", "onionSkinFragment.frag"]
+sets = { 0 = "frame", 1 = "material", 2 = "object" }
+
+[pass.onion_skin_composite]
+stages = ["tonemapVertex.vert", "onionSkinCompositeFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.flame_resolve]
+stages = ["tonemapVertex.vert", "flameResolveFragment.frag"]
+sets = { 0 = "frame", 1 = "local" }
+
+[pass.tonemap]
+stages = ["tonemapVertex.vert", "tonemapFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.bloom_downsample]
+stages = ["tonemapVertex.vert", "bloomDownsampleFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.bloom_upsample]
+stages = ["tonemapVertex.vert", "bloomUpsampleFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.dof]
+stages = ["tonemapVertex.vert", "dofFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.auto_exposure_histogram]
+stages = ["autoExposureHistogram.comp"]
+sets = { 0 = "local" }
+
+[pass.auto_exposure_average]
+stages = ["autoExposureAverage.comp"]
+sets = { 0 = "local" }
+
+[pass.ray_query_shadow]
+stages = ["rayQueryShadow.comp"]
+sets = { 0 = "local" }
+
+[pass.composite]
+stages = ["compositeVertex.vert", "compositeFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.billboard]
+stages = ["billboardVertex.vert", "billboardFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.imgui]
+stages = ["imguiVertex.vert", "imguiFragment.frag"]
+sets = { 0 = "local" }
