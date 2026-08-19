@@ -58,6 +58,13 @@ impl ReflectedLayoutSpec {
         Self::new(vec![pass], SetRole::Local)
     }
 
+    pub fn for_role(pass: &'static PassShaders, role: SetRole) -> Self {
+        match role {
+            SetRole::Local => Self::local(pass),
+            SetRole::Frame | SetRole::Material | SetRole::Object => Self::shared(role),
+        }
+    }
+
     pub fn with_override(mut self, binding: u32, descriptor_type: vk::DescriptorType) -> Self {
         self.overrides.push(DescriptorTypeOverride {
             binding,

@@ -4,8 +4,8 @@ use thyllore_effect_core::flame::analytic::ubo::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_vulkan_core::data::{SceneUniformData, UniformBufferObject};
 use thyllore_vulkan_core::descriptor::{
-    layout_specs, reflect_shader_bytes, DescriptorSetTable, LayoutMismatch, PassId, PassShaders,
-    SelectionUBO, ShaderFile, ShaderReflection, ALL_PASSES,
+    reflect_shader_bytes, DescriptorSetTable, LayoutMismatch, PassId, PassShaders,
+    ReflectedLayoutSpec, SelectionUBO, ShaderFile, ShaderReflection, ALL_PASSES,
 };
 
 #[derive(Clone, Copy, Debug)]
@@ -191,13 +191,11 @@ fn every_pass_layout_covers_its_shaders() {
 
     for pass in ALL_PASSES {
         let pass_table = build_table(pass);
-        let specs = match layout_specs(pass) {
-            Ok(specs) => specs,
-            Err(error) => {
-                failures.push(format!("{}: {error:#}", pass.name()));
-                continue;
-            }
-        };
+        let specs: Vec<(u32, ReflectedLayoutSpec)> = pass
+            .set_roles
+            .iter()
+            .map(|(set, role)| (*set, ReflectedLayoutSpec::for_role(pass, *role)))
+            .collect();
 
         for (set, spec) in &specs {
             match spec.set_index() {

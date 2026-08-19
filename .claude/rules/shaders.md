@@ -20,7 +20,7 @@ Shader source files are located in `shaders/`:
 - `fragment.frag` -> `assets/shaders/frag.spv`
 - `gbufferVertex.vert` -> `assets/shaders/gbufferVert.spv`
 - `gbufferFragment.frag` -> `assets/shaders/gbufferFrag.spv`
-- `rayQueryShadow.comp` -> `assets/shaders/rayQueryShadow.spv`
+- `rayQueryShadow.comp` -> `assets/shaders/rayQueryShadowComp.spv`
 - etc.
 
 ## Pass Manifest (`shaders/passes.toml`)
@@ -33,8 +33,9 @@ generates `PassId`, `PassShaders` constants and `ALL_PASSES` into `$OUT_DIR/pass
 
 - Create pipelines with `PipelineBuilder::from_pass(&FLAME_RESOLVE)` / `RRPipeline::new_compute_with_push_constants(.., &RAY_QUERY_SHADOW, ..)`.
 - Declare layouts with `ReflectedLayoutSpec::shared(SetRole::Frame)` or `ReflectedLayoutSpec::local(&TONEMAP)`.
-- A pass with a `local` set must be mapped in `descriptor/pass_layouts.rs` (`local_layout_spec`, exhaustive match).
-- Adding a shader = GLSL + `passes.toml` entry + `*DescriptorSet` + one `pass_layouts.rs` line.
+- `ReflectedLayoutSpec::for_role(pass, role)` derives the spec of any pass set from the manifest alone; the golden
+  test `descriptor_reflection_golden.rs` walks `ALL_PASSES` with it, so no Rust-side pass list exists.
+- Adding a shader = GLSL + `passes.toml` entry + its `*DescriptorSet`.
 
 ## Shader Modifications
 

@@ -86,6 +86,7 @@ fn compile_shaders() {
     };
 
     let mut shader_count = 0;
+    let mut expected_outputs = Vec::new();
 
     for entry in entries {
         let Ok(entry) = entry else { continue };
@@ -95,6 +96,7 @@ fn compile_shaders() {
             continue;
         };
         let out_path = Path::new(shader_out_dir).join(&out_name);
+        expected_outputs.push(out_name.clone());
 
         println!("cargo:rerun-if-changed={}", path.display());
 
@@ -122,10 +124,35 @@ fn compile_shaders() {
         }
     }
 
+    remove_stale_spirv(shader_out_dir, &expected_outputs);
+
     if shader_count > 0 {
         println!(
             "cargo:warning={}個のシェーダーのコンパイルが完了しました。",
             shader_count
         );
+    }
+}
+
+fn remove_stale_spirv(shader_out_dir: &str, expected_outputs: &[String]) {
+    let Ok(entries) = fs::read_dir(shader_out_dir) else {
+        return;
+    };
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let is_spirv = path.extension().is_some_and(|extension| extension == "spv");
+        let is_expected = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| expected_outputs.iter().any(|expected| expected == name));
+        if is_spirv && !is_expected {
+            if let Err(error) = fs::remove_file(&path) {
+                eprintln!(
+                    "古い SPIR-V の削除に失敗しました ({}): {}",
+                    path.display(),
+                    error
+                );
+            }
+        }
     }
 }

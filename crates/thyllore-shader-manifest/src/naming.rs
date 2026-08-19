@@ -14,13 +14,15 @@ pub fn spirv_output_name(source_file_name: &str) -> Option<String> {
         .trim_end_matches("Fragment")
         .trim_end_matches("fragment")
         .trim_end_matches("Geometry")
-        .trim_end_matches("geometry");
+        .trim_end_matches("geometry")
+        .trim_end_matches("Compute")
+        .trim_end_matches("compute");
 
     let stage_suffix = match extension {
         "vert" => "Vert",
         "frag" => "Frag",
         "geom" => "Geom",
-        "comp" => return Some(format!("{stem}.spv")),
+        "comp" => "Comp",
         _ => return None,
     };
 
@@ -60,7 +62,11 @@ mod tests {
         );
         assert_eq!(
             spirv_output_name("rayQueryShadow.comp").as_deref(),
-            Some("rayQueryShadow.spv")
+            Some("rayQueryShadowComp.spv")
+        );
+        assert_eq!(
+            spirv_output_name("histogramCompute.comp").as_deref(),
+            Some("histogramComp.spv")
         );
     }
 
