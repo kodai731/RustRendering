@@ -270,7 +270,7 @@ pub struct AutoExposureState {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameSceneData {
-    pub effect: FlameEffectData,
+    pub effect: thyllore_effect_core::FlameEffect,
     #[serde(default)]
     pub channels: Vec<FlameChannelData>,
     /// Authored clip length floor in seconds (0 = keyframes decide).
@@ -297,251 +297,6 @@ pub struct MotionPathData {
     pub angular_speed: f32,
     pub phase_offset: f32,
     pub enabled: bool,
-}
-
-// TODO(#132): replace this hand-written mirror struct with serialization
-// derived from the component itself (see the issue for the Bevy/Unity survey).
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FlameEffectData {
-    pub position: [f32; 3],
-    pub rotation: [f32; 4],
-    pub height: f32,
-    pub radius: f32,
-    pub sigma_t: f32,
-    pub intensity: f32,
-    pub color_base: [f32; 3],
-    pub color_tip: [f32; 3],
-    pub temperature_base_k: f32,
-    pub temperature_tip_k: f32,
-    pub use_blackbody: bool,
-    pub noise_amplitude: f32,
-    #[serde(default = "default_noise_contrast")]
-    pub noise_contrast: f32,
-    pub noise_frequency: f32,
-    pub noise_scroll_speed: f32,
-    pub time_scale: f32,
-    pub time_offset: f32,
-    pub warp_amp: f32,
-    pub warp_freq: f32,
-    pub rise_speed: f32,
-    pub taper_power: f32,
-    pub radius_tip_ratio: f32,
-    pub edge_low: f32,
-    pub edge_high: f32,
-    pub white_boost: f32,
-    pub wind_direction: [f32; 2],
-    pub bend_amount: f32,
-    pub bend_power: f32,
-    pub self_shadow_strength: f32,
-    #[serde(default = "default_envelope_peak")]
-    pub envelope_peak: f32,
-    #[serde(default = "default_envelope_base")]
-    pub envelope_base: f32,
-    #[serde(default = "default_envelope_tail")]
-    pub envelope_tail: f32,
-    #[serde(default = "default_radial_sharpness")]
-    pub radial_sharpness: f32,
-    #[serde(default = "default_occlusion_lum_ref")]
-    pub occlusion_lum_ref: f32,
-    #[serde(default = "default_contour_wiggle_amp")]
-    pub contour_wiggle_amp: f32,
-    #[serde(default)]
-    pub aniso_axis_advect: f32,
-    #[serde(default = "default_rte_bands")]
-    pub rte_bands: f32,
-    #[serde(default = "default_sigma_dispersion")]
-    pub sigma_dispersion: f32,
-    #[serde(default = "default_tip_carve_depth")]
-    pub tip_carve_depth: f32,
-    #[serde(default = "default_tip_carve_reach")]
-    pub tip_carve_reach: f32,
-    #[serde(default = "default_warp_reach")]
-    pub warp_reach: f32,
-    #[serde(default)]
-    pub swirl_gain: f32,
-    #[serde(default = "default_swirl_speed")]
-    pub swirl_speed: f32,
-    #[serde(default)]
-    pub spread_gain: f32,
-    #[serde(default = "default_support_margin")]
-    pub support_margin: f32,
-    #[serde(default)]
-    pub meander_amp: f32,
-    #[serde(default = "default_meander_frequency")]
-    pub meander_frequency: f32,
-    #[serde(default = "default_mix_lo")]
-    pub mix_lo: f32,
-    #[serde(default = "default_mix_hi")]
-    pub mix_hi: f32,
-    #[serde(default)]
-    pub mix_height_gain: f32,
-    #[serde(default = "default_mix_scale")]
-    pub mix_scale: f32,
-    #[serde(default)]
-    pub mix_radial_gain: f32,
-    #[serde(default = "default_density_exp")]
-    pub density_exp: f32,
-    #[serde(default = "default_temp_exp")]
-    pub temp_exp: f32,
-    #[serde(default = "default_wien_c_k")]
-    pub wien_c_k: f32,
-    #[serde(default = "default_wave_segments")]
-    pub wave_segments: u32,
-    #[serde(default = "default_noise_aniso_y")]
-    pub noise_aniso_y: f32,
-    #[serde(default)]
-    pub edge_outer_sharpen: f32,
-    #[serde(default)]
-    pub noise_scale_mode: f32,
-    #[serde(default = "default_erosion_noise_gain")]
-    pub erosion_noise_gain: f32,
-    #[serde(default)]
-    pub twist_gain: f32,
-    #[serde(default)]
-    pub twist_speed: f32,
-    #[serde(default)]
-    pub burnout_gain: f32,
-    #[serde(default)]
-    pub noise_shaping_scale: f32,
-    #[serde(default)]
-    pub optical_depth: f32,
-    #[serde(default)]
-    pub branch_period: f32,
-    #[serde(default = "default_branch_life")]
-    pub branch_life: f32,
-    #[serde(default)]
-    pub branch_gain: f32,
-    #[serde(default = "default_branch_core_radius")]
-    pub branch_core_radius: f32,
-    #[serde(default)]
-    pub branch_core_offset: f32,
-    #[serde(default = "default_branch_reach")]
-    pub branch_reach: f32,
-    #[serde(default = "default_branch_spread")]
-    pub branch_spread: f32,
-    #[serde(default = "default_branch_spawn_height")]
-    pub branch_spawn_height: f32,
-    #[serde(default = "default_branch_spawn_range")]
-    pub branch_spawn_range: f32,
-    #[serde(default)]
-    pub branch_seed: u32,
-}
-
-fn default_branch_core_radius() -> f32 {
-    0.35
-}
-
-fn default_branch_reach() -> f32 {
-    1.5
-}
-
-fn default_meander_frequency() -> f32 {
-    1.0
-}
-
-fn default_mix_lo() -> f32 {
-    thyllore_effect_core::FlameEffect::default().mix.lo
-}
-
-fn default_mix_hi() -> f32 {
-    thyllore_effect_core::FlameEffect::default().mix.hi
-}
-
-fn default_mix_scale() -> f32 {
-    thyllore_effect_core::FlameEffect::default().mix.scale
-}
-
-fn default_density_exp() -> f32 {
-    thyllore_effect_core::FlameEffect::default()
-        .thermal
-        .density_exp
-}
-
-fn default_temp_exp() -> f32 {
-    thyllore_effect_core::FlameEffect::default()
-        .thermal
-        .temp_exp
-}
-
-fn default_wien_c_k() -> f32 {
-    thyllore_effect_core::FlameEffect::default()
-        .thermal
-        .wien_c_k
-}
-
-fn default_wave_segments() -> u32 {
-    thyllore_effect_core::flame_wave::FLAME_WAVE_SEGMENTS as u32
-}
-
-fn default_noise_aniso_y() -> f32 {
-    thyllore_effect_core::FlameEffect::default().noise.aniso_y
-}
-
-fn default_branch_spawn_height() -> f32 {
-    0.35
-}
-
-fn default_branch_spawn_range() -> f32 {
-    0.4
-}
-
-fn default_branch_life() -> f32 {
-    2.5
-}
-
-fn default_branch_spread() -> f32 {
-    0.3
-}
-
-fn default_erosion_noise_gain() -> f32 {
-    1.0
-}
-
-fn default_swirl_speed() -> f32 {
-    1.0
-}
-
-fn default_support_margin() -> f32 {
-    1.0
-}
-
-fn default_tip_carve_depth() -> f32 {
-    1.0
-}
-fn default_tip_carve_reach() -> f32 {
-    0.2
-}
-fn default_warp_reach() -> f32 {
-    thyllore_effect_core::flame_wave::WARP_REACH_DEFAULT
-}
-
-fn default_rte_bands() -> f32 {
-    4.0
-}
-fn default_sigma_dispersion() -> f32 {
-    1.0
-}
-
-fn default_noise_contrast() -> f32 {
-    1.0
-}
-fn default_envelope_peak() -> f32 {
-    0.35
-}
-fn default_envelope_base() -> f32 {
-    0.45
-}
-fn default_envelope_tail() -> f32 {
-    1.6
-}
-fn default_radial_sharpness() -> f32 {
-    4.0
-}
-fn default_occlusion_lum_ref() -> f32 {
-    1.0
-}
-fn default_contour_wiggle_amp() -> f32 {
-    0.3
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -625,88 +380,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
         });
 
     Some(FlameSceneData {
-        effect: FlameEffectData {
-            position: [effect.position.x, effect.position.y, effect.position.z],
-            rotation: [
-                effect.rotation.s,
-                effect.rotation.v.x,
-                effect.rotation.v.y,
-                effect.rotation.v.z,
-            ],
-            height: effect.height,
-            radius: effect.radius,
-            sigma_t: effect.sigma_t,
-            optical_depth: effect.optical_depth,
-            intensity: effect.intensity,
-            color_base: effect.color.base,
-            color_tip: effect.color.tip,
-            temperature_base_k: effect.color.temperature_base_k,
-            temperature_tip_k: effect.color.temperature_tip_k,
-            use_blackbody: effect.color.use_blackbody,
-            noise_amplitude: effect.noise.amplitude,
-            noise_contrast: effect.noise.contrast,
-            noise_frequency: effect.noise.frequency,
-            noise_scroll_speed: effect.noise.scroll_speed,
-            time_scale: effect.time_scale,
-            time_offset: effect.time_offset,
-            warp_amp: effect.warp.amp,
-            warp_freq: effect.warp.freq,
-            rise_speed: effect.warp.rise_speed,
-            taper_power: effect.warp.taper_power,
-            radius_tip_ratio: effect.edge.radius_tip_ratio,
-            edge_low: effect.edge.low,
-            edge_high: effect.edge.high,
-            white_boost: effect.edge.white_boost,
-            wind_direction: [effect.wind.direction.x, effect.wind.direction.y],
-            bend_amount: effect.wind.bend_amount,
-            bend_power: effect.wind.bend_power,
-            self_shadow_strength: effect.self_shadow_strength,
-            envelope_peak: effect.envelope.peak,
-            envelope_base: effect.envelope.base,
-            envelope_tail: effect.envelope.tail,
-            radial_sharpness: effect.radial_sharpness,
-            occlusion_lum_ref: effect.color.occlusion_lum_ref,
-            contour_wiggle_amp: effect.contour.wiggle_amp,
-            aniso_axis_advect: effect.contour.aniso_axis_advect,
-            rte_bands: effect.contour.rte_bands,
-            sigma_dispersion: effect.contour.sigma_dispersion,
-            tip_carve_depth: effect.carve.tip.depth,
-            tip_carve_reach: effect.carve.tip.reach,
-            warp_reach: effect.warp.reach,
-            swirl_gain: effect.swirl.gain,
-            swirl_speed: effect.swirl.speed,
-            spread_gain: effect.spread_gain,
-            support_margin: effect.support_margin,
-            edge_outer_sharpen: effect.edge.outer_sharpen,
-            noise_scale_mode: effect.noise.scale_mode,
-            erosion_noise_gain: effect.noise.erosion_gain,
-            twist_gain: effect.twist.gain,
-            twist_speed: effect.twist.speed,
-            burnout_gain: effect.carve.burnout_gain,
-            noise_shaping_scale: effect.noise.shaping_scale,
-            meander_amp: effect.meander.amp,
-            meander_frequency: effect.meander.frequency,
-            mix_lo: effect.mix.lo,
-            mix_hi: effect.mix.hi,
-            mix_height_gain: effect.mix.height_gain,
-            mix_scale: effect.mix.scale,
-            mix_radial_gain: effect.mix.radial_gain,
-            density_exp: effect.thermal.density_exp,
-            temp_exp: effect.thermal.temp_exp,
-            wien_c_k: effect.thermal.wien_c_k,
-            wave_segments: effect.wave_segments,
-            noise_aniso_y: effect.noise.aniso_y,
-            branch_period: effect.branch.period,
-            branch_life: effect.branch.life,
-            branch_gain: effect.branch.gain,
-            branch_core_radius: effect.branch.core_radius,
-            branch_core_offset: effect.branch.core_offset,
-            branch_reach: effect.branch.reach,
-            branch_spread: effect.branch.spread,
-            branch_spawn_height: effect.branch.spawn_height,
-            branch_spawn_range: effect.branch.spawn_range,
-            branch_seed: effect.branch.seed,
-        },
+        effect: effect.clone(),
         channels,
         clip_min_duration,
         motion_path,
@@ -789,94 +463,9 @@ pub fn apply_flame_state_to_world(
         ),
     };
 
-    // Write effect fields onto the existing FlameEffect component
     if let Some(mut effect) = world.get_component_mut::<crate::ecs::component::FlameEffect>(entity)
     {
-        effect.position = cgmath::Vector3::new(
-            flame.effect.position[0],
-            flame.effect.position[1],
-            flame.effect.position[2],
-        );
-        effect.rotation = cgmath::Quaternion::new(
-            flame.effect.rotation[0],
-            flame.effect.rotation[1],
-            flame.effect.rotation[2],
-            flame.effect.rotation[3],
-        );
-        effect.height = flame.effect.height;
-        effect.radius = flame.effect.radius;
-        effect.sigma_t = flame.effect.sigma_t;
-        effect.optical_depth = flame.effect.optical_depth;
-        effect.intensity = flame.effect.intensity;
-        effect.color.base = flame.effect.color_base;
-        effect.color.tip = flame.effect.color_tip;
-        effect.color.temperature_base_k = flame.effect.temperature_base_k;
-        effect.color.temperature_tip_k = flame.effect.temperature_tip_k;
-        effect.color.use_blackbody = flame.effect.use_blackbody;
-        effect.noise.amplitude = flame.effect.noise_amplitude;
-        effect.noise.contrast = flame.effect.noise_contrast;
-        effect.noise.frequency = flame.effect.noise_frequency;
-        effect.noise.scroll_speed = flame.effect.noise_scroll_speed;
-        effect.time_scale = flame.effect.time_scale;
-        effect.time_offset = flame.effect.time_offset;
-        effect.warp.amp = flame.effect.warp_amp;
-        effect.warp.freq = flame.effect.warp_freq;
-        effect.warp.rise_speed = flame.effect.rise_speed;
-        effect.warp.taper_power = flame.effect.taper_power;
-        effect.edge.radius_tip_ratio = flame.effect.radius_tip_ratio;
-        effect.edge.low = flame.effect.edge_low;
-        effect.edge.high = flame.effect.edge_high;
-        effect.edge.white_boost = flame.effect.white_boost;
-        effect.wind.direction = cgmath::Vector2::new(
-            flame.effect.wind_direction[0],
-            flame.effect.wind_direction[1],
-        );
-        effect.wind.bend_amount = flame.effect.bend_amount;
-        effect.wind.bend_power = flame.effect.bend_power;
-        effect.self_shadow_strength = flame.effect.self_shadow_strength;
-        effect.envelope.peak = flame.effect.envelope_peak;
-        effect.envelope.base = flame.effect.envelope_base;
-        effect.envelope.tail = flame.effect.envelope_tail;
-        effect.color.occlusion_lum_ref = flame.effect.occlusion_lum_ref;
-        effect.contour.wiggle_amp = flame.effect.contour_wiggle_amp;
-        effect.contour.aniso_axis_advect = flame.effect.aniso_axis_advect;
-        effect.contour.rte_bands = flame.effect.rte_bands;
-        effect.contour.sigma_dispersion = flame.effect.sigma_dispersion;
-        effect.carve.tip.depth = flame.effect.tip_carve_depth;
-        effect.carve.tip.reach = flame.effect.tip_carve_reach;
-        effect.warp.reach = flame.effect.warp_reach;
-        effect.swirl.gain = flame.effect.swirl_gain;
-        effect.swirl.speed = flame.effect.swirl_speed;
-        effect.support_margin = flame.effect.support_margin;
-        effect.meander.amp = flame.effect.meander_amp;
-        effect.meander.frequency = flame.effect.meander_frequency;
-        effect.mix.lo = flame.effect.mix_lo;
-        effect.mix.hi = flame.effect.mix_hi;
-        effect.mix.height_gain = flame.effect.mix_height_gain;
-        effect.mix.scale = flame.effect.mix_scale;
-        effect.mix.radial_gain = flame.effect.mix_radial_gain;
-        effect.thermal.density_exp = flame.effect.density_exp;
-        effect.thermal.temp_exp = flame.effect.temp_exp;
-        effect.thermal.wien_c_k = flame.effect.wien_c_k;
-        effect.wave_segments = flame.effect.wave_segments;
-        effect.noise.aniso_y = flame.effect.noise_aniso_y;
-        effect.edge.outer_sharpen = flame.effect.edge_outer_sharpen;
-        effect.noise.scale_mode = flame.effect.noise_scale_mode;
-        effect.noise.erosion_gain = flame.effect.erosion_noise_gain;
-        effect.twist.gain = flame.effect.twist_gain;
-        effect.twist.speed = flame.effect.twist_speed;
-        effect.carve.burnout_gain = flame.effect.burnout_gain;
-        effect.noise.shaping_scale = flame.effect.noise_shaping_scale;
-        effect.branch.period = flame.effect.branch_period;
-        effect.branch.life = flame.effect.branch_life;
-        effect.branch.gain = flame.effect.branch_gain;
-        effect.branch.core_radius = flame.effect.branch_core_radius;
-        effect.branch.core_offset = flame.effect.branch_core_offset;
-        effect.branch.reach = flame.effect.branch_reach;
-        effect.branch.spread = flame.effect.branch_spread;
-        effect.branch.spawn_height = flame.effect.branch_spawn_height;
-        effect.branch.spawn_range = flame.effect.branch_spawn_range;
-        effect.branch.seed = flame.effect.branch_seed;
+        thyllore_effect_core::overwrite_persisted_fields(&mut effect, &flame.effect);
         thyllore_effect_core::refresh_flame_coefficients(&mut effect, &Default::default());
     }
 
@@ -893,17 +482,8 @@ pub fn apply_flame_state_to_world(
     crate::ecs::systems::write_flame_transform(
         world,
         entity,
-        cgmath::Vector3::new(
-            flame.effect.position[0],
-            flame.effect.position[1],
-            flame.effect.position[2],
-        ),
-        cgmath::Quaternion::new(
-            flame.effect.rotation[0],
-            flame.effect.rotation[1],
-            flame.effect.rotation[2],
-            flame.effect.rotation[3],
-        ),
+        flame.effect.position,
+        flame.effect.rotation,
     );
 
     // Rebuild the flame clip (scalar curves) from the scene channels. Loading is
@@ -1031,90 +611,27 @@ mod tests {
         );
     }
 
-    fn sample_flame_effect_data() -> FlameEffectData {
-        FlameEffectData {
-            position: [0.0, 0.0, 0.0],
-            rotation: [0.0, 0.0, 0.0, 1.0],
-            height: 1.0,
-            radius: 0.5,
-            sigma_t: 0.3,
-            intensity: 1.0,
-            color_base: [1.0, 0.5, 0.0],
-            color_tip: [1.0, 1.0, 1.0],
-            temperature_base_k: 3200.0,
-            temperature_tip_k: 1500.0,
-            use_blackbody: true,
-            noise_amplitude: 0.1,
-            noise_contrast: 1.0,
-            noise_frequency: 1.0,
-            noise_scroll_speed: 0.0,
-            time_scale: 1.0,
-            time_offset: 0.0,
-            warp_amp: 0.05,
-            warp_freq: 2.0,
-            rise_speed: 1.0,
-            taper_power: 1.0,
-            radius_tip_ratio: 0.10,
-            edge_low: 0.3,
-            edge_high: 0.7,
-            white_boost: 0.0,
-            wind_direction: [0.0, 0.0],
-            bend_amount: 0.0,
-            bend_power: 2.0,
-            self_shadow_strength: 0.0,
-            envelope_peak: 0.35,
-            envelope_base: 0.45,
-            envelope_tail: 1.6,
-            radial_sharpness: 4.0,
-            occlusion_lum_ref: 1.0,
-            contour_wiggle_amp: 0.3,
-            aniso_axis_advect: 0.0,
-            rte_bands: 4.0,
-            sigma_dispersion: 1.0,
-            tip_carve_depth: 1.0,
-            tip_carve_reach: 0.2,
-            warp_reach: default_warp_reach(),
-            swirl_gain: 0.0,
-            swirl_speed: 1.0,
-            spread_gain: 0.0,
-            support_margin: 1.0,
-            edge_outer_sharpen: 0.0,
-            noise_scale_mode: 0.0,
-            erosion_noise_gain: 1.0,
-            twist_gain: 0.0,
-            twist_speed: 0.0,
-            burnout_gain: 0.0,
-            noise_shaping_scale: 0.0,
-            optical_depth: 0.0,
-            meander_amp: 0.0,
-            meander_frequency: 1.0,
-            mix_lo: 0.0,
-            mix_hi: 2.0,
-            mix_height_gain: 0.0,
-            mix_scale: 1.0,
-            mix_radial_gain: 0.0,
-            density_exp: 1.0,
-            temp_exp: 1.0,
-            wien_c_k: 12000.0,
-            wave_segments: 64,
-            noise_aniso_y: 0.35,
-            branch_period: 0.0,
-            branch_life: 2.5,
-            branch_gain: 0.0,
-            branch_core_radius: 0.35,
-            branch_core_offset: 0.0,
-            branch_reach: 1.5,
-            branch_spread: 0.3,
-            branch_spawn_height: 0.35,
-            branch_spawn_range: 0.4,
-            branch_seed: 0,
-        }
+    fn sample_flame_effect() -> thyllore_effect_core::FlameEffect {
+        let mut effect = thyllore_effect_core::FlameEffect::default();
+        effect.height = 1.0;
+        effect.radius = 0.5;
+        effect.sigma_t = 0.3;
+        effect.intensity = 1.0;
+        effect.color.base = [1.0, 0.5, 0.0];
+        effect.color.tip = [1.0, 1.0, 1.0];
+        effect.noise.amplitude = 0.1;
+        effect.warp.amp = 0.05;
+        effect.warp.freq = 2.0;
+        effect.edge.low = 0.3;
+        effect.edge.high = 0.7;
+        effect.wind.bend_power = 2.0;
+        effect
     }
 
     #[test]
     fn test_flame_style_ref_scene_roundtrip() {
         let scene = FlameSceneData {
-            effect: sample_flame_effect_data(),
+            effect: sample_flame_effect(),
             channels: vec![],
             clip_min_duration: 0.0,
             motion_path: None,
@@ -1131,11 +648,11 @@ mod tests {
     }
 
     #[test]
-    fn test_flame_effect_data_fields_match_parameter_ownership_table() {
-        let value = serde_json::to_value(sample_flame_effect_data()).expect("serialize");
+    fn test_flame_effect_serde_fields_match_parameter_ownership_table() {
+        let value = serde_json::to_value(sample_flame_effect()).expect("serialize");
         let serde_fields: std::collections::BTreeSet<String> = value
             .as_object()
-            .expect("FlameEffectData serializes to an object")
+            .expect("FlameEffect serializes to a flat object")
             .keys()
             .cloned()
             .collect();
@@ -1150,7 +667,7 @@ mod tests {
     #[test]
     fn test_flame_scene_data_serde_roundtrip() {
         let scene = FlameSceneData {
-            effect: sample_flame_effect_data(),
+            effect: sample_flame_effect(),
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
                 keys: vec![
@@ -1181,54 +698,9 @@ mod tests {
         let restored: FlameSceneData =
             serde_json::from_str(&json).expect("Failed to deserialize FlameSceneData");
 
-        assert_eq!(scene.effect.position, restored.effect.position);
-        assert_eq!(scene.effect.rotation, restored.effect.rotation);
-        assert_eq!(scene.effect.height, restored.effect.height);
-        assert_eq!(scene.effect.radius, restored.effect.radius);
-        assert_eq!(scene.effect.sigma_t, restored.effect.sigma_t);
-        assert_eq!(scene.effect.intensity, restored.effect.intensity);
-        assert_eq!(scene.effect.color_base, restored.effect.color_base);
-        assert_eq!(scene.effect.color_tip, restored.effect.color_tip);
         assert_eq!(
-            scene.effect.temperature_base_k,
-            restored.effect.temperature_base_k
-        );
-        assert_eq!(
-            scene.effect.temperature_tip_k,
-            restored.effect.temperature_tip_k
-        );
-        assert_eq!(scene.effect.use_blackbody, restored.effect.use_blackbody);
-        assert_eq!(
-            scene.effect.noise_amplitude,
-            restored.effect.noise_amplitude
-        );
-        assert_eq!(
-            scene.effect.noise_frequency,
-            restored.effect.noise_frequency
-        );
-        assert_eq!(
-            scene.effect.noise_scroll_speed,
-            restored.effect.noise_scroll_speed
-        );
-        assert_eq!(scene.effect.time_scale, restored.effect.time_scale);
-        assert_eq!(scene.effect.time_offset, restored.effect.time_offset);
-        assert_eq!(scene.effect.warp_amp, restored.effect.warp_amp);
-        assert_eq!(scene.effect.warp_freq, restored.effect.warp_freq);
-        assert_eq!(scene.effect.rise_speed, restored.effect.rise_speed);
-        assert_eq!(scene.effect.taper_power, restored.effect.taper_power);
-        assert_eq!(
-            scene.effect.radius_tip_ratio,
-            restored.effect.radius_tip_ratio
-        );
-        assert_eq!(scene.effect.edge_low, restored.effect.edge_low);
-        assert_eq!(scene.effect.edge_high, restored.effect.edge_high);
-        assert_eq!(scene.effect.white_boost, restored.effect.white_boost);
-        assert_eq!(scene.effect.wind_direction, restored.effect.wind_direction);
-        assert_eq!(scene.effect.bend_amount, restored.effect.bend_amount);
-        assert_eq!(scene.effect.bend_power, restored.effect.bend_power);
-        assert_eq!(
-            scene.effect.self_shadow_strength,
-            restored.effect.self_shadow_strength
+            serde_json::to_value(&scene.effect).expect("scene effect value"),
+            serde_json::to_value(&restored.effect).expect("restored effect value")
         );
         assert_eq!(scene.channels.len(), restored.channels.len());
         assert_eq!(scene.channels[0].param, restored.channels[0].param);
@@ -1253,83 +725,7 @@ mod tests {
     #[test]
     fn test_flame_key_data_bezier_roundtrip() {
         let scene = FlameSceneData {
-            effect: FlameEffectData {
-                position: [0.0, 0.0, 0.0],
-                rotation: [0.0, 0.0, 0.0, 1.0],
-                height: 1.0,
-                radius: 0.5,
-                sigma_t: 0.3,
-                intensity: 1.0,
-                color_base: [1.0, 0.5, 0.0],
-                color_tip: [1.0, 1.0, 1.0],
-                temperature_base_k: 3200.0,
-                temperature_tip_k: 1500.0,
-                use_blackbody: true,
-                noise_amplitude: 0.1,
-                noise_contrast: 1.0,
-                noise_frequency: 1.0,
-                noise_scroll_speed: 0.0,
-                time_scale: 1.0,
-                time_offset: 0.0,
-                warp_amp: 0.05,
-                warp_freq: 2.0,
-                rise_speed: 1.0,
-                taper_power: 1.0,
-                radius_tip_ratio: 0.10,
-                edge_low: 0.3,
-                edge_high: 0.7,
-                white_boost: 0.0,
-                wind_direction: [0.0, 0.0],
-                bend_amount: 0.0,
-                bend_power: 2.0,
-                self_shadow_strength: 0.0,
-                envelope_peak: 0.35,
-                envelope_base: 0.45,
-                envelope_tail: 1.6,
-                radial_sharpness: 4.0,
-                occlusion_lum_ref: 1.0,
-                contour_wiggle_amp: 0.3,
-                aniso_axis_advect: 0.0,
-                rte_bands: 4.0,
-                sigma_dispersion: 1.0,
-                tip_carve_depth: 1.0,
-                tip_carve_reach: 0.2,
-                warp_reach: default_warp_reach(),
-                swirl_gain: 0.0,
-                swirl_speed: 1.0,
-                spread_gain: 0.0,
-                support_margin: 1.0,
-                edge_outer_sharpen: 0.0,
-                noise_scale_mode: 0.0,
-                erosion_noise_gain: 1.0,
-                twist_gain: 0.0,
-                twist_speed: 0.0,
-                burnout_gain: 0.0,
-                noise_shaping_scale: 0.0,
-                optical_depth: 0.0,
-                meander_amp: 0.0,
-                meander_frequency: 1.0,
-                mix_lo: 0.0,
-                mix_hi: 2.0,
-                mix_height_gain: 0.0,
-                mix_scale: 1.0,
-                mix_radial_gain: 0.0,
-                density_exp: 1.0,
-                temp_exp: 1.0,
-                wien_c_k: 12000.0,
-                wave_segments: 64,
-                noise_aniso_y: 0.35,
-                branch_period: 0.0,
-                branch_life: 2.5,
-                branch_gain: 0.0,
-                branch_core_radius: 0.35,
-                branch_core_offset: 0.0,
-                branch_reach: 1.5,
-                branch_spread: 0.3,
-                branch_spawn_height: 0.35,
-                branch_spawn_range: 0.4,
-                branch_seed: 0,
-            },
+            effect: sample_flame_effect(),
             channels: vec![FlameChannelData {
                 param: "Height".to_string(),
                 keys: vec![
@@ -1724,5 +1120,138 @@ mod tests {
             scene.motion_path.is_none(),
             "motion_path should be None for old format"
         );
+    }
+}
+
+#[cfg(test)]
+mod legacy_format_golden {
+    /// Serialization of a default-spawned flame captured from the deleted
+    /// FlameEffectData mirror; the derived serde output must stay identical.
+    const LEGACY_DEFAULT_EFFECT_JSON: &str = r#"{
+  "position": [
+    0.0,
+    0.0,
+    0.0
+  ],
+  "rotation": [
+    1.0,
+    0.0,
+    0.0,
+    0.0
+  ],
+  "height": 1.6,
+  "radius": 0.6,
+  "sigma_t": 1.0,
+  "intensity": 2.2,
+  "color_base": [
+    1.0,
+    0.45,
+    0.1
+  ],
+  "color_tip": [
+    1.0,
+    0.1,
+    0.02
+  ],
+  "temperature_base_k": 3200.0,
+  "temperature_tip_k": 1500.0,
+  "use_blackbody": true,
+  "noise_amplitude": 1.5,
+  "noise_contrast": 1.0,
+  "noise_frequency": 6.0,
+  "noise_scroll_speed": 1.0,
+  "time_scale": 1.0,
+  "time_offset": 0.0,
+  "warp_amp": 1.4,
+  "warp_freq": 5.0,
+  "rise_speed": 1.5,
+  "taper_power": 1.4,
+  "radius_tip_ratio": 0.1,
+  "edge_low": 0.27,
+  "edge_high": 0.33,
+  "white_boost": 4.0,
+  "wind_direction": [
+    0.0,
+    0.0
+  ],
+  "bend_amount": 0.0,
+  "bend_power": 1.7,
+  "self_shadow_strength": 0.5,
+  "envelope_peak": 0.25,
+  "envelope_base": 0.05,
+  "envelope_tail": 1.25,
+  "radial_sharpness": 4.0,
+  "occlusion_lum_ref": 1.0,
+  "contour_wiggle_amp": 0.3,
+  "aniso_axis_advect": 0.0,
+  "rte_bands": 4.0,
+  "sigma_dispersion": 1.0,
+  "tip_carve_depth": 1.0,
+  "tip_carve_reach": 0.2,
+  "warp_reach": 0.35,
+  "swirl_gain": 0.0,
+  "swirl_speed": 1.0,
+  "spread_gain": 0.0,
+  "support_margin": 1.0,
+  "meander_amp": 0.0,
+  "meander_frequency": 1.0,
+  "mix_lo": 0.0,
+  "mix_hi": 2.0,
+  "mix_height_gain": 0.0,
+  "mix_scale": 1.0,
+  "mix_radial_gain": 0.0,
+  "density_exp": 1.0,
+  "temp_exp": 1.0,
+  "wien_c_k": 12000.0,
+  "wave_segments": 64,
+  "noise_aniso_y": 0.35,
+  "edge_outer_sharpen": 0.0,
+  "noise_scale_mode": 0.0,
+  "erosion_noise_gain": 1.0,
+  "twist_gain": 0.0,
+  "twist_speed": 0.0,
+  "burnout_gain": 0.0,
+  "noise_shaping_scale": 0.0,
+  "optical_depth": 0.0,
+  "branch_period": 0.0,
+  "branch_life": 2.5,
+  "branch_gain": 0.0,
+  "branch_core_radius": 0.35,
+  "branch_core_offset": 0.0,
+  "branch_reach": 1.5,
+  "branch_spread": 0.3,
+  "branch_spawn_height": 0.35,
+  "branch_spawn_range": 0.4,
+  "branch_seed": 0
+}"#;
+
+    #[test]
+    fn test_default_flame_effect_matches_legacy_mirror_json() {
+        let mut world = crate::ecs::world::World::new();
+        crate::ecs::systems::spawn_flame(
+            &mut world,
+            crate::ecs::systems::DEFAULT_FLAME_NAME,
+            crate::ecs::component::FlameEffect::default(),
+        );
+        let scene = super::build_flame_scene_data(&world).expect("scene data");
+
+        let golden: serde_json::Value =
+            serde_json::from_str(LEGACY_DEFAULT_EFFECT_JSON).expect("golden json");
+        let printed = serde_json::to_string(&scene.effect).expect("effect json");
+        let effect_value: serde_json::Value =
+            serde_json::from_str(&printed).expect("effect json parses");
+        assert_eq!(effect_value, golden);
+    }
+
+    #[test]
+    fn test_legacy_mirror_json_roundtrips_through_flame_effect() {
+        let loaded: thyllore_effect_core::FlameEffect =
+            serde_json::from_str(LEGACY_DEFAULT_EFFECT_JSON).expect("golden deserializes");
+        let golden: serde_json::Value =
+            serde_json::from_str(LEGACY_DEFAULT_EFFECT_JSON).expect("golden json");
+        let printed = serde_json::to_string(&loaded).expect("loaded json");
+        let loaded_value: serde_json::Value =
+            serde_json::from_str(&printed).expect("loaded json parses");
+        assert_eq!(loaded_value, golden);
     }
 }

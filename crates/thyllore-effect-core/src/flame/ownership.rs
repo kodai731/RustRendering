@@ -16,7 +16,7 @@ use ParameterOwner::{Frame, Shape, Style};
 /// One declaration per persisted parameter (scene serde field name): its owner
 /// and its bit-exact value accessor. `PARAMETER_OWNERSHIP` and
 /// `flame_parameter_snapshot` are both generated from this single list, so the
-/// two cannot drift. Coverage against `FlameEffectData` is tested in
+/// two cannot drift. Coverage against the scene serde output of `FlameEffect` is tested in
 /// scene/format.rs.
 macro_rules! declare_flame_parameters {
     ($effect:ident => $( $name:ident : $owner:ident = [ $($value:expr),+ $(,)? ] ),+ $(,)?) => {
