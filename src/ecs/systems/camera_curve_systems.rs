@@ -132,4 +132,71 @@ mod tests {
             x
         );
     }
+
+    #[test]
+    fn test_gendop_trajectory_drives_camera() {
+        let mut world = World::new();
+        let mut assets = AssetStorage::default();
+        world.insert_resource(ClipLibrary::default());
+        world.insert_resource(TimelineState {
+            current_time: 0.0,
+            ..Default::default()
+        });
+        let entity = world.spawn();
+        world.insert_component(entity, Transform::default());
+        world.insert_component(
+            entity,
+            CameraComponent {
+                fov_y: cgmath::Deg(45.0),
+                near_plane: 0.1,
+                far_plane: None,
+                physical: Default::default(),
+            },
+        );
+        world.insert_component(entity, crate::ecs::component::ClipSchedule::default());
+
+        let clip_id = crate::ecs::systems::scalar_clip_systems::ensure_entity_clip(
+            &mut world,
+            &mut assets,
+            entity,
+            &CAMERA_DOMAIN,
+        );
+
+        {
+            let mut clip_library = world.resource_mut::<ClipLibrary>();
+            let mut clip = clip_library.get_mut(clip_id).unwrap();
+            crate::ecs::systems::scalar_clip_systems::scalar_clip_insert_key(
+                &mut clip,
+                CameraParam::TranslationY.property_type(),
+                0.0,
+                0.0,
+            );
+            crate::ecs::systems::scalar_clip_systems::scalar_clip_insert_key(
+                &mut clip,
+                CameraParam::TranslationY.property_type(),
+                1.0,
+                2.5,
+            );
+        }
+
+        // At t=1.0, translation.y should be exactly 2.5
+        world.resource_mut::<TimelineState>().current_time = 1.0;
+        sync_camera_curves(&mut world);
+        let transform = world.get_component::<Transform>(entity).unwrap();
+        assert!(
+            (transform.translation.y - 2.5).abs() < 1e-4,
+            "expected translation.y ~= 2.5 at t=1.0, got {}",
+            transform.translation.y
+        );
+
+        // At t=0.5, translation.y should be between 0.0 and 2.5 (exclusive) — interpolation check
+        world.resource_mut::<TimelineState>().current_time = 0.5;
+        sync_camera_curves(&mut world);
+        let transform = world.get_component::<Transform>(entity).unwrap();
+        assert!(
+            transform.translation.y > 0.0 && transform.translation.y < 2.5,
+            "expected translation.y between 0.0 and 2.5 at t=0.5, got {}",
+            transform.translation.y
+        );
+    }
 }
