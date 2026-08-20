@@ -1,10 +1,8 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::DOF;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::dof;
 use crate::vulkan::*;
-
-const HDR_SAMPLER_BINDING: u32 = 0;
-const DEPTH_SAMPLER_BINDING: u32 = 1;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRDofDescriptorSet {
@@ -38,13 +36,13 @@ impl RRDofDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                HDR_SAMPLER_BINDING,
+                dof::HDR_SAMPLER,
                 hdr_image_view,
                 hdr_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .image(
-                DEPTH_SAMPLER_BINDING,
+                dof::DEPTH_SAMPLER,
                 depth_image_view,
                 depth_sampler,
                 vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,

@@ -3720,8 +3720,6 @@ dependencies = [
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-render-debug",
- "thyllore-shader-manifest",
- "thyllore-spirv-reflect",
  "thyllore-texture-fit-core",
  "thyllore-vulkan-core",
  "ufbx",
@@ -3880,6 +3878,7 @@ name = "thyllore-shader-manifest"
 version = "0.0.1"
 dependencies = [
  "thiserror 1.0.69",
+ "thyllore-spirv-reflect",
  "toml",
 ]
 

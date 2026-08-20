@@ -392,7 +392,7 @@ impl App {
                 })
                 .custom_render_pass(hdr_buffer.render_pass)
                 .msaa_samples(vk::SampleCountFlags::_1)
-                .descriptor_layouts(render_layouts.to_vec())
+                .descriptor_layouts(&render_layouts)
                 // Opaque surface inside the HDR buffer: alpha 1 marks "background fully
                 // covered", which the tonemap needs to keep the grid color. The flame
                 // composites over it afterwards with premultiplied blending.
@@ -418,7 +418,7 @@ impl App {
         rrdevice: &RRDevice,
         rrswapchain: &RRSwapchain,
         rrrender: &RRRender,
-        render_layouts: &[vk::DescriptorSetLayout],
+        render_layouts: &[&ReflectedSetLayout],
         pipeline_storage: &mut crate::vulkanr::resource::PipelineStorage,
         pipeline_manager: &mut PipelineManager,
     ) -> Result<GizmoPipelineIds> {
@@ -431,7 +431,7 @@ impl App {
                 write_enable: false,
                 compare_op: vk::CompareOp::GREATER_OR_EQUAL,
             })
-            .descriptor_layouts(render_layouts.to_vec())
+            .descriptor_layouts(&render_layouts)
             .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
             .context("Failed to create grid pipeline")?;
         let grid = pipeline_storage.register(grid);
@@ -442,7 +442,7 @@ impl App {
             .topology(vk::PrimitiveTopology::LINE_LIST)
             .polygon_mode(vk::PolygonMode::LINE)
             .no_depth_test()
-            .descriptor_layouts(render_layouts.to_vec())
+            .descriptor_layouts(&render_layouts)
             .build(rrdevice, rrrender, Some(rrswapchain.swapchain_extent))
             .context("Failed to create gizmo pipeline")?;
         let gizmo = pipeline_storage.register(gizmo);
@@ -577,7 +577,7 @@ impl App {
         rrdevice: &RRDevice,
         rrswapchain: &RRSwapchain,
         rrrender: &RRRender,
-        render_layouts: &[vk::DescriptorSetLayout],
+        render_layouts: &[&ReflectedSetLayout],
         topology: vk::PrimitiveTopology,
         polygon_mode: vk::PolygonMode,
         cull_mode: Option<vk::CullModeFlags>,
@@ -593,7 +593,7 @@ impl App {
             .topology(topology)
             .polygon_mode(polygon_mode)
             .push_constants(push_constants)
-            .descriptor_layouts(render_layouts.to_vec());
+            .descriptor_layouts(render_layouts);
 
         if let Some(cull) = cull_mode {
             builder = builder.cull_mode(cull);
@@ -809,7 +809,7 @@ impl App {
             rrdevice,
             rrrender,
             rrswapchain,
-            billboard_data.render_state.descriptor_set.layout.handle,
+            &billboard_data.render_state.descriptor_set.layout,
             &BILLBOARD,
         )
         .context("Failed to create billboard pipeline")?;
@@ -1273,7 +1273,7 @@ impl App {
         let imgui_pipeline = RRPipeline::new_imgui(
             rrdevice,
             rrrender,
-            descriptor_set_layout.handle,
+            &descriptor_set_layout,
             &IMGUI,
             msaa_samples,
         )?;
@@ -1519,7 +1519,7 @@ impl App {
         layout
             .writer(descriptor_set)
             .image(
-                IMGUI_TEXTURE_BINDING,
+                shader_bindings::imgui::TEX_SAMPLER,
                 image_view,
                 sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,

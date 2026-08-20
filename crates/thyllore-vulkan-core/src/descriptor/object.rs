@@ -6,13 +6,12 @@ use vulkanalia::prelude::v1_0::*;
 use crate::core::device::RRDevice;
 use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::model;
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::Instance;
 use thyllore_render_core::ObjectUBO;
 
 pub type ObjectId = u32;
-
-const OBJECT_UBO_BINDING: u32 = 0;
 
 #[derive(Clone, Debug, Default)]
 pub struct ObjectDescriptorSet {
@@ -83,12 +82,7 @@ impl ObjectDescriptorSet {
         {
             self.layout
                 .writer(*set)
-                .buffer(
-                    OBJECT_UBO_BINDING,
-                    *buffer,
-                    0,
-                    size_of::<ObjectUBO>() as u64,
-                )?
+                .buffer(model::OBJECT, *buffer, 0, size_of::<ObjectUBO>() as u64)?
                 .apply(rrdevice);
         }
         Ok(())

@@ -2,12 +2,12 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::RRDevice;
+use crate::descriptor::shader_bindings::onion_skin_composite;
 use crate::descriptor::{onion_skin_composite_layout_spec, ReflectedSetLayout};
 use crate::pipeline::RRPipeline;
 use crate::resource::image::{create_image, create_image_view};
 
 pub const GHOST_BUFFER_FORMAT: vk::Format = vk::Format::R8G8B8A8_UNORM;
-const GHOST_SAMPLER_BINDING: u32 = 0;
 
 #[derive(Clone, Debug, Default)]
 pub struct OnionSkinPassResources {
@@ -231,7 +231,7 @@ impl OnionSkinPassResources {
         layout
             .writer(descriptor_set)
             .image(
-                GHOST_SAMPLER_BINDING,
+                onion_skin_composite::GHOST_SAMPLER,
                 ghost_image_view,
                 ghost_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,

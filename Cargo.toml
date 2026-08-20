@@ -10,7 +10,6 @@ license = "Apache-2.0"
 authors = ["kodai731"]
 description = "A real-time animation and rendering engine powered by ECS architecture, built in Rust with Vulkan"
 repository = "https://github.com/kodai731/Thyllore-Animation"
-build = "build.rs"
 
 [[bin]]
 name = "thyllore-animation"
@@ -78,10 +77,6 @@ features = ["extras", "names", "extensions"]
 [dev-dependencies]
 rand = "0.8"
 tempfile = "3"
-
-[build-dependencies]
-thyllore-spirv-reflect = { path = "crates/thyllore-spirv-reflect" }
-thyllore-shader-manifest = { path = "crates/thyllore-shader-manifest" }
 
 [profile.release]
 opt-level = 3

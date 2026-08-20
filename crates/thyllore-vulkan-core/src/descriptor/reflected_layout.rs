@@ -5,8 +5,9 @@ use crate::core::descriptor_allocator::PoolSignature;
 use crate::core::device::RRDevice;
 use crate::descriptor::pass_manifest::{passes_with_role, PassShaders, SetRole, ShaderFile};
 use crate::descriptor::reflection::{
-    kind_accepts, reflect_shader_bytes, DescriptorSetTable, ShaderReflection,
+    kind_accepts, reflect_shader_bytes, DescriptorSetTable, LayoutMismatch, ShaderReflection,
 };
+use thyllore_spirv_reflect::ShaderBinding;
 
 fn load_reflections(files: &[ShaderFile]) -> Result<Vec<ShaderReflection>> {
     let mut reflections = Vec::with_capacity(files.len());
@@ -26,6 +27,34 @@ fn load_reflections(files: &[ShaderFile]) -> Result<Vec<ShaderReflection>> {
         reflections.push(reflection);
     }
     Ok(reflections)
+}
+
+pub fn verify_pass_layouts(pass: &PassShaders, layouts: &[ReflectedSetLayout]) -> Result<()> {
+    let reflections = load_reflections(pass.stages)?;
+    let table = DescriptorSetTable::from_reflections(&reflections)?;
+    for set in table.set_indices() {
+        let layout = layouts.get(set as usize).ok_or_else(|| {
+            anyhow!(
+                "pass `{}` uses descriptor set {set} but only {} layouts were given",
+                pass.name(),
+                layouts.len()
+            )
+        })?;
+        let mismatches: Vec<String> = table
+            .verify_layout(set, layout.bindings())
+            .into_iter()
+            .filter(|mismatch| !matches!(mismatch, LayoutMismatch::UnusedInShaders { .. }))
+            .map(|mismatch| format!("{mismatch:?}"))
+            .collect();
+        if !mismatches.is_empty() {
+            return Err(anyhow!(
+                "pass `{}` set {set}: shader bindings are not covered by the given layout: {}",
+                pass.name(),
+                mismatches.join(", ")
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,9 +94,13 @@ impl ReflectedLayoutSpec {
         }
     }
 
-    pub fn with_override(mut self, binding: u32, descriptor_type: vk::DescriptorType) -> Self {
+    pub fn with_override(
+        mut self,
+        binding: ShaderBinding,
+        descriptor_type: vk::DescriptorType,
+    ) -> Self {
         self.overrides.push(DescriptorTypeOverride {
-            binding,
+            binding: binding.binding,
             descriptor_type,
         });
         self
@@ -243,14 +276,27 @@ pub struct DescriptorSetWriter<'a> {
 }
 
 impl DescriptorSetWriter<'_> {
+    fn resolve_descriptor_type(&self, binding: ShaderBinding) -> Result<vk::DescriptorType> {
+        let descriptor_type = self.layout.descriptor_type(binding.binding)?;
+        if !kind_accepts(binding.kind, descriptor_type) {
+            return Err(anyhow!(
+                "binding {} is {:?} in the shader but the layout holds {:?}",
+                binding.binding,
+                binding.kind,
+                descriptor_type
+            ));
+        }
+        Ok(descriptor_type)
+    }
+
     pub fn buffer(
         mut self,
-        binding: u32,
+        binding: ShaderBinding,
         buffer: vk::Buffer,
         offset: vk::DeviceSize,
         range: vk::DeviceSize,
     ) -> Result<Self> {
-        let descriptor_type = self.layout.descriptor_type(binding)?;
+        let descriptor_type = self.resolve_descriptor_type(binding)?;
         self.buffer_infos.push(
             vk::DescriptorBufferInfo::builder()
                 .buffer(buffer)
@@ -259,7 +305,7 @@ impl DescriptorSetWriter<'_> {
                 .build(),
         );
         self.entries.push(WriteEntry {
-            binding,
+            binding: binding.binding,
             descriptor_type,
             source: WriteSource::Buffer(self.buffer_infos.len() - 1),
         });
@@ -268,12 +314,12 @@ impl DescriptorSetWriter<'_> {
 
     pub fn image(
         mut self,
-        binding: u32,
+        binding: ShaderBinding,
         image_view: vk::ImageView,
         sampler: vk::Sampler,
         image_layout: vk::ImageLayout,
     ) -> Result<Self> {
-        let descriptor_type = self.layout.descriptor_type(binding)?;
+        let descriptor_type = self.resolve_descriptor_type(binding)?;
         self.image_infos.push(
             vk::DescriptorImageInfo::builder()
                 .image_view(image_view)
@@ -282,7 +328,7 @@ impl DescriptorSetWriter<'_> {
                 .build(),
         );
         self.entries.push(WriteEntry {
-            binding,
+            binding: binding.binding,
             descriptor_type,
             source: WriteSource::Image(self.image_infos.len() - 1),
         });
@@ -291,13 +337,13 @@ impl DescriptorSetWriter<'_> {
 
     pub fn acceleration_structure(
         mut self,
-        binding: u32,
+        binding: ShaderBinding,
         acceleration_structure: vk::AccelerationStructureKHR,
     ) -> Result<Self> {
-        let descriptor_type = self.layout.descriptor_type(binding)?;
+        let descriptor_type = self.resolve_descriptor_type(binding)?;
         self.acceleration_structures.push(acceleration_structure);
         self.entries.push(WriteEntry {
-            binding,
+            binding: binding.binding,
             descriptor_type,
             source: WriteSource::AccelerationStructure(self.acceleration_structures.len() - 1),
         });

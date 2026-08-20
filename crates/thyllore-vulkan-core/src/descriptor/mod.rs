@@ -13,6 +13,7 @@ pub mod pass_manifest;
 pub mod ray_query;
 pub mod reflected_layout;
 pub mod reflection;
+pub mod shader_bindings;
 pub mod tonemap;
 
 pub use auto_exposure::*;

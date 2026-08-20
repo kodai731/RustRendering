@@ -1,4 +1,5 @@
 use crate::core::device::RRDevice;
+use crate::descriptor::ReflectedSetLayout;
 use crate::vulkan::*;
 use cgmath::{Matrix4, SquareMatrix, Vector3};
 use thyllore_render_core::ObjectUBO;
@@ -81,16 +82,16 @@ impl GraphicsResources {
         self.meshes.len()
     }
 
-    pub fn get_layouts(&self) -> [vk::DescriptorSetLayout; 3] {
+    pub fn get_layouts(&self) -> [&ReflectedSetLayout; 3] {
         [
-            self.frame_set.layout.handle,
-            self.materials.layout.handle,
-            self.objects.layout.handle,
+            &self.frame_set.layout,
+            &self.materials.layout,
+            &self.objects.layout,
         ]
     }
 
-    pub fn get_layouts_without_material(&self) -> [vk::DescriptorSetLayout; 2] {
-        [self.frame_set.layout.handle, self.objects.layout.handle]
+    pub fn get_layouts_without_material(&self) -> [&ReflectedSetLayout; 2] {
+        [&self.frame_set.layout, &self.objects.layout]
     }
 
     pub fn calculate_model_bounds(&self) -> Option<(Vector3<f32>, Vector3<f32>, Vector3<f32>)> {

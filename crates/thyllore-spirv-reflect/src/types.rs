@@ -48,6 +48,25 @@ pub struct ReflectedBinding {
     pub block_size: Option<u32>,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShaderBinding {
+    pub set: u32,
+    pub binding: u32,
+    pub kind: DescriptorKind,
+    pub count: DescriptorCount,
+}
+
+impl ReflectedBinding {
+    pub fn shader_binding(&self) -> ShaderBinding {
+        ShaderBinding {
+            set: self.set,
+            binding: self.binding,
+            kind: self.kind,
+            count: self.count,
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ShaderReflection {
     pub stages: Vec<ShaderStage>,
