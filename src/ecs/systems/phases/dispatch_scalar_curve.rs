@@ -193,7 +193,7 @@ fn existing_scalar_clip(world: &World) -> Option<SourceClipId> {
     crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(world, entity)
 }
 
-fn edit_clip(
+pub(crate) fn edit_clip(
     world: &mut World,
     clip_id: SourceClipId,
     description: &'static str,
