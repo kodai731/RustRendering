@@ -4,6 +4,7 @@ mod constraint_inspector;
 mod curve_editor_window;
 #[cfg(debug_assertions)]
 mod debug_window;
+mod flame_param_groups;
 mod hierarchy_window;
 mod inspector_window;
 mod layout_snapshot;

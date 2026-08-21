@@ -8,6 +8,10 @@ use crate::ecs::resource::{
 };
 use crate::ecs::World;
 
+use super::flame_param_groups::{
+    FLAME_BODY_PARAMS, FLAME_BRANCH_PARAMS, FLAME_FOOTER_PARAMS, FLAME_MIX_PARAMS,
+    FLAME_MOTION_PARAMS, FLAME_NOISE_PARAMS,
+};
 use super::param_widgets::draw_scalar_params;
 use super::viewport_window::ViewportInfo;
 
@@ -853,15 +857,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        &[
-                            "height",
-                            "radius",
-                            "optical_depth",
-                            "intensity",
-                            "density_exp",
-                            "temp_exp",
-                            "wien_c_k",
-                        ],
+                        FLAME_BODY_PARAMS,
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -877,12 +873,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        &[
-                            "noise_amplitude",
-                            "noise_contrast",
-                            "swirl_gain",
-                            "noise_aniso_y",
-                        ],
+                        FLAME_NOISE_PARAMS,
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -913,13 +904,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        &[
-                            "mix_lo",
-                            "mix_hi",
-                            "mix_scale",
-                            "mix_radial_gain",
-                            "mix_height_gain",
-                        ],
+                        FLAME_MIX_PARAMS,
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -967,16 +952,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        &[
-                            "twist_gain",
-                            "twist_speed",
-                            "burnout_gain",
-                            "carve_residual",
-                            "meander_amp",
-                            "meander_frequency",
-                            "swirl_speed",
-                            "spread_gain",
-                        ],
+                        FLAME_MOTION_PARAMS,
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -987,17 +963,7 @@ fn build_flame_section(
                     ui.text("Branches");
                     draw_scalar_params(
                         ui,
-                        &[
-                            "branch_period",
-                            "branch_life",
-                            "branch_gain",
-                            "branch_core_radius",
-                            "branch_core_offset",
-                            "branch_reach",
-                            "branch_spread",
-                            "branch_spawn_height",
-                            "branch_spawn_range",
-                        ],
+                        FLAME_BRANCH_PARAMS,
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -1012,7 +978,7 @@ fn build_flame_section(
                     ui.separator();
                     draw_scalar_params(
                         ui,
-                        &["support_margin", "time_scale"],
+                        FLAME_FOOTER_PARAMS,
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,

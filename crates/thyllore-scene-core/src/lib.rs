@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 /// Flat-name f32 accessor for one scalar parameter; one static table per component type.
 pub struct ScalarParam<C: 'static> {
     pub name: &'static str,
@@ -15,11 +17,35 @@ pub fn find_scalar_param<'a, C>(
 /// UI-toolkit-free display metadata of one scalar parameter, joined to the accessor table by `name`.
 pub struct UiParam {
     pub name: &'static str,
-    pub label: &'static str,
+    pub label: Option<&'static str>,
     pub min: f32,
     pub max: f32,
     pub format: &'static str,
     pub tooltip: &'static str,
+}
+
+impl UiParam {
+    /// Explicit label, or the parameter name title-cased (`noise_amplitude` -> `Noise Amplitude`).
+    pub fn display_label(&self) -> Cow<'static, str> {
+        match self.label {
+            Some(label) => Cow::Borrowed(label),
+            None => Cow::Owned(title_case_snake(self.name)),
+        }
+    }
+}
+
+pub fn title_case_snake(name: &str) -> String {
+    name.split('_')
+        .filter(|word| !word.is_empty())
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().chain(chars).collect::<String>(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 pub fn find_ui_param<'a>(params: &'a [UiParam], name: &str) -> Option<&'a UiParam> {
@@ -79,7 +105,7 @@ macro_rules! declare_scene_format {
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
                 $(, ui {
-                    label: $ui_label:expr,
+                    $( label: $ui_label:expr, )?
                     min: $ui_min:expr,
                     max: $ui_max:expr
                     $(, format: $ui_format:expr)?
@@ -93,7 +119,7 @@ macro_rules! declare_scene_format {
                 get: $runtime_get:expr,
                 set: $runtime_set:expr
                 $(, ui {
-                    label: $rt_ui_label:expr,
+                    $( label: $rt_ui_label:expr, )?
                     min: $rt_ui_min:expr,
                     max: $rt_ui_max:expr
                     $(, format: $rt_ui_format:expr)?
@@ -127,7 +153,7 @@ macro_rules! declare_scene_format {
                         set: $alias_set,
                     } ),+ })?
                     $(, ui {
-                        label: $ui_label,
+                        $( label: $ui_label, )?
                         min: $ui_min,
                         max: $ui_max
                         $(, format: $ui_format)?
@@ -140,7 +166,7 @@ macro_rules! declare_scene_format {
                     get: $runtime_get,
                     set: $runtime_set
                     $(, ui {
-                        label: $rt_ui_label,
+                        $( label: $rt_ui_label, )?
                         min: $rt_ui_min,
                         max: $rt_ui_max
                         $(, format: $rt_ui_format)?
@@ -169,7 +195,7 @@ macro_rules! declare_scene_format {
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
                 $(, ui {
-                    label: $ui_label:expr,
+                    $( label: $ui_label:expr, )?
                     min: $ui_min:expr,
                     max: $ui_max:expr
                     $(, format: $ui_format:expr)?
@@ -183,7 +209,7 @@ macro_rules! declare_scene_format {
                 get: $runtime_get:expr,
                 set: $runtime_set:expr
                 $(, ui {
-                    label: $rt_ui_label:expr,
+                    $( label: $rt_ui_label:expr, )?
                     min: $rt_ui_min:expr,
                     max: $rt_ui_max:expr
                     $(, format: $rt_ui_format:expr)?
@@ -271,7 +297,7 @@ macro_rules! declare_scene_format {
             $( $(
                 $crate::UiParam {
                     name: stringify!($name),
-                    label: $ui_label,
+                    label: $crate::declare_scene_format!(@ui_label $(, $ui_label)?),
                     min: $ui_min,
                     max: $ui_max,
                     format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $ui_format)?),
@@ -281,7 +307,7 @@ macro_rules! declare_scene_format {
             $( $(
                 $crate::UiParam {
                     name: stringify!($runtime_name),
-                    label: $rt_ui_label,
+                    label: $crate::declare_scene_format!(@ui_label $(, $rt_ui_label)?),
                     min: $rt_ui_min,
                     max: $rt_ui_max,
                     format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $rt_ui_format)?),
@@ -294,6 +320,12 @@ macro_rules! declare_scene_format {
         pub fn $overwrite_name(target: &mut $component, loaded: &$component) {
             $record::capture(loaded).apply(target);
         }
+    };
+    (@ui_label) => {
+        None
+    };
+    (@ui_label, $label:expr) => {
+        Some($label)
     };
     (@ui_or_default $default:expr) => {
         $default
@@ -389,4 +421,34 @@ macro_rules! declare_scene_format {
     ) => {
         $crate::declare_scene_format!(@scalars $component, [ $($rest)* ], [ $($acc)* ])
     };
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_title_case_snake_capitalizes_each_word() {
+        assert_eq!(title_case_snake("noise_amplitude"), "Noise Amplitude");
+        assert_eq!(title_case_snake("height"), "Height");
+        assert_eq!(title_case_snake("wien_c_k"), "Wien C K");
+    }
+
+    #[test]
+    fn test_display_label_prefers_explicit_label() {
+        let explicit = UiParam {
+            name: "swirl_gain",
+            label: Some("Swirl"),
+            min: 0.0,
+            max: 1.0,
+            format: "",
+            tooltip: "",
+        };
+        let derived = UiParam {
+            label: None,
+            ..explicit
+        };
+        assert_eq!(explicit.display_label(), "Swirl");
+        assert_eq!(derived.display_label(), "Swirl Gain");
+    }
 }

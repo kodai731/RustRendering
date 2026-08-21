@@ -25,16 +25,14 @@ declare_scene_format! {
         },
         height: f32 = Frame { get: |e| e.height, set: |e, v| e.height = v,
             ui {
-                label: "Height",
-                min: 0.05,
+                                min: 0.05,
                 max: 10.0,
                 format: "%.2f",
             },
         },
         radius: f32 = Frame { get: |e| e.radius, set: |e, v| e.radius = v,
             ui {
-                label: "Radius",
-                min: 0.05,
+                                min: 0.05,
                 max: 10.0,
                 format: "%.2f",
             },
@@ -42,8 +40,7 @@ declare_scene_format! {
         sigma_t: f32 = Style { get: |e| e.sigma_t, set: |e, v| e.sigma_t = v },
         intensity: f32 = Style { get: |e| e.intensity, set: |e, v| e.intensity = v,
             ui {
-                label: "Intensity",
-                min: 0.0,
+                                min: 0.0,
                 max: 10.0,
             },
         },
@@ -65,8 +62,7 @@ declare_scene_format! {
             get: |e| e.noise.amplitude,
             set: |e, v| e.noise.amplitude = v,
             ui {
-                label: "Noise Amplitude",
-                min: 0.0,
+                                min: 0.0,
                 max: 3.0,
             },
         },
@@ -74,8 +70,7 @@ declare_scene_format! {
             get: |e| e.noise.contrast,
             set: |e, v| e.noise.contrast = v,
             ui {
-                label: "Noise Contrast",
-                min: 0.25,
+                                min: 0.25,
                 max: 4.0,
                 format: "%.2f",
             },
@@ -90,8 +85,7 @@ declare_scene_format! {
         },
         time_scale: f32 = Frame { get: |e| e.time_scale, set: |e, v| e.time_scale = v,
             ui {
-                label: "Time Scale",
-                min: 0.0,
+                                min: 0.0,
                 max: 4.0,
             },
         },
@@ -201,8 +195,7 @@ declare_scene_format! {
         },
         swirl_speed: f32 = Style { get: |e| e.swirl.speed, set: |e, v| e.swirl.speed = v,
             ui {
-                label: "Swirl Speed",
-                min: 0.0,
+                                min: 0.0,
                 max: 4.0,
                 format: "%.2f",
                 tooltip: "How fast the swirl layers counter-rotate against the rise (time-only: costs no strain budget)",
@@ -241,8 +234,7 @@ declare_scene_format! {
             get: |e| e.meander.frequency,
             set: |e, v| e.meander.frequency = v,
             ui {
-                label: "Meander Frequency",
-                min: 0.2,
+                                min: 0.2,
                 max: 30.0,
                 format: "%.1f",
                 tooltip: "Wavenumber multiplier of the meander modes: 1 = two long bends over the height, ~12 folds the column into a snake with ~4 bends (pillar reference)",
@@ -250,8 +242,7 @@ declare_scene_format! {
         },
         mix_lo: f32 = Style { get: |e| e.mix.lo, set: |e, v| e.mix.lo = v,
             ui {
-                label: "Mix Lo",
-                min: -3.0,
+                                min: -3.0,
                 max: 3.0,
                 format: "%.2f",
                 tooltip: "Erosion carrier level (std units, carve-positive) where a parcel starts mixing with ambient air: lower mixes more of the body",
@@ -259,8 +250,7 @@ declare_scene_format! {
         },
         mix_hi: f32 = Style { get: |e| e.mix.hi, set: |e, v| e.mix.hi = v,
             ui {
-                label: "Mix Hi",
-                min: -3.0,
+                                min: -3.0,
                 max: 4.0,
                 format: "%.2f",
                 tooltip: "Carrier level (std units) where a parcel counts as fully mixed (thin and cold)",
@@ -270,8 +260,7 @@ declare_scene_format! {
             get: |e| e.mix.height_gain,
             set: |e, v| e.mix.height_gain = v,
             ui {
-                label: "Mix Height Gain",
-                min: 0.0,
+                                min: 0.0,
                 max: 2.0,
                 format: "%.2f",
                 tooltip: "Height ramp added to the mixing degree, gain * h^2: the plume thins and cools toward the top",
@@ -279,8 +268,7 @@ declare_scene_format! {
         },
         mix_scale: f32 = Style { get: |e| e.mix.scale, set: |e, v| e.mix.scale = v,
             ui {
-                label: "Mix Scale",
-                min: 0.1,
+                                min: 0.1,
                 max: 2.0,
                 format: "%.2f",
                 tooltip: "Wavenumber of the mixing eddies relative to the low erosion octave: below 1 the mixed and unmixed regions grow larger than the carve detail",
@@ -290,8 +278,7 @@ declare_scene_format! {
             get: |e| e.mix.radial_gain,
             set: |e, v| e.mix.radial_gain = v,
             ui {
-                label: "Mix Radial Gain",
-                min: 0.0,
+                                min: 0.0,
                 max: 3.0,
                 format: "%.2f",
                 tooltip: "Shear-layer ramp added to the mixing degree, gain * u^2 over the normalized radius: the axis stays an unmixed bright core while the rim thins and cools",
@@ -301,8 +288,7 @@ declare_scene_format! {
             get: |e| e.thermal.density_exp,
             set: |e, v| e.thermal.density_exp = v,
             ui {
-                label: "Density Exp",
-                min: 0.0,
+                                min: 0.0,
                 max: 4.0,
                 format: "%.2f",
                 tooltip: "Mass curve of a mixing parcel, (1 - m)^a: larger thins the mixed regions faster",
@@ -312,8 +298,7 @@ declare_scene_format! {
             get: |e| e.thermal.temp_exp,
             set: |e, v| e.thermal.temp_exp = v,
             ui {
-                label: "Temp Exp",
-                min: 0.0,
+                                min: 0.0,
                 max: 4.0,
                 format: "%.2f",
                 tooltip: "Temperature curve of a mixing parcel, T_cold + (T_hot - T_cold) (1 - m)^b: larger than Density Exp cools before thinning (dark red tufts remain), smaller thins before cooling",
@@ -368,8 +353,7 @@ declare_scene_format! {
         },
         twist_speed: f32 = Style { get: |e| e.twist.speed, set: |e, v| e.twist.speed = v,
             ui {
-                label: "Twist Speed",
-                min: 0.0,
+                                min: 0.0,
                 max: 4.0,
                 format: "%.2f",
                 tooltip: "Twist rotation rate scale (0 = follow Swirl Speed; > 0 gives the twist its own rate so depth and speed tune independently)",
@@ -394,8 +378,7 @@ declare_scene_format! {
             get: |e| e.optical_depth,
             set: |e, v| e.optical_depth = v,
             ui {
-                label: "Optical Depth",
-                min: 0.0,
+                                min: 0.0,
                 max: 16.0,
                 format: "%.2f",
                 tooltip: "Line-of-sight optical thickness tau0 = sigma_t * radius: > 0 derives sigma_t as tau0 / radius so resizing the flame keeps its opacity (0 = use the raw sigma_t channel directly)",
@@ -405,8 +388,7 @@ declare_scene_format! {
             get: |e| e.branch.period,
             set: |e, v| e.branch.period = v,
             ui {
-                label: "Branch Period",
-                min: 0.0,
+                                min: 0.0,
                 max: 2.0,
                 format: "%.2f",
                 tooltip: "Spawn period [s] of the branch elements (vortex lines that roll the medium into side tongues); raised to life/31 when the table is full, so shorter periods never shrink the tongues; 0 = off",
@@ -414,8 +396,7 @@ declare_scene_format! {
         },
         branch_life: f32 = Style { get: |e| e.branch.life, set: |e, v| e.branch.life = v,
             ui {
-                label: "Branch Life",
-                min: 0.1,
+                                min: 0.1,
                 max: 6.0,
                 format: "%.2f",
                 tooltip: "Lifetime [s] of one element (wind out fast, hold, burn out); the spawn period is raised to life/31 when the element table is full",
@@ -423,8 +404,7 @@ declare_scene_format! {
         },
         branch_gain: f32 = Style { get: |e| e.branch.gain, set: |e, v| e.branch.gain = v,
             ui {
-                label: "Branch Gain",
-                min: -8.0,
+                                min: -8.0,
                 max: 8.0,
                 format: "%.2f",
                 tooltip: "Rotation angle [rad] the core reaches at the end of winding; the medium flows along the arcs toward the tongue tip at a constant rate. Positive rolls trunk material down-out-up (cap curling inward), negative rolls it up-out-down (KH crest leaning upward). A compact rotation never folds; 0 = off",
@@ -445,8 +425,7 @@ declare_scene_format! {
             get: |e| e.branch.core_offset,
             set: |e, v| e.branch.core_offset = v,
             ui {
-                label: "Branch Core Offset",
-                min: 0.0,
+                                min: 0.0,
                 max: 3.0,
                 format: "%.2f",
                 tooltip: "Lateral position of the core at spawn as a ratio of the local trunk radius: 0 on the axis tilts the whole slab, 1 on the shear layer rolls trunk material outward as a billow",
@@ -456,8 +435,7 @@ declare_scene_format! {
             get: |e| e.branch.reach,
             set: |e, v| e.branch.reach = v,
             ui {
-                label: "Branch Reach",
-                min: 0.5,
+                                min: 0.5,
                 max: 8.0,
                 format: "%.2f",
                 tooltip: "Compact reach of one element at the end of its life as a ratio of the local trunk radius; nothing beyond it moves, so it bounds how far tongues can extend sideways",
@@ -467,8 +445,7 @@ declare_scene_format! {
             get: |e| e.branch.spread,
             set: |e, v| e.branch.spread = v,
             ui {
-                label: "Branch Spread",
-                min: 0.0,
+                                min: 0.0,
                 max: 1.0,
                 format: "%.2f",
                 tooltip: "Scatter of azimuth, timing jitter, left/right alternation, element size, line tilt and window shift (0 = identical elements strictly alternating in one plane)",
@@ -525,8 +502,7 @@ declare_scene_format! {
             get: |e| e.carve.residual,
             set: |e, v| e.carve.residual = v,
             ui {
-                label: "Carve Residual",
-                min: 0.0,
+                                min: 0.0,
                 max: 0.5,
                 format: "%.2f",
                 tooltip: "Translucent floor left where the noise carves the medium away. 0 = fully carved spans become hard holes — the severing moment of Burnout is only visible near 0 (debug); the product look keeps ~0.12",
