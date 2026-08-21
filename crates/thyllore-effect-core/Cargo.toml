@@ -12,6 +12,7 @@ cgmath = "0.18"
 serde = { version = "1", features = ["derive"] }
 thyllore-color-core = { path = "../thyllore-color-core" }
 thyllore-math-core = { path = "../thyllore-math-core" }
+thyllore-scene-core = { path = "../thyllore-scene-core" }
 thyllore-texture-fit-core = { path = "../thyllore-texture-fit-core" }
 
 [dev-dependencies]

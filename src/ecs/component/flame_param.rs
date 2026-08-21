@@ -1,4 +1,5 @@
 use thyllore_anim_core::editable::PropertyType;
+use thyllore_effect_core::{find_scalar_param, ScalarParam, FLAME_SCALAR_PARAMS};
 
 use super::flame::FlameEffect;
 use super::scalar_channel::{ScalarChannel, ScalarChannelDomain};
@@ -231,46 +232,17 @@ fn flame_local_time(world: &World, entity: Entity) -> Option<f32> {
         .map(|effect| effect.time)
 }
 
+fn scalar_param(param: FlameParam) -> &'static ScalarParam<FlameEffect> {
+    find_scalar_param(FLAME_SCALAR_PARAMS, param.cli_name())
+        .expect("every FlameParam cli_name is registered in FLAME_SCALAR_PARAMS")
+}
+
 pub fn apply_flame_param_value(effect: &mut FlameEffect, param: FlameParam, value: f32) {
-    match param {
-        FlameParam::Height => effect.height = value,
-        FlameParam::Radius => effect.radius = value,
-        FlameParam::Intensity => effect.intensity = value,
-        FlameParam::SigmaT => effect.sigma_t = value,
-        FlameParam::TemperatureBaseK => effect.color.temperature_base_k = value,
-        FlameParam::TemperatureTipK => effect.color.temperature_tip_k = value,
-        FlameParam::WarpAmp => effect.warp.amp = value,
-        FlameParam::WarpFreq => effect.warp.freq = value,
-        FlameParam::RiseSpeed => effect.warp.rise_speed = value,
-        FlameParam::NoiseAmplitude => effect.noise.amplitude = value,
-        FlameParam::WhiteBoost => effect.edge.white_boost = value,
-        FlameParam::BendAmount => effect.wind.bend_amount = value,
-        FlameParam::WindX => effect.wind.direction.x = value,
-        FlameParam::WindZ => effect.wind.direction.y = value,
-        FlameParam::EdgeLow => effect.edge.low = value,
-        FlameParam::EdgeHigh => effect.edge.high = value,
-    }
+    (scalar_param(param).set)(effect, value)
 }
 
 pub fn flame_param_value(effect: &FlameEffect, param: FlameParam) -> f32 {
-    match param {
-        FlameParam::Height => effect.height,
-        FlameParam::Radius => effect.radius,
-        FlameParam::Intensity => effect.intensity,
-        FlameParam::SigmaT => effect.sigma_t,
-        FlameParam::TemperatureBaseK => effect.color.temperature_base_k,
-        FlameParam::TemperatureTipK => effect.color.temperature_tip_k,
-        FlameParam::WarpAmp => effect.warp.amp,
-        FlameParam::WarpFreq => effect.warp.freq,
-        FlameParam::RiseSpeed => effect.warp.rise_speed,
-        FlameParam::NoiseAmplitude => effect.noise.amplitude,
-        FlameParam::WhiteBoost => effect.edge.white_boost,
-        FlameParam::BendAmount => effect.wind.bend_amount,
-        FlameParam::WindX => effect.wind.direction.x,
-        FlameParam::WindZ => effect.wind.direction.y,
-        FlameParam::EdgeLow => effect.edge.low,
-        FlameParam::EdgeHigh => effect.edge.high,
-    }
+    (scalar_param(param).get)(effect)
 }
 
 #[cfg(test)]
@@ -299,6 +271,17 @@ mod tests {
             assert_eq!(FlameParam::from_cli_name(param.cli_name()), Some(param));
         }
         assert_eq!(FlameParam::from_cli_name("no_such_param"), None);
+    }
+
+    #[test]
+    fn test_every_cli_name_is_in_the_scalar_registry() {
+        for param in FlameParam::ALL {
+            assert!(
+                find_scalar_param(FLAME_SCALAR_PARAMS, param.cli_name()).is_some(),
+                "{:?}",
+                param
+            );
+        }
     }
 
     #[test]
