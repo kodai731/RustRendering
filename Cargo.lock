@@ -3720,6 +3720,7 @@ dependencies = [
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-render-debug",
+ "thyllore-scene-core",
  "thyllore-texture-fit-core",
  "thyllore-vulkan-core",
  "ufbx",
@@ -3736,9 +3737,12 @@ name = "thyllore-effect-core"
 version = "0.0.1"
 dependencies = [
  "cgmath",
+ "ron",
  "serde",
+ "serde_json",
  "thyllore-color-core",
  "thyllore-math-core",
+ "thyllore-scene-core",
  "thyllore-texture-fit-core",
 ]
 
@@ -3871,6 +3875,13 @@ dependencies = [
  "thyllore-effect-core",
  "thyllore-math-core",
  "thyllore-render-core",
+]
+
+[[package]]
+name = "thyllore-scene-core"
+version = "0.0.1"
+dependencies = [
+ "serde",
 ]
 
 [[package]]

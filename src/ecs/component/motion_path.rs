@@ -7,6 +7,18 @@ pub struct MotionPath {
     pub enabled: bool,
 }
 
+impl Default for MotionPath {
+    fn default() -> Self {
+        Self {
+            center: cgmath::Vector3::new(0.0, 0.0, 0.0),
+            radius: 0.0,
+            angular_speed: 0.0,
+            phase_offset: 0.0,
+            enabled: false,
+        }
+    }
+}
+
 /// Compute the XZ-plane circular position for a given time.
 ///
 /// `center + (cos(phase_offset + angular_speed * time) * radius, 0, sin(...) * radius)`

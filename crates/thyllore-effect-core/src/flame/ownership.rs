@@ -1,120 +1,11 @@
-use super::FlameEffect;
+use super::PARAMETER_OWNERSHIP;
 
-/// Parameter ownership split (design SSoT: style_preset.md / parameter_ownership.md):
-/// Frame = placed by the scene, Shape = written by the still texture fit,
-/// Style = written by the reference-footage style. Writers must stay inside
-/// their declared set; the tests below enforce it by diffing snapshots.
+/// Writer split per parameter: Frame = scene, Shape = texture fit, Style = footage style (SSoT: parameter_ownership.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParameterOwner {
     Frame,
     Shape,
     Style,
-}
-
-use ParameterOwner::{Frame, Shape, Style};
-
-/// One declaration per persisted parameter (scene serde field name): its owner
-/// and its bit-exact value accessor. `PARAMETER_OWNERSHIP` and
-/// `flame_parameter_snapshot` are both generated from this single list, so the
-/// two cannot drift. Coverage against `FlameEffectData` is tested in
-/// scene/format.rs.
-macro_rules! declare_flame_parameters {
-    ($effect:ident => $( $name:ident : $owner:ident = [ $($value:expr),+ $(,)? ] ),+ $(,)?) => {
-        /// Persisted flame parameters (scene serde field names) mapped to their owner.
-        pub const PARAMETER_OWNERSHIP: &[(&str, ParameterOwner)] = &[
-            $( (stringify!($name), $owner) ),+
-        ];
-
-        /// Bit-exact value snapshot of every persisted parameter, keyed by the
-        /// same field names as `PARAMETER_OWNERSHIP`. Diffing two snapshots
-        /// yields the exact set of parameters a writer touched.
-        pub fn flame_parameter_snapshot($effect: &FlameEffect) -> Vec<(&'static str, Vec<f32>)> {
-            vec![ $( (stringify!($name), vec![$($value),+]) ),+ ]
-        }
-    };
-}
-
-declare_flame_parameters! { effect =>
-    position: Frame = [effect.position.x, effect.position.y, effect.position.z],
-    rotation: Frame = [
-        effect.rotation.s,
-        effect.rotation.v.x,
-        effect.rotation.v.y,
-        effect.rotation.v.z,
-    ],
-    height: Frame = [effect.height],
-    radius: Frame = [effect.radius],
-    sigma_t: Style = [effect.sigma_t],
-    intensity: Style = [effect.intensity],
-    color_base: Style = [effect.color.base[0], effect.color.base[1], effect.color.base[2]],
-    color_tip: Style = [effect.color.tip[0], effect.color.tip[1], effect.color.tip[2]],
-    temperature_base_k: Style = [effect.color.temperature_base_k],
-    temperature_tip_k: Style = [effect.color.temperature_tip_k],
-    use_blackbody: Style = [effect.color.use_blackbody as u8 as f32],
-    noise_amplitude: Style = [effect.noise.amplitude],
-    noise_contrast: Style = [effect.noise.contrast],
-    noise_frequency: Style = [effect.noise.frequency],
-    noise_scroll_speed: Style = [effect.noise.scroll_speed],
-    time_scale: Frame = [effect.time_scale],
-    time_offset: Frame = [effect.time_offset],
-    warp_amp: Style = [effect.warp.amp],
-    warp_freq: Style = [effect.warp.freq],
-    rise_speed: Style = [effect.warp.rise_speed],
-    taper_power: Shape = [effect.warp.taper_power],
-    radius_tip_ratio: Shape = [effect.edge.radius_tip_ratio],
-    edge_low: Style = [effect.edge.low],
-    edge_high: Style = [effect.edge.high],
-    white_boost: Style = [effect.edge.white_boost],
-    wind_direction: Frame = [effect.wind.direction.x, effect.wind.direction.y],
-    bend_amount: Frame = [effect.wind.bend_amount],
-    bend_power: Frame = [effect.wind.bend_power],
-    self_shadow_strength: Style = [effect.self_shadow_strength],
-    envelope_peak: Shape = [effect.envelope.peak],
-    envelope_base: Shape = [effect.envelope.base],
-    envelope_tail: Shape = [effect.envelope.tail],
-    radial_sharpness: Shape = [effect.radial_sharpness],
-    occlusion_lum_ref: Style = [effect.color.occlusion_lum_ref],
-    contour_wiggle_amp: Style = [effect.contour.wiggle_amp],
-    aniso_axis_advect: Style = [effect.contour.aniso_axis_advect],
-    rte_bands: Style = [effect.contour.rte_bands],
-    sigma_dispersion: Style = [effect.contour.sigma_dispersion],
-    tip_carve_depth: Style = [effect.carve.tip.depth],
-    tip_carve_reach: Style = [effect.carve.tip.reach],
-    warp_reach: Style = [effect.warp.reach],
-    swirl_gain: Style = [effect.swirl.gain],
-    swirl_speed: Style = [effect.swirl.speed],
-    spread_gain: Style = [effect.spread_gain],
-    support_margin: Style = [effect.support_margin],
-    meander_amp: Style = [effect.meander.amp],
-    meander_frequency: Style = [effect.meander.frequency],
-    mix_lo: Style = [effect.mix.lo],
-    mix_hi: Style = [effect.mix.hi],
-    mix_height_gain: Style = [effect.mix.height_gain],
-    mix_scale: Style = [effect.mix.scale],
-    mix_radial_gain: Style = [effect.mix.radial_gain],
-    density_exp: Style = [effect.thermal.density_exp],
-    temp_exp: Style = [effect.thermal.temp_exp],
-    wien_c_k: Style = [effect.thermal.wien_c_k],
-    wave_segments: Frame = [effect.wave_segments as f32],
-    noise_aniso_y: Style = [effect.noise.aniso_y],
-    edge_outer_sharpen: Style = [effect.edge.outer_sharpen],
-    noise_scale_mode: Style = [effect.noise.scale_mode],
-    erosion_noise_gain: Style = [effect.noise.erosion_gain],
-    twist_gain: Style = [effect.twist.gain],
-    twist_speed: Style = [effect.twist.speed],
-    burnout_gain: Style = [effect.carve.burnout_gain],
-    noise_shaping_scale: Style = [effect.noise.shaping_scale],
-    optical_depth: Style = [effect.optical_depth],
-    branch_period: Style = [effect.branch.period],
-    branch_life: Style = [effect.branch.life],
-    branch_gain: Style = [effect.branch.gain],
-    branch_core_radius: Style = [effect.branch.core_radius],
-    branch_core_offset: Style = [effect.branch.core_offset],
-    branch_reach: Style = [effect.branch.reach],
-    branch_spread: Style = [effect.branch.spread],
-    branch_spawn_height: Style = [effect.branch.spawn_height],
-    branch_spawn_range: Style = [effect.branch.spawn_range],
-    branch_seed: Frame = [effect.branch.seed as f32],
 }
 
 pub fn parameter_owner(field: &str) -> Option<ParameterOwner> {
@@ -173,7 +64,7 @@ pub fn changed_parameters(
 mod tests {
     use super::*;
     use crate::flame::bake::texture_fit::{apply_texture_fit, FlameTextureFit, TextureFitGroups};
-    use crate::flame::FlameBaked;
+    use crate::flame::{flame_parameter_snapshot, FlameBaked, FlameEffect};
     use std::collections::HashSet;
 
     fn extreme_fit() -> FlameTextureFit {

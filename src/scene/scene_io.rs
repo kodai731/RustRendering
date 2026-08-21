@@ -591,13 +591,13 @@ mod tests {
         let flame = scene.flame.expect("recovered flame section present");
         assert_eq!(flame.effect.height, 8.0);
         assert_eq!(flame.effect.radius, 1.0);
-        assert_eq!(flame.effect.radius_tip_ratio, 1.0);
-        assert_eq!(flame.effect.temperature_base_k, 2900.0);
-        assert_eq!(flame.effect.temperature_tip_k, 1300.0);
-        assert_eq!(flame.effect.mix_scale, 0.5);
-        assert_eq!(flame.effect.white_boost, 0.0);
-        assert_eq!(flame.effect.noise_scale_mode, 1.0);
-        assert!(flame.effect.meander_amp > 0.0);
+        assert_eq!(flame.effect.edge.radius_tip_ratio, 1.0);
+        assert_eq!(flame.effect.color.temperature_base_k, 2900.0);
+        assert_eq!(flame.effect.color.temperature_tip_k, 1300.0);
+        assert_eq!(flame.effect.mix.scale, 0.5);
+        assert_eq!(flame.effect.edge.white_boost, 0.0);
+        assert_eq!(flame.effect.noise.scale_mode, 1.0);
+        assert!(flame.effect.meander.amp > 0.0);
     }
 
     #[test]

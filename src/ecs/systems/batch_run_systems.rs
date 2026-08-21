@@ -408,93 +408,18 @@ pub fn flame_count_resolve_from_args(args: &[String]) -> Result<Option<usize>> {
     }
     Ok(Some(count))
 }
-pub(crate) const FLAME_SET_KEYS: &[&str] = &[
-    "warp_amp",
-    "warp_freq",
-    "rise_speed",
-    "taper_power",
-    "radius_tip_ratio",
-    "edge_low",
-    "edge_high",
-    "white_boost",
-    "bend_amount",
-    "bend_power",
-    "wind_x",
-    "wind_z",
-    "noise_amplitude",
-    "noise_contrast",
-    "noise_frequency",
-    "noise_scroll_speed",
-    "sigma_t",
-    "intensity",
-    "height",
-    "radius",
-    "time",
-    "time_scale",
-    "time_offset",
-    "rot_z_deg",
-    "temperature_base_k",
-    "temperature_tip_k",
-    "envelope_peak",
-    "envelope_base",
-    "envelope_tail",
-    "radial_sharpness",
-    "emitter_kind",
-    "ring_major_radius",
-    "ring_angular_speed",
-    "noise_aniso_y",
-    "warp_y_scale",
-    "occlusion_lum_ref",
-    "contour_wiggle_amp",
-    "aniso_axis_advect",
-    "rte_bands",
-    "sigma_dispersion",
-    "boundary_amp",
-    "near_fade_radius",
-    "carve_residual",
-    "tip_carve_depth",
-    "tip_carve_reach",
-    "warp_reach",
-    "swirl_gain",
-    "swirl_speed",
-    "spread_gain",
-    "support_margin",
-    "meander_amp",
-    "meander_frequency",
-    "mix_lo",
-    "mix_hi",
-    "mix_height_gain",
-    "mix_scale",
-    "mix_radial_gain",
-    "density_exp",
-    "temp_exp",
-    "wien_c_k",
-    "wave_segments",
-    "boundary_freq",
-    "boundary_speed",
-    "boundary_radius_ratio",
-    "edge_outer_sharpen",
-    "noise_scale_mode",
-    "erosion_noise_gain",
-    "twist_gain",
-    "twist_speed",
-    "burnout_gain",
-    "noise_shaping_scale",
-    "optical_depth",
-    "branch_period",
-    "branch_life",
-    "branch_gain",
-    "branch_core_radius",
-    "branch_core_offset",
-    "branch_reach",
-    "branch_spread",
-    "branch_spawn_height",
-    "branch_spawn_range",
-    "branch_seed",
-];
+const ROT_Z_DEG_KEY: &str = "rot_z_deg";
+
+pub(crate) fn flame_set_valid_keys() -> Vec<&'static str> {
+    thyllore_effect_core::FLAME_SCALAR_PARAMS
+        .iter()
+        .map(|param| param.name)
+        .chain([ROT_Z_DEG_KEY])
+        .collect()
+}
 
 fn flame_set_resolve_from_args(args: &[String]) -> Result<Vec<(String, f32)>> {
-    let valid_keys = FLAME_SET_KEYS;
+    let valid_keys = flame_set_valid_keys();
 
     let mut pairs: Vec<(String, f32)> = Vec::new();
     for i in 0..args.len() {
@@ -905,97 +830,19 @@ pub fn batch_run_update_orbit(world: &mut World) {
 
 pub fn apply_flame_overrides(effect: &mut FlameEffect, overrides: &[(String, f32)]) {
     for (key, value) in overrides {
-        match key.as_str() {
-            "warp_amp" => effect.warp.amp = *value,
-            "warp_freq" => effect.warp.freq = *value,
-            "rise_speed" => effect.warp.rise_speed = *value,
-            "taper_power" => effect.warp.taper_power = *value,
-            "radius_tip_ratio" => effect.edge.radius_tip_ratio = *value,
-            "edge_low" => effect.edge.low = *value,
-            "edge_high" => effect.edge.high = *value,
-            "white_boost" => effect.edge.white_boost = *value,
-            "bend_amount" => effect.wind.bend_amount = *value,
-            "bend_power" => effect.wind.bend_power = *value,
-            "wind_x" => effect.wind.direction.x = *value,
-            "wind_z" => effect.wind.direction.y = *value,
-            "noise_amplitude" => effect.noise.amplitude = *value,
-            "noise_contrast" => effect.noise.contrast = *value,
-            "noise_frequency" => effect.noise.frequency = *value,
-            "noise_scroll_speed" => effect.noise.scroll_speed = *value,
-            "noise_aniso_y" => effect.noise.aniso_y = *value,
-            "warp_y_scale" => effect.warp.y_scale = *value,
-            "sigma_t" => effect.sigma_t = *value,
-            "intensity" => effect.intensity = *value,
-            "height" => effect.height = *value,
-            "radius" => effect.radius = *value,
-            "time" => effect.time = *value,
-            "time_scale" => effect.time_scale = *value,
-            "time_offset" => effect.time_offset = *value,
-            "temperature_base_k" => effect.color.temperature_base_k = *value,
-            "temperature_tip_k" => effect.color.temperature_tip_k = *value,
-            "envelope_peak" => effect.envelope.peak = *value,
-            "envelope_base" => effect.envelope.base = *value,
-            "envelope_tail" => effect.envelope.tail = *value,
-            "radial_sharpness" => effect.radial_sharpness = *value,
-            "rot_z_deg" => {
-                effect.rotation = cgmath::Quaternion::from(cgmath::Euler::new(
-                    cgmath::Deg(0.0),
-                    cgmath::Deg(0.0),
-                    cgmath::Deg(*value),
-                ))
-            }
-            "emitter_kind" => effect.emitter.kind = *value as u32,
-            "ring_major_radius" => effect.emitter.ring_major_radius = *value,
-            "ring_angular_speed" => effect.emitter.ring_angular_speed = *value,
-            "occlusion_lum_ref" => effect.color.occlusion_lum_ref = *value,
-            "contour_wiggle_amp" => effect.contour.wiggle_amp = *value,
-            "aniso_axis_advect" => effect.contour.aniso_axis_advect = *value,
-            "rte_bands" => effect.contour.rte_bands = *value,
-            "sigma_dispersion" => effect.contour.sigma_dispersion = *value,
-            "boundary_amp" => effect.boundary.amp = *value,
-            "near_fade_radius" => effect.carve.near_fade_radius = *value,
-            "carve_residual" => effect.carve.residual = *value,
-            "tip_carve_depth" => effect.carve.tip.depth = *value,
-            "tip_carve_reach" => effect.carve.tip.reach = *value,
-            "warp_reach" => effect.warp.reach = *value,
-            "swirl_gain" => effect.swirl.gain = *value,
-            "swirl_speed" => effect.swirl.speed = *value,
-            "support_margin" => effect.support_margin = *value,
-            "spread_gain" => effect.spread_gain = *value,
-            "meander_amp" => effect.meander.amp = *value,
-            "meander_frequency" => effect.meander.frequency = *value,
-            "mix_lo" => effect.mix.lo = *value,
-            "mix_hi" => effect.mix.hi = *value,
-            "mix_height_gain" => effect.mix.height_gain = *value,
-            "mix_scale" => effect.mix.scale = *value,
-            "mix_radial_gain" => effect.mix.radial_gain = *value,
-            "density_exp" => effect.thermal.density_exp = *value,
-            "temp_exp" => effect.thermal.temp_exp = *value,
-            "wien_c_k" => effect.thermal.wien_c_k = *value,
-            "wave_segments" => effect.wave_segments = value.max(0.0) as u32,
-            "boundary_freq" => effect.boundary.freq = *value,
-            "boundary_speed" => effect.boundary.speed = *value,
-            "boundary_radius_ratio" => effect.boundary.radius_ratio = *value,
-            "edge_outer_sharpen" => effect.edge.outer_sharpen = *value,
-            "noise_scale_mode" => effect.noise.scale_mode = *value,
-            "erosion_noise_gain" => effect.noise.erosion_gain = *value,
-            "twist_gain" => effect.twist.gain = *value,
-            "twist_speed" => effect.twist.speed = *value,
-            "burnout_gain" => effect.carve.burnout_gain = *value,
-            "noise_shaping_scale" => effect.noise.shaping_scale = *value,
-            "optical_depth" => effect.optical_depth = *value,
-            "branch_period" => effect.branch.period = *value,
-            "branch_life" => effect.branch.life = *value,
-            "branch_gain" => effect.branch.gain = *value,
-            "branch_core_radius" => effect.branch.core_radius = *value,
-            "branch_core_offset" => effect.branch.core_offset = *value,
-            "branch_reach" => effect.branch.reach = *value,
-            "branch_spread" => effect.branch.spread = *value,
-            "branch_spawn_height" => effect.branch.spawn_height = *value,
-            "branch_spawn_range" => effect.branch.spawn_range = *value,
-            "branch_seed" => effect.branch.seed = value.max(0.0) as u32,
-            _ => unreachable!("unknown key (parser should have rejected)"),
+        if key == ROT_Z_DEG_KEY {
+            effect.rotation = cgmath::Quaternion::from(cgmath::Euler::new(
+                cgmath::Deg(0.0),
+                cgmath::Deg(0.0),
+                cgmath::Deg(*value),
+            ));
+            continue;
         }
+
+        let param =
+            thyllore_effect_core::find_scalar_param(thyllore_effect_core::FLAME_SCALAR_PARAMS, key)
+                .unwrap_or_else(|| unreachable!("unknown key (parser should have rejected)"));
+        (param.set)(effect, *value);
     }
 }
 
@@ -2591,10 +2438,103 @@ mod tests {
 
     #[test]
     fn apply_flame_overrides_no_panic_for_all_keys() {
-        for &key in FLAME_SET_KEYS {
+        for key in flame_set_valid_keys() {
             let mut effect = FlameEffect::default();
             let overrides: Vec<(String, f32)> = vec![(key.to_string(), 1.0)];
             apply_flame_overrides(&mut effect, &overrides);
+        }
+    }
+
+    /// Every key the pre-registry FLAME_SET_KEYS table accepted must keep working.
+    #[test]
+    fn flame_set_legacy_keys_stay_accepted() {
+        let legacy_keys = [
+            "warp_amp",
+            "warp_freq",
+            "rise_speed",
+            "taper_power",
+            "radius_tip_ratio",
+            "edge_low",
+            "edge_high",
+            "white_boost",
+            "bend_amount",
+            "bend_power",
+            "wind_x",
+            "wind_z",
+            "noise_amplitude",
+            "noise_contrast",
+            "noise_frequency",
+            "noise_scroll_speed",
+            "sigma_t",
+            "intensity",
+            "height",
+            "radius",
+            "time",
+            "time_scale",
+            "time_offset",
+            "rot_z_deg",
+            "temperature_base_k",
+            "temperature_tip_k",
+            "envelope_peak",
+            "envelope_base",
+            "envelope_tail",
+            "radial_sharpness",
+            "emitter_kind",
+            "ring_major_radius",
+            "ring_angular_speed",
+            "noise_aniso_y",
+            "warp_y_scale",
+            "occlusion_lum_ref",
+            "contour_wiggle_amp",
+            "aniso_axis_advect",
+            "rte_bands",
+            "sigma_dispersion",
+            "boundary_amp",
+            "near_fade_radius",
+            "carve_residual",
+            "tip_carve_depth",
+            "tip_carve_reach",
+            "warp_reach",
+            "swirl_gain",
+            "swirl_speed",
+            "spread_gain",
+            "support_margin",
+            "meander_amp",
+            "meander_frequency",
+            "mix_lo",
+            "mix_hi",
+            "mix_height_gain",
+            "mix_scale",
+            "mix_radial_gain",
+            "density_exp",
+            "temp_exp",
+            "wien_c_k",
+            "wave_segments",
+            "boundary_freq",
+            "boundary_speed",
+            "boundary_radius_ratio",
+            "edge_outer_sharpen",
+            "noise_scale_mode",
+            "erosion_noise_gain",
+            "twist_gain",
+            "twist_speed",
+            "burnout_gain",
+            "noise_shaping_scale",
+            "optical_depth",
+            "branch_period",
+            "branch_life",
+            "branch_gain",
+            "branch_core_radius",
+            "branch_core_offset",
+            "branch_reach",
+            "branch_spread",
+            "branch_spawn_height",
+            "branch_spawn_range",
+            "branch_seed",
+        ];
+        let valid = flame_set_valid_keys();
+        for key in legacy_keys {
+            assert!(valid.contains(&key), "legacy key {key} no longer accepted");
         }
     }
 

@@ -4,11 +4,13 @@ mod constraint_inspector;
 mod curve_editor_window;
 #[cfg(debug_assertions)]
 mod debug_window;
+mod flame_param_groups;
 mod hierarchy_window;
 mod inspector_window;
 mod layout_snapshot;
 mod message_window;
 mod panel_splitter;
+mod param_widgets;
 mod scene_overlay;
 mod spring_bone_inspector;
 mod status_bar;
