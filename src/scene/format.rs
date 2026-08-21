@@ -66,7 +66,7 @@ impl SceneMetadata {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ModelReference {
     pub path: String,
-    pub transform: TransformData,
+    pub transform: crate::ecs::world::Transform,
 }
 
 impl ModelReference {
@@ -76,29 +76,12 @@ impl ModelReference {
     pub fn new(path: &str) -> Self {
         Self {
             path: path.to_string(),
-            transform: TransformData::default(),
+            transform: crate::ecs::world::Transform::default(),
         }
     }
 
     pub fn is_generated_mesh(&self) -> bool {
         self.path == Self::GENERATED_MESH
-    }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TransformData {
-    pub position: [f32; 3],
-    pub rotation: [f32; 4],
-    pub scale: [f32; 3],
-}
-
-impl Default for TransformData {
-    fn default() -> Self {
-        Self {
-            position: [0.0, 0.0, 0.0],
-            rotation: [0.0, 0.0, 0.0, 1.0],
-            scale: [1.0, 1.0, 1.0],
-        }
     }
 }
 
@@ -277,7 +260,7 @@ pub struct FlameSceneData {
     #[serde(default)]
     pub clip_min_duration: f32,
     #[serde(default)]
-    pub motion_path: Option<MotionPathData>,
+    pub motion_path: Option<crate::ecs::component::MotionPath>,
     #[serde(default)]
     pub style: Option<FlameStyleRefData>,
 }
@@ -288,15 +271,6 @@ pub struct FlameSceneData {
 pub struct FlameStyleRefData {
     pub name: String,
     pub version: u32,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct MotionPathData {
-    pub center: [f32; 3],
-    pub radius: f32,
-    pub angular_speed: f32,
-    pub phase_offset: f32,
-    pub enabled: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -364,13 +338,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
 
     let motion_path = world
         .get_component::<crate::ecs::component::MotionPath>(*entity)
-        .map(|mp| MotionPathData {
-            center: [mp.center.x, mp.center.y, mp.center.z],
-            radius: mp.radius,
-            angular_speed: mp.angular_speed,
-            phase_offset: mp.phase_offset,
-            enabled: mp.enabled,
-        });
+        .map(|mp| mp.clone());
 
     let style = world
         .get_component::<crate::ecs::component::AppliedFlameStyle>(*entity)
@@ -557,18 +525,8 @@ pub fn apply_flame_state_to_world(
         ));
     world.insert_component(entity, schedule);
 
-    // Insert MotionPath component if present in scene data
     if let Some(mp) = &flame.motion_path {
-        world.insert_component(
-            entity,
-            crate::ecs::component::MotionPath {
-                center: cgmath::Vector3::new(mp.center[0], mp.center[1], mp.center[2]),
-                radius: mp.radius,
-                angular_speed: mp.angular_speed,
-                phase_offset: mp.phase_offset,
-                enabled: mp.enabled,
-            },
-        );
+        world.insert_component(entity, mp.clone());
     }
 }
 
@@ -972,7 +930,7 @@ mod tests {
             .motion_path
             .as_ref()
             .expect("motion_path should be Some");
-        assert_eq!(mp.center, [1.0, 2.0, 3.0]);
+        assert_eq!(mp.center, cgmath::Vector3::new(1.0, 2.0, 3.0));
         assert_eq!(mp.radius, 5.0);
         assert_eq!(mp.angular_speed, 0.7);
         assert_eq!(mp.phase_offset, 1.5);

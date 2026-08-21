@@ -50,12 +50,14 @@ impl<const N: usize> SnapshotValues for [f32; N] {
 /// component, the tag table, the bit-exact snapshot fn, the overwrite fn that
 /// keeps runtime state on load, and the flat-name scalar accessor registry.
 ///
-/// `persisted` entries carry the flat scene key, type, tag, accessor pair and
-/// (for keys that may be absent in old scenes with a value other than the
-/// component default) the legacy on-disk default; f32 / u32 / bool entries are
-/// auto-registered as scalars, vector entries may declare per-component
+/// `persisted` entries carry the flat scene key, type, optional tag, accessor
+/// pair and (for keys that may be absent in old scenes with a value other than
+/// the component default) the legacy on-disk default; f32 / u32 / bool entries
+/// are auto-registered as scalars, vector entries may declare per-component
 /// `scalars` aliases. `runtime` entries are never serialized and only join the
-/// scalar registry. Invoke next to the component definition (orphan rule).
+/// scalar registry. The `tag:` line and per-entry `= Tag` are omitted together
+/// for components without a tag concept. Invoke next to the component
+/// definition (orphan rule).
 #[macro_export]
 macro_rules! declare_scene_format {
     (
@@ -70,6 +72,65 @@ macro_rules! declare_scene_format {
         },
         persisted {
             $( $name:ident : $ty:tt = $tag:ident {
+                get: $get:expr,
+                set: $set:expr
+                $(, default: $default:expr)?
+                $(, scalars { $( $alias:ident : {
+                    get: $alias_get:expr,
+                    set: $alias_set:expr $(,)?
+                } ),+ $(,)? })?
+                $(,)?
+            } ),+ $(,)?
+        },
+        runtime {
+            $( $runtime_name:ident : $runtime_ty:tt {
+                get: $runtime_get:expr,
+                set: $runtime_set:expr $(,)?
+            } ),* $(,)?
+        } $(,)?
+    ) => {
+        /// Persisted parameters (scene serde field names) mapped to their tag.
+        pub const $tags_name: &[(&str, $tag_ty)] = &[
+            $( (stringify!($name), <$tag_ty>::$tag) ),+
+        ];
+
+        $crate::declare_scene_format! {
+            component: $component,
+            record: $record,
+            items {
+                snapshot: $snapshot_name,
+                scalars: $scalars_name,
+                overwrite: $overwrite_name,
+            },
+            persisted {
+                $( $name : $ty {
+                    get: $get,
+                    set: $set
+                    $(, default: $default)?
+                    $(, scalars { $( $alias : {
+                        get: $alias_get,
+                        set: $alias_set,
+                    } ),+ })?
+                } ),+
+            },
+            runtime {
+                $( $runtime_name : $runtime_ty {
+                    get: $runtime_get,
+                    set: $runtime_set,
+                } ),*
+            },
+        }
+    };
+    (
+        component: $component:ty,
+        record: $record:ident,
+        items {
+            snapshot: $snapshot_name:ident,
+            scalars: $scalars_name:ident,
+            overwrite: $overwrite_name:ident $(,)?
+        },
+        persisted {
+            $( $name:ident : $ty:tt {
                 get: $get:expr,
                 set: $set:expr
                 $(, default: $default:expr)?
@@ -142,14 +203,9 @@ macro_rules! declare_scene_format {
             }
         }
 
-        /// Persisted parameters (scene serde field names) mapped to their tag.
-        pub const $tags_name: &[(&str, $tag_ty)] = &[
-            $( (stringify!($name), <$tag_ty>::$tag) ),+
-        ];
-
         /// Bit-exact value snapshot of every persisted parameter, keyed by the
-        /// same field names as the tag table. Diffing two snapshots yields the
-        /// exact set of parameters a writer touched.
+        /// scene serde field names. Diffing two snapshots yields the exact set
+        /// of parameters a writer touched.
         pub fn $snapshot_name(component: &$component) -> Vec<(&'static str, Vec<f32>)> {
             vec![ $( (stringify!($name), {
                 let get: fn(&$component) -> $ty = $get;

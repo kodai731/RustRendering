@@ -3720,6 +3720,7 @@ dependencies = [
  "thyllore-model-core",
  "thyllore-render-core",
  "thyllore-render-debug",
+ "thyllore-scene-core",
  "thyllore-texture-fit-core",
  "thyllore-vulkan-core",
  "ufbx",
