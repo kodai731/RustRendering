@@ -158,6 +158,7 @@ pub enum ToolCall {
     SaveScene,
     GenerateMotion(MotionCategory, SpeedPreset),
     CameraShot(ShotPreset, SpeedPreset),
+    CameraDirection(String),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -194,7 +195,9 @@ impl ToolCall {
             | ToolCall::Undo
             | ToolCall::Redo => RiskLevel::Mutating,
 
-            ToolCall::SaveScene | ToolCall::GenerateMotion(_, _) => RiskLevel::Destructive,
+            ToolCall::SaveScene | ToolCall::GenerateMotion(_, _) | ToolCall::CameraDirection(_) => {
+                RiskLevel::Destructive
+            }
         }
     }
 
@@ -218,6 +221,7 @@ impl ToolCall {
             ToolCall::SaveScene => "save_scene",
             ToolCall::GenerateMotion(_, _) => "generate_motion",
             ToolCall::CameraShot(_, _) => "camera_shot",
+            ToolCall::CameraDirection(_) => "camera_direction",
         }
     }
 }

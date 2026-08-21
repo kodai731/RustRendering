@@ -27,6 +27,10 @@ pub enum DispatchOutcome {
         category: MotionCategory,
         speed: SpeedPreset,
     },
+    CameraDirectionRequest {
+        utterance: String,
+        target: Option<Entity>,
+    },
     Rejected(DispatchError),
 }
 
@@ -82,6 +86,8 @@ pub fn dispatch_tool_call(
         },
 
         ToolCall::CameraShot(preset, speed) => dispatch_camera_shot(world, *preset, *speed),
+
+        ToolCall::CameraDirection(name) => dispatch_camera_direction(world, name),
     }
 }
 
@@ -149,6 +155,27 @@ fn dispatch_camera_shot(world: &World, preset: ShotPreset, speed: SpeedPreset) -
             speed,
             target: None,
         }),
+    }
+}
+
+fn dispatch_camera_direction(world: &World, name: &str) -> DispatchOutcome {
+    let target = match resolve_entity_by_name(world, name) {
+        NameResolution::Resolved(entity) => Some(entity),
+        NameResolution::NotFound => read_selected_entity(world),
+        NameResolution::Ambiguous(entities) => {
+            // If ambiguous, fall back to selected entity
+            read_selected_entity(world).or_else(|| {
+                // If nothing selected, return the first match (best effort)
+                entities.first().copied()
+            })
+        }
+    };
+    match target {
+        Some(entity) => DispatchOutcome::CameraDirectionRequest {
+            utterance: name.to_string(),
+            target: Some(entity),
+        },
+        None => DispatchOutcome::Rejected(DispatchError::NothingSelected),
     }
 }
 

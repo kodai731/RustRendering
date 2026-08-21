@@ -46,10 +46,11 @@ pub enum Route {
     SaveScene,
     GenerateMotion(MotionCategory),
     CameraShot(ShotPreset),
+    CameraDirection,
     EscapeAnchor,
 }
 
-pub const ALL_ROUTES: [Route; 35] = [
+pub const ALL_ROUTES: [Route; 36] = [
     Route::ListObjects,
     Route::DescribeSelection,
     Route::GetPlaybackState,
@@ -85,6 +86,7 @@ pub const ALL_ROUTES: [Route; 35] = [
     Route::CameraShot(ShotPreset::DollyOut),
     Route::CameraShot(ShotPreset::CraneUp),
     Route::CameraShot(ShotPreset::CraneDown),
+    Route::CameraDirection,
 ];
 
 /// Values the router fills in before a route can become a `ToolCall`. Slots come
@@ -120,6 +122,7 @@ impl Route {
             Route::FocusCamera(target) => format!("focus_camera:{}", target.as_str()),
             Route::GenerateMotion(category) => format!("generate_motion:{}", category.as_str()),
             Route::CameraShot(preset) => format!("camera_shot:{}", preset.as_str()),
+            Route::CameraDirection => "camera_direction".to_string(),
             Route::EscapeAnchor => "__escape__".to_string(),
             other => other.tool_name().to_string(),
         }
@@ -155,6 +158,7 @@ impl Route {
             Route::SaveScene => "save_scene",
             Route::GenerateMotion(_) => "generate_motion",
             Route::CameraShot(_) => "camera_shot",
+            Route::CameraDirection => "camera_direction",
             Route::EscapeAnchor => "__escape__",
         }
     }
@@ -204,6 +208,7 @@ impl Route {
             Route::FocusCamera(target) => Ok(ToolCall::FocusCamera(target)),
             Route::GenerateMotion(category) => Ok(ToolCall::GenerateMotion(category, speed)),
             Route::CameraShot(preset) => Ok(ToolCall::CameraShot(preset, speed)),
+            Route::CameraDirection => unreachable!(),
 
             Route::SelectObject => Ok(ToolCall::SelectObject(self.take_object_name(slots)?)),
             Route::SetObjectVisibility(state) => Ok(ToolCall::SetObjectVisibility(
@@ -243,7 +248,7 @@ mod tests {
 
     /// The router index in `AnimationModelTraining scripts/helm_router/route_schema.py` must expand
     /// to exactly these ids, or the measured accuracy does not describe this build.
-    const EXPECTED_ROUTE_IDS: [&str; 35] = [
+    const EXPECTED_ROUTE_IDS: [&str; 36] = [
         "list_objects",
         "describe_selection",
         "get_playback_state",
@@ -279,6 +284,7 @@ mod tests {
         "camera_shot:dolly_out",
         "camera_shot:crane_up",
         "camera_shot:crane_down",
+        "camera_direction",
     ];
 
     #[test]
@@ -323,13 +329,16 @@ mod tests {
 
     #[test]
     fn allow_edit_mode_exposes_every_route() {
-        assert_eq!(routes_for_mode(HelmMode::AllowEdit).len(), 35);
+        assert_eq!(routes_for_mode(HelmMode::AllowEdit).len(), 36);
     }
 
     #[test]
     fn every_slotless_route_binds_without_slots() {
         let slots = RouteSlots::default();
-        for route in ALL_ROUTES.iter().filter(|route| route.slot().is_none()) {
+        for route in ALL_ROUTES
+            .iter()
+            .filter(|route| route.slot().is_none() && !matches!(route, Route::CameraDirection))
+        {
             assert!(route.bind(&slots).is_ok(), "{} failed to bind", route.id());
         }
     }

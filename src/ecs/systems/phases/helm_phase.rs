@@ -332,6 +332,9 @@ pub fn run_helm_phase(ctx: &mut EcsContext) {
                             DispatchOutcome::Command(_) => "Command",
                             DispatchOutcome::Report(_) => "Report",
                             DispatchOutcome::MotionRequest { .. } => "MotionRequest",
+                            DispatchOutcome::CameraDirectionRequest { .. } => {
+                                "CameraDirectionRequest"
+                            }
                             DispatchOutcome::Rejected(_) => "DispatchError",
                         };
                         let response_value = match &outcome {
@@ -585,6 +588,14 @@ fn handle_dispatch_outcome(
             state.feedback = Some(crate::ecs::resource::CommandFeedback::Executed(format!(
                 "generate_motion {}: {}",
                 category_str, clip_name
+            )));
+        }
+        DispatchOutcome::CameraDirectionRequest { utterance, target } => {
+            // Stub: ONNX inference/trajectory generation not implemented yet
+            let mut state = world.resource_mut::<HelmState>();
+            state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(format!(
+                "camera_direction stub: utterance='{}', target={:?}",
+                utterance, target
             )));
         }
         DispatchOutcome::Rejected(e) => {
