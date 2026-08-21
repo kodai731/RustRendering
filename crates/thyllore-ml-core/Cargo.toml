@@ -22,7 +22,7 @@ debug-log = []
 thyllore-ml-api = { path = "../thyllore-ml-api" }
 thyllore-model-core = { path = "../thyllore-model-core" }
 thyllore-anim-core = { path = "../thyllore-anim-core" }
-ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "download-binaries", "copy-dylibs", "tls-native"] }
+ort = { version = "2.0.0-rc.11", default-features = false, features = ["std", "ndarray", "load-dynamic", "download-binaries", "copy-dylibs", "tls-native", "half"] }
 anyhow = "1"
 base64 = "0.22"
 cgmath = "0.18"
@@ -44,6 +44,7 @@ chrono = { version = "0.4", default-features = false, features = ["clock"] }
 pyo3 = { version = "0.29", features = ["extension-module", "abi3-py310"], optional = true }
 numpy = { version = "0.29", optional = true }
 pythonize = { version = "0.29", optional = true }
+half = "2"
 
 [dev-dependencies]
 tempfile = "3"
