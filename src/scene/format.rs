@@ -1083,8 +1083,7 @@ mod tests {
 
 #[cfg(test)]
 mod legacy_format_golden {
-    /// Serialization of a default-spawned flame captured from the deleted
-    /// FlameEffectData mirror; the derived serde output must stay identical.
+    /// Default-flame JSON captured from the deleted FlameEffectData mirror; serde output must match it.
     const LEGACY_DEFAULT_EFFECT_JSON: &str = r#"{
   "position": [
     0.0,

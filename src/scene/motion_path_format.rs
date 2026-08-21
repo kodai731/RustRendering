@@ -9,6 +9,7 @@ declare_scene_format! {
     items {
         snapshot: motion_path_parameter_snapshot,
         scalars: MOTION_PATH_SCALAR_PARAMS,
+        ui: MOTION_PATH_UI_PARAMS,
         overwrite: overwrite_motion_path_persisted_fields,
     },
     persisted {

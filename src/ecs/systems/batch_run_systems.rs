@@ -2445,9 +2445,7 @@ mod tests {
         }
     }
 
-    /// The key set accepted before the scalar registry replaced the
-    /// hand-written FLAME_SET_KEYS table; every batch flag that worked then
-    /// must keep working.
+    /// Every key the pre-registry FLAME_SET_KEYS table accepted must keep working.
     #[test]
     fn flame_set_legacy_keys_stay_accepted() {
         let legacy_keys = [

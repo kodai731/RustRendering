@@ -1,7 +1,4 @@
-/// Flat-name accessor for one scalar parameter of a component: the single
-/// entry format shared by scene persistence, batch CLI overrides and
-/// animatable channel reads. Stateless and per component type, so every
-/// entity holding the component shares one static table.
+/// Flat-name f32 accessor for one scalar parameter; one static table per component type.
 pub struct ScalarParam<C: 'static> {
     pub name: &'static str,
     pub get: fn(&C) -> f32,
@@ -12,6 +9,20 @@ pub fn find_scalar_param<'a, C>(
     params: &'a [ScalarParam<C>],
     name: &str,
 ) -> Option<&'a ScalarParam<C>> {
+    params.iter().find(|param| param.name == name)
+}
+
+/// UI-toolkit-free display metadata of one scalar parameter, joined to the accessor table by `name`.
+pub struct UiParam {
+    pub name: &'static str,
+    pub label: &'static str,
+    pub min: f32,
+    pub max: f32,
+    pub format: &'static str,
+    pub tooltip: &'static str,
+}
+
+pub fn find_ui_param<'a>(params: &'a [UiParam], name: &str) -> Option<&'a UiParam> {
     params.iter().find(|param| param.name == name)
 }
 
@@ -43,21 +54,8 @@ impl<const N: usize> SnapshotValues for [f32; N] {
     }
 }
 
-/// One declaration per parameter of a component, generating everything the
-/// engine derives from it: the private scene serde record (plain struct shape,
-/// so both RON and JSON stay readable — `#[serde(flatten)]` cannot, RON
-/// rejects flattened maps), the `Serialize`/`Deserialize` impls of the
-/// component, the tag table, the bit-exact snapshot fn, the overwrite fn that
-/// keeps runtime state on load, and the flat-name scalar accessor registry.
-///
-/// `persisted` entries carry the flat scene key, type, optional tag, accessor
-/// pair and (for keys that may be absent in old scenes with a value other than
-/// the component default) the legacy on-disk default; f32 / u32 / bool entries
-/// are auto-registered as scalars, vector entries may declare per-component
-/// `scalars` aliases. `runtime` entries are never serialized and only join the
-/// scalar registry. The `tag:` line and per-entry `= Tag` are omitted together
-/// for components without a tag concept. Invoke next to the component
-/// definition (orphan rule).
+/// Generates a component's scene serde impls, tag table, snapshot, scalar/UI registries and
+/// overwrite fn from one declaration table (RON rejects serde(flatten); invoke in the component's crate).
 #[macro_export]
 macro_rules! declare_scene_format {
     (
@@ -68,6 +66,7 @@ macro_rules! declare_scene_format {
             tags: $tags_name:ident,
             snapshot: $snapshot_name:ident,
             scalars: $scalars_name:ident,
+            ui: $ui_name:ident,
             overwrite: $overwrite_name:ident $(,)?
         },
         persisted {
@@ -79,13 +78,28 @@ macro_rules! declare_scene_format {
                     get: $alias_get:expr,
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
+                $(, ui {
+                    label: $ui_label:expr,
+                    min: $ui_min:expr,
+                    max: $ui_max:expr
+                    $(, format: $ui_format:expr)?
+                    $(, tooltip: $ui_tooltip:expr)? $(,)?
+                })?
                 $(,)?
             } ),+ $(,)?
         },
         runtime {
             $( $runtime_name:ident : $runtime_ty:tt {
                 get: $runtime_get:expr,
-                set: $runtime_set:expr $(,)?
+                set: $runtime_set:expr
+                $(, ui {
+                    label: $rt_ui_label:expr,
+                    min: $rt_ui_min:expr,
+                    max: $rt_ui_max:expr
+                    $(, format: $rt_ui_format:expr)?
+                    $(, tooltip: $rt_ui_tooltip:expr)? $(,)?
+                })?
+                $(,)?
             } ),* $(,)?
         } $(,)?
     ) => {
@@ -100,6 +114,7 @@ macro_rules! declare_scene_format {
             items {
                 snapshot: $snapshot_name,
                 scalars: $scalars_name,
+                ui: $ui_name,
                 overwrite: $overwrite_name,
             },
             persisted {
@@ -111,12 +126,26 @@ macro_rules! declare_scene_format {
                         get: $alias_get,
                         set: $alias_set,
                     } ),+ })?
+                    $(, ui {
+                        label: $ui_label,
+                        min: $ui_min,
+                        max: $ui_max
+                        $(, format: $ui_format)?
+                        $(, tooltip: $ui_tooltip)?
+                    })?
                 } ),+
             },
             runtime {
                 $( $runtime_name : $runtime_ty {
                     get: $runtime_get,
-                    set: $runtime_set,
+                    set: $runtime_set
+                    $(, ui {
+                        label: $rt_ui_label,
+                        min: $rt_ui_min,
+                        max: $rt_ui_max
+                        $(, format: $rt_ui_format)?
+                        $(, tooltip: $rt_ui_tooltip)?
+                    })?
                 } ),*
             },
         }
@@ -127,6 +156,7 @@ macro_rules! declare_scene_format {
         items {
             snapshot: $snapshot_name:ident,
             scalars: $scalars_name:ident,
+            ui: $ui_name:ident,
             overwrite: $overwrite_name:ident $(,)?
         },
         persisted {
@@ -138,13 +168,28 @@ macro_rules! declare_scene_format {
                     get: $alias_get:expr,
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
+                $(, ui {
+                    label: $ui_label:expr,
+                    min: $ui_min:expr,
+                    max: $ui_max:expr
+                    $(, format: $ui_format:expr)?
+                    $(, tooltip: $ui_tooltip:expr)? $(,)?
+                })?
                 $(,)?
             } ),+ $(,)?
         },
         runtime {
             $( $runtime_name:ident : $runtime_ty:tt {
                 get: $runtime_get:expr,
-                set: $runtime_set:expr $(,)?
+                set: $runtime_set:expr
+                $(, ui {
+                    label: $rt_ui_label:expr,
+                    min: $rt_ui_min:expr,
+                    max: $rt_ui_max:expr
+                    $(, format: $rt_ui_format:expr)?
+                    $(, tooltip: $rt_ui_tooltip:expr)? $(,)?
+                })?
+                $(,)?
             } ),* $(,)?
         } $(,)?
     ) => {
@@ -203,9 +248,7 @@ macro_rules! declare_scene_format {
             }
         }
 
-        /// Bit-exact value snapshot of every persisted parameter, keyed by the
-        /// scene serde field names. Diffing two snapshots yields the exact set
-        /// of parameters a writer touched.
+        /// Bit-exact snapshot of every persisted parameter; diffing two yields what a writer touched.
         pub fn $snapshot_name(component: &$component) -> Vec<(&'static str, Vec<f32>)> {
             vec![ $( (stringify!($name), {
                 let get: fn(&$component) -> $ty = $get;
@@ -213,8 +256,7 @@ macro_rules! declare_scene_format {
             }) ),+ ]
         }
 
-        /// Flat-name scalar accessors: persisted f32 / u32 / bool parameters,
-        /// declared vector-component aliases, and runtime-only parameters.
+        /// Scalar accessors: persisted f32/u32/bool, vector-component aliases, runtime-only keys.
         pub const $scalars_name: &[$crate::ScalarParam<$component>] =
             $crate::declare_scene_format!(@scalars $component, [
                 $(
@@ -224,12 +266,40 @@ macro_rules! declare_scene_format {
                 $( ($runtime_name, $runtime_ty, $runtime_get, $runtime_set) )*
             ], []);
 
-        /// Write every persisted parameter of `loaded` onto `target`, keeping
-        /// runtime state as it was; the persisted set is exactly the
-        /// declaration table above.
+        /// Display metadata of the parameters that declared a `ui` node, in declaration order.
+        pub const $ui_name: &[$crate::UiParam] = &[
+            $( $(
+                $crate::UiParam {
+                    name: stringify!($name),
+                    label: $ui_label,
+                    min: $ui_min,
+                    max: $ui_max,
+                    format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $ui_format)?),
+                    tooltip: $crate::declare_scene_format!(@ui_or_default "" $(, $ui_tooltip)?),
+                },
+            )? )+
+            $( $(
+                $crate::UiParam {
+                    name: stringify!($runtime_name),
+                    label: $rt_ui_label,
+                    min: $rt_ui_min,
+                    max: $rt_ui_max,
+                    format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $rt_ui_format)?),
+                    tooltip: $crate::declare_scene_format!(@ui_or_default "" $(, $rt_ui_tooltip)?),
+                },
+            )? )*
+        ];
+
+        /// Writes every persisted parameter of `loaded` onto `target`, keeping runtime state.
         pub fn $overwrite_name(target: &mut $component, loaded: &$component) {
             $record::capture(loaded).apply(target);
         }
+    };
+    (@ui_or_default $default:expr) => {
+        $default
+    };
+    (@ui_or_default $default:expr, $value:expr) => {
+        $value
     };
     (@default $component_value:ident, $component:ty, $ty:tt, $get:expr) => {{
         let get: fn(&$component) -> $ty = $get;

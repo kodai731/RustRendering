@@ -9,6 +9,7 @@ declare_scene_format! {
     items {
         snapshot: transform_parameter_snapshot,
         scalars: TRANSFORM_SCALAR_PARAMS,
+        ui: TRANSFORM_UI_PARAMS,
         overwrite: overwrite_transform_persisted_fields,
     },
     persisted {

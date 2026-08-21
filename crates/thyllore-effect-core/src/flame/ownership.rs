@@ -1,11 +1,6 @@
 use super::PARAMETER_OWNERSHIP;
 
-/// Parameter ownership split (design SSoT: style_preset.md / parameter_ownership.md):
-/// Frame = placed by the scene, Shape = written by the still texture fit,
-/// Style = written by the reference-footage style. The owner of every persisted
-/// parameter is declared in the scene format table (effect/scene_format.rs),
-/// which generates `PARAMETER_OWNERSHIP` and `flame_parameter_snapshot`; the
-/// tests below enforce the split by diffing snapshots.
+/// Writer split per parameter: Frame = scene, Shape = texture fit, Style = footage style (SSoT: parameter_ownership.md).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ParameterOwner {
     Frame,

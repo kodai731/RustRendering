@@ -9,6 +9,7 @@ mod inspector_window;
 mod layout_snapshot;
 mod message_window;
 mod panel_splitter;
+mod param_widgets;
 mod scene_overlay;
 mod spring_bone_inspector;
 mod status_bar;

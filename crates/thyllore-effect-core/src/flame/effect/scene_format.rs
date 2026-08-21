@@ -11,6 +11,7 @@ declare_scene_format! {
         tags: PARAMETER_OWNERSHIP,
         snapshot: flame_parameter_snapshot,
         scalars: FLAME_SCALAR_PARAMS,
+        ui: FLAME_UI_PARAMS,
         overwrite: overwrite_persisted_fields,
     },
     persisted {
@@ -22,10 +23,30 @@ declare_scene_format! {
             get: |e| [e.rotation.s, e.rotation.v.x, e.rotation.v.y, e.rotation.v.z],
             set: |e, v| e.rotation = Quaternion::new(v[0], v[1], v[2], v[3]),
         },
-        height: f32 = Frame { get: |e| e.height, set: |e, v| e.height = v },
-        radius: f32 = Frame { get: |e| e.radius, set: |e, v| e.radius = v },
+        height: f32 = Frame { get: |e| e.height, set: |e, v| e.height = v,
+            ui {
+                label: "Height",
+                min: 0.05,
+                max: 10.0,
+                format: "%.2f",
+            },
+        },
+        radius: f32 = Frame { get: |e| e.radius, set: |e, v| e.radius = v,
+            ui {
+                label: "Radius",
+                min: 0.05,
+                max: 10.0,
+                format: "%.2f",
+            },
+        },
         sigma_t: f32 = Style { get: |e| e.sigma_t, set: |e, v| e.sigma_t = v },
-        intensity: f32 = Style { get: |e| e.intensity, set: |e, v| e.intensity = v },
+        intensity: f32 = Style { get: |e| e.intensity, set: |e, v| e.intensity = v,
+            ui {
+                label: "Intensity",
+                min: 0.0,
+                max: 10.0,
+            },
+        },
         color_base: [f32; 3] = Style { get: |e| e.color.base, set: |e, v| e.color.base = v },
         color_tip: [f32; 3] = Style { get: |e| e.color.tip, set: |e, v| e.color.tip = v },
         temperature_base_k: f32 = Style {
@@ -43,10 +64,21 @@ declare_scene_format! {
         noise_amplitude: f32 = Style {
             get: |e| e.noise.amplitude,
             set: |e, v| e.noise.amplitude = v,
+            ui {
+                label: "Noise Amplitude",
+                min: 0.0,
+                max: 3.0,
+            },
         },
         noise_contrast: f32 = Style {
             get: |e| e.noise.contrast,
             set: |e, v| e.noise.contrast = v,
+            ui {
+                label: "Noise Contrast",
+                min: 0.25,
+                max: 4.0,
+                format: "%.2f",
+            },
         },
         noise_frequency: f32 = Style {
             get: |e| e.noise.frequency,
@@ -56,7 +88,13 @@ declare_scene_format! {
             get: |e| e.noise.scroll_speed,
             set: |e, v| e.noise.scroll_speed = v,
         },
-        time_scale: f32 = Frame { get: |e| e.time_scale, set: |e, v| e.time_scale = v },
+        time_scale: f32 = Frame { get: |e| e.time_scale, set: |e, v| e.time_scale = v,
+            ui {
+                label: "Time Scale",
+                min: 0.0,
+                max: 4.0,
+            },
+        },
         time_offset: f32 = Frame { get: |e| e.time_offset, set: |e, v| e.time_offset = v },
         warp_amp: f32 = Style { get: |e| e.warp.amp, set: |e, v| e.warp.amp = v },
         warp_freq: f32 = Style { get: |e| e.warp.freq, set: |e, v| e.warp.freq = v },
@@ -152,40 +190,145 @@ declare_scene_format! {
             set: |e, v| e.carve.tip.reach = v,
         },
         warp_reach: f32 = Style { get: |e| e.warp.reach, set: |e, v| e.warp.reach = v },
-        swirl_gain: f32 = Style { get: |e| e.swirl.gain, set: |e, v| e.swirl.gain = v },
-        swirl_speed: f32 = Style { get: |e| e.swirl.speed, set: |e, v| e.swirl.speed = v },
-        spread_gain: f32 = Style { get: |e| e.spread_gain, set: |e, v| e.spread_gain = v },
+        swirl_gain: f32 = Style { get: |e| e.swirl.gain, set: |e, v| e.swirl.gain = v,
+            ui {
+                label: "Swirl",
+                min: 0.0,
+                max: 1.5,
+                format: "%.2f",
+                tooltip: "Medium swirl share: strain budget spent on azimuthal shear (0 = off; raising it thins the carve warp)",
+            },
+        },
+        swirl_speed: f32 = Style { get: |e| e.swirl.speed, set: |e, v| e.swirl.speed = v,
+            ui {
+                label: "Swirl Speed",
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "How fast the swirl layers counter-rotate against the rise (time-only: costs no strain budget)",
+            },
+        },
+        spread_gain: f32 = Style { get: |e| e.spread_gain, set: |e, v| e.spread_gain = v,
+            ui {
+                label: "Spread",
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Medium spread toward the tip: noise features enlarge, drift outward and dissolve as they rise (0 = rigid scroll)",
+            },
+        },
         support_margin: f32 = Style {
             get: |e| e.support_margin,
             set: |e, v| e.support_margin = v,
+            ui {
+                label: "Support",
+                min: 1.0,
+                max: 2.5,
+                format: "%.2f",
+                tooltip: "Flame density support radius: multiplier for the biweight support radius (how much extra space is allowed for carving). 1.0 is default; higher values result in larger support and may leave chunks at the outer edges.",
+            },
         },
-        meander_amp: f32 = Style { get: |e| e.meander.amp, set: |e, v| e.meander.amp = v },
+        meander_amp: f32 = Style { get: |e| e.meander.amp, set: |e, v| e.meander.amp = v,
+            ui {
+                label: "Meander",
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Horizontal meandering motion of the flame (0 = off)",
+            },
+        },
         meander_frequency: f32 = Style {
             get: |e| e.meander.frequency,
             set: |e, v| e.meander.frequency = v,
+            ui {
+                label: "Meander Frequency",
+                min: 0.2,
+                max: 30.0,
+                format: "%.1f",
+                tooltip: "Wavenumber multiplier of the meander modes: 1 = two long bends over the height, ~12 folds the column into a snake with ~4 bends (pillar reference)",
+            },
         },
-        mix_lo: f32 = Style { get: |e| e.mix.lo, set: |e, v| e.mix.lo = v },
-        mix_hi: f32 = Style { get: |e| e.mix.hi, set: |e, v| e.mix.hi = v },
+        mix_lo: f32 = Style { get: |e| e.mix.lo, set: |e, v| e.mix.lo = v,
+            ui {
+                label: "Mix Lo",
+                min: -3.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Erosion carrier level (std units, carve-positive) where a parcel starts mixing with ambient air: lower mixes more of the body",
+            },
+        },
+        mix_hi: f32 = Style { get: |e| e.mix.hi, set: |e, v| e.mix.hi = v,
+            ui {
+                label: "Mix Hi",
+                min: -3.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Carrier level (std units) where a parcel counts as fully mixed (thin and cold)",
+            },
+        },
         mix_height_gain: f32 = Style {
             get: |e| e.mix.height_gain,
             set: |e, v| e.mix.height_gain = v,
+            ui {
+                label: "Mix Height Gain",
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Height ramp added to the mixing degree, gain * h^2: the plume thins and cools toward the top",
+            },
         },
-        mix_scale: f32 = Style { get: |e| e.mix.scale, set: |e, v| e.mix.scale = v },
+        mix_scale: f32 = Style { get: |e| e.mix.scale, set: |e, v| e.mix.scale = v,
+            ui {
+                label: "Mix Scale",
+                min: 0.1,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Wavenumber of the mixing eddies relative to the low erosion octave: below 1 the mixed and unmixed regions grow larger than the carve detail",
+            },
+        },
         mix_radial_gain: f32 = Style {
             get: |e| e.mix.radial_gain,
             set: |e, v| e.mix.radial_gain = v,
+            ui {
+                label: "Mix Radial Gain",
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Shear-layer ramp added to the mixing degree, gain * u^2 over the normalized radius: the axis stays an unmixed bright core while the rim thins and cools",
+            },
         },
         density_exp: f32 = Style {
             get: |e| e.thermal.density_exp,
             set: |e, v| e.thermal.density_exp = v,
+            ui {
+                label: "Density Exp",
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Mass curve of a mixing parcel, (1 - m)^a: larger thins the mixed regions faster",
+            },
         },
         temp_exp: f32 = Style {
             get: |e| e.thermal.temp_exp,
             set: |e, v| e.thermal.temp_exp = v,
+            ui {
+                label: "Temp Exp",
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Temperature curve of a mixing parcel, T_cold + (T_hot - T_cold) (1 - m)^b: larger than Density Exp cools before thinning (dark red tufts remain), smaller thins before cooling",
+            },
         },
         wien_c_k: f32 = Style {
             get: |e| e.thermal.wien_c_k,
             set: |e, v| e.thermal.wien_c_k = v,
+            ui {
+                label: "Wien C (K)",
+                min: 0.0,
+                max: 24000.0,
+                format: "%.0f",
+                tooltip: "Wien constant of the emissivity exp(-c/T): 24000 is physical at 0.6 um, smaller compresses the hot/cold brightness contrast like camera exposure",
+            },
         },
         wave_segments: u32 = Frame {
             get: |e| e.wave_segments,
@@ -194,6 +337,13 @@ declare_scene_format! {
         noise_aniso_y: f32 = Style {
             get: |e| e.noise.aniso_y,
             set: |e, v| e.noise.aniso_y = v,
+            ui {
+                label: "Noise Aspect",
+                min: 0.05,
+                max: 1.5,
+                format: "%.2f",
+                tooltip: "Vertical scale of the noise cells: small = tall streaks, 1 = isotropic puffs (in the height-scaled mode)",
+            },
         },
         edge_outer_sharpen: f32 = Style {
             get: |e| e.edge.outer_sharpen,
@@ -207,11 +357,34 @@ declare_scene_format! {
             get: |e| e.noise.erosion_gain,
             set: |e, v| e.noise.erosion_gain = v,
         },
-        twist_gain: f32 = Style { get: |e| e.twist.gain, set: |e, v| e.twist.gain = v },
-        twist_speed: f32 = Style { get: |e| e.twist.speed, set: |e, v| e.twist.speed = v },
+        twist_gain: f32 = Style { get: |e| e.twist.gain, set: |e, v| e.twist.gain = v,
+            ui {
+                label: "Twist",
+                min: 0.0,
+                max: 8.0,
+                format: "%.2f",
+                tooltip: "Azimuthal twist of the noise pattern around the axis (radians at the tip; a rotation never folds, so any amplitude is structurally safe; 0 = off)",
+            },
+        },
+        twist_speed: f32 = Style { get: |e| e.twist.speed, set: |e, v| e.twist.speed = v,
+            ui {
+                label: "Twist Speed",
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Twist rotation rate scale (0 = follow Swirl Speed; > 0 gives the twist its own rate so depth and speed tune independently)",
+            },
+        },
         burnout_gain: f32 = Style {
             get: |e| e.carve.burnout_gain,
             set: |e, v| e.carve.burnout_gain = v,
+            ui {
+                label: "Burnout",
+                min: 0.0,
+                max: 32.0,
+                format: "%.2f",
+                tooltip: "Age-driven burnout of the rising material: deepens the erosion mean toward the flame top so noise troughs sever the column (base shedding) and detached tongues dissolve (0 = off; the range above ~8 is debug headroom for making the severing obvious, pair with Carve Residual 0)",
+            },
         },
         noise_shaping_scale: f32 = Style {
             get: |e| e.noise.shaping_scale,
@@ -220,36 +393,108 @@ declare_scene_format! {
         optical_depth: f32 = Style {
             get: |e| e.optical_depth,
             set: |e, v| e.optical_depth = v,
+            ui {
+                label: "Optical Depth",
+                min: 0.0,
+                max: 16.0,
+                format: "%.2f",
+                tooltip: "Line-of-sight optical thickness tau0 = sigma_t * radius: > 0 derives sigma_t as tau0 / radius so resizing the flame keeps its opacity (0 = use the raw sigma_t channel directly)",
+            },
         },
         branch_period: f32 = Style {
             get: |e| e.branch.period,
             set: |e, v| e.branch.period = v,
+            ui {
+                label: "Branch Period",
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Spawn period [s] of the branch elements (vortex lines that roll the medium into side tongues); raised to life/31 when the table is full, so shorter periods never shrink the tongues; 0 = off",
+            },
         },
-        branch_life: f32 = Style { get: |e| e.branch.life, set: |e, v| e.branch.life = v },
-        branch_gain: f32 = Style { get: |e| e.branch.gain, set: |e, v| e.branch.gain = v },
+        branch_life: f32 = Style { get: |e| e.branch.life, set: |e, v| e.branch.life = v,
+            ui {
+                label: "Branch Life",
+                min: 0.1,
+                max: 6.0,
+                format: "%.2f",
+                tooltip: "Lifetime [s] of one element (wind out fast, hold, burn out); the spawn period is raised to life/31 when the element table is full",
+            },
+        },
+        branch_gain: f32 = Style { get: |e| e.branch.gain, set: |e, v| e.branch.gain = v,
+            ui {
+                label: "Branch Gain",
+                min: -8.0,
+                max: 8.0,
+                format: "%.2f",
+                tooltip: "Rotation angle [rad] the core reaches at the end of winding; the medium flows along the arcs toward the tongue tip at a constant rate. Positive rolls trunk material down-out-up (cap curling inward), negative rolls it up-out-down (KH crest leaning upward). A compact rotation never folds; 0 = off",
+            },
+        },
         branch_core_radius: f32 = Style {
             get: |e| e.branch.core_radius,
             set: |e, v| e.branch.core_radius = v,
+            ui {
+                label: "Branch Core",
+                min: 0.05,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Vortex core radius as a ratio of the local trunk radius: small values shear the medium into thin spirals, near 1 the whole disc turns together and tongues keep the trunk's thickness",
+            },
         },
         branch_core_offset: f32 = Style {
             get: |e| e.branch.core_offset,
             set: |e, v| e.branch.core_offset = v,
+            ui {
+                label: "Branch Core Offset",
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Lateral position of the core at spawn as a ratio of the local trunk radius: 0 on the axis tilts the whole slab, 1 on the shear layer rolls trunk material outward as a billow",
+            },
         },
         branch_reach: f32 = Style {
             get: |e| e.branch.reach,
             set: |e, v| e.branch.reach = v,
+            ui {
+                label: "Branch Reach",
+                min: 0.5,
+                max: 8.0,
+                format: "%.2f",
+                tooltip: "Compact reach of one element at the end of its life as a ratio of the local trunk radius; nothing beyond it moves, so it bounds how far tongues can extend sideways",
+            },
         },
         branch_spread: f32 = Style {
             get: |e| e.branch.spread,
             set: |e, v| e.branch.spread = v,
+            ui {
+                label: "Branch Spread",
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Scatter of azimuth, timing jitter, left/right alternation, element size, line tilt and window shift (0 = identical elements strictly alternating in one plane)",
+            },
         },
         branch_spawn_height: f32 = Style {
             get: |e| e.branch.spawn_height,
             set: |e, v| e.branch.spawn_height = v,
+            ui {
+                label: "Branch Height",
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Center of the spawn height band (0 = base, 1 = top)",
+            },
         },
         branch_spawn_range: f32 = Style {
             get: |e| e.branch.spawn_range,
             set: |e, v| e.branch.spawn_range = v,
+            ui {
+                label: "Branch Height Range",
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Full width of the spawn height band; 1.0 with center 0.5 spawns elements over the whole trunk",
+            },
         },
         branch_seed: u32 = Frame { get: |e| e.branch.seed, set: |e, v| e.branch.seed = v },
     },
@@ -279,6 +524,13 @@ declare_scene_format! {
         carve_residual: f32 {
             get: |e| e.carve.residual,
             set: |e, v| e.carve.residual = v,
+            ui {
+                label: "Carve Residual",
+                min: 0.0,
+                max: 0.5,
+                format: "%.2f",
+                tooltip: "Translucent floor left where the noise carves the medium away. 0 = fully carved spans become hard holes — the severing moment of Burnout is only visible near 0 (debug); the product look keeps ~0.12",
+            },
         },
     },
 }
@@ -370,6 +622,23 @@ mod tests {
             .set)(&mut effect, -0.5);
         assert_eq!(effect.wind.direction.x, 0.25);
         assert_eq!(effect.wind.direction.y, -0.5);
+    }
+
+    #[test]
+    fn test_every_ui_param_has_a_scalar_accessor_and_unique_name() {
+        let mut names: Vec<&str> = FLAME_UI_PARAMS.iter().map(|p| p.name).collect();
+        names.sort_unstable();
+        let len = names.len();
+        names.dedup();
+        assert_eq!(names.len(), len);
+        for param in FLAME_UI_PARAMS {
+            assert!(
+                find_scalar_param(FLAME_SCALAR_PARAMS, param.name).is_some(),
+                "{}",
+                param.name
+            );
+            assert!(param.min < param.max, "{}", param.name);
+        }
     }
 
     #[test]
