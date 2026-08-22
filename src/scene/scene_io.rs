@@ -351,13 +351,11 @@ fn resolve_model_path(assets_dir: &Path, model: &ModelReference) -> SceneResult<
         return Ok(None);
     }
 
-    // First, check if model.path exists as a CWD-relative path
     let cwd_path = Path::new(&model.path);
     if cwd_path.exists() {
         return Ok(Some(PathBuf::from(&model.path)));
     }
 
-    // Fall back to assets_dir.join(&model.path)
     let joined_path = assets_dir.join(&model.path);
     if !joined_path.exists() {
         return Err(SceneError::ModelNotFound(joined_path));

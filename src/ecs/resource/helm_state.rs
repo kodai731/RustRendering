@@ -10,25 +10,28 @@ use crate::helm::components::route::{HelmMode, Route};
 use crate::helm::systems::polarity_tiebreak::embedded_exemplars_sha256;
 use crate::helm::systems::router::{ExemplarIndex, RouterThresholds};
 
+/// Router model bundle subdirectory name (shared by the repo-local fallback and the exports bundle).
+pub const ROUTER_MODEL_NAME: &str = "setfit-3ep-camdir";
+
 /// Default model directory for the helm runtime.
-pub const ROUTER_MODEL_DIR: &str = "models/gemma/setfit-3ep-cam";
+pub const ROUTER_MODEL_DIR: &str = "models/gemma/setfit-3ep-camdir";
 
 /// Raw encoder model directory (for escape detection).
 pub const RAW_ENCODER_DIR: &str = "models/gemma/e5-raw";
 
 /// Exports bundle directory name inside SharedData/exports.
-pub const EXPORTS_BUNDLE_DIR: &str = "helm_router_20260819";
+pub const EXPORTS_BUNDLE_DIR: &str = "helm_router_20260821";
 
 /// Select the router model directory based on shared data availability.
 ///
-/// If `shared_data_dir` is Some and `shared_data_dir/exports/helm_router_20260819/setfit-3ep-cam`
+/// If `shared_data_dir` is Some and `shared_data_dir/exports/<EXPORTS_BUNDLE_DIR>/<ROUTER_MODEL_NAME>`
 /// is a directory, return that path. Otherwise, return `PathBuf::from(ROUTER_MODEL_DIR)`.
 pub fn select_router_model_dir(shared_data_dir: Option<&std::path::Path>) -> std::path::PathBuf {
     if let Some(shared) = shared_data_dir {
         let bundle_path = shared
             .join(EXPORTS_SUBDIR)
             .join(EXPORTS_BUNDLE_DIR)
-            .join("setfit-3ep-cam");
+            .join(ROUTER_MODEL_NAME);
         if bundle_path.is_dir() {
             return bundle_path;
         }
@@ -259,7 +262,7 @@ mod tests {
         let bundle_path = temp_dir
             .join(EXPORTS_SUBDIR)
             .join(EXPORTS_BUNDLE_DIR)
-            .join("setfit-3ep-cam");
+            .join(ROUTER_MODEL_NAME);
         std::fs::create_dir_all(&bundle_path).expect("failed to create temp bundle dir");
 
         let path = select_router_model_dir(Some(&temp_dir));

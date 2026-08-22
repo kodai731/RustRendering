@@ -4,15 +4,15 @@
 
 helm_preflight() {
     # Bundle name SSoT: src/ecs/resource/helm_state.rs EXPORTS_BUNDLE_DIR
-    local exports_bundle_dir="helm_router_20260819"
+    local exports_bundle_dir="helm_router_20260821"
 
     # Resolve model_dir
     local model_dir
     if [[ -n "${THYLLORE_SHARED_DATA_DIR:-}" ]] && \
-       [[ -d "${THYLLORE_SHARED_DATA_DIR}/exports/${exports_bundle_dir}/setfit-3ep-cam" ]]; then
-        model_dir="${THYLLORE_SHARED_DATA_DIR}/exports/${exports_bundle_dir}/setfit-3ep-cam"
+       [[ -d "${THYLLORE_SHARED_DATA_DIR}/exports/${exports_bundle_dir}/setfit-3ep-camdir" ]]; then
+        model_dir="${THYLLORE_SHARED_DATA_DIR}/exports/${exports_bundle_dir}/setfit-3ep-camdir"
     else
-        model_dir="$REPO_ROOT/models/gemma/setfit-3ep-cam"
+        model_dir="$REPO_ROOT/models/gemma/setfit-3ep-camdir"
     fi
 
     # Resolve raw_dir
