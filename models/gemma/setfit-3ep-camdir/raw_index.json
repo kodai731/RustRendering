@@ -1,0 +1,150 @@
+{
+ "dimensions": 384,
+ "exemplars_sha256": "5bc307123508e3cbbc5146dad03c6bcf60fc40eb9c628a46dcf2f711b1b6d8b6",
+ "routes": [
+  {
+   "route": "list_objects",
+   "exemplars": 38
+  },
+  {
+   "route": "describe_selection",
+   "exemplars": 40
+  },
+  {
+   "route": "get_playback_state",
+   "exemplars": 40
+  },
+  {
+   "route": "take_screenshot",
+   "exemplars": 40
+  },
+  {
+   "route": "play_animation",
+   "exemplars": 40
+  },
+  {
+   "route": "pause_animation",
+   "exemplars": 40
+  },
+  {
+   "route": "stop_animation",
+   "exemplars": 39
+  },
+  {
+   "route": "set_playback_speed:slow",
+   "exemplars": 40
+  },
+  {
+   "route": "set_playback_speed:normal",
+   "exemplars": 39
+  },
+  {
+   "route": "set_playback_speed:fast",
+   "exemplars": 43
+  },
+  {
+   "route": "seek_time:start",
+   "exemplars": 40
+  },
+  {
+   "route": "seek_time:end",
+   "exemplars": 40
+  },
+  {
+   "route": "seek_time:next_key",
+   "exemplars": 40
+  },
+  {
+   "route": "seek_time:prev_key",
+   "exemplars": 38
+  },
+  {
+   "route": "toggle_loop",
+   "exemplars": 40
+  },
+  {
+   "route": "select_object",
+   "exemplars": 37
+  },
+  {
+   "route": "set_object_visibility:show",
+   "exemplars": 37
+  },
+  {
+   "route": "set_object_visibility:hide",
+   "exemplars": 32
+  },
+  {
+   "route": "focus_camera:selection",
+   "exemplars": 42
+  },
+  {
+   "route": "focus_camera:model",
+   "exemplars": 40
+  },
+  {
+   "route": "focus_camera:reset",
+   "exemplars": 35
+  },
+  {
+   "route": "undo",
+   "exemplars": 24
+  },
+  {
+   "route": "redo",
+   "exemplars": 24
+  },
+  {
+   "route": "save_scene",
+   "exemplars": 40
+  },
+  {
+   "route": "generate_motion:walk",
+   "exemplars": 40
+  },
+  {
+   "route": "generate_motion:run",
+   "exemplars": 34
+  },
+  {
+   "route": "generate_motion:idle",
+   "exemplars": 38
+  },
+  {
+   "route": "generate_motion:jump",
+   "exemplars": 40
+  },
+  {
+   "route": "generate_motion:turn",
+   "exemplars": 38
+  },
+  {
+   "route": "camera_shot:look_at_selection",
+   "exemplars": 40
+  },
+  {
+   "route": "camera_shot:orbit_around_selection",
+   "exemplars": 40
+  },
+  {
+   "route": "camera_shot:dolly_in",
+   "exemplars": 40
+  },
+  {
+   "route": "camera_shot:dolly_out",
+   "exemplars": 40
+  },
+  {
+   "route": "camera_shot:crane_up",
+   "exemplars": 40
+  },
+  {
+   "route": "camera_shot:crane_down",
+   "exemplars": 40
+  },
+  {
+   "route": "camera_direction",
+   "exemplars": 43
+  }
+ ]
+}

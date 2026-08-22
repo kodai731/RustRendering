@@ -20,7 +20,7 @@ pub const ROUTER_MODEL_DIR: &str = "models/gemma/setfit-3ep-camdir";
 pub const RAW_ENCODER_DIR: &str = "models/gemma/e5-raw";
 
 /// Exports bundle directory name inside SharedData/exports.
-pub const EXPORTS_BUNDLE_DIR: &str = "helm_router_20260821";
+pub const EXPORTS_BUNDLE_DIR: &str = "helm_router_20260822";
 
 /// Select the router model directory based on shared data availability.
 ///

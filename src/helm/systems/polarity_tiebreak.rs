@@ -252,7 +252,7 @@ mod tests {
     #[test]
     fn a_pole_word_exclusive_to_one_route_decides() {
         assert_promotes(
-            "nudge the playhead forward to the coming key",
+            "nudge the playhead to the upcoming key",
             Route::SeekTime(SeekPosition::PrevKey),
             Route::SeekTime(SeekPosition::NextKey),
         );
