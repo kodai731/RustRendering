@@ -335,6 +335,11 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
 
 const DRAIN_FRAMES_AFTER_LAST_ROW: u32 = 3;
 
+fn flag_value<'a>(args: &'a [String], flag: &str) -> Option<&'a String> {
+    let position = args.iter().position(|arg| arg == flag)?;
+    args.get(position + 1)
+}
+
 /// Counts down the drain frames after the last row; on zero writes the optional
 /// `--batch-anim-dump` and exits. Returns true while draining.
 fn finish_if_draining(ctx: &mut EcsContext) -> bool {
@@ -352,14 +357,21 @@ fn finish_if_draining(ctx: &mut EcsContext) -> bool {
     }
 
     let args: Vec<String> = std::env::args().collect();
-    if let Some(pos) = args.iter().position(|a| a == "--batch-anim-dump") {
-        if let Some(path) = args.get(pos + 1) {
-            if let Err(e) = crate::ecs::systems::batch_anim_dump_write(ctx.world, path) {
-                eprintln!("[helm-batch] anim dump failed: {e}");
-                std::process::exit(1);
-            }
-            println!("[helm-batch] anim dump -> {path}");
+    if let Some(path) = flag_value(&args, "--batch-anim-dump") {
+        if let Err(e) = crate::ecs::systems::batch_anim_dump_write(ctx.world, path) {
+            eprintln!("[helm-batch] anim dump failed: {e}");
+            std::process::exit(1);
         }
+        println!("[helm-batch] anim dump -> {path}");
+    }
+    if let Some(path) = flag_value(&args, "--batch-export-camera") {
+        if let Err(e) =
+            crate::ecs::systems::export_active_camera_gltf(ctx.world, std::path::Path::new(path))
+        {
+            eprintln!("[helm-batch] camera export failed: {e}");
+            std::process::exit(1);
+        }
+        println!("[helm-batch] camera export -> {path}");
     }
     std::process::exit(exit_code);
 }

@@ -448,6 +448,19 @@ fn main() -> Result<()> {
         }
     }
 
+    if let Some(ref export_path) = overrides.export_camera_path {
+        if let Err(e) = thyllore_animation::ecs::systems::export_active_camera_gltf(
+            &app.data.ecs_world,
+            std::path::Path::new(export_path),
+        ) {
+            println!(
+                "{}",
+                serde_json::json!({"ok": false, "error": format!("camera export failed: {e}")})
+            );
+            std::process::exit(1);
+        }
+    }
+
     if is_batch_mode {
         let batch = app.data.ecs_world.resource::<BatchRun>();
         let (ok, report_line) = batch_run_report(&batch);

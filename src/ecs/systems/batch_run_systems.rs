@@ -43,6 +43,7 @@ const BATCH_HEAT_PLUME_FLAG: &str = "--batch-heat-plume";
 const BATCH_PICK_FLAG: &str = "--batch-pick";
 const BATCH_ANIM_EDIT_FLAG: &str = "--batch-anim-edit";
 const BATCH_ANIM_DUMP_FLAG: &str = "--batch-anim-dump";
+const BATCH_EXPORT_CAMERA_FLAG: &str = "--batch-export-camera";
 const BATCH_FLAME_TRACE_FLAG: &str = "--batch-flame-trace";
 const BATCH_WALL_PROBE_FLAG: &str = "--batch-wall-probe";
 const BATCH_DEBUG_ACTION_FLAG: &str = "--batch-debug-action";
@@ -83,6 +84,7 @@ pub struct EngineCliOverrides {
     pub scene_path: Option<String>,
     pub anim_edits: Vec<BatchAnimEdit>,
     pub anim_dump_path: Option<String>,
+    pub export_camera_path: Option<String>,
     pub debug_actions: Vec<BatchDebugAction>,
     pub flame_trace_path: Option<String>,
     pub wall_probe_path: Option<String>,
@@ -160,6 +162,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         scene_path: scene_path_resolve_from_args(args)?,
         anim_edits: anim_edits_resolve_from_args(args)?,
         anim_dump_path: flag_value_resolve_from_args(args, BATCH_ANIM_DUMP_FLAG)?,
+        export_camera_path: flag_value_resolve_from_args(args, BATCH_EXPORT_CAMERA_FLAG)?,
         debug_actions: debug_actions_resolve_from_args(args)?,
         flame_trace_path: flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?,
         wall_probe_path: flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?,

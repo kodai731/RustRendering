@@ -1,4 +1,5 @@
 pub(crate) mod accessors;
+pub mod camera;
 pub(crate) mod channels;
 pub(crate) mod glb;
 pub(crate) mod minimal_json;
