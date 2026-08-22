@@ -96,12 +96,8 @@ impl App {
             flame_shading_pipeline.destroy(&self.rrdevice.device);
         }
 
-        if let (Some(buffer), Some(memory)) = (
-            self.data.raytracing.flame_uniform_buffer.take(),
-            self.data.raytracing.flame_uniform_buffer_memory.take(),
-        ) {
-            self.rrdevice.device.destroy_buffer(buffer, None);
-            self.rrdevice.device.free_memory(memory, None);
+        if let Some(mut flame_ubo) = self.data.raytracing.flame_ubo.take() {
+            flame_ubo.destroy(&self.rrdevice.device);
             log!("Destroyed flame uniform buffer");
         }
 

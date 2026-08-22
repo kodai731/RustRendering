@@ -26,6 +26,7 @@ use crate::renderer::tonemap::ToneMapPushConstants;
 use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
+use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
 use thyllore_effect_core::FlameUBO;
 
@@ -65,9 +66,7 @@ pub struct RayTracingData {
 
     pub flame_shading_pipeline: Option<RRPipeline>,
     pub flame_descriptor: Option<RRFlameDescriptorSet>,
-    pub flame_uniform_buffer: Option<vk::Buffer>,
-    pub flame_uniform_buffer_memory: Option<vk::DeviceMemory>,
-    pub flame_ubo_slot_size: vk::DeviceSize,
+    pub flame_ubo: Option<UniformBuffer<FlameUBO>>,
 
     pub flame_sdf_image: vk::Image,
     pub flame_sdf_image_memory: vk::DeviceMemory,
@@ -426,24 +425,18 @@ impl RayTracingData {
         position_sampler: vk::Sampler,
         scene_depth_view: vk::ImageView,
     ) -> Result<()> {
-        let min_alignment = rrdevice.min_uniform_buffer_offset_alignment;
-        let slot_size = (std::mem::size_of::<FlameUBO>() as vk::DeviceSize + min_alignment - 1)
-            & !(min_alignment - 1);
-        let total_size = slot_size * MAX_FLAME_INSTANCES as vk::DeviceSize;
-        let (flame_ubo_buffer, flame_ubo_memory) = create_buffer(
+        let flame_ubo = UniformBuffer::new(
             instance,
             rrdevice,
-            total_size,
-            vk::BufferUsageFlags::UNIFORM_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            MAX_FLAME_INSTANCES,
+            Placement::DeviceUpdated,
         )?;
-        self.write_initial_flame_ubo(rrdevice, flame_ubo_memory)?;
+        flame_ubo.write_slot(rrdevice, 0, &FlameUBO::default())?;
 
         let flame_descriptor = RRFlameDescriptorSet::new(rrdevice)?;
         flame_descriptor.write_all(
             rrdevice,
-            flame_ubo_buffer,
-            slot_size,
+            &flame_ubo,
             FlameImageBindings {
                 history_image_views: flame_buffer.history_image_views,
                 flame_sampler: flame_buffer.sampler,
@@ -498,33 +491,9 @@ impl RayTracingData {
 
         self.flame_shading_pipeline = Some(flame_shading_pipeline);
         self.flame_descriptor = Some(flame_descriptor);
-        self.flame_uniform_buffer = Some(flame_ubo_buffer);
-        self.flame_uniform_buffer_memory = Some(flame_ubo_memory);
-        self.flame_ubo_slot_size = slot_size;
+        self.flame_ubo = Some(flame_ubo);
 
         log!("Created flame pipelines");
-        Ok(())
-    }
-
-    unsafe fn write_initial_flame_ubo(
-        &self,
-        rrdevice: &RRDevice,
-        flame_ubo_memory: vk::DeviceMemory,
-    ) -> Result<()> {
-        let initial_ubo = FlameUBO::default();
-
-        let mapped = rrdevice.device.map_memory(
-            flame_ubo_memory,
-            0,
-            std::mem::size_of::<FlameUBO>() as vk::DeviceSize,
-            vk::MemoryMapFlags::empty(),
-        )?;
-        std::ptr::copy_nonoverlapping(
-            &initial_ubo as *const FlameUBO as *const u8,
-            mapped.cast(),
-            std::mem::size_of::<FlameUBO>(),
-        );
-        rrdevice.device.unmap_memory(flame_ubo_memory);
         Ok(())
     }
 

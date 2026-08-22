@@ -2,7 +2,7 @@ use crate::core::device::*;
 use crate::descriptor::pass_manifest::COMPOSITE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::descriptor::shader_bindings::composite;
-use crate::resource::buffer::create_buffer;
+use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::vulkan::*;
 use thyllore_spirv_reflect::declare_gpu_block;
 
@@ -45,8 +45,7 @@ pub struct CompositeGBufferViews {
 pub struct RRCompositeDescriptorSet {
     pub layout: ReflectedSetLayout,
     pub descriptor_set: vk::DescriptorSet,
-    pub selection_buffer: vk::Buffer,
-    pub selection_buffer_memory: vk::DeviceMemory,
+    pub selection: UniformBuffer<SelectionUBO>,
 }
 
 impl RRCompositeDescriptorSet {
@@ -60,8 +59,7 @@ impl RRCompositeDescriptorSet {
         Ok(Self {
             layout,
             descriptor_set: vk::DescriptorSet::null(),
-            selection_buffer: vk::Buffer::null(),
-            selection_buffer_memory: vk::DeviceMemory::null(),
+            selection: UniformBuffer::default(),
         })
     }
 
@@ -74,10 +72,7 @@ impl RRCompositeDescriptorSet {
     ) -> Result<()> {
         self.descriptor_set = self.layout.allocate_set(rrdevice)?;
 
-        let (selection_buffer, selection_buffer_memory) =
-            Self::create_selection_buffer(instance, rrdevice)?;
-        self.selection_buffer = selection_buffer;
-        self.selection_buffer_memory = selection_buffer_memory;
+        self.selection = UniformBuffer::new(instance, rrdevice, 1, Placement::HostMapped)?;
 
         self.update_gbuffer_views(rrdevice, gbuffer_views)?;
         self.layout
@@ -88,12 +83,7 @@ impl RRCompositeDescriptorSet {
                 0,
                 std::mem::size_of::<crate::data::SceneUniformData>() as u64,
             )?
-            .buffer(
-                composite::SELECTION,
-                selection_buffer,
-                0,
-                std::mem::size_of::<SelectionUBO>() as u64,
-            )?
+            .uniform(composite::SELECTION, &self.selection, 0)?
             .apply(rrdevice);
         Ok(())
     }
@@ -143,19 +133,6 @@ impl RRCompositeDescriptorSet {
         Ok(())
     }
 
-    unsafe fn create_selection_buffer(
-        instance: &Instance,
-        rrdevice: &RRDevice,
-    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
-        create_buffer(
-            instance,
-            rrdevice,
-            std::mem::size_of::<SelectionUBO>() as u64,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )
-    }
-
     pub unsafe fn update_selection(
         &self,
         rrdevice: &RRDevice,
@@ -169,31 +146,11 @@ impl RRCompositeDescriptorSet {
         }
         ubo.selected_count = count as u32;
 
-        let memory = rrdevice.device.map_memory(
-            self.selection_buffer_memory,
-            0,
-            std::mem::size_of::<SelectionUBO>() as u64,
-            vk::MemoryMapFlags::empty(),
-        )?;
-
-        std::ptr::copy_nonoverlapping(&ubo, memory as *mut SelectionUBO, 1);
-
-        rrdevice.device.unmap_memory(self.selection_buffer_memory);
-
-        Ok(())
+        self.selection.write_slot(rrdevice, 0, &ubo)
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.selection_buffer != vk::Buffer::null() {
-            device.destroy_buffer(self.selection_buffer, None);
-            self.selection_buffer = vk::Buffer::null();
-        }
-
-        if self.selection_buffer_memory != vk::DeviceMemory::null() {
-            device.free_memory(self.selection_buffer_memory, None);
-            self.selection_buffer_memory = vk::DeviceMemory::null();
-        }
-
+        self.selection.destroy(device);
         self.layout.destroy(device);
     }
 }

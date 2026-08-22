@@ -888,9 +888,9 @@ declare_gpu_block! {
     }
 }
 
-/// Bridge model of smoothstep(edge_low, edge_high, x): two gaussians around a
-/// center (thyllore_math_core::ErfResponseModel).
 declare_gpu_block! {
+    /// Bridge model of smoothstep(edge_low, edge_high, x): two gaussians around a
+    /// center (thyllore_math_core::ErfResponseModel).
     #[derive(Clone, Copy, Debug)]
     pub struct FlameErosionResponse {
         pub center: f32,
@@ -920,8 +920,8 @@ declare_gpu_block! {
     }
 }
 
-/// Near fade plus the amplitude-scaled effective erosion edge window.
 declare_gpu_block! {
+    /// Near fade plus the amplitude-scaled effective erosion edge window.
     #[derive(Clone, Copy, Debug)]
     pub struct FlameNearFadeParams {
         pub radius: f32,
@@ -1096,9 +1096,9 @@ declare_gpu_block! {
     }
 }
 
-/// Age-profile fractions of the vortex transport (winding, burnout), shared with
-/// the shader so both sides evaluate the same envelope.
 declare_gpu_block! {
+    /// Age-profile fractions of the vortex transport (winding, burnout), shared with
+    /// the shader so both sides evaluate the same envelope.
     #[derive(Clone, Copy, Debug, PartialEq)]
     pub struct FlameBranchAgeProfile {
         pub wind_fraction: f32,
@@ -1123,9 +1123,9 @@ impl Default for FlameBranchAgeProfile {
     }
 }
 
-/// Branch element table (newest first) with the per-effect age-profile
-/// constants; `count` = 0 leaves every consumer bit-identical.
 declare_gpu_block! {
+    /// Branch element table (newest first) with the per-effect age-profile
+    /// constants; `count` = 0 leaves every consumer bit-identical.
     #[derive(Clone, Copy, Debug, Default, PartialEq)]
     pub struct FlameBranchField {
         pub count: f32,
