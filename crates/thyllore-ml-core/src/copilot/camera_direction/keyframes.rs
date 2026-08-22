@@ -30,6 +30,29 @@ pub fn matrix_to_euler_xyz(r: &[[f32; 3]; 3]) -> (f32, f32, f32) {
     (x.to_degrees(), y.to_degrees(), z.to_degrees())
 }
 
+/// Re-express GenDoP poses (camera-local: the first pose is the identity at the
+/// camera's starting view) in world space by left-multiplying each with the
+/// starting camera-to-world matrix.
+pub fn transform_poses_to_world(
+    camera_to_world: &[[f32; 4]; 4],
+    poses: &[[[f32; 4]; 4]],
+) -> Vec<[[f32; 4]; 4]> {
+    poses
+        .iter()
+        .map(|pose| multiply_4x4(camera_to_world, pose))
+        .collect()
+}
+
+fn multiply_4x4(a: &[[f32; 4]; 4], b: &[[f32; 4]; 4]) -> [[f32; 4]; 4] {
+    let mut out = [[0.0; 4]; 4];
+    for (i, row) in out.iter_mut().enumerate() {
+        for (j, cell) in row.iter_mut().enumerate() {
+            *cell = (0..4).map(|k| a[i][k] * b[k][j]).sum();
+        }
+    }
+    out
+}
+
 /// Convert a slice of camera-to-world 4x4 poses into keyframe tuples.
 ///
 /// For every `stride`-th frame:
@@ -70,6 +93,28 @@ pub fn poses_to_keyframe_tuples(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn transform_poses_to_world_moves_a_local_step_along_the_camera_axes() {
+        let camera_to_world = [
+            [0.0, 0.0, 1.0, 10.0],
+            [0.0, 1.0, 0.0, 2.0],
+            [-1.0, 0.0, 0.0, 5.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+        let forward_step = [
+            [1.0, 0.0, 0.0, 0.0],
+            [0.0, 1.0, 0.0, 0.0],
+            [0.0, 0.0, 1.0, -3.0],
+            [0.0, 0.0, 0.0, 1.0],
+        ];
+
+        let world = transform_poses_to_world(&camera_to_world, &[forward_step]);
+
+        assert_eq!(world[0][0][3], 10.0 - 3.0);
+        assert_eq!(world[0][1][3], 2.0);
+        assert_eq!(world[0][2][3], 5.0);
+    }
 
     fn identity_pose() -> [[f32; 4]; 4] {
         [

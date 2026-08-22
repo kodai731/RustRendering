@@ -58,6 +58,8 @@ fn has_left_bias(text: &str) -> bool {
 /// - upward: 上, 上昇, up, rise
 /// - downward: 下, 下降, down, lower
 /// - yaw: 振る, 見回, pan, yaw (maps to "while continuously yawing {left|right}")
+/// - orbit: 回り込, 回る, 周, orbit, circle, around (trucks sideways while yawing the
+///   opposite way so the subject stays framed; 左/left mirrors the direction)
 ///
 /// Returns `None` if no keywords are found.
 pub fn build_movement_caption(utterance: &str) -> Option<String> {
@@ -65,8 +67,8 @@ pub fn build_movement_caption(utterance: &str) -> Option<String> {
 
     if matches_keyword(
         utterance,
-        &["forward", "closer", "in"],
-        &["前", "寄", "近づ"],
+        &["forward", "closer", "in", "follow", "chase"],
+        &["前", "寄", "近づ", "追"],
     ) {
         directions.push("forward");
     }
@@ -78,11 +80,20 @@ pub fn build_movement_caption(utterance: &str) -> Option<String> {
         directions.push("backward");
     }
 
-    let yaw = matches_keyword(utterance, &["pan", "yaw"], &["振る", "見回"]);
+    let orbit = matches_keyword(
+        utterance,
+        &["orbit", "circle", "around"],
+        &["回り込", "回る", "周"],
+    );
+    let yaw = orbit || matches_keyword(utterance, &["pan", "yaw"], &["振る", "見回"]);
 
-    // left/right are only added to movement directions when yaw is NOT present
-    // (when yaw is present, they are consumed as the yaw direction only)
-    if !yaw {
+    if orbit {
+        directions.push(if has_left_bias(utterance) {
+            "left"
+        } else {
+            "right"
+        });
+    } else if !yaw {
         if matches_keyword(utterance, &["left"], &["左"]) {
             directions.push("left");
         }
@@ -106,10 +117,9 @@ pub fn build_movement_caption(utterance: &str) -> Option<String> {
     let caption = match (!directions.is_empty(), yaw) {
         (true, true) => {
             let dirs = directions.join(" and ");
-            let yaw_dir = if has_left_bias(utterance) {
-                "left"
-            } else {
-                "right"
+            let yaw_dir = match (has_left_bias(utterance), orbit) {
+                (true, false) | (false, true) => "left",
+                _ => "right",
             };
             format!(
                 "The camera continuously moves {} while continuously yawing {} throughout the entire sequence.",
@@ -194,6 +204,28 @@ mod tests {
         assert_eq!(
             caption,
             Some("The camera continuously yaws left throughout the entire sequence.".to_string())
+        );
+    }
+
+    #[test]
+    fn test_orbit_trucks_right_while_yawing_left() {
+        assert_eq!(
+            build_movement_caption("追いかけながら回り込んで"),
+            Some(
+                "The camera continuously moves forward and right while continuously yawing left throughout the entire sequence."
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn test_orbit_left_mirrors_direction() {
+        assert_eq!(
+            build_movement_caption("orbit to the left"),
+            Some(
+                "The camera continuously moves left while continuously yawing right throughout the entire sequence."
+                    .to_string()
+            )
         );
     }
 
