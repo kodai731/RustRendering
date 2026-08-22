@@ -46,6 +46,10 @@ pub enum UIEvent {
         speed: SpeedPreset,
         target: Option<Entity>,
     },
+    CameraDirection {
+        utterance: String,
+        target: Option<Entity>,
+    },
     SetActiveCamera(Option<Entity>),
     MoveCameraToLightGizmo,
 

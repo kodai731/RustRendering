@@ -2,18 +2,25 @@ use cgmath::Vector3;
 
 use crate::asset::AssetStorage;
 use crate::ecs::component::CameraAimTarget;
+use crate::ecs::component::{CameraParam, CAMERA_DOMAIN};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::{BoneGizmoData, BoneSelectionState};
 use crate::ecs::resource::CurveEditorState;
+use crate::ecs::resource::HelmState;
 use crate::ecs::resource::{ActiveCamera, Camera, ClipLibrary, HierarchyState, TimelineState};
 use crate::ecs::systems::{
-    camera_move_to_look_at, collapse_entity, ensure_entity_clip, expand_entity,
-    hierarchy_collapse_bone, hierarchy_deselect_all, hierarchy_deselect_bone,
+    camera_move_to_look_at, collapse_entity, compute_camera_position, ensure_entity_clip,
+    expand_entity, hierarchy_collapse_bone, hierarchy_deselect_all, hierarchy_deselect_bone,
     hierarchy_expand_bone, hierarchy_select, hierarchy_select_bone, hierarchy_toggle_selection,
     plan_camera_shot, rename_entity, resolve_mesh_bone_id, resolve_transform_entity,
     scalar_clip_insert_key, update_entity_scale, update_entity_translation, update_entity_visible,
 };
 use crate::ecs::world::{Children, Entity, Transform, World};
+use thyllore_ml_core::copilot::camera_direction::{
+    caption::build_movement_caption,
+    generate_camera_poses,
+    keyframes::{poses_to_keyframe_tuples, CameraKeyParam},
+};
 
 pub fn dispatch_hierarchy_events(
     events: &[UIEvent],
@@ -24,6 +31,17 @@ pub fn dispatch_hierarchy_events(
     dispatch_hierarchy_bone_events(events, world, assets);
     sync_curve_editor_on_selection(events, world, assets);
     deferred
+}
+
+fn camera_param_from_key(param: CameraKeyParam) -> CameraParam {
+    match param {
+        CameraKeyParam::TranslationX => CameraParam::TranslationX,
+        CameraKeyParam::TranslationY => CameraParam::TranslationY,
+        CameraKeyParam::TranslationZ => CameraParam::TranslationZ,
+        CameraKeyParam::RotationX => CameraParam::RotationX,
+        CameraKeyParam::RotationY => CameraParam::RotationY,
+        CameraKeyParam::RotationZ => CameraParam::RotationZ,
+    }
 }
 
 fn dispatch_hierarchy_entity_events(
@@ -274,6 +292,96 @@ fn dispatch_hierarchy_entity_events(
 
                 let mut motion = world.resource_mut::<crate::ecs::systems::CameraShotMotion>();
                 motion.active = Some(tween);
+            }
+
+            UIEvent::CameraDirection {
+                utterance,
+                target: _,
+            } => {
+                let active_camera = world.resource::<ActiveCamera>();
+                let camera_entity = match active_camera.0 {
+                    Some(e) => e,
+                    None => {
+                        let mut state = world.resource_mut::<HelmState>();
+                        state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(
+                            "camera_direction: no active camera".to_string(),
+                        ));
+                        continue;
+                    }
+                };
+                drop(active_camera);
+
+                let paths =
+                    match thyllore_ml_core::model_path::resolve_camera_direction_model_paths() {
+                        Some(p) => p,
+                        None => {
+                            let mut state = world.resource_mut::<HelmState>();
+                            state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(
+                                "camera_direction: model not found".to_string(),
+                            ));
+                            continue;
+                        }
+                    };
+
+                let caption =
+                    build_movement_caption(utterance).unwrap_or_else(|| utterance.clone());
+
+                let poses = match generate_camera_poses(&paths, &caption) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        let mut state = world.resource_mut::<HelmState>();
+                        state.feedback =
+                            Some(crate::ecs::resource::CommandFeedback::DispatchError(
+                                format!("camera_direction: {}", e),
+                            ));
+                        continue;
+                    }
+                };
+
+                let tuples = poses_to_keyframe_tuples(&poses, 30.0, 5);
+
+                let timeline = world.resource::<TimelineState>();
+                let current_time = timeline.current_time;
+                drop(timeline);
+
+                let camera = world.resource::<Camera>();
+                let current_pos = compute_camera_position(&camera);
+                drop(camera);
+
+                let clip_id = ensure_entity_clip(world, assets, camera_entity, &CAMERA_DOMAIN);
+
+                let n = tuples.len();
+
+                super::dispatch_scalar_curve::edit_clip(
+                    world,
+                    clip_id,
+                    "Camera direction",
+                    |clip| {
+                        for (time, param, value) in tuples {
+                            let camera_param = camera_param_from_key(param);
+                            let property_type = camera_param.property_type();
+                            let base = match camera_param {
+                                CameraParam::TranslationX => current_pos.x,
+                                CameraParam::TranslationY => current_pos.y,
+                                CameraParam::TranslationZ => current_pos.z,
+                                _ => 0.0,
+                            };
+
+                            scalar_clip_insert_key(
+                                clip,
+                                property_type,
+                                current_time + time,
+                                base + value,
+                            );
+                        }
+                    },
+                );
+
+                let mut state = world.resource_mut::<HelmState>();
+                state.feedback = Some(crate::ecs::resource::CommandFeedback::Executed(format!(
+                    "camera_direction: {} keys from '{}'",
+                    n, caption
+                )));
             }
 
             _ => {}

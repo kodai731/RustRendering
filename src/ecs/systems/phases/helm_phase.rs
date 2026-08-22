@@ -591,12 +591,13 @@ fn handle_dispatch_outcome(
             )));
         }
         DispatchOutcome::CameraDirectionRequest { utterance, target } => {
-            // Stub: ONNX inference/trajectory generation not implemented yet
+            world
+                .resource_mut::<UIEventQueue>()
+                .send(UIEvent::CameraDirection { utterance, target });
             let mut state = world.resource_mut::<HelmState>();
-            state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(format!(
-                "camera_direction stub: utterance='{}', target={:?}",
-                utterance, target
-            )));
+            state.feedback = Some(crate::ecs::resource::CommandFeedback::Executed(
+                "camera_direction".to_string(),
+            ));
         }
         DispatchOutcome::Rejected(e) => {
             let mut state = world.resource_mut::<HelmState>();
@@ -708,6 +709,46 @@ mod tests {
         }
     }
 
+    /// Test that handle_dispatch_outcome for CameraDirectionRequest pushes to UIEventQueue.
+    #[test]
+    fn test_camera_direction_request_pushes_to_ui_event_queue() {
+        let world = make_world();
+
+        let outcome = DispatchOutcome::CameraDirectionRequest {
+            utterance: "pan left".to_string(),
+            target: None,
+        };
+
+        let events_before = {
+            let queue = world.resource::<UIEventQueue>();
+            queue.len()
+        };
+
+        handle_dispatch_outcome(&world, outcome, "camera_direction");
+
+        let events_after = {
+            let queue = world.resource::<UIEventQueue>();
+            queue.len()
+        };
+
+        assert_eq!(events_after - events_before, 1, "expected 1 event pushed");
+
+        let feedback = {
+            let state = world.resource::<HelmState>();
+            state.feedback.clone()
+        };
+
+        match feedback {
+            Some(crate::ecs::resource::CommandFeedback::Executed(name)) => {
+                assert_eq!(
+                    name, "camera_direction",
+                    "expected camera_direction tool name"
+                );
+            }
+            other => panic!("expected Executed feedback, got {:?}", other),
+        }
+    }
+
     /// Test that confirm_response=false clears pending and sets Report("cancelled").
     #[test]
     fn test_confirm_response_false_clears_pending() {
@@ -719,7 +760,6 @@ mod tests {
             state.pending = Some((ToolCall::PlayAnimation, ConfirmReason::ConfirmAll));
             state.confirm_response = Some(false);
         }
-
         // Run the phase.
         let mut ctx = EcsContext {
             time: 0.0,
