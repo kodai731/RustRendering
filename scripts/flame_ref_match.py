@@ -4,12 +4,16 @@ Usage:
   python scripts/flame_ref_match.py --render <png|dir> [--crop x0,y0,x1,y1] [--json out.json]
   python scripts/flame_ref_match.py --ref-only
 
+Every frame (reference and render) is first resampled with an area filter so that its
+median flame column width equals the reference's native column width. The render may be
+captured at any higher resolution; the comparison happens at the reference pixel density.
+
 Metrics (silhouette = R>90 && R-B>40, lum = 0.299R+0.587G+0.114B):
   i   lum p10/50/90 within +-20% of reference
   ii  fraction of silhouette pixels with lum<80 within +-8 pt
   iii height-band (10 bands) mean/p90 luminance profile correlation >= 0.8
   iv  G/R and B/R vs luminance-bin curves, RMS difference <= 0.08
-  v   spatial contrast spectrum (band-pass std / mean, width-normalised), RMS log2 ratio <= 0.5
+  v   spatial contrast spectrum (band-pass std / mean, sigma = column width / 256 .. / 4), RMS log2 ratio <= 0.5
   vi  bright coherence: largest bright (>=p70) component share of bright pixels within +-0.15,
       bright fragment count per 1000 bright px ratio within [0.5, 2]
 """
@@ -27,16 +31,37 @@ REF_DIR = Path(__file__).resolve().parents[1] / "assets/textures/flames/pillar_r
 LUM_BINS = [(40, 80), (80, 120), (120, 160), (160, 200), (200, 256)]
 BAND_COUNT = 10
 DARK_LUM = 80.0
-NORMALISED_WIDTH = 64.0
-CONTRAST_SIGMAS = [1.0, 2.0, 4.0, 8.0, 16.0]
+CONTRAST_SIGMA_WIDTH_FRACTIONS = [1 / 256, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4]
 BRIGHT_PERCENTILE = 70.0
 
 
-def load_rgb(path, crop=None):
+def load_image(path, crop=None):
     image = Image.open(path).convert("RGB")
     if crop is not None:
         image = image.crop(crop)
+    return image
+
+
+def to_rgb(image):
     return np.asarray(image).astype(np.float64)
+
+
+def median_column_width(rgb):
+    widths = silhouette_mask(rgb).sum(axis=1)
+    return float(np.median(widths[widths > 0])) if (widths > 0).any() else 0.0
+
+
+def resample_to_column_width(image, target_width):
+    width = median_column_width(to_rgb(image))
+    if width <= 0.0:
+        return image
+    scale = target_width / width
+    if scale > 1.0:
+        print(f"warning: render column width {width:.0f} px is below the reference {target_width:.0f} px; "
+              "upscaling loses the fine detail the gates measure", file=sys.stderr)
+    size = (max(1, round(image.width * scale)), max(1, round(image.height * scale)))
+    resample = Image.BOX if scale < 1.0 else Image.BICUBIC
+    return image.resize(size, resample)
 
 
 def silhouette_mask(rgb):
@@ -48,31 +73,23 @@ def luminance(rgb):
     return 0.299 * rgb[:, :, 0] + 0.587 * rgb[:, :, 1] + 0.114 * rgb[:, :, 2]
 
 
-def normalise_width(lum, mask):
-    widths = mask.sum(axis=1)
-    median_width = float(np.median(widths[widths > 0]))
-    scale = NORMALISED_WIDTH / max(median_width, 1.0)
-    lum_n = ndimage.zoom(lum, scale, order=1)
-    mask_n = ndimage.zoom(mask.astype(np.float32), scale, order=1) > 0.5
-    return lum_n, mask_n
-
-
-def contrast_spectrum(lum, mask):
-    lum_n, mask_n = normalise_width(lum, mask)
-    inner = ndimage.binary_erosion(mask_n, iterations=2)
+def contrast_spectrum(lum, mask, column_width):
+    erosion = max(1, round(column_width / 32))
+    inner = ndimage.binary_erosion(mask, iterations=erosion)
     if inner.sum() < 50:
-        return [np.nan] * len(CONTRAST_SIGMAS)
-    filled = np.where(mask_n, lum_n, lum_n[mask_n].mean())
-    mean_lum = lum_n[inner].mean()
+        return [np.nan] * len(CONTRAST_SIGMA_WIDTH_FRACTIONS)
+    filled = np.where(mask, lum, lum[mask].mean())
+    mean_lum = lum[inner].mean()
     spectrum = []
-    for sigma in CONTRAST_SIGMAS:
+    for fraction in CONTRAST_SIGMA_WIDTH_FRACTIONS:
+        sigma = fraction * column_width
         band = ndimage.gaussian_filter(filled, sigma * 0.5) - ndimage.gaussian_filter(filled, sigma)
         spectrum.append(float(band[inner].std() / mean_lum))
     return spectrum
 
 
 def bright_coherence(lum, mask):
-    lum_n, mask_n = normalise_width(lum, mask)
+    lum_n, mask_n = lum, mask
     if mask_n.sum() < 50:
         return np.nan, np.nan
     bright = mask_n & (lum_n >= np.percentile(lum_n[mask_n], BRIGHT_PERCENTILE))
@@ -85,7 +102,7 @@ def bright_coherence(lum, mask):
     return largest_share, fragments_per_k
 
 
-def frame_stats(rgb):
+def frame_stats(rgb, column_width):
     mask = silhouette_mask(rgb)
     if mask.sum() < 100:
         return None
@@ -122,7 +139,7 @@ def frame_stats(rgb):
         "band_p90": band_p90,
         "gr_by_lum": gr_curve,
         "br_by_lum": br_curve,
-        "contrast_spectrum": contrast_spectrum(lum, mask),
+        "contrast_spectrum": contrast_spectrum(lum, mask, column_width),
         "bright_largest_share": largest_share,
         "bright_fragments_per_k": fragments_per_k,
     }
@@ -144,15 +161,23 @@ def collect_frames(target):
     return [target]
 
 
-def measure(paths, crop=None):
+def reference_column_width(paths):
+    widths = [median_column_width(to_rgb(load_image(p))) for p in paths]
+    return float(np.median([w for w in widths if w > 0]))
+
+
+def measure(paths, column_width, crop=None):
     stats = []
     for path in paths:
-        stat = frame_stats(load_rgb(path, crop))
+        resampled = resample_to_column_width(load_image(path, crop), column_width)
+        stat = frame_stats(to_rgb(resampled), column_width)
         if stat is not None:
             stats.append(stat)
     if not stats:
         sys.exit(f"no flame silhouette found in {paths[0]} ...")
-    return aggregate(stats)
+    aggregated = aggregate(stats)
+    aggregated["column_width_px"] = column_width
+    return aggregated
 
 
 def nan_corr(a, b):
@@ -204,9 +229,10 @@ def print_profiles(ref, render):
         rm, rp = ref["band_mean"][band], ref["band_p90"][band]
         cm, cp = render["band_mean"][band], render["band_p90"][band]
         print(f"  band {band}: ref {rm:5.0f}/{rp:5.0f}   render {cm:5.0f}/{cp:5.0f}")
-    print("\ncontrast spectrum (band-pass std / mean, sigma in px at column width 64):")
-    for sigma, rv, cv in zip(CONTRAST_SIGMAS, ref["contrast_spectrum"], render["contrast_spectrum"]):
-        print(f"  sigma {sigma:4.1f} (1/{NORMALISED_WIDTH / sigma:.0f} width): ref {rv:.3f} render {cv:.3f}  x{cv / rv:.2f}")
+    width = ref["column_width_px"]
+    print(f"\ncontrast spectrum (band-pass std / mean, sigma in px at column width {width:.0f}):")
+    for fraction, rv, cv in zip(CONTRAST_SIGMA_WIDTH_FRACTIONS, ref["contrast_spectrum"], render["contrast_spectrum"]):
+        print(f"  sigma {fraction * width:5.1f} (1/{1 / fraction:.0f} width): ref {rv:.3f} render {cv:.3f}  x{cv / rv:.2f}")
     print("\nG/R and B/R by lum bin:")
     for (lo, hi), rg, cg, rb, cb in zip(LUM_BINS, ref["gr_by_lum"], render["gr_by_lum"], ref["br_by_lum"], render["br_by_lum"]):
         print(f"  lum {lo:3d}-{hi:3d}: G/R ref {rg:.2f} render {cg:.2f} | B/R ref {rb:.2f} render {cb:.2f}")
@@ -221,15 +247,17 @@ def main():
     parser.add_argument("--json", help="write reference/render/gate results to this path")
     args = parser.parse_args()
 
-    ref = measure(collect_frames(args.ref_dir))
-    print(f"reference: {ref['frames']} frames, lum p10/50/90 = "
+    ref_paths = collect_frames(args.ref_dir)
+    column_width = reference_column_width(ref_paths)
+    ref = measure(ref_paths, column_width)
+    print(f"reference: {ref['frames']} frames, column width {column_width:.0f} px, lum p10/50/90 = "
           f"{ref['lum_p10_50_90'][0]:.0f}/{ref['lum_p10_50_90'][1]:.0f}/{ref['lum_p10_50_90'][2]:.0f}, "
           f"dark {ref['dark_fraction'] * 100:.0f}%, bright {ref['bright_fraction'] * 100:.0f}%")
     if args.ref_only or not args.render:
         return
 
     crop = tuple(int(v) for v in args.crop.split(",")) if args.crop else None
-    render = measure(collect_frames(args.render), crop)
+    render = measure(collect_frames(args.render), column_width, crop)
     print(f"render:    {render['frames']} frames, lum p10/50/90 = "
           f"{render['lum_p10_50_90'][0]:.0f}/{render['lum_p10_50_90'][1]:.0f}/{render['lum_p10_50_90'][2]:.0f}, "
           f"dark {render['dark_fraction'] * 100:.0f}%, bright {render['bright_fraction'] * 100:.0f}%")
