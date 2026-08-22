@@ -163,7 +163,7 @@ impl ModelLoadResult {
             node_animation_scale: 1.0,
             constraints: result.constraints,
             spring_bone_setup: None,
-            cameras: Vec::new(),
+            cameras: result.cameras,
         }
     }
 }

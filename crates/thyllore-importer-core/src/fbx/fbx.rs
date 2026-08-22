@@ -1,4 +1,6 @@
 use anyhow::{Context, Result};
+
+use crate::gltf::{CameraProjection, LoadedCamera};
 use cgmath::{Matrix4, Quaternion, SquareMatrix, Vector3};
 use std::collections::HashMap;
 use thyllore_anim_core::{
@@ -82,6 +84,7 @@ pub struct FbxModel {
     pub constraints: Vec<LoadedConstraint>,
     pub axes: FbxAxesInfo,
     pub source_path: Option<String>,
+    pub cameras: Vec<LoadedCamera>,
 }
 
 #[derive(Clone, Debug)]
@@ -277,6 +280,7 @@ pub fn load_fbx_with_ufbx(path: &str) -> Result<FbxModel> {
     };
 
     build_bone_hierarchy(&scene, &mut fbx_model);
+    fbx_model.cameras = collect_cameras(&scene);
 
     let mesh_to_node = build_mesh_node_mapping(&scene);
     let mut split_infos: Vec<MeshSplitInfo> = Vec::new();
@@ -503,6 +507,46 @@ fn extract_skin_data(scene: &ufbx::Scene, fbx_model: &mut FbxModel, split_infos:
 
         log!("Extracted skin data for mesh typed_id={}", typed_id);
     }
+}
+
+/// Camera nodes as `LoadedCamera` (world pose in meters: ufbx is loaded with
+/// `target_unit_meters = 1.0`), sharing the glTF importer's type so spawning is
+/// format-agnostic.
+fn collect_cameras(scene: &ufbx::Scene) -> Vec<LoadedCamera> {
+    scene
+        .nodes
+        .iter()
+        .enumerate()
+        .filter_map(|(node_index, node)| {
+            let camera = node.camera.as_ref()?;
+            let projection = match camera.projection_mode {
+                ufbx::ProjectionMode::Orthographic => CameraProjection::Orthographic {
+                    xmag: camera.orthographic_size.x as f32 * 0.5,
+                    ymag: camera.orthographic_size.y as f32 * 0.5,
+                    znear: camera.near_plane as f32,
+                    zfar: camera.far_plane as f32,
+                },
+                _ => CameraProjection::Perspective {
+                    yfov: (camera.field_of_view_deg.y as f32).to_radians(),
+                    aspect_ratio: Some(camera.aspect_ratio as f32),
+                    znear: camera.near_plane as f32,
+                    zfar: Some(camera.far_plane as f32),
+                },
+            };
+            log!(
+                "FBX camera '{}' at node {}: projection={:?}",
+                node.element.name,
+                node_index,
+                projection
+            );
+            Some(LoadedCamera {
+                node_index,
+                name: node.element.name.to_string(),
+                world_transform: ufbx_matrix_to_cgmath(&node.node_to_world),
+                projection,
+            })
+        })
+        .collect()
 }
 
 fn build_bone_hierarchy(scene: &ufbx::Scene, fbx_model: &mut FbxModel) {
@@ -1148,5 +1192,23 @@ mod tests {
         model.fbx_data.push(data);
 
         assert_eq!(model.fbx_data.len(), 1);
+    }
+}
+
+#[cfg(test)]
+mod camera_tests {
+    use super::*;
+
+    #[test]
+    fn collect_cameras_reads_camera_nodes_when_fixture_is_given() {
+        let Ok(path) = std::env::var("THYLLORE_FBX_CAMERA_FIXTURE") else {
+            return;
+        };
+        let model = load_fbx_with_ufbx(&path).expect("fixture loads");
+        assert!(!model.cameras.is_empty(), "fixture has no camera nodes");
+        let camera = &model.cameras[0];
+        assert!(
+            matches!(camera.projection, CameraProjection::Perspective { yfov, .. } if yfov > 0.0)
+        );
     }
 }

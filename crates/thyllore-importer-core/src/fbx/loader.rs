@@ -46,6 +46,7 @@ pub struct FbxLoadResult {
     pub has_skinned_meshes: bool,
     pub has_armature: bool,
     pub constraints: Vec<LoadedConstraint>,
+    pub cameras: Vec<crate::gltf::LoadedCamera>,
 }
 
 pub fn load_fbx_to_graphics_resources(path: &str) -> Result<(FbxLoadResult, FbxModel)> {
@@ -104,6 +105,7 @@ fn convert_fbx_model_to_graphics_resources(fbx_model: &FbxModel) -> Result<FbxLo
         has_skinned_meshes,
         has_armature,
         constraints: fbx_model.constraints.clone(),
+        cameras: fbx_model.cameras.clone(),
     })
 }
 
