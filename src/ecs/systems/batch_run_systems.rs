@@ -25,6 +25,7 @@ const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const BATCH_FLAME_DEBUG_VIEW_FLAG: &str = "--batch-flame-debug-view";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
+const BATCH_WINDOW_FLAG: &str = "--batch-window";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
 const GPU_TIMINGS_FLAG: &str = "--gpu-timings";
 const EXPOSURE_DUMP_FLAG: &str = "--exposure-dump";
@@ -62,6 +63,7 @@ pub struct EngineCliOverrides {
     pub flame_debug_view: Option<thyllore_effect_core::FlameDebugView>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
+    pub window_size: Option<(u32, u32)>,
     pub flame_dump_path: Option<String>,
     pub gpu_timings_path: Option<String>,
     pub exposure_dump_path: Option<String>,
@@ -138,6 +140,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         flame_debug_view: flame_debug_view_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
         camera_pose: camera_pose_resolve_from_args(args)?,
+        window_size: window_size_resolve_from_args(args)?,
         flame_dump_path: flame_dump_path_resolve_from_args(args)?,
         gpu_timings_path: gpu_timings_path_resolve_from_args(args)?,
         exposure_dump_path: exposure_dump_path_resolve_from_args(args)?,
@@ -342,6 +345,31 @@ pub fn flame_debug_view_resolve_from_args(
         )
     })?;
     Ok(Some(view))
+}
+
+pub fn window_size_resolve_from_args(args: &[String]) -> Result<Option<(u32, u32)>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_WINDOW_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WINDOW_FLAG} requires <width>,<height>");
+    };
+    let parsed: Vec<u32> = value
+        .split(',')
+        .map(|part| part.trim().parse::<u32>())
+        .collect::<Result<_, _>>()
+        .map_err(|_| {
+            anyhow::anyhow!(
+                "invalid {BATCH_WINDOW_FLAG} value '{value}': expected <width>,<height>"
+            )
+        })?;
+    let [width, height] = parsed[..] else {
+        bail!("{BATCH_WINDOW_FLAG} expects exactly <width>,<height>, got '{value}'");
+    };
+    if width == 0 || height == 0 {
+        bail!("{BATCH_WINDOW_FLAG} width and height must be >= 1");
+    }
+    Ok(Some((width, height)))
 }
 
 pub fn flame_steps_resolve_from_args(args: &[String]) -> Result<Option<u32>> {
@@ -2266,6 +2294,20 @@ mod tests {
         assert!(camera_pose_resolve_from_args(&args(&["bin"]))
             .unwrap()
             .is_none());
+    }
+
+    #[test]
+    fn resolve_window_size() {
+        let size = window_size_resolve_from_args(&args(&["bin", "--batch-window", "2560,2880"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(size, (2560, 2880));
+        assert!(window_size_resolve_from_args(&args(&["bin"]))
+            .unwrap()
+            .is_none());
+        assert!(window_size_resolve_from_args(&args(&["bin", "--batch-window", "2560"])).is_err());
+        assert!(window_size_resolve_from_args(&args(&["bin", "--batch-window", "0,100"])).is_err());
+        assert!(window_size_resolve_from_args(&args(&["bin", "--batch-window", "a,b"])).is_err());
     }
 
     #[test]

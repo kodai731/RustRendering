@@ -14,7 +14,7 @@ pub struct System {
     pub platform: WinitPlatform,
 }
 
-pub fn init(title: &str, take_focus: bool) -> System {
+pub fn init(title: &str, take_focus: bool, window_size: (u32, u32)) -> System {
     let title = match Path::new(&title).file_name() {
         Some(file_name) => file_name.to_str().unwrap_or(title),
         None => title,
@@ -25,7 +25,7 @@ pub fn init(title: &str, take_focus: bool) -> System {
     let mut builder = WindowBuilder::new()
         .with_title(title)
         .with_active(take_focus)
-        .with_inner_size(LogicalSize::new(2560, 1440));
+        .with_inner_size(LogicalSize::new(window_size.0, window_size.1));
     // winit 0.29 ignores `with_active` on X11; an override-redirect window is
     // unmanaged by the WM and therefore can never steal input focus. It is also
     // always-on-top, so park it outside the visible screen — batch/MCP runs must
