@@ -128,6 +128,7 @@ fi
 
 cd "$REPO_ROOT"
 echo "[run_engine] regenerating flame gpu blocks from SPIR-V"
+cargo run -p thyllore-shader-manifest --bin generate_gpu_blocks
 cargo build -p thyllore-vulkan-core
 cargo run -p thyllore-shader-manifest --bin generate_gpu_blocks
 

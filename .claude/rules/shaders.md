@@ -34,8 +34,8 @@ generates `PassId`, `PassShaders` constants and `ALL_PASSES` into `$OUT_DIR/pass
 
 - Create pipelines with `PipelineBuilder::from_pass(&FLAME_RESOLVE)` / `RRPipeline::new_compute_with_push_constants(.., &RAY_QUERY_SHADOW, ..)`.
 - Declare layouts with `ReflectedLayoutSpec::shared(SetRole::Frame)` or `ReflectedLayoutSpec::local(&TONEMAP)`.
-- `ReflectedLayoutSpec::for_role(pass, role)` derives the spec of any pass set from the manifest alone; the golden
-  test `descriptor_reflection_golden.rs` walks `ALL_PASSES` with it, so no Rust-side pass list exists.
+- `ReflectedLayoutSpec::for_role(pass, role)` derives the spec of any pass set from the manifest alone; the
+  test `block_definition.rs` walks `ALL_PASSES` with it, so no Rust-side pass list exists.
 - Adding a shader = GLSL + `passes.toml` entry + its `*DescriptorSet`.
 
 ## Generated Binding Constants (`shader_bindings`)

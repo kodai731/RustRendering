@@ -175,6 +175,7 @@ fn map_type(type_name: &str, nested: &BTreeMap<String, Vec<ReflectedMember>>) ->
     let scalar = match type_name {
         "float32" => "f32",
         "int32" => "i32",
+        "uint32" => "u32",
         "bool" => "u32",
         "float32x2" => "[f32; 2]",
         "float32x3" => "[f32; 3]",

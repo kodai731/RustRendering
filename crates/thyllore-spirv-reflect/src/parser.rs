@@ -93,10 +93,16 @@ fn check_spirv_version(version_word: u32) -> Result<(), ReflectError> {
     Ok(())
 }
 
+#[derive(Clone, Copy, Debug)]
+enum Signedness {
+    Unsigned,
+    Signed,
+}
+
 #[derive(Debug)]
 enum TypeDef {
     Bool,
-    Int { width: u32 },
+    Int { width: u32, signedness: Signedness },
     Float { width: u32 },
     Vector { component: u32, count: u32 },
     Matrix { column: u32, columns: u32 },
@@ -423,7 +429,10 @@ impl SpirvModule {
     fn type_name(&self, type_id: u32) -> Result<String, ReflectError> {
         let name = match self.type_def(type_id)? {
             TypeDef::Bool => "bool".to_string(),
-            TypeDef::Int { width } => format!("int{width}"),
+            TypeDef::Int { width, signedness } => match signedness {
+                Signedness::Signed => format!("int{width}"),
+                Signedness::Unsigned => format!("uint{width}"),
+            },
             TypeDef::Float { width } => format!("float{width}"),
             TypeDef::Vector { component, count } => {
                 format!("{}x{count}", self.type_name(*component)?)
@@ -452,7 +461,7 @@ impl SpirvModule {
     fn type_size(&self, type_id: u32, member: &MemberDecorations) -> Result<u32, ReflectError> {
         match self.type_def(type_id)? {
             TypeDef::Bool => Ok(4),
-            TypeDef::Int { width } | TypeDef::Float { width } => Ok(width / 8),
+            TypeDef::Int { width, .. } | TypeDef::Float { width } => Ok(width / 8),
             TypeDef::Vector { component, count } => Ok(self.type_size(*component, member)? * count),
             TypeDef::Matrix { column, columns } => self.matrix_size(*column, *columns, member),
             TypeDef::Array { element, length_id } => {
@@ -494,7 +503,13 @@ fn decode_type(opcode: u32, operands: &[u32]) -> Result<Option<TypeDef>, Reflect
     let operand = |index: usize| operands.get(index).copied().ok_or(ReflectError::Truncated);
     let type_def = match opcode {
         OP_TYPE_BOOL => TypeDef::Bool,
-        OP_TYPE_INT => TypeDef::Int { width: operand(1)? },
+        OP_TYPE_INT => TypeDef::Int {
+            width: operand(1)?,
+            signedness: match operand(2)? {
+                0 => Signedness::Unsigned,
+                _ => Signedness::Signed,
+            },
+        },
         OP_TYPE_FLOAT => TypeDef::Float { width: operand(1)? },
         OP_TYPE_VECTOR => TypeDef::Vector {
             component: operand(1)?,
