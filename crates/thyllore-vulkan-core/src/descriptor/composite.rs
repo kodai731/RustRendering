@@ -4,15 +4,17 @@ use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayou
 use crate::descriptor::shader_bindings::composite;
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::*;
+use thyllore_spirv_reflect::declare_gpu_block;
 
 pub const MAX_SELECTED_OBJECTS: usize = 32;
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct SelectionUBO {
-    pub selected_ids: [[u32; 4]; MAX_SELECTED_OBJECTS],
-    pub selected_count: u32,
-    pub _padding: [u32; 3],
+declare_gpu_block! {
+    #[derive(Clone, Copy, Debug)]
+    pub struct SelectionUBO {
+        pub selected_ids: [[u32; 4]; MAX_SELECTED_OBJECTS],
+        pub selected_count: u32,
+        pub _padding: [u32; 3],
+    }
 }
 
 impl Default for SelectionUBO {

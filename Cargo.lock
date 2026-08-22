@@ -3743,6 +3743,7 @@ dependencies = [
  "thyllore-color-core",
  "thyllore-math-core",
  "thyllore-scene-core",
+ "thyllore-spirv-reflect",
  "thyllore-texture-fit-core",
 ]
 
@@ -3864,6 +3865,7 @@ dependencies = [
  "cgmath",
  "thyllore-anim-core",
  "thyllore-model-core",
+ "thyllore-spirv-reflect",
 ]
 
 [[package]]

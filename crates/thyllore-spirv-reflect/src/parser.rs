@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use crate::types::{
-    DescriptorCount, DescriptorKind, ReflectError, ReflectedBinding, ShaderReflection, ShaderStage,
+    DescriptorCount, DescriptorKind, ReflectError, ReflectedBinding, ReflectedBlock,
+    ReflectedMember, ShaderReflection, ShaderStage,
 };
 
 const SPIRV_MAGIC: u32 = 0x0723_0203;
@@ -10,6 +11,7 @@ const SUPPORTED_SPIRV_MAJOR: u32 = 1;
 const SUPPORTED_SPIRV_MAX_MINOR: u32 = 6;
 
 const OP_NAME: u32 = 5;
+const OP_MEMBER_NAME: u32 = 6;
 const OP_ENTRY_POINT: u32 = 15;
 const OP_TYPE_BOOL: u32 = 20;
 const OP_TYPE_INT: u32 = 21;
@@ -134,6 +136,7 @@ struct Variable {
 #[derive(Debug, Default)]
 struct SpirvModule {
     names: HashMap<u32, String>,
+    member_names: HashMap<(u32, u32), String>,
     decorations: HashMap<u32, Decorations>,
     member_decorations: HashMap<(u32, u32), MemberDecorations>,
     types: HashMap<u32, TypeDef>,
@@ -176,6 +179,12 @@ impl SpirvModule {
             OP_NAME => {
                 self.names
                     .insert(operand(0)?, decode_literal_string(&operands[1..]));
+            }
+            OP_MEMBER_NAME => {
+                self.member_names.insert(
+                    (operand(0)?, operand(1)?),
+                    decode_literal_string(&operands[2..]),
+                );
             }
             OP_DECORATE => self.record_decoration(operand(0)?, operand(1)?, operands.get(2)),
             OP_MEMBER_DECORATE => self.record_member_decoration(
@@ -259,8 +268,7 @@ impl SpirvModule {
             return Err(ReflectError::UnsupportedVariableType(name));
         };
         let (resource_type, count) = self.strip_arrays(*pointee)?;
-        let (kind, block_size) =
-            self.classify_resource(variable.storage_class, resource_type, &name)?;
+        let (kind, block) = self.classify_resource(variable.storage_class, resource_type, &name)?;
 
         let decorations = self
             .decorations
@@ -277,7 +285,7 @@ impl SpirvModule {
             name,
             kind,
             count,
-            block_size,
+            block,
         }))
     }
 
@@ -313,7 +321,7 @@ impl SpirvModule {
         storage_class: u32,
         type_id: u32,
         name: &str,
-    ) -> Result<(DescriptorKind, Option<u32>), ReflectError> {
+    ) -> Result<(DescriptorKind, Option<ReflectedBlock>), ReflectError> {
         let unsupported = || ReflectError::UnsupportedVariableType(name.to_string());
         let type_def = self.type_def(type_id)?;
 
@@ -344,30 +352,101 @@ impl SpirvModule {
                 } else {
                     DescriptorKind::UniformBuffer
                 };
-                Ok((kind, Some(self.struct_size(type_id)?)))
+                let block = ReflectedBlock {
+                    type_name: self.name_of(type_id),
+                    size: self.struct_size(type_id)?,
+                    members: self.struct_members(type_id, 0)?,
+                };
+                Ok((kind, Some(block)))
             }
             _ => Err(unsupported()),
         }
     }
 
     fn struct_size(&self, struct_id: u32) -> Result<u32, ReflectError> {
+        let end = self
+            .struct_members(struct_id, 0)?
+            .iter()
+            .map(|member| member.offset + member.size)
+            .max();
+        Ok(end.unwrap_or(0))
+    }
+
+    fn struct_members(
+        &self,
+        struct_id: u32,
+        base_offset: u32,
+    ) -> Result<Vec<ReflectedMember>, ReflectError> {
         let TypeDef::Struct { members } = self.type_def(struct_id)? else {
             return Err(ReflectError::MissingType(struct_id));
         };
 
-        let mut size = 0;
+        let mut reflected = Vec::with_capacity(members.len());
         for (index, member_type) in members.iter().enumerate() {
-            let member = self
+            let key = (struct_id, index as u32);
+            let decorations = self
                 .member_decorations
-                .get(&(struct_id, index as u32))
+                .get(&key)
                 .cloned()
                 .unwrap_or_default();
-            let offset = member
-                .offset
-                .ok_or_else(|| ReflectError::MissingMemberOffset(self.name_of(struct_id)))?;
-            size = size.max(offset + self.type_size(*member_type, &member)?);
+            let offset = base_offset
+                + decorations
+                    .offset
+                    .ok_or_else(|| ReflectError::MissingMemberOffset(self.name_of(struct_id)))?;
+            reflected.push(ReflectedMember {
+                name: self
+                    .member_names
+                    .get(&key)
+                    .cloned()
+                    .unwrap_or_else(|| format!("%{index}")),
+                offset,
+                size: self.type_size(*member_type, &decorations)?,
+                type_name: self.type_name(*member_type)?,
+                members: self.nested_members(*member_type, offset)?,
+            });
         }
-        Ok(size)
+        Ok(reflected)
+    }
+
+    fn nested_members(
+        &self,
+        type_id: u32,
+        offset: u32,
+    ) -> Result<Vec<ReflectedMember>, ReflectError> {
+        match self.type_def(type_id)? {
+            TypeDef::Struct { .. } => self.struct_members(type_id, offset),
+            TypeDef::Array { element, .. } => self.nested_members(*element, offset),
+            _ => Ok(Vec::new()),
+        }
+    }
+
+    fn type_name(&self, type_id: u32) -> Result<String, ReflectError> {
+        let name = match self.type_def(type_id)? {
+            TypeDef::Bool => "bool".to_string(),
+            TypeDef::Int { width } => format!("int{width}"),
+            TypeDef::Float { width } => format!("float{width}"),
+            TypeDef::Vector { component, count } => {
+                format!("{}x{count}", self.type_name(*component)?)
+            }
+            TypeDef::Matrix { column, columns } => {
+                format!("{}x{columns}", self.type_name(*column)?)
+            }
+            TypeDef::Array { element, length_id } => {
+                format!(
+                    "{}[{}]",
+                    self.type_name(*element)?,
+                    self.array_length(*length_id)?
+                )
+            }
+            TypeDef::RuntimeArray { element } => format!("{}[]", self.type_name(*element)?),
+            TypeDef::Struct { .. } => self.name_of(type_id),
+            TypeDef::Image { .. }
+            | TypeDef::Sampler
+            | TypeDef::SampledImage
+            | TypeDef::Pointer { .. }
+            | TypeDef::AccelerationStructure => return Err(ReflectError::MissingType(type_id)),
+        };
+        Ok(name)
     }
 
     fn type_size(&self, type_id: u32, member: &MemberDecorations) -> Result<u32, ReflectError> {
@@ -522,6 +601,22 @@ pub(crate) mod tests {
         instruction(OP_NAME, &operands)
     }
 
+    fn with_member_name(struct_id: u32, index: u32, name: &str) -> Vec<u32> {
+        let mut operands = vec![struct_id, index];
+        operands.extend(literal_string(name));
+        instruction(OP_MEMBER_NAME, &operands)
+    }
+
+    fn member(name: &str, offset: u32, size: u32, type_name: &str) -> ReflectedMember {
+        ReflectedMember {
+            name: name.into(),
+            offset,
+            size,
+            type_name: type_name.into(),
+            members: Vec::new(),
+        }
+    }
+
     pub(crate) fn fragment_module_with_block_and_sampler() -> Vec<u32> {
         let mut entry_operands = vec![4, 1];
         entry_operands.extend(literal_string("main"));
@@ -529,6 +624,12 @@ pub(crate) mod tests {
         let module = [
             header(),
             instruction(OP_ENTRY_POINT, &entry_operands),
+            with_name(10, "FrameBlock"),
+            with_member_name(10, 0, "view"),
+            with_member_name(10, 1, "tint"),
+            with_member_name(10, 2, "weights"),
+            with_name(12, "Particles"),
+            with_member_name(12, 0, "data"),
             with_name(20, "frame"),
             with_name(30, "texSampler"),
             with_name(31, "shadowMaps"),
@@ -588,7 +689,7 @@ pub(crate) mod tests {
                     name: "texSampler".into(),
                     kind: DescriptorKind::CombinedImageSampler,
                     count: DescriptorCount::Fixed(1),
-                    block_size: None,
+                    block: None,
                 },
                 ReflectedBinding {
                     set: 0,
@@ -596,7 +697,7 @@ pub(crate) mod tests {
                     name: "shadowMaps".into(),
                     kind: DescriptorKind::CombinedImageSampler,
                     count: DescriptorCount::Fixed(4),
-                    block_size: None,
+                    block: None,
                 },
                 ReflectedBinding {
                     set: 1,
@@ -604,7 +705,15 @@ pub(crate) mod tests {
                     name: "frame".into(),
                     kind: DescriptorKind::UniformBuffer,
                     count: DescriptorCount::Fixed(1),
-                    block_size: Some(128),
+                    block: Some(ReflectedBlock {
+                        type_name: "FrameBlock".into(),
+                        size: 128,
+                        members: vec![
+                            member("view", 0, 64, "float32x4x4"),
+                            member("tint", 64, 16, "float32x4"),
+                            member("weights", 80, 48, "float32x4[3]"),
+                        ],
+                    }),
                 },
                 ReflectedBinding {
                     set: 2,
@@ -612,7 +721,11 @@ pub(crate) mod tests {
                     name: "particles".into(),
                     kind: DescriptorKind::StorageBuffer,
                     count: DescriptorCount::Fixed(1),
-                    block_size: Some(0),
+                    block: Some(ReflectedBlock {
+                        type_name: "Particles".into(),
+                        size: 0,
+                        members: vec![member("data", 0, 0, "float32x4[]")],
+                    }),
                 },
             ]
         );
