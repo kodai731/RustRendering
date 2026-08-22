@@ -28,12 +28,21 @@ pub fn resolve_camera_direction_model_paths() -> Option<CameraDirectionOnnxPaths
     let decoder_step0 = base.join("decoder_step0.onnx");
     let decoder_with_past = base.join("decoder_with_past.onnx");
     let embd_table = base.join("embd_table.bin");
+    let text_encoder = base.join("text_encoder.onnx");
+    let tokenizer = base.join("tokenizer.json");
 
-    if decoder_step0.exists() && decoder_with_past.exists() && embd_table.exists() {
+    if decoder_step0.exists()
+        && decoder_with_past.exists()
+        && embd_table.exists()
+        && text_encoder.exists()
+        && tokenizer.exists()
+    {
         Some(CameraDirectionOnnxPaths {
             decoder_step0,
             decoder_with_past,
             embd_table,
+            text_encoder,
+            tokenizer,
         })
     } else {
         None

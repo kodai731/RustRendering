@@ -12,6 +12,8 @@ pub struct CameraDirectionOnnxPaths {
     pub decoder_step0: PathBuf,
     pub decoder_with_past: PathBuf,
     pub embd_table: PathBuf,
+    pub text_encoder: PathBuf,
+    pub tokenizer: PathBuf,
 }
 
 /// ONNX inference session for the GenDoP camera direction copilot.
@@ -352,6 +354,8 @@ fn test_camera_direction_parity() -> Result<(), anyhow::Error> {
         decoder_step0: PathBuf::from(&onnx_dir).join("decoder_step0.onnx"),
         decoder_with_past: PathBuf::from(&onnx_dir).join("decoder_with_past.onnx"),
         embd_table: PathBuf::from(&onnx_dir).join("embd_table.bin"),
+        text_encoder: PathBuf::from(&onnx_dir).join("text_encoder.onnx"),
+        tokenizer: PathBuf::from(&onnx_dir).join("tokenizer.json"),
     };
 
     let mut session = CameraDirectionSession::from_paths(&paths)?;
