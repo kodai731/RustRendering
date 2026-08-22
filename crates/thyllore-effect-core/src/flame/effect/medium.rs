@@ -106,7 +106,7 @@ pub fn build_thermal_params(thermal: &FlameThermal, color: &FlameColor) -> Flame
         temp_exp: thermal.temp_exp.max(0.0),
         temp_hot_k: color.temperature_base_k.max(1.0),
         temp_cold_k: color.temperature_tip_k.max(1.0),
-        wien_c_k: thermal.wien_c_k.max(0.0),
+        wien_ck: thermal.wien_c_k.max(0.0),
         _padding: [0.0; 3],
     }
 }

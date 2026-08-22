@@ -2,6 +2,9 @@ use std::path::{Path, PathBuf};
 
 use thyllore_effect_core::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
+use thyllore_shader_manifest::{
+    flame_gpu_blocks_source, FLAME_GPU_BLOCKS_PATH, REGENERATE_GPU_BLOCKS_COMMAND,
+};
 use thyllore_spirv_reflect::{
     compare_block_layout, BlockCoverage, DescriptorKind, GpuBlock, LayoutDifference, ReflectedBlock,
 };
@@ -203,4 +206,38 @@ fn rust_uniform_structs_match_every_shader_block_member() {
         "uniform block layout drift against SPIR-V:\n{}",
         failures.join("\n")
     );
+}
+
+fn first_line_difference(left: &str, right: &str) -> Option<(usize, String, String)> {
+    let mut left_lines = left.lines();
+    let mut right_lines = right.lines();
+    let mut line_number = 1;
+    loop {
+        match (left_lines.next(), right_lines.next()) {
+            (None, None) => return None,
+            (l, r) if l == r => line_number += 1,
+            (l, r) => {
+                return Some((
+                    line_number,
+                    l.unwrap_or("<end>").to_string(),
+                    r.unwrap_or("<end>").to_string(),
+                ))
+            }
+        }
+    }
+}
+
+#[test]
+fn generated_flame_gpu_blocks_match_spirv() {
+    enter_workspace_root();
+    let generated = flame_gpu_blocks_source(Path::new("assets/shaders"))
+        .unwrap_or_else(|error| panic!("generate flame gpu blocks: {error}"));
+    let checked_in = std::fs::read_to_string(FLAME_GPU_BLOCKS_PATH)
+        .unwrap_or_else(|error| panic!("read {FLAME_GPU_BLOCKS_PATH}: {error}"));
+
+    if let Some((line, expected, current)) = first_line_difference(&generated, &checked_in) {
+        panic!(
+            "{FLAME_GPU_BLOCKS_PATH} is stale at line {line}; run `{REGENERATE_GPU_BLOCKS_COMMAND}`\n  generated : {expected}\n  checked in: {current}"
+        );
+    }
 }

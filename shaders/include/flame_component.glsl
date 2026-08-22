@@ -1,9 +1,10 @@
 #ifndef FLAME_COMPONENT_GLSL
 #define FLAME_COMPONENT_GLSL
 
-// Every struct shared with the Rust side lives here; mirrored in
-// thyllore-effect-core/src/flame/gpu/components/ (FlameUBO and its members) and
-// flame/branch.rs (VortexElement).
+// Every struct shared with the Rust side lives here. FlameUBO and its members are
+// generated into thyllore-effect-core/src/flame/gpu/components/generated.rs
+// (cargo run -p thyllore-shader-manifest --bin generate_gpu_blocks); VortexElement
+// is mirrored by hand in flame/branch.rs.
 
 struct FlameColorBase {
     vec3 rgb;
@@ -63,6 +64,7 @@ struct FlameEmitterParams {
     float kind;
     float ringMajorRatio;
     float ringAngularSpeed;
+    // Gaussian half-depth of the SDF billboard slab (emitter kind 2).
     float sdfSlabDepth;
 };
 
@@ -73,6 +75,7 @@ struct FlameContourParams {
     float sigmaDispersion;
 };
 
+// Bridge model of smoothstep(edgeLow, edgeHigh, x): two gaussians around a center (ErfResponseModel).
 struct FlameErosionResponse {
     float center;
     float kappa;
@@ -94,6 +97,7 @@ struct FlameBoundaryParams {
     float radiusRatio;
 };
 
+// Near fade plus the amplitude-scaled effective erosion edge window.
 struct FlameNearFadeParams {
     float radius;
     float carveResidual;
@@ -148,6 +152,7 @@ struct FlameMixParams {
     float hi;
     float invCarrierStd;
     float heightGain;
+    // Wavenumber scale of the mixing eddies relative to the low erosion octave.
     float scale;
     float radialGain;
     float pad0;
@@ -183,6 +188,7 @@ struct FlameSupportMotion {
     float supportMargin;
     float meanderAmp;
     float swirlSpeed;
+    // 0 = delegate the twist rate to swirlSpeed.
     float twistSpeed;
 };
 
@@ -218,16 +224,20 @@ struct FlameBranchElement {
     float side;
     float azimuth;
     float spawnHeight;
+    // Scatter lane: size multiplier of reach and core, line tilt out of the horizontal [rad],
+    // and window center shift along the line in reach units.
     float size;
     float tilt;
     float alongOffset;
     float hash01;
+    // Trunk support radius at the spawn height (flame-local); reach and core radii are ratios of it.
     float trunkRadius;
     float pad0;
     float pad1;
     float pad2;
 };
 
+// Age-profile fractions of the vortex transport (winding, burnout), evaluated identically on both sides.
 struct FlameBranchAgeProfile {
     float windFraction;
     float burnoutStartFraction;
@@ -239,6 +249,7 @@ struct FlameBranchAgeProfile {
     float pad2;
 };
 
+// Branch element table (newest first) with the per-effect age-profile constants; count = 0 is a no-op.
 struct FlameBranchField {
     float count;
     float period;
@@ -293,6 +304,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     FlameNearFadeParams nearFadeParams;
     vec4 radiusCoefficients[2];
     vec4 colorRamp[8];
+    // Planckian chromaticity from temperatureTipK (index 0) to temperatureBaseK (index 7).
     vec4 tempRamp[8];
     FlameProfileParams profileParams;
     FlameWaveShaping waveParams;

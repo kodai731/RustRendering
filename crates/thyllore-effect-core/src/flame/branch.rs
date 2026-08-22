@@ -456,7 +456,7 @@ pub fn build_branch_field(effect: &FlameEffect, baked: &FlameBaked) -> FlameBran
         core_offset: branch.core_offset,
         bounding_pad: pad.radial,
         bounding_pad_y: pad.top,
-        _padding1: [0.0; 2],
+        _padding: [0.0; 2],
         age_profile: FlameBranchAgeProfile::default(),
         elements,
     }
