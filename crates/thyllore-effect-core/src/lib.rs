@@ -3,6 +3,8 @@ pub mod flame;
 
 pub use thyllore_texture_fit_core as flame_fit;
 
+pub use thyllore_scene_core::{find_scalar_param, find_ui_param, ScalarParam, UiParam};
+
 pub use debug::flame_wall_probe::{
     probe_flame_wall, WallProbeRay, WallProbeReport, WallProbeView, WALL_PROBE_GRID_COLS,
     WALL_PROBE_GRID_ROWS,

@@ -1,0 +1,11 @@
+[package]
+name = "thyllore-scene-core"
+version = "0.0.1"
+edition = "2021"
+license = "Apache-2.0"
+authors = ["kodai731"]
+description = "Scene persistence core for ThylloreAnimation — the declare_scene_format! macro that generates a component's scene serde record, parameter tag table, snapshot and flat-name scalar accessor registry from one declaration table. No ECS or rendering dependency."
+repository = "https://github.com/kodai731/Thyllore-Animation"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }

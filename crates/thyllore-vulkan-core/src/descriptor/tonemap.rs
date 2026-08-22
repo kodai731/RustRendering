@@ -1,12 +1,8 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::TONEMAP;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::tonemap;
 use crate::vulkan::*;
-
-const HDR_SAMPLER_BINDING: u32 = 0;
-const BLOOM_SAMPLER_BINDING: u32 = 1;
-const POSITION_SAMPLER_BINDING: u32 = 2;
-const SCENE_UBO_BINDING: u32 = 3;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRToneMapDescriptorSet {
@@ -54,7 +50,7 @@ impl RRToneMapDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                HDR_SAMPLER_BINDING,
+                tonemap::HDR_SAMPLER,
                 hdr_image_view,
                 hdr_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
@@ -72,7 +68,7 @@ impl RRToneMapDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                BLOOM_SAMPLER_BINDING,
+                tonemap::BLOOM_SAMPLER,
                 bloom_image_view,
                 bloom_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
@@ -90,7 +86,7 @@ impl RRToneMapDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                POSITION_SAMPLER_BINDING,
+                tonemap::POSITION_SAMPLER,
                 position_image_view,
                 position_sampler,
                 vk::ImageLayout::GENERAL,
@@ -107,7 +103,7 @@ impl RRToneMapDescriptorSet {
     ) -> Result<()> {
         self.layout
             .writer(self.descriptor_set)
-            .buffer(SCENE_UBO_BINDING, scene_buffer, 0, scene_buffer_size)?
+            .buffer(tonemap::SCENE_DATA, scene_buffer, 0, scene_buffer_size)?
             .apply(rrdevice);
         Ok(())
     }

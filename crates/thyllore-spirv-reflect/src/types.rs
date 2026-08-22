@@ -39,13 +39,48 @@ pub enum DescriptorCount {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReflectedMember {
+    pub name: String,
+    pub offset: u32,
+    pub size: u32,
+    pub type_name: String,
+    pub members: Vec<ReflectedMember>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReflectedBlock {
+    pub type_name: String,
+    pub size: u32,
+    pub members: Vec<ReflectedMember>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ReflectedBinding {
     pub set: u32,
     pub binding: u32,
     pub name: String,
     pub kind: DescriptorKind,
     pub count: DescriptorCount,
-    pub block_size: Option<u32>,
+    pub block: Option<ReflectedBlock>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ShaderBinding {
+    pub set: u32,
+    pub binding: u32,
+    pub kind: DescriptorKind,
+    pub count: DescriptorCount,
+}
+
+impl ReflectedBinding {
+    pub fn shader_binding(&self) -> ShaderBinding {
+        ShaderBinding {
+            set: self.set,
+            binding: self.binding,
+            kind: self.kind,
+            count: self.count,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

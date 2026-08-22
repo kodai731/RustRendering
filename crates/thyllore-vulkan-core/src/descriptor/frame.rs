@@ -1,23 +1,18 @@
-use std::mem::size_of;
-use std::ptr::copy_nonoverlapping as memcpy;
-
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::device::RRDevice;
 use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
-use crate::resource::buffer::create_buffer;
+use crate::descriptor::shader_bindings::model;
+use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::vulkan::Instance;
 use thyllore_render_core::FrameUBO;
-
-const FRAME_UBO_BINDING: u32 = 0;
 
 #[derive(Clone, Debug, Default)]
 pub struct FrameDescriptorSet {
     pub layout: ReflectedSetLayout,
     pub sets: Vec<vk::DescriptorSet>,
-    pub buffers: Vec<vk::Buffer>,
-    pub buffer_memories: Vec<vk::DeviceMemory>,
+    pub buffers: Vec<UniformBuffer<FrameUBO>>,
 }
 
 impl FrameDescriptorSet {
@@ -30,25 +25,19 @@ impl FrameDescriptorSet {
         let sets = layout.allocate_sets(rrdevice, swapchain_image_count)?;
 
         let mut buffers = Vec::with_capacity(swapchain_image_count);
-        let mut buffer_memories = Vec::with_capacity(swapchain_image_count);
-
         for _ in 0..swapchain_image_count {
-            let (buffer, memory) = create_buffer(
+            buffers.push(UniformBuffer::new(
                 instance,
                 rrdevice,
-                size_of::<FrameUBO>() as u64,
-                vk::BufferUsageFlags::UNIFORM_BUFFER,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )?;
-            buffers.push(buffer);
-            buffer_memories.push(memory);
+                1,
+                Placement::HostMapped,
+            )?);
         }
 
-        let mut frame_set = Self {
+        let frame_set = Self {
             layout,
             sets,
             buffers,
-            buffer_memories,
         };
         frame_set.write_descriptor_sets(rrdevice)?;
 
@@ -59,11 +48,11 @@ impl FrameDescriptorSet {
         ReflectedLayoutSpec::shared(SetRole::Frame)
     }
 
-    unsafe fn write_descriptor_sets(&mut self, rrdevice: &RRDevice) -> anyhow::Result<()> {
+    unsafe fn write_descriptor_sets(&self, rrdevice: &RRDevice) -> anyhow::Result<()> {
         for (set, buffer) in self.sets.iter().zip(&self.buffers) {
             self.layout
                 .writer(*set)
-                .buffer(FRAME_UBO_BINDING, *buffer, 0, size_of::<FrameUBO>() as u64)?
+                .uniform(model::FRAME, buffer, 0)?
                 .apply(rrdevice);
         }
         Ok(())
@@ -75,25 +64,12 @@ impl FrameDescriptorSet {
         image_index: usize,
         ubo: &FrameUBO,
     ) -> anyhow::Result<()> {
-        let memory = rrdevice.device.map_memory(
-            self.buffer_memories[image_index],
-            0,
-            size_of::<FrameUBO>() as u64,
-            vk::MemoryMapFlags::empty(),
-        )?;
-        memcpy(ubo, memory.cast(), 1);
-        rrdevice
-            .device
-            .unmap_memory(self.buffer_memories[image_index]);
-        Ok(())
+        self.buffers[image_index].write_slot(rrdevice, 0, ubo)
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        for &buffer in &self.buffers {
-            device.destroy_buffer(buffer, None);
-        }
-        for &memory in &self.buffer_memories {
-            device.free_memory(memory, None);
+        for buffer in &mut self.buffers {
+            buffer.destroy(device);
         }
         self.layout.destroy(device);
     }

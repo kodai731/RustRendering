@@ -1,13 +1,15 @@
 use cgmath::{Matrix4, SquareMatrix, Vector4};
+use thyllore_spirv_reflect::declare_gpu_block;
 
-#[repr(C)]
-#[derive(Clone, Debug, Copy)]
-pub struct FrameUBO {
-    pub view: Matrix4<f32>,
-    pub proj: Matrix4<f32>,
-    pub camera_pos: Vector4<f32>,
-    pub light_pos: Vector4<f32>,
-    pub light_color: Vector4<f32>,
+declare_gpu_block! {
+    #[derive(Clone, Debug, Copy)]
+    pub struct FrameUBO {
+        pub view: Matrix4<f32>,
+        pub proj: Matrix4<f32>,
+        pub camera_pos: Vector4<f32>,
+        pub light_pos: Vector4<f32>,
+        pub light_color: Vector4<f32>,
+    }
 }
 
 impl Default for FrameUBO {
@@ -22,10 +24,11 @@ impl Default for FrameUBO {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Debug, Copy)]
-pub struct ObjectUBO {
-    pub model: Matrix4<f32>,
+declare_gpu_block! {
+    #[derive(Clone, Debug, Copy)]
+    pub struct ObjectUBO {
+        pub model: Matrix4<f32>,
+    }
 }
 
 impl Default for ObjectUBO {
@@ -36,13 +39,14 @@ impl Default for ObjectUBO {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Debug, Copy)]
-pub struct MaterialUBO {
-    pub base_color: Vector4<f32>,
-    pub metallic: f32,
-    pub roughness: f32,
-    pub _padding: [f32; 2],
+declare_gpu_block! {
+    #[derive(Clone, Debug, Copy)]
+    pub struct MaterialUBO {
+        pub base_color: Vector4<f32>,
+        pub metallic: f32,
+        pub roughness: f32,
+        pub _padding: [f32; 2],
+    }
 }
 
 impl Default for MaterialUBO {

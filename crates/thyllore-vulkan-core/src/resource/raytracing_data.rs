@@ -6,6 +6,7 @@ use crate::command::RRCommandPool;
 use crate::core::device::RRDevice;
 use crate::core::swapchain::RRSwapchain;
 use crate::data::{self as vulkan_data, SceneUniformData};
+use crate::descriptor::ReflectedSetLayout;
 use crate::descriptor::{
     CompositeGBufferViews, FlameImageBindings, RRAutoExposureAverageDescriptorSet,
     RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
@@ -25,6 +26,7 @@ use crate::renderer::tonemap::ToneMapPushConstants;
 use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
+use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
 use thyllore_effect_core::FlameUBO;
 
@@ -64,9 +66,7 @@ pub struct RayTracingData {
 
     pub flame_shading_pipeline: Option<RRPipeline>,
     pub flame_descriptor: Option<RRFlameDescriptorSet>,
-    pub flame_uniform_buffer: Option<vk::Buffer>,
-    pub flame_uniform_buffer_memory: Option<vk::DeviceMemory>,
-    pub flame_ubo_slot_size: vk::DeviceSize,
+    pub flame_ubo: Option<UniformBuffer<FlameUBO>>,
 
     pub flame_sdf_image: vk::Image,
     pub flame_sdf_image_memory: vk::DeviceMemory,
@@ -195,9 +195,9 @@ impl RayTracingData {
         hdr_render_pass: Option<vk::RenderPass>,
     ) -> Result<()> {
         let render_layouts = [
-            graphics_resources.frame_set.layout.handle,
-            graphics_resources.materials.layout.handle,
-            graphics_resources.objects.layout.handle,
+            &graphics_resources.frame_set.layout,
+            &graphics_resources.materials.layout,
+            &graphics_resources.objects.layout,
         ];
 
         self.gbuffer_pipeline = Some(build_gbuffer_pipeline(
@@ -310,9 +310,9 @@ impl RayTracingData {
         let ghost_render_pass = OnionSkinPassResources::create_ghost_render_pass(rrdevice)?;
 
         let render_layouts = [
-            graphics_resources.frame_set.layout.handle,
-            graphics_resources.materials.layout.handle,
-            graphics_resources.objects.layout.handle,
+            &graphics_resources.frame_set.layout,
+            &graphics_resources.materials.layout,
+            &graphics_resources.objects.layout,
         ];
 
         let ghost_pipeline = PipelineBuilder::from_pass(&ONION_SKIN_GHOST)
@@ -337,7 +337,7 @@ impl RayTracingData {
                 dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
                 alpha_op: vk::BlendOp::ADD,
             })
-            .descriptor_layouts(render_layouts.to_vec())
+            .descriptor_layouts(&render_layouts)
             .push_constants(PushConstantConfig {
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
                 offset: 0,
@@ -382,7 +382,7 @@ impl RayTracingData {
                 dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
                 alpha_op: vk::BlendOp::ADD,
             })
-            .descriptor_layouts(vec![composite_descriptor_layout.handle])
+            .descriptor_layouts(&[&composite_descriptor_layout])
             .build(rrdevice, rrrender, Some(vk::Extent2D { width, height }))?;
 
         let composite_framebuffer = OnionSkinPassResources::create_single_framebuffer(
@@ -425,24 +425,18 @@ impl RayTracingData {
         position_sampler: vk::Sampler,
         scene_depth_view: vk::ImageView,
     ) -> Result<()> {
-        let min_alignment = rrdevice.min_uniform_buffer_offset_alignment;
-        let slot_size = (std::mem::size_of::<FlameUBO>() as vk::DeviceSize + min_alignment - 1)
-            & !(min_alignment - 1);
-        let total_size = slot_size * MAX_FLAME_INSTANCES as vk::DeviceSize;
-        let (flame_ubo_buffer, flame_ubo_memory) = create_buffer(
+        let flame_ubo = UniformBuffer::new(
             instance,
             rrdevice,
-            total_size,
-            vk::BufferUsageFlags::UNIFORM_BUFFER | vk::BufferUsageFlags::TRANSFER_DST,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            MAX_FLAME_INSTANCES,
+            Placement::DeviceUpdated,
         )?;
-        self.write_initial_flame_ubo(rrdevice, flame_ubo_memory)?;
+        flame_ubo.write_slot(rrdevice, 0, &FlameUBO::default())?;
 
         let flame_descriptor = RRFlameDescriptorSet::new(rrdevice)?;
         flame_descriptor.write_all(
             rrdevice,
-            flame_ubo_buffer,
-            slot_size,
+            &flame_ubo,
             FlameImageBindings {
                 history_image_views: flame_buffer.history_image_views,
                 flame_sampler: flame_buffer.sampler,
@@ -489,41 +483,17 @@ impl RayTracingData {
                 size: std::mem::size_of::<crate::renderer::FlamePushConstants>() as u32,
             })
             .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
-            .descriptor_layouts(vec![
-                graphics_resources.frame_set.layout.handle,
-                flame_descriptor.layout.handle,
+            .descriptor_layouts(&[
+                &graphics_resources.frame_set.layout,
+                &flame_descriptor.layout,
             ])
             .build(rrdevice, rrrender, Some(flame_buffer.extent()))?;
 
         self.flame_shading_pipeline = Some(flame_shading_pipeline);
         self.flame_descriptor = Some(flame_descriptor);
-        self.flame_uniform_buffer = Some(flame_ubo_buffer);
-        self.flame_uniform_buffer_memory = Some(flame_ubo_memory);
-        self.flame_ubo_slot_size = slot_size;
+        self.flame_ubo = Some(flame_ubo);
 
         log!("Created flame pipelines");
-        Ok(())
-    }
-
-    unsafe fn write_initial_flame_ubo(
-        &self,
-        rrdevice: &RRDevice,
-        flame_ubo_memory: vk::DeviceMemory,
-    ) -> Result<()> {
-        let initial_ubo = FlameUBO::default();
-
-        let mapped = rrdevice.device.map_memory(
-            flame_ubo_memory,
-            0,
-            std::mem::size_of::<FlameUBO>() as vk::DeviceSize,
-            vk::MemoryMapFlags::empty(),
-        )?;
-        std::ptr::copy_nonoverlapping(
-            &initial_ubo as *const FlameUBO as *const u8,
-            mapped.cast(),
-            std::mem::size_of::<FlameUBO>(),
-        );
-        rrdevice.device.unmap_memory(flame_ubo_memory);
         Ok(())
     }
 
@@ -564,7 +534,7 @@ impl RayTracingData {
                 compare_op: vk::CompareOp::ALWAYS,
             })
             .custom_render_pass(offscreen_render_pass)
-            .descriptor_layouts(vec![tonemap_descriptor.layout.handle])
+            .descriptor_layouts(&[&tonemap_descriptor.layout])
             .push_constants(PushConstantConfig {
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
                 offset: 0,
@@ -610,7 +580,7 @@ impl RayTracingData {
             .no_depth_test()
             .custom_render_pass(bloom_chain.downsample_render_pass)
             .msaa_samples(vk::SampleCountFlags::_1)
-            .descriptor_layouts(vec![bloom_descriptors.layout.handle])
+            .descriptor_layouts(&[&bloom_descriptors.layout])
             .push_constants(PushConstantConfig {
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
                 offset: 0,
@@ -637,7 +607,7 @@ impl RayTracingData {
                 dst_alpha_factor: vk::BlendFactor::ONE,
                 alpha_op: vk::BlendOp::ADD,
             })
-            .descriptor_layouts(vec![bloom_descriptors.layout.handle])
+            .descriptor_layouts(&[&bloom_descriptors.layout])
             .build(rrdevice, rrrender, None)?;
 
         self.bloom_downsample_pipeline = Some(downsample_pipeline);
@@ -680,7 +650,7 @@ impl RayTracingData {
             .no_depth_test()
             .custom_render_pass(dof_render_pass)
             .msaa_samples(vk::SampleCountFlags::_1)
-            .descriptor_layouts(vec![dof_descriptor.layout.handle])
+            .descriptor_layouts(&[&dof_descriptor.layout])
             .push_constants(PushConstantConfig {
                 stage_flags: vk::ShaderStageFlags::FRAGMENT,
                 offset: 0,
@@ -723,7 +693,7 @@ impl RayTracingData {
         let histogram_pipeline = RRPipeline::new_compute_with_push_constants(
             rrdevice,
             &AUTO_EXPOSURE_HISTOGRAM,
-            &[histogram_descriptor.layout.handle],
+            &[&histogram_descriptor.layout],
             &[histogram_push_range],
         )?;
 
@@ -745,7 +715,7 @@ impl RayTracingData {
         let average_pipeline = RRPipeline::new_compute_with_push_constants(
             rrdevice,
             &AUTO_EXPOSURE_AVERAGE,
-            &[average_descriptor.layout.handle],
+            &[&average_descriptor.layout],
             &[average_push_range],
         )?;
 
@@ -762,7 +732,7 @@ unsafe fn build_gbuffer_pipeline(
     rrdevice: &RRDevice,
     rrrender: &RRRender,
     rrswapchain: &RRSwapchain,
-    render_layouts: &[vk::DescriptorSetLayout],
+    render_layouts: &[&ReflectedSetLayout],
 ) -> Result<RRPipeline> {
     PipelineBuilder::from_pass(&GBUFFER)
         .vertex_input(VertexInputConfig::Standard)
@@ -772,7 +742,7 @@ unsafe fn build_gbuffer_pipeline(
         .mrt_attachments(4)
         .no_blend_attachment(3)
         .msaa_samples(vk::SampleCountFlags::_1)
-        .descriptor_layouts(render_layouts.to_vec())
+        .descriptor_layouts(render_layouts)
         .push_constants(PushConstantConfig {
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             offset: 0,
@@ -811,7 +781,7 @@ unsafe fn build_ray_query_pipeline(
     let pipeline = RRPipeline::new_compute_with_push_constants(
         rrdevice,
         &RAY_QUERY_SHADOW,
-        &[descriptor.layout.handle],
+        &[&descriptor.layout],
         &[push_constant_range],
     )?;
 
@@ -869,7 +839,7 @@ unsafe fn build_composite_pipeline(
         })
         .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
         .polygon_mode(vk::PolygonMode::FILL)
-        .descriptor_layouts(vec![descriptor.layout.handle])
+        .descriptor_layouts(&[&descriptor.layout])
         .push_constants(PushConstantConfig {
             stage_flags: vk::ShaderStageFlags::FRAGMENT,
             offset: 0,

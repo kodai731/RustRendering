@@ -231,9 +231,8 @@ pub fn apply_flame_style(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flame::ownership::{
-        changed_parameters, flame_parameter_snapshot, parameter_owner, ParameterOwner,
-    };
+    use crate::flame::flame_parameter_snapshot;
+    use crate::flame::ownership::{changed_parameters, parameter_owner, ParameterOwner};
     use std::collections::HashSet;
 
     fn full_style() -> FlameStyle {

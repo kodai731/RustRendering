@@ -696,19 +696,17 @@ pub unsafe fn record_flame_passes(
             is_noise_mode,
         );
 
-        // Calculate offset for this instance
-        let offset_i = i as vk::DeviceSize * app.data.raytracing.flame_ubo_slot_size;
-
-        // Update UBO buffer for this instance
-        if let Some(ubo_buffer) = app.data.raytracing.flame_uniform_buffer {
-            thyllore_vulkan_core::renderer::record_flame_ubo_update(
-                &ctx,
-                &ubo,
-                ubo_buffer,
-                offset_i,
-                command_buffer,
-            );
-        }
+        let Some(flame_ubo) = app.data.raytracing.flame_ubo.as_ref() else {
+            return Ok(());
+        };
+        let ubo_dynamic_offset = flame_ubo.slot_offset(i)? as u32;
+        flame_ubo.record_update(
+            &ctx.device.device,
+            command_buffer,
+            i,
+            &ubo,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+        )?;
 
         // Build per-instance model matrix
         let model_matrix = ubo.model;
@@ -761,7 +759,7 @@ pub unsafe fn record_flame_passes(
             shading_pipeline,
             descriptor,
             history_index,
-            offset_i as u32,
+            ubo_dynamic_offset,
             scissor,
             push_constants,
             image_index,

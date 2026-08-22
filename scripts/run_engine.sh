@@ -16,7 +16,8 @@ usage() {
     cat <<EOF
 Usage: ./run.sh engine [private|degrade|full] [options] [cargo args...]
 
-Launches the engine via cargo run. The mode maps to --curve-copilot:
+Launches the engine via cargo run after regenerating the flame gpu block
+components from SPIR-V (generate_gpu_blocks). The mode maps to --curve-copilot:
   private   ctx64, no sending (default; same as launching without a flag)
   degrade   ctx32 (older half of the context window zero-padded)
   full      ctx64 + feedback sending to the worker
@@ -126,9 +127,15 @@ if [[ "$MODE" == "full" ]]; then
 fi
 
 cd "$REPO_ROOT"
+echo "[run_engine] regenerating flame gpu blocks from SPIR-V"
+cargo run -p thyllore-shader-manifest --bin generate_gpu_blocks
+cargo build -p thyllore-vulkan-core
+cargo run -p thyllore-shader-manifest --bin generate_gpu_blocks
+
 source "$REPO_ROOT/scripts/lib/onnxruntime.sh"
 ensure_onnxruntime
 source "$REPO_ROOT/scripts/lib/helm_preflight.sh"
 helm_preflight
+
 echo "[run_engine] mode=$MODE cargo args: ${CARGO_ARGS[*]:-(none)}"
 exec cargo run "${CARGO_ARGS[@]}" -- --curve-copilot "$MODE"

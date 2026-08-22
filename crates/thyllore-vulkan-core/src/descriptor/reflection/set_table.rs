@@ -3,7 +3,8 @@ use std::collections::BTreeMap;
 use vulkanalia::prelude::v1_0::*;
 
 use thyllore_spirv_reflect::{
-    DescriptorCount, DescriptorKind, ReflectError, ReflectedBinding, ShaderReflection, ShaderStage,
+    DescriptorCount, DescriptorKind, ReflectError, ReflectedBinding, ReflectedBlock,
+    ShaderReflection, ShaderStage,
 };
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -11,7 +12,7 @@ pub struct MergedBinding {
     pub name: String,
     pub kind: DescriptorKind,
     pub count: DescriptorCount,
-    pub block_size: Option<u32>,
+    pub block: Option<ReflectedBlock>,
     pub stages: vk::ShaderStageFlags,
 }
 
@@ -80,7 +81,7 @@ impl DescriptorSetTable {
                     name: binding.name.clone(),
                     kind: binding.kind,
                     count: binding.count,
-                    block_size: binding.block_size,
+                    block: binding.block.clone(),
                     stages,
                 });
             }
@@ -88,7 +89,7 @@ impl DescriptorSetTable {
                 let existing = occupied.get_mut();
                 let is_same_resource = existing.kind == binding.kind
                     && existing.count == binding.count
-                    && existing.block_size == binding.block_size;
+                    && existing.block == binding.block;
                 if !is_same_resource {
                     return Err(ReflectError::ConflictingBinding {
                         set: binding.set,
@@ -273,7 +274,7 @@ mod tests {
             name: format!("b{index}"),
             kind,
             count: DescriptorCount::Fixed(1),
-            block_size: None,
+            block: None,
         }
     }
 

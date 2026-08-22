@@ -174,7 +174,7 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
         "mix_params": [ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain],
         "segment_params": [ubo.segment_params.count],
-        "thermal_params": [ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_c_k],
+        "thermal_params": [ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_ck],
         "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],
         "support_margin": [
             ubo.support_motion.support_margin,

@@ -1,14 +1,12 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::FLAME_RESOLVE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::flame_resolve;
+use crate::resource::uniform_buffer::UniformBuffer;
 use crate::vulkan::*;
+use thyllore_effect_core::FlameUBO;
 
 const FLAME_HISTORY_SET_COUNT: usize = 2;
-
-const FLAME_UBO_BINDING: u32 = 0;
-const HISTORY_SAMPLER_BINDING: u32 = 4;
-const SDF_SAMPLER_BINDING: u32 = 5;
-const SCENE_DEPTH_SAMPLER_BINDING: u32 = 6;
 
 #[derive(Clone, Copy, Debug)]
 pub struct FlameImageBindings {
@@ -29,7 +27,7 @@ pub struct RRFlameDescriptorSet {
 impl RRFlameDescriptorSet {
     pub fn layout_spec() -> ReflectedLayoutSpec {
         ReflectedLayoutSpec::local(&FLAME_RESOLVE).with_override(
-            FLAME_UBO_BINDING,
+            flame_resolve::FLAME,
             vk::DescriptorType::UNIFORM_BUFFER_DYNAMIC,
         )
     }
@@ -49,14 +47,13 @@ impl RRFlameDescriptorSet {
     pub unsafe fn write_all(
         &self,
         rrdevice: &RRDevice,
-        flame_ubo_buffer: vk::Buffer,
-        flame_ubo_size: vk::DeviceSize,
+        flame_ubo: &UniformBuffer<FlameUBO>,
         images: FlameImageBindings,
     ) -> Result<()> {
         for descriptor_set in self.descriptor_sets {
             self.layout
                 .writer(descriptor_set)
-                .buffer(FLAME_UBO_BINDING, flame_ubo_buffer, 0, flame_ubo_size)?
+                .uniform_dynamic(flame_resolve::FLAME, flame_ubo)?
                 .apply(rrdevice);
         }
         self.update_image_views(rrdevice, images)
@@ -72,19 +69,19 @@ impl RRFlameDescriptorSet {
             self.layout
                 .writer(descriptor_set)
                 .image(
-                    HISTORY_SAMPLER_BINDING,
+                    flame_resolve::FLAME_HISTORY_SAMPLER,
                     previous_history_view,
                     images.flame_sampler,
                     vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 )?
                 .image(
-                    SDF_SAMPLER_BINDING,
+                    flame_resolve::FLAME_SDF_SAMPLER,
                     images.sdf_image_view,
                     images.sdf_sampler,
                     vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 )?
                 .image(
-                    SCENE_DEPTH_SAMPLER_BINDING,
+                    flame_resolve::SCENE_DEPTH_SAMPLER,
                     images.scene_depth_view,
                     self.scene_depth_sampler,
                     vk::ImageLayout::DEPTH_STENCIL_READ_ONLY_OPTIMAL,

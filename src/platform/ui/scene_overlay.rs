@@ -8,6 +8,11 @@ use crate::ecs::resource::{
 };
 use crate::ecs::World;
 
+use super::flame_param_groups::{
+    FLAME_BODY_PARAMS, FLAME_BRANCH_PARAMS, FLAME_FOOTER_PARAMS, FLAME_MIX_PARAMS,
+    FLAME_MOTION_PARAMS, FLAME_NOISE_PARAMS,
+};
+use super::param_widgets::draw_scalar_params;
 use super::viewport_window::ViewportInfo;
 
 const OVERLAY_MARGIN: f32 = 8.0;
@@ -235,6 +240,19 @@ fn build_auto_rig_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ecs_worl
 fn build_screenshot_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue) {
     if ui.button("Screenshot") {
         ui_events.send(UIEvent::TakeScreenshot);
+    }
+}
+
+fn flame_key_button(ui: &imgui::Ui, ui_events: &mut UIEventQueue, name: &'static str, value: f32) {
+    let Some(param) = FlameParam::from_cli_name(name) else {
+        return;
+    };
+    ui.same_line();
+    if ui.small_button(format!("K##{name}")) {
+        ui_events.send(UIEvent::InsertScalarKey {
+            property_type: param.property_type(),
+            value,
+        });
     }
 }
 
@@ -837,78 +855,14 @@ fn build_flame_section(
                         effect_copy.emitter.ring_angular_speed = ring_speed;
                     }
 
-                    ui.slider_config("Height", 0.05, 10.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.height);
-                    ui.same_line();
-                    if ui.small_button("K##Height") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::Height.property_type(),
-                            value: effect_copy.height,
-                        });
-                    }
-
-                    ui.slider_config("Radius", 0.05, 10.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.radius);
-                    ui.same_line();
-                    if ui.small_button("K##Radius") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::Radius.property_type(),
-                            value: effect_copy.radius,
-                        });
-                    }
-
-                    ui.slider_config("Optical Depth", 0.0, 16.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.optical_depth);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Line-of-sight optical thickness tau0 = sigma_t * radius: > 0 \
-                             derives sigma_t as tau0 / radius so resizing the flame keeps \
-                             its opacity (0 = use the raw sigma_t channel directly)",
-                        );
-                    }
-
-                    ui.slider_config("Intensity", 0.0, 10.0)
-                        .build(&mut effect_copy.intensity);
-                    ui.same_line();
-                    if ui.small_button("K##Intensity") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::Intensity.property_type(),
-                            value: effect_copy.intensity,
-                        });
-                    }
-
-                    ui.slider_config("Density Exp", 0.0, 4.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.thermal.density_exp);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Mass curve of a mixing parcel, (1 - m)^a: larger thins the mixed \
-                             regions faster",
-                        );
-                    }
-                    ui.slider_config("Temp Exp", 0.0, 4.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.thermal.temp_exp);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Temperature curve of a mixing parcel, T_cold + (T_hot - T_cold) \
-                             (1 - m)^b: larger than Density Exp cools before thinning (dark red \
-                             tufts remain), smaller thins before cooling",
-                        );
-                    }
-                    ui.slider_config("Wien C (K)", 0.0, 24000.0)
-                        .display_format("%.0f")
-                        .build(&mut effect_copy.thermal.wien_c_k);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Wien constant of the emissivity exp(-c/T): 24000 is physical at \
-                             0.6 um, smaller compresses the hot/cold brightness contrast like \
-                             camera exposure",
-                        );
-                    }
+                    draw_scalar_params(
+                        ui,
+                        FLAME_BODY_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, name, value| flame_key_button(ui, ui_events, name, value),
+                    );
 
                     let mut color_changed = false;
                     color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color.base);
@@ -917,39 +871,14 @@ fn build_flame_section(
                         effect_copy.color.use_blackbody = false;
                     }
 
-                    ui.slider_config("Noise Amplitude", 0.0, 3.0)
-                        .build(&mut effect_copy.noise.amplitude);
-                    ui.same_line();
-                    if ui.small_button("K##NoiseAmplitude") {
-                        ui_events.send(UIEvent::InsertScalarKey {
-                            property_type: FlameParam::NoiseAmplitude.property_type(),
-                            value: effect_copy.noise.amplitude,
-                        });
-                    }
-
-                    ui.slider_config("Noise Contrast", 0.25, 4.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.noise.contrast);
-
-                    ui.slider_config("Swirl", 0.0, 1.5)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.swirl.gain);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Medium swirl share: strain budget spent on azimuthal shear \
-                             (0 = off; raising it thins the carve warp)",
-                        );
-                    }
-
-                    ui.slider_config("Noise Aspect", 0.05, 1.5)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.noise.aniso_y);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Vertical scale of the noise cells: small = tall streaks, 1 = \
-                             isotropic puffs (in the height-scaled mode)",
-                        );
-                    }
+                    draw_scalar_params(
+                        ui,
+                        FLAME_NOISE_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, name, value| flame_key_button(ui, ui_events, name, value),
+                    );
 
                     let mut noise_sharpness =
                         thyllore_effect_core::shaping_scale_to_noise_sharpness(
@@ -973,53 +902,14 @@ fn build_flame_section(
                         );
                     }
 
-                    ui.slider_config("Mix Lo", -3.0, 3.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.mix.lo);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Erosion carrier level (std units, carve-positive) where a parcel \
-                             starts mixing with ambient air: lower mixes more of the body",
-                        );
-                    }
-                    ui.slider_config("Mix Hi", -3.0, 4.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.mix.hi);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Carrier level (std units) where a parcel counts as fully mixed \
-                             (thin and cold)",
-                        );
-                    }
-                    ui.slider_config("Mix Scale", 0.1, 2.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.mix.scale);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Wavenumber of the mixing eddies relative to the low erosion \
-                             octave: below 1 the mixed and unmixed regions grow larger than \
-                             the carve detail",
-                        );
-                    }
-                    ui.slider_config("Mix Radial Gain", 0.0, 3.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.mix.radial_gain);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Shear-layer ramp added to the mixing degree, gain * u^2 over the \
-                             normalized radius: the axis stays an unmixed bright core while \
-                             the rim thins and cools",
-                        );
-                    }
-                    ui.slider_config("Mix Height Gain", 0.0, 2.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.mix.height_gain);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Height ramp added to the mixing degree, gain * h^2: the plume \
-                             thins and cools toward the top",
-                        );
-                    }
+                    draw_scalar_params(
+                        ui,
+                        FLAME_MIX_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, name, value| flame_key_button(ui, ui_events, name, value),
+                    );
 
                     let mut wave_segments = effect_copy.wave_segments as i32;
                     if ui
@@ -1060,196 +950,40 @@ fn build_flame_section(
                         );
                     }
 
-                    ui.slider_config("Twist", 0.0, 8.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.twist.gain);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Azimuthal twist of the noise pattern around the axis \
-                             (radians at the tip; a rotation never folds, so any \
-                             amplitude is structurally safe; 0 = off)",
-                        );
-                    }
-
-                    ui.slider_config("Twist Speed", 0.0, 4.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.twist.speed);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Twist rotation rate scale (0 = follow Swirl Speed; > 0 gives \
-                             the twist its own rate so depth and speed tune independently)",
-                        );
-                    }
-
-                    ui.slider_config("Burnout", 0.0, 32.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.carve.burnout_gain);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Age-driven burnout of the rising material: deepens the erosion \
-                             mean toward the flame top so noise troughs sever the column \
-                             (base shedding) and detached tongues dissolve (0 = off; \
-                             the range above ~8 is debug headroom for making the severing \
-                             obvious, pair with Carve Residual 0)",
-                        );
-                    }
-
-                    ui.slider_config("Carve Residual", 0.0, 0.5)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.carve.residual);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Translucent floor left where the noise carves the medium away. \
-                             0 = fully carved spans become hard holes — the severing moment \
-                             of Burnout is only visible near 0 (debug); the product look \
-                             keeps ~0.12",
-                        );
-                    }
-
-                    ui.slider_config("Meander", 0.0, 2.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.meander.amp);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text("Horizontal meandering motion of the flame (0 = off)");
-                    }
-                    ui.slider_config("Meander Frequency", 0.2, 30.0)
-                        .display_format("%.1f")
-                        .build(&mut effect_copy.meander.frequency);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Wavenumber multiplier of the meander modes: 1 = two long bends over \
-                             the height, ~12 folds the column into a snake with ~4 bends (pillar \
-                             reference)",
-                        );
-                    }
-
-                    ui.slider_config("Swirl Speed", 0.0, 4.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.swirl.speed);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "How fast the swirl layers counter-rotate against the rise \
-                             (time-only: costs no strain budget)",
-                        );
-                    }
-                    ui.slider_config("Spread", 0.0, 3.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.spread_gain);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Medium spread toward the tip: noise features enlarge, drift \
-                             outward and dissolve as they rise (0 = rigid scroll)",
-                        );
-                    }
+                    draw_scalar_params(
+                        ui,
+                        FLAME_MOTION_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, name, value| flame_key_button(ui, ui_events, name, value),
+                    );
 
                     ui.separator();
                     ui.text("Branches");
-                    ui.slider_config("Branch Period", 0.0, 2.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.period);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Spawn period [s] of the branch elements (vortex lines that roll \
-                             the medium into side tongues); raised to life/31 when the table \
-                             is full, so shorter periods never shrink the tongues; 0 = off",
-                        );
-                    }
-                    ui.slider_config("Branch Life", 0.1, 6.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.life);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Lifetime [s] of one element (wind out fast, hold, burn out); the \
-                             spawn period is raised to life/31 when the element table is full",
-                        );
-                    }
-                    ui.slider_config("Branch Gain", -8.0, 8.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.gain);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Rotation angle [rad] the core reaches at the end of winding; the \
-                             medium flows along the arcs toward the tongue tip at a constant \
-                             rate. Positive rolls trunk material down-out-up (cap curling \
-                             inward), negative rolls it up-out-down (KH crest leaning \
-                             upward). A compact rotation never folds; 0 = off",
-                        );
-                    }
-                    ui.slider_config("Branch Core", 0.05, 3.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.core_radius);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Vortex core radius as a ratio of the local trunk radius: small \
-                             values shear the medium into thin spirals, near 1 the whole \
-                             disc turns together and tongues keep the trunk's thickness",
-                        );
-                    }
-                    ui.slider_config("Branch Core Offset", 0.0, 3.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.core_offset);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Lateral position of the core at spawn as a ratio of the local \
-                             trunk radius: 0 on the axis tilts the whole slab, 1 on the shear \
-                             layer rolls trunk material outward as a billow",
-                        );
-                    }
-                    ui.slider_config("Branch Reach", 0.5, 8.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.reach);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Compact reach of one element at the end of its life as a ratio \
-                             of the local trunk radius; nothing beyond it moves, so it bounds \
-                             how far tongues can extend sideways",
-                        );
-                    }
-                    ui.slider_config("Branch Spread", 0.0, 1.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.spread);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Scatter of azimuth, timing jitter, left/right alternation, \
-                             element size, line tilt and window shift (0 = identical \
-                             elements strictly alternating in one plane)",
-                        );
-                    }
-                    ui.slider_config("Branch Height", 0.0, 1.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.spawn_height);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text("Center of the spawn height band (0 = base, 1 = top)");
-                    }
-                    ui.slider_config("Branch Height Range", 0.0, 1.0)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.branch.spawn_range);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Full width of the spawn height band; 1.0 with center 0.5 spawns \
-                             elements over the whole trunk",
-                        );
-                    }
+                    draw_scalar_params(
+                        ui,
+                        FLAME_BRANCH_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, name, value| flame_key_button(ui, ui_events, name, value),
+                    );
+
                     let mut branch_seed = effect_copy.branch.seed as i32;
                     if ui.input_int("Branch Seed", &mut branch_seed).build() {
                         effect_copy.branch.seed = branch_seed.max(0) as u32;
                     }
 
                     ui.separator();
-                    ui.slider_config("Support", 1.0, 2.5)
-                        .display_format("%.2f")
-                        .build(&mut effect_copy.support_margin);
-                    if ui.is_item_hovered() {
-                        ui.tooltip_text(
-                            "Flame density support radius: multiplier for the biweight support \
-                             radius (how much extra space is allowed for carving). 1.0 is \
-                             default; higher values result in larger support and may leave \
-                             chunks at the outer edges.",
-                        );
-                    }
-
-                    ui.slider_config("Time Scale", 0.0, 4.0)
-                        .build(&mut effect_copy.time_scale);
+                    draw_scalar_params(
+                        ui,
+                        FLAME_FOOTER_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, name, value| flame_key_button(ui, ui_events, name, value),
+                    );
 
                     if ui.button("Clear Flame Keys") {
                         ui_events.send(UIEvent::ClearScalarKeys);

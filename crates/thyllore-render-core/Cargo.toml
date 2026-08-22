@@ -12,3 +12,4 @@ anyhow = "1"
 cgmath = "0.18"
 thyllore-anim-core = { path = "../thyllore-anim-core" }
 thyllore-model-core = { path = "../thyllore-model-core" }
+thyllore-spirv-reflect = { path = "../thyllore-spirv-reflect" }

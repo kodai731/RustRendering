@@ -23,5 +23,9 @@ thiserror = "1"
 png = "0.17"
 imgui = { path = "../../vendor/imgui", features = ["tables-api", "docking"] }
 
+[dev-dependencies]
+thyllore-shader-manifest = { path = "../thyllore-shader-manifest" }
+
 [build-dependencies]
 thyllore-shader-manifest = { path = "../thyllore-shader-manifest" }
+thyllore-spirv-reflect = { path = "../thyllore-spirv-reflect" }

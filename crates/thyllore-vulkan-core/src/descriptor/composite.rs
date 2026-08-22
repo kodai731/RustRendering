@@ -1,17 +1,20 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::COMPOSITE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
-use crate::resource::buffer::create_buffer;
+use crate::descriptor::shader_bindings::composite;
+use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::vulkan::*;
+use thyllore_spirv_reflect::declare_gpu_block;
 
 pub const MAX_SELECTED_OBJECTS: usize = 32;
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct SelectionUBO {
-    pub selected_ids: [[u32; 4]; MAX_SELECTED_OBJECTS],
-    pub selected_count: u32,
-    pub _padding: [u32; 3],
+declare_gpu_block! {
+    #[derive(Clone, Copy, Debug)]
+    pub struct SelectionUBO {
+        pub selected_ids: [[u32; 4]; MAX_SELECTED_OBJECTS],
+        pub selected_count: u32,
+        pub _padding: [u32; 3],
+    }
 }
 
 impl Default for SelectionUBO {
@@ -23,14 +26,6 @@ impl Default for SelectionUBO {
         }
     }
 }
-
-const POSITION_SAMPLER_BINDING: u32 = 0;
-const NORMAL_SAMPLER_BINDING: u32 = 1;
-const SHADOW_MASK_SAMPLER_BINDING: u32 = 2;
-const ALBEDO_SAMPLER_BINDING: u32 = 3;
-const SCENE_UBO_BINDING: u32 = 4;
-const OBJECT_ID_SAMPLER_BINDING: u32 = 5;
-const SELECTION_UBO_BINDING: u32 = 6;
 
 #[derive(Clone, Copy, Debug)]
 pub struct CompositeGBufferViews {
@@ -50,8 +45,7 @@ pub struct CompositeGBufferViews {
 pub struct RRCompositeDescriptorSet {
     pub layout: ReflectedSetLayout,
     pub descriptor_set: vk::DescriptorSet,
-    pub selection_buffer: vk::Buffer,
-    pub selection_buffer_memory: vk::DeviceMemory,
+    pub selection: UniformBuffer<SelectionUBO>,
 }
 
 impl RRCompositeDescriptorSet {
@@ -65,8 +59,7 @@ impl RRCompositeDescriptorSet {
         Ok(Self {
             layout,
             descriptor_set: vk::DescriptorSet::null(),
-            selection_buffer: vk::Buffer::null(),
-            selection_buffer_memory: vk::DeviceMemory::null(),
+            selection: UniformBuffer::default(),
         })
     }
 
@@ -79,26 +72,18 @@ impl RRCompositeDescriptorSet {
     ) -> Result<()> {
         self.descriptor_set = self.layout.allocate_set(rrdevice)?;
 
-        let (selection_buffer, selection_buffer_memory) =
-            Self::create_selection_buffer(instance, rrdevice)?;
-        self.selection_buffer = selection_buffer;
-        self.selection_buffer_memory = selection_buffer_memory;
+        self.selection = UniformBuffer::new(instance, rrdevice, 1, Placement::HostMapped)?;
 
         self.update_gbuffer_views(rrdevice, gbuffer_views)?;
         self.layout
             .writer(self.descriptor_set)
             .buffer(
-                SCENE_UBO_BINDING,
+                composite::SCENE_DATA,
                 scene_uniform_buffer,
                 0,
                 std::mem::size_of::<crate::data::SceneUniformData>() as u64,
             )?
-            .buffer(
-                SELECTION_UBO_BINDING,
-                selection_buffer,
-                0,
-                std::mem::size_of::<SelectionUBO>() as u64,
-            )?
+            .uniform(composite::SELECTION, &self.selection, 0)?
             .apply(rrdevice);
         Ok(())
     }
@@ -115,50 +100,37 @@ impl RRCompositeDescriptorSet {
         self.layout
             .writer(self.descriptor_set)
             .image(
-                POSITION_SAMPLER_BINDING,
+                composite::POSITION_SAMPLER,
                 views.position_image_view,
                 views.position_sampler,
                 vk::ImageLayout::GENERAL,
             )?
             .image(
-                NORMAL_SAMPLER_BINDING,
+                composite::NORMAL_SAMPLER,
                 views.normal_image_view,
                 views.normal_sampler,
                 vk::ImageLayout::GENERAL,
             )?
             .image(
-                SHADOW_MASK_SAMPLER_BINDING,
+                composite::SHADOW_MASK_SAMPLER,
                 views.shadow_mask_image_view,
                 views.shadow_mask_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .image(
-                ALBEDO_SAMPLER_BINDING,
+                composite::ALBEDO_SAMPLER,
                 views.albedo_image_view,
                 views.albedo_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .image(
-                OBJECT_ID_SAMPLER_BINDING,
+                composite::OBJECT_ID_SAMPLER,
                 views.object_id_image_view,
                 views.object_id_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
             .apply(rrdevice);
         Ok(())
-    }
-
-    unsafe fn create_selection_buffer(
-        instance: &Instance,
-        rrdevice: &RRDevice,
-    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
-        create_buffer(
-            instance,
-            rrdevice,
-            std::mem::size_of::<SelectionUBO>() as u64,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )
     }
 
     pub unsafe fn update_selection(
@@ -174,31 +146,11 @@ impl RRCompositeDescriptorSet {
         }
         ubo.selected_count = count as u32;
 
-        let memory = rrdevice.device.map_memory(
-            self.selection_buffer_memory,
-            0,
-            std::mem::size_of::<SelectionUBO>() as u64,
-            vk::MemoryMapFlags::empty(),
-        )?;
-
-        std::ptr::copy_nonoverlapping(&ubo, memory as *mut SelectionUBO, 1);
-
-        rrdevice.device.unmap_memory(self.selection_buffer_memory);
-
-        Ok(())
+        self.selection.write_slot(rrdevice, 0, &ubo)
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.selection_buffer != vk::Buffer::null() {
-            device.destroy_buffer(self.selection_buffer, None);
-            self.selection_buffer = vk::Buffer::null();
-        }
-
-        if self.selection_buffer_memory != vk::DeviceMemory::null() {
-            device.free_memory(self.selection_buffer_memory, None);
-            self.selection_buffer_memory = vk::DeviceMemory::null();
-        }
-
+        self.selection.destroy(device);
         self.layout.destroy(device);
     }
 }

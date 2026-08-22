@@ -1,9 +1,8 @@
 use crate::core::device::*;
 use crate::descriptor::pass_manifest::{SetRole, BLOOM_DOWNSAMPLE, BLOOM_UPSAMPLE};
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
+use crate::descriptor::shader_bindings::bloom_downsample;
 use crate::vulkan::*;
-
-const INPUT_SAMPLER_BINDING: u32 = 0;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRBloomDescriptorSets {
@@ -41,7 +40,7 @@ impl RRBloomDescriptorSets {
         self.layout
             .writer(descriptor_set)
             .image(
-                INPUT_SAMPLER_BINDING,
+                bloom_downsample::INPUT_SAMPLER,
                 image_view,
                 sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
