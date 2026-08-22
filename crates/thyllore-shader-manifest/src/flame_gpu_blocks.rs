@@ -27,6 +27,12 @@ pub enum FlameGpuBlocksError {
     Reflect { path: String, source: ReflectError },
     #[error("no SPIR-V under {spirv_dir} declares uniform block `{block}`")]
     BlockNotFound { spirv_dir: String, block: String },
+    #[error("uniform block `{block}` differs between {first} and {second}")]
+    BlockDiffers {
+        block: String,
+        first: String,
+        second: String,
+    },
     #[error(transparent)]
     Codegen(#[from] GpuBlockCodegenError),
 }
@@ -65,6 +71,7 @@ fn find_uniform_block(
         .collect();
     paths.sort();
 
+    let mut found: Option<(ReflectedBlock, &Path)> = None;
     for path in &paths {
         let bytes = std::fs::read(path).map_err(|source| io_error(path, source))?;
         let reflection =
@@ -72,17 +79,32 @@ fn find_uniform_block(
                 path: path.display().to_string(),
                 source,
             })?;
-        let found = reflection
+        let Some(block) = reflection
             .bindings
             .into_iter()
             .filter_map(|binding| binding.block)
-            .find(|block| block.type_name == block_name);
-        if let Some(block) = found {
-            return Ok(block);
+            .find(|block| block.type_name == block_name)
+        else {
+            continue;
+        };
+
+        match &found {
+            None => found = Some((block, path)),
+            Some((first, first_path)) if *first != block => {
+                return Err(FlameGpuBlocksError::BlockDiffers {
+                    block: block_name.to_string(),
+                    first: first_path.display().to_string(),
+                    second: path.display().to_string(),
+                });
+            }
+            Some(_) => {}
         }
     }
-    Err(FlameGpuBlocksError::BlockNotFound {
-        spirv_dir: spirv_dir.display().to_string(),
-        block: block_name.to_string(),
-    })
+
+    found
+        .map(|(block, _)| block)
+        .ok_or_else(|| FlameGpuBlocksError::BlockNotFound {
+            spirv_dir: spirv_dir.display().to_string(),
+            block: block_name.to_string(),
+        })
 }

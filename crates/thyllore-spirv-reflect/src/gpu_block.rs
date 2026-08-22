@@ -8,9 +8,9 @@ pub struct GpuMember {
     pub nested: &'static [GpuMember],
 }
 
-/// Implemented only through `declare_gpu_block!`, which forces `#[repr(C)]` and
-/// plain-data fields so that `as_bytes` is the single sanctioned bytes view.
-pub trait GpuBlock: Copy + 'static {
+/// Safety: implementors must be `#[repr(C)]` plain data with no uninitialized bytes,
+/// which `declare_gpu_block!` guarantees; implement it only through the macro.
+pub unsafe trait GpuBlock: Copy + 'static {
     const NAME: &'static str;
     const MEMBERS: &'static [GpuMember];
     const SIZE: usize = std::mem::size_of::<Self>();
@@ -41,7 +41,7 @@ macro_rules! declare_gpu_block {
             )*
         }
 
-        impl $crate::GpuBlock for $name {
+        unsafe impl $crate::GpuBlock for $name {
             const NAME: &'static str = stringify!($name);
             const MEMBERS: &'static [$crate::GpuMember] = &[
                 $(
