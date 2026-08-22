@@ -2,7 +2,7 @@ use cgmath::{Deg, Euler, Quaternion, Rad};
 
 use super::camera::CameraComponent;
 use super::scalar_channel::{ScalarChannel, ScalarChannelDomain};
-use crate::ecs::resource::TimelineState;
+use crate::ecs::resource::{ActiveCamera, TimelineState};
 use crate::ecs::world::{Entity, Transform, World};
 use thyllore_anim_core::editable::PropertyType;
 
@@ -15,10 +15,15 @@ pub enum CameraParam {
     RotationY,
     RotationZ,
     FovY,
+    /// 1.0 while this camera should drive the view; sampled with step semantics
+    /// by `sync_active_camera_switch`, so a key marks a cut to this camera.
+    Active,
 }
 
+pub const CAMERA_ACTIVE_THRESHOLD: f32 = 0.5;
+
 impl CameraParam {
-    pub const ALL: [CameraParam; 7] = [
+    pub const ALL: [CameraParam; 8] = [
         CameraParam::TranslationX,
         CameraParam::TranslationY,
         CameraParam::TranslationZ,
@@ -26,6 +31,7 @@ impl CameraParam {
         CameraParam::RotationY,
         CameraParam::RotationZ,
         CameraParam::FovY,
+        CameraParam::Active,
     ];
 
     pub const fn code(self) -> u16 {
@@ -37,6 +43,7 @@ impl CameraParam {
             CameraParam::RotationY => 260,
             CameraParam::RotationZ => 261,
             CameraParam::FovY => 262,
+            CameraParam::Active => 263,
         }
     }
 
@@ -64,6 +71,7 @@ impl CameraParam {
             CameraParam::RotationY => "Rotation Y",
             CameraParam::RotationZ => "Rotation Z",
             CameraParam::FovY => "FOV Y",
+            CameraParam::Active => "Active",
         }
     }
 
@@ -76,6 +84,7 @@ impl CameraParam {
             CameraParam::RotationY => "camera_rotation_y",
             CameraParam::RotationZ => "camera_rotation_z",
             CameraParam::FovY => "camera_fov_y",
+            CameraParam::Active => "camera_active",
         }
     }
 
@@ -88,6 +97,7 @@ impl CameraParam {
             CameraParam::RotationY => "CameraRotationY",
             CameraParam::RotationZ => "CameraRotationZ",
             CameraParam::FovY => "CameraFovY",
+            CameraParam::Active => "CameraActive",
         }
     }
 
@@ -100,6 +110,7 @@ impl CameraParam {
                 (-90.0, 90.0)
             }
             CameraParam::FovY => (20.0, 90.0),
+            CameraParam::Active => (0.0, 1.0),
         }
     }
 
@@ -114,10 +125,10 @@ impl CameraParam {
     }
 }
 
-pub static CAMERA_CHANNELS: [ScalarChannel; 7] = {
-    let mut channels = [CameraParam::TranslationX.channel(); 7];
+pub static CAMERA_CHANNELS: [ScalarChannel; 8] = {
+    let mut channels = [CameraParam::TranslationX.channel(); 8];
     let mut i = 0;
-    while i < 7 {
+    while i < 8 {
         channels[i] = CameraParam::ALL[i].channel();
         i += 1;
     }
@@ -146,6 +157,12 @@ fn camera_entities(world: &World) -> Vec<Entity> {
 
 fn camera_channel_read(world: &World, entity: Entity, property_type: PropertyType) -> Option<f32> {
     let param = CameraParam::from_property_type(property_type)?;
+    if param == CameraParam::Active {
+        let is_active = world
+            .get_resource::<ActiveCamera>()
+            .is_some_and(|active| active.0 == Some(entity));
+        return Some(if is_active { 1.0 } else { 0.0 });
+    }
     let transform = world.get_component::<Transform>(entity)?;
     let camera = world.get_component::<CameraComponent>(entity)?;
     Some(camera_channel_value(&transform, &camera, param))
@@ -175,6 +192,7 @@ fn camera_channel_value(
             }
         }
         CameraParam::FovY => camera.fov_y.0,
+        CameraParam::Active => 0.0,
     }
 }
 
@@ -207,6 +225,7 @@ pub fn apply_camera_param_value(
             ));
         }
         CameraParam::FovY => camera.fov_y = Deg(value),
+        CameraParam::Active => {}
     }
 }
 

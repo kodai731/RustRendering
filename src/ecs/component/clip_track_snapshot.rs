@@ -1,9 +1,11 @@
 use crate::animation::editable::{BlendMode, ClipGroupId, ClipInstanceId, SourceClipId};
 use crate::animation::BoneId;
+use crate::ecs::systems::CameraSwitchMarker;
 use crate::ecs::world::Entity;
 
 pub struct ClipTrackSnapshot {
     pub entries: Vec<ClipTrackEntry>,
+    pub camera_switch_markers: Vec<CameraSwitchMarker>,
 }
 
 pub struct ClipTrackEntry {

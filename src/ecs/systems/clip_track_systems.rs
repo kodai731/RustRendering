@@ -84,7 +84,10 @@ pub fn query_clip_tracks(
         }
     }
 
-    ClipTrackSnapshot { entries }
+    ClipTrackSnapshot {
+        entries,
+        camera_switch_markers: crate::ecs::systems::camera_switch_markers(world),
+    }
 }
 
 pub fn resolve_mesh_bone_id(
