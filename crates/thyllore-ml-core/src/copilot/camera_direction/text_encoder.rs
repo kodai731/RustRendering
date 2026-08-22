@@ -128,7 +128,9 @@ mod tests {
         let onnx_dir = match std::env::var("GENDOP_ONNX_DIR") {
             Ok(v) => v,
             Err(e) => {
-                eprintln!("Skipping encode_matches_onnxruntime_reference: GENDOP_ONNX_DIR not set ({e})");
+                eprintln!(
+                    "Skipping encode_matches_onnxruntime_reference: GENDOP_ONNX_DIR not set ({e})"
+                );
                 return Ok(());
             }
         };
@@ -139,8 +141,16 @@ mod tests {
 
         assert_eq!(out.len(), 77 * 1024);
         let expected_first10: [f32; 10] = [
-            -1.0761719, 0.3203125, -0.19140625, -1.0839844, -0.4267578, 0.35791016, 1.6337891,
-            -0.19055176, -2.3535156, -1.0048828,
+            -1.0761719,
+            0.3203125,
+            -0.19140625,
+            -1.0839844,
+            -0.4267578,
+            0.35791016,
+            1.6337891,
+            -0.19055176,
+            -2.3535156,
+            -1.0048828,
         ];
         for (got, want) in out[..10].iter().zip(expected_first10.iter()) {
             assert!((got - want).abs() < 1e-4, "got {got} want {want}");
