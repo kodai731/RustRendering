@@ -3,6 +3,7 @@ use crate::core::swapchain::*;
 use crate::resource::buffer::*;
 use crate::vulkan::*;
 use thyllore_math_core::*;
+use thyllore_spirv_reflect::declare_gpu_block;
 
 pub use thyllore_model_core::mesh::{Vertex, VertexData};
 
@@ -126,12 +127,13 @@ impl RRData {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct UniformBufferObject {
-    pub model: Mat4,
-    pub view: Mat4,
-    pub proj: Mat4,
+declare_gpu_block! {
+    #[derive(Copy, Clone, Debug)]
+    pub struct UniformBufferObject {
+        pub model: Mat4,
+        pub view: Mat4,
+        pub proj: Mat4,
+    }
 }
 
 impl Default for UniformBufferObject {
@@ -145,17 +147,18 @@ impl Default for UniformBufferObject {
     }
 }
 
-#[repr(C)]
-#[derive(Copy, Clone, Debug)]
-pub struct SceneUniformData {
-    pub light_position: Vec4,
-    pub light_color: Vec4,
-    pub view: Mat4,
-    pub proj: Mat4,
-    pub debug_mode: i32,
-    pub shadow_strength: f32,
-    pub enable_distance_attenuation: i32,
-    pub exposure_value: f32,
+declare_gpu_block! {
+    #[derive(Copy, Clone, Debug)]
+    pub struct SceneUniformData {
+        pub light_position: Vec4,
+        pub light_color: Vec4,
+        pub view: Mat4,
+        pub proj: Mat4,
+        pub debug_mode: i32,
+        pub shadow_strength: f32,
+        pub enable_distance_attenuation: i32,
+        pub exposure_value: f32,
+    }
 }
 
 impl Default for SceneUniformData {

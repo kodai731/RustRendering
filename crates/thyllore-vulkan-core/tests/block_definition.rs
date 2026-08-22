@@ -1,27 +1,18 @@
 use std::path::{Path, PathBuf};
 
-use thyllore_effect_core::flame::analytic::ubo::FlameUBO;
+use thyllore_effect_core::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
+use thyllore_shader_manifest::{
+    flame_gpu_blocks_source, FLAME_GPU_BLOCKS_PATH, REGENERATE_GPU_BLOCKS_COMMAND,
+};
+use thyllore_spirv_reflect::{
+    compare_block_layout, BlockCoverage, DescriptorKind, GpuBlock, LayoutDifference, ReflectedBlock,
+};
 use thyllore_vulkan_core::data::{SceneUniformData, UniformBufferObject};
 use thyllore_vulkan_core::descriptor::{
     reflect_shader_bytes, DescriptorSetTable, LayoutMismatch, PassId, PassShaders,
     ReflectedLayoutSpec, SelectionUBO, ShaderFile, ShaderReflection, ALL_PASSES,
 };
-
-#[derive(Clone, Copy, Debug)]
-enum BlockCoverage {
-    Exact,
-    ShaderReadsPrefix,
-}
-
-struct BlockGolden {
-    pass: PassId,
-    set: u32,
-    binding: u32,
-    rust_type: &'static str,
-    rust_size: usize,
-    coverage: BlockCoverage,
-}
 
 fn workspace_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -56,105 +47,36 @@ fn build_table(pass: &PassShaders) -> DescriptorSetTable {
         .unwrap_or_else(|error| panic!("{}: merge shader stages: {error}", pass.name()))
 }
 
-fn block_goldens() -> Vec<BlockGolden> {
+struct RustBlock {
+    glsl_name: &'static str,
+    compare: fn(&ReflectedBlock, BlockCoverage) -> Vec<LayoutDifference>,
+}
+
+fn rust_block<T: GpuBlock>(glsl_name: &'static str) -> RustBlock {
+    RustBlock {
+        glsl_name,
+        compare: compare_block_layout::<T>,
+    }
+}
+
+fn rust_blocks() -> Vec<RustBlock> {
     vec![
-        BlockGolden {
-            pass: PassId::Model,
-            set: 0,
-            binding: 0,
-            rust_type: "FrameUBO",
-            rust_size: std::mem::size_of::<FrameUBO>(),
-            coverage: BlockCoverage::Exact,
-        },
-        BlockGolden {
-            pass: PassId::Model,
-            set: 1,
-            binding: 1,
-            rust_type: "MaterialUBO",
-            rust_size: std::mem::size_of::<MaterialUBO>(),
-            coverage: BlockCoverage::Exact,
-        },
-        BlockGolden {
-            pass: PassId::Model,
-            set: 2,
-            binding: 0,
-            rust_type: "ObjectUBO",
-            rust_size: std::mem::size_of::<ObjectUBO>(),
-            coverage: BlockCoverage::Exact,
-        },
-        BlockGolden {
-            pass: PassId::FlameResolve,
-            set: 1,
-            binding: 0,
-            rust_type: "FlameUBO",
-            rust_size: std::mem::size_of::<FlameUBO>(),
-            coverage: BlockCoverage::Exact,
-        },
-        BlockGolden {
-            pass: PassId::Tonemap,
-            set: 0,
-            binding: 3,
-            rust_type: "SceneUniformData",
-            rust_size: std::mem::size_of::<SceneUniformData>(),
-            coverage: BlockCoverage::Exact,
-        },
-        BlockGolden {
-            pass: PassId::RayQueryShadow,
-            set: 0,
-            binding: 4,
-            rust_type: "SceneUniformData",
-            rust_size: std::mem::size_of::<SceneUniformData>(),
-            coverage: BlockCoverage::ShaderReadsPrefix,
-        },
-        BlockGolden {
-            pass: PassId::Composite,
-            set: 0,
-            binding: 4,
-            rust_type: "SceneUniformData",
-            rust_size: std::mem::size_of::<SceneUniformData>(),
-            coverage: BlockCoverage::Exact,
-        },
-        BlockGolden {
-            pass: PassId::Composite,
-            set: 0,
-            binding: 6,
-            rust_type: "SelectionUBO",
-            rust_size: std::mem::size_of::<SelectionUBO>(),
-            coverage: BlockCoverage::Exact,
-        },
-        BlockGolden {
-            pass: PassId::Billboard,
-            set: 0,
-            binding: 0,
-            rust_type: "UniformBufferObject",
-            rust_size: std::mem::size_of::<UniformBufferObject>(),
-            coverage: BlockCoverage::Exact,
-        },
+        rust_block::<FrameUBO>("FrameUBO"),
+        rust_block::<MaterialUBO>("MaterialUBO"),
+        rust_block::<ObjectUBO>("ObjectUBO"),
+        rust_block::<FlameUBO>("FlameUBO"),
+        rust_block::<SceneUniformData>("SceneData"),
+        rust_block::<SelectionUBO>("SelectionData"),
+        rust_block::<UniformBufferObject>("UniformBufferObject"),
     ]
 }
 
-fn check_block_coverage(golden: &BlockGolden, block_name: &str, block_size: u32) -> Option<String> {
-    let block_size = block_size as usize;
-    let padded_block_size = block_size.div_ceil(16) * 16;
-    let covers = match golden.coverage {
-        BlockCoverage::Exact => {
-            golden.rust_size >= block_size && golden.rust_size <= padded_block_size
-        }
-        BlockCoverage::ShaderReadsPrefix => golden.rust_size >= block_size,
-    };
-    if covers {
-        return None;
+fn block_coverage(pass: &PassShaders, set: u32, binding: u32) -> BlockCoverage {
+    if (pass.id, set, binding) == (PassId::RayQueryShadow, 0, 4) {
+        BlockCoverage::ShaderReadsPrefix
+    } else {
+        BlockCoverage::Exact
     }
-    Some(format!(
-        "{}: shader block `{}` is {} bytes (padded {}), Rust `{}` is {} bytes ({:?})",
-        golden.pass.name(),
-        block_name,
-        block_size,
-        padded_block_size,
-        golden.rust_type,
-        golden.rust_size,
-        golden.coverage
-    ))
 }
 
 fn describe_mismatch(pass: &str, set: u32, mismatch: &LayoutMismatch) -> String {
@@ -237,40 +159,85 @@ fn every_pass_layout_covers_its_shaders() {
 }
 
 #[test]
-fn rust_uniform_structs_cover_shader_blocks() {
+fn rust_uniform_structs_match_every_shader_block_member() {
     enter_workspace_root();
+    let rust_blocks = rust_blocks();
     let mut failures = Vec::new();
 
-    for golden in block_goldens() {
-        let table = build_table(golden.pass.shaders());
-        let Some(binding) = table.binding(golden.set, golden.binding) else {
-            failures.push(format!(
-                "{}: set {} binding {} is not declared by its shaders",
-                golden.pass.name(),
-                golden.set,
-                golden.binding
-            ));
-            continue;
-        };
-        let Some(block_size) = binding.block_size else {
-            failures.push(format!(
-                "{}: set {} binding {} ({}) is not a buffer block",
-                golden.pass.name(),
-                golden.set,
-                golden.binding,
-                binding.name
-            ));
-            continue;
-        };
+    for pass in ALL_PASSES {
+        let table = build_table(pass);
+        for set in table.set_indices() {
+            let Some(bindings) = table.bindings(set) else {
+                continue;
+            };
+            for (binding_index, merged) in bindings {
+                if merged.kind != DescriptorKind::UniformBuffer {
+                    continue;
+                }
+                let Some(block) = &merged.block else {
+                    continue;
+                };
+                let location = format!(
+                    "{} (set={set} binding={binding_index}) `{}`",
+                    pass.name(),
+                    block.type_name
+                );
+                let Some(rust) = rust_blocks
+                    .iter()
+                    .find(|rust| rust.glsl_name == block.type_name)
+                else {
+                    failures.push(format!("{location}: no Rust GpuBlock registered"));
+                    continue;
+                };
 
-        if let Some(failure) = check_block_coverage(&golden, &binding.name, block_size) {
-            failures.push(failure);
+                let coverage = block_coverage(pass, set, *binding_index);
+                let differences = (rust.compare)(block, coverage);
+                if !differences.is_empty() {
+                    let listed: Vec<String> =
+                        differences.iter().map(|d| format!("  {d}")).collect();
+                    failures.push(format!("{location}:\n{}", listed.join("\n")));
+                }
+            }
         }
     }
 
     assert!(
         failures.is_empty(),
-        "uniform block size drift against SPIR-V:\n{}",
+        "uniform block layout drift against SPIR-V:\n{}",
         failures.join("\n")
     );
+}
+
+fn first_line_difference(left: &str, right: &str) -> Option<(usize, String, String)> {
+    let mut left_lines = left.lines();
+    let mut right_lines = right.lines();
+    let mut line_number = 1;
+    loop {
+        match (left_lines.next(), right_lines.next()) {
+            (None, None) => return None,
+            (l, r) if l == r => line_number += 1,
+            (l, r) => {
+                return Some((
+                    line_number,
+                    l.unwrap_or("<end>").to_string(),
+                    r.unwrap_or("<end>").to_string(),
+                ))
+            }
+        }
+    }
+}
+
+#[test]
+fn generated_flame_gpu_blocks_match_spirv() {
+    enter_workspace_root();
+    let generated = flame_gpu_blocks_source(Path::new("assets/shaders"))
+        .unwrap_or_else(|error| panic!("generate flame gpu blocks: {error}"));
+    let checked_in = std::fs::read_to_string(FLAME_GPU_BLOCKS_PATH)
+        .unwrap_or_else(|error| panic!("read {FLAME_GPU_BLOCKS_PATH}: {error}"));
+
+    if let Some((line, expected, current)) = first_line_difference(&generated, &checked_in) {
+        panic!(
+            "{FLAME_GPU_BLOCKS_PATH} is stale at line {line}; run `{REGENERATE_GPU_BLOCKS_COMMAND}`\n  generated : {expected}\n  checked in: {current}"
+        );
+    }
 }

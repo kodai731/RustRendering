@@ -2,7 +2,9 @@ use crate::core::device::*;
 use crate::descriptor::pass_manifest::FLAME_RESOLVE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::descriptor::shader_bindings::flame_resolve;
+use crate::resource::uniform_buffer::UniformBuffer;
 use crate::vulkan::*;
+use thyllore_effect_core::FlameUBO;
 
 const FLAME_HISTORY_SET_COUNT: usize = 2;
 
@@ -45,14 +47,13 @@ impl RRFlameDescriptorSet {
     pub unsafe fn write_all(
         &self,
         rrdevice: &RRDevice,
-        flame_ubo_buffer: vk::Buffer,
-        flame_ubo_size: vk::DeviceSize,
+        flame_ubo: &UniformBuffer<FlameUBO>,
         images: FlameImageBindings,
     ) -> Result<()> {
         for descriptor_set in self.descriptor_sets {
             self.layout
                 .writer(descriptor_set)
-                .buffer(flame_resolve::FLAME, flame_ubo_buffer, 0, flame_ubo_size)?
+                .uniform_dynamic(flame_resolve::FLAME, flame_ubo)?
                 .apply(rrdevice);
         }
         self.update_image_views(rrdevice, images)

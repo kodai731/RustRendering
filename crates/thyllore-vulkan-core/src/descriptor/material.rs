@@ -1,6 +1,4 @@
 use std::collections::HashMap;
-use std::mem::size_of;
-use std::ptr::copy_nonoverlapping as memcpy;
 
 use vulkanalia::prelude::v1_0::*;
 
@@ -8,8 +6,8 @@ use crate::core::device::RRDevice;
 use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::descriptor::shader_bindings::model;
-use crate::resource::buffer::create_buffer;
 use crate::resource::image::RRImage;
+use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::vulkan::Instance;
 use thyllore_render_core::MaterialUBO;
 
@@ -21,8 +19,7 @@ pub struct Material {
     pub name: String,
     pub descriptor_set: vk::DescriptorSet,
     pub textures: Vec<RRImage>,
-    pub uniform_buffer: vk::Buffer,
-    pub uniform_buffer_memory: vk::DeviceMemory,
+    pub uniform_buffer: UniformBuffer<MaterialUBO>,
     pub properties: MaterialUBO,
 }
 
@@ -82,22 +79,8 @@ impl MaterialManager {
             None => self.layout.allocate_set(rrdevice)?,
         };
 
-        let (uniform_buffer, uniform_buffer_memory) = create_buffer(
-            instance,
-            rrdevice,
-            size_of::<MaterialUBO>() as u64,
-            vk::BufferUsageFlags::UNIFORM_BUFFER,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-
-        let memory = rrdevice.device.map_memory(
-            uniform_buffer_memory,
-            0,
-            size_of::<MaterialUBO>() as u64,
-            vk::MemoryMapFlags::empty(),
-        )?;
-        memcpy(&properties, memory.cast(), 1);
-        rrdevice.device.unmap_memory(uniform_buffer_memory);
+        let uniform_buffer = UniformBuffer::new(instance, rrdevice, 1, Placement::HostMapped)?;
+        uniform_buffer.write_slot(rrdevice, 0, &properties)?;
 
         self.layout
             .writer(descriptor_set)
@@ -107,12 +90,7 @@ impl MaterialManager {
                 sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             )?
-            .buffer(
-                model::MATERIAL,
-                uniform_buffer,
-                0,
-                size_of::<MaterialUBO>() as u64,
-            )?
+            .uniform(model::MATERIAL, &uniform_buffer, 0)?
             .apply(rrdevice);
 
         let id = self.next_id;
@@ -124,7 +102,6 @@ impl MaterialManager {
             descriptor_set,
             textures: vec![],
             uniform_buffer,
-            uniform_buffer_memory,
             properties,
         };
 
@@ -137,9 +114,8 @@ impl MaterialManager {
     }
 
     pub unsafe fn clear_materials(&mut self, device: &vulkanalia::Device) {
-        for material in self.materials.values() {
-            device.destroy_buffer(material.uniform_buffer, None);
-            device.free_memory(material.uniform_buffer_memory, None);
+        for material in self.materials.values_mut() {
+            material.uniform_buffer.destroy(device);
             self.recycled_sets.push(material.descriptor_set);
         }
 
@@ -148,9 +124,8 @@ impl MaterialManager {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        for material in self.materials.values() {
-            device.destroy_buffer(material.uniform_buffer, None);
-            device.free_memory(material.uniform_buffer_memory, None);
+        for material in self.materials.values_mut() {
+            material.uniform_buffer.destroy(device);
         }
         self.recycled_sets.clear();
         self.layout.destroy(device);

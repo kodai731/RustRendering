@@ -134,7 +134,7 @@ mod tests {
             name: name.to_string(),
             kind,
             count: DescriptorCount::Fixed(1),
-            block_size: None,
+            block: None,
         }
     }
 

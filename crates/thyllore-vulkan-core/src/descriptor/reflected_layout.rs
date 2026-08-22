@@ -7,7 +7,8 @@ use crate::descriptor::pass_manifest::{passes_with_role, PassShaders, SetRole, S
 use crate::descriptor::reflection::{
     kind_accepts, reflect_shader_bytes, DescriptorSetTable, LayoutMismatch, ShaderReflection,
 };
-use thyllore_spirv_reflect::ShaderBinding;
+use crate::resource::uniform_buffer::UniformBuffer;
+use thyllore_spirv_reflect::{GpuBlock, ShaderBinding};
 
 fn load_reflections(files: &[ShaderFile]) -> Result<Vec<ShaderReflection>> {
     let mut reflections = Vec::with_capacity(files.len());
@@ -159,10 +160,25 @@ impl ReflectedLayoutSpec {
     }
 }
 
+fn reflected_block_sizes(table: &DescriptorSetTable, set: u32) -> Vec<(u32, u32)> {
+    table
+        .bindings(set)
+        .map(|bindings| {
+            bindings
+                .iter()
+                .filter_map(|(index, merged)| {
+                    merged.block.as_ref().map(|block| (*index, block.size))
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct ReflectedSetLayout {
     pub handle: vk::DescriptorSetLayout,
     bindings: Vec<vk::DescriptorSetLayoutBinding>,
+    block_sizes: Vec<(u32, u32)>,
 }
 
 impl ReflectedSetLayout {
@@ -202,14 +218,30 @@ impl ReflectedSetLayout {
     }
 
     pub unsafe fn create(rrdevice: &RRDevice, spec: &ReflectedLayoutSpec) -> Result<Self> {
-        let bindings = spec.resolve_bindings()?;
+        let set = spec.set_index()?;
+        let table = spec.reflect_table()?;
+        let bindings = Self::resolve_bindings(&table, set, &spec.overrides)?;
+        let block_sizes = reflected_block_sizes(&table, set);
+
         let info = vk::DescriptorSetLayoutCreateInfo::builder().bindings(&bindings);
         let handle = rrdevice.device.create_descriptor_set_layout(&info, None)?;
-        Ok(Self { handle, bindings })
+        Ok(Self {
+            handle,
+            bindings,
+            block_sizes,
+        })
     }
 
     pub fn bindings(&self) -> &[vk::DescriptorSetLayoutBinding] {
         &self.bindings
+    }
+
+    pub fn block_size(&self, binding: u32) -> Result<u32> {
+        self.block_sizes
+            .iter()
+            .find(|(index, _)| *index == binding)
+            .map(|(_, size)| *size)
+            .ok_or_else(|| anyhow!("descriptor set layout binding {binding} is not a buffer block"))
     }
 
     pub fn descriptor_type(&self, binding: u32) -> Result<vk::DescriptorType> {
@@ -310,6 +342,39 @@ impl DescriptorSetWriter<'_> {
             source: WriteSource::Buffer(self.buffer_infos.len() - 1),
         });
         Ok(self)
+    }
+
+    pub fn uniform<T: GpuBlock>(
+        self,
+        binding: ShaderBinding,
+        uniform: &UniformBuffer<T>,
+        slot: usize,
+    ) -> Result<Self> {
+        self.check_block_covers::<T>(binding)?;
+        let offset = uniform.slot_offset(slot)?;
+        self.buffer(binding, uniform.handle(), offset, uniform.block_size())
+    }
+
+    pub fn uniform_dynamic<T: GpuBlock>(
+        self,
+        binding: ShaderBinding,
+        uniform: &UniformBuffer<T>,
+    ) -> Result<Self> {
+        self.check_block_covers::<T>(binding)?;
+        self.buffer(binding, uniform.handle(), 0, uniform.block_size())
+    }
+
+    fn check_block_covers<T: GpuBlock>(&self, binding: ShaderBinding) -> Result<()> {
+        let shader_size = self.layout.block_size(binding.binding)? as usize;
+        if T::SIZE < shader_size {
+            return Err(anyhow!(
+                "binding {}: shader block is {shader_size} bytes but Rust `{}` is {} bytes",
+                binding.binding,
+                T::NAME,
+                T::SIZE
+            ));
+        }
+        Ok(())
     }
 
     pub fn image(

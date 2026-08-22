@@ -1,13 +1,10 @@
-use std::mem::size_of;
-use std::ptr::copy_nonoverlapping as memcpy;
-
 use vulkanalia::prelude::v1_0::*;
 
 use crate::core::device::RRDevice;
 use crate::descriptor::pass_manifest::SetRole;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::descriptor::shader_bindings::model;
-use crate::resource::buffer::create_buffer;
+use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::vulkan::Instance;
 use thyllore_render_core::ObjectUBO;
 
@@ -17,8 +14,7 @@ pub type ObjectId = u32;
 pub struct ObjectDescriptorSet {
     pub layout: ReflectedSetLayout,
     pub sets: Vec<vk::DescriptorSet>,
-    pub buffers: Vec<vk::Buffer>,
-    pub buffer_memories: Vec<vk::DeviceMemory>,
+    pub buffers: Vec<UniformBuffer<ObjectUBO>>,
     pub max_objects: usize,
     next_slot: usize,
     reserved_slot_count: usize,
@@ -36,7 +32,6 @@ impl ObjectDescriptorSet {
             layout,
             sets: Vec::new(),
             buffers: Vec::new(),
-            buffer_memories: Vec::new(),
             max_objects,
             next_slot: 0,
             reserved_slot_count: 0,
@@ -65,15 +60,12 @@ impl ObjectDescriptorSet {
         self.sets
             .extend(self.layout.allocate_sets(rrdevice, additional)?);
         for _ in 0..additional {
-            let (buffer, memory) = create_buffer(
+            self.buffers.push(UniformBuffer::new(
                 instance,
                 rrdevice,
-                size_of::<ObjectUBO>() as u64,
-                vk::BufferUsageFlags::UNIFORM_BUFFER,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            )?;
-            self.buffers.push(buffer);
-            self.buffer_memories.push(memory);
+                1,
+                Placement::HostMapped,
+            )?);
         }
 
         for (set, buffer) in self.sets[first_new..]
@@ -82,7 +74,7 @@ impl ObjectDescriptorSet {
         {
             self.layout
                 .writer(*set)
-                .buffer(model::OBJECT, *buffer, 0, size_of::<ObjectUBO>() as u64)?
+                .uniform(model::OBJECT, buffer, 0)?
                 .apply(rrdevice);
         }
         Ok(())
@@ -131,15 +123,7 @@ impl ObjectDescriptorSet {
             );
         }
         let idx = self.get_set_index(image_index, object_index);
-        let memory = rrdevice.device.map_memory(
-            self.buffer_memories[idx],
-            0,
-            size_of::<ObjectUBO>() as u64,
-            vk::MemoryMapFlags::empty(),
-        )?;
-        memcpy(ubo, memory.cast(), 1);
-        rrdevice.device.unmap_memory(self.buffer_memories[idx]);
-        Ok(())
+        self.buffers[idx].write_slot(rrdevice, 0, ubo)
     }
 
     pub unsafe fn ensure_capacity(
@@ -159,11 +143,8 @@ impl ObjectDescriptorSet {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        for &buffer in &self.buffers {
-            device.destroy_buffer(buffer, None);
-        }
-        for &memory in &self.buffer_memories {
-            device.free_memory(memory, None);
+        for buffer in &mut self.buffers {
+            buffer.destroy(device);
         }
         self.layout.destroy(device);
     }

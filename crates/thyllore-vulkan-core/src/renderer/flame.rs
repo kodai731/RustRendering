@@ -6,64 +6,6 @@ use crate::frame_context::FrameRenderContext;
 use crate::pipeline::RRPipeline;
 use crate::renderer::push_constants::FlamePushConstants;
 use crate::resource::flame_buffer::FlameBuffer;
-use thyllore_effect_core::FlameUBO;
-
-// In-command-buffer update keeps the single UBO race-free across frames in
-// flight: the transfer executes in submission order before this frame's
-// flame passes read it.
-pub unsafe fn record_flame_ubo_update(
-    ctx: &FrameRenderContext,
-    ubo: &FlameUBO,
-    buffer: vk::Buffer,
-    offset: vk::DeviceSize,
-    cmd: vk::CommandBuffer,
-) {
-    let device = &ctx.device.device;
-
-    let before_write = vk::BufferMemoryBarrier::builder()
-        .src_access_mask(vk::AccessFlags::UNIFORM_READ)
-        .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .buffer(buffer)
-        .offset(offset)
-        .size(std::mem::size_of::<FlameUBO>() as vk::DeviceSize)
-        .build();
-    device.cmd_pipeline_barrier(
-        cmd,
-        vk::PipelineStageFlags::FRAGMENT_SHADER,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::DependencyFlags::empty(),
-        &[] as &[vk::MemoryBarrier],
-        &[before_write],
-        &[] as &[vk::ImageMemoryBarrier],
-    );
-
-    let bytes = std::slice::from_raw_parts(
-        ubo as *const FlameUBO as *const u8,
-        std::mem::size_of::<FlameUBO>(),
-    );
-    device.cmd_update_buffer(cmd, buffer, offset, bytes);
-
-    let after_write = vk::BufferMemoryBarrier::builder()
-        .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
-        .dst_access_mask(vk::AccessFlags::UNIFORM_READ)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .buffer(buffer)
-        .offset(offset)
-        .size(std::mem::size_of::<FlameUBO>() as vk::DeviceSize)
-        .build();
-    device.cmd_pipeline_barrier(
-        cmd,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::FRAGMENT_SHADER,
-        vk::DependencyFlags::empty(),
-        &[] as &[vk::MemoryBarrier],
-        &[after_write],
-        &[] as &[vk::ImageMemoryBarrier],
-    );
-}
 
 pub unsafe fn record_flame_shading_pass(
     ctx: &FrameRenderContext,

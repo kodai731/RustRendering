@@ -663,7 +663,7 @@ impl<'a> UboCtx<'a> {
     /// Mirror of flameWienEmissivity.
     fn wien_emissivity(&self, temperature_k: f32) -> f32 {
         let hot = self.u.thermal_params.temp_hot_k.max(1.0);
-        (self.u.thermal_params.wien_c_k * (1.0 / hot - 1.0 / temperature_k.max(1.0))).exp()
+        (self.u.thermal_params.wien_ck * (1.0 / hot - 1.0 / temperature_k.max(1.0))).exp()
     }
 
     /// d(shaped)/dz of the tanh noise shaping, expressed through the shaped
@@ -1781,7 +1781,7 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "unified_params": vec_json(&[ubo.unified_params.enabled, ubo.unified_params.sigma_floor]),
             "mix_params": vec_json(&[ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain]),
             "segment_params": vec_json(&[ubo.segment_params.count]),
-            "thermal_params": vec_json(&[ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_c_k]),
+            "thermal_params": vec_json(&[ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_ck]),
             "spread_params": vec_json(&[ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain]),
             "support_params": vec_json(&[
                 ubo.support_motion.support_margin,
