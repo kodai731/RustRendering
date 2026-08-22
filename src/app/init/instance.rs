@@ -1209,6 +1209,8 @@ impl App {
                     injected_last_frame: false,
                     ui_events_before: 0,
                     rss_start_kb,
+                    drain_frames_left: None,
+                    exit_code: 0,
                 });
             let mut helm_state = data
                 .ecs_world

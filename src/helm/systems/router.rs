@@ -40,6 +40,10 @@ pub const TUNED_TAU_REJECT: f32 = 0.93;
 pub const TUNED_TAU_RAW: f32 = 0.90;
 pub const TUNED_DELTA: f32 = 0.0025;
 pub const TUNED_TAU_CONFIRM: f32 = 0.95;
+/// Camera utterances the closed-set router would reject fall back to the free-form
+/// `CameraDirection` route when the closed-set encoder still places a camera route
+/// on top with at least this score (design: tier2 判定条件 2).
+pub const CAMERA_DIRECTION_FALLBACK_TAU: f32 = 0.825;
 const UNIT_LENGTH_TOLERANCE: f32 = 1e-3;
 const BYTES_PER_SCALAR: usize = 4;
 
@@ -280,10 +284,7 @@ pub fn route_utterance(
     let raw_near_miss = if let Some(raw) = request.raw_top_score {
         if raw < thresholds.tau_raw_nearmiss {
             return match ranked.first() {
-                Some((route, score)) => RouterDecision::Reject {
-                    best: *route,
-                    score: *score,
-                },
+                Some((route, score)) => reject_or_camera_direction_fallback(*route, *score, true),
                 None => RouterDecision::NoCandidate,
             };
         }
@@ -364,11 +365,28 @@ pub fn route_utterance(
             raw_near_miss,
         }
     } else {
-        RouterDecision::Reject {
-            best: winner,
-            score,
-        }
+        reject_or_camera_direction_fallback(winner, score, raw_near_miss)
     }
+}
+
+fn is_camera_route(route: Route) -> bool {
+    matches!(route, Route::CameraShot(_) | Route::CameraDirection)
+}
+
+fn reject_or_camera_direction_fallback(
+    best: Route,
+    score: f32,
+    raw_near_miss: bool,
+) -> RouterDecision {
+    if is_camera_route(best) && score >= CAMERA_DIRECTION_FALLBACK_TAU {
+        return RouterDecision::Accept {
+            route: Route::CameraDirection,
+            score,
+            needs_confirm: true,
+            raw_near_miss,
+        };
+    }
+    RouterDecision::Reject { best, score }
 }
 
 #[cfg(test)]
@@ -505,6 +523,57 @@ mod tests {
         );
 
         assert_eq!(decision, RouterDecision::NoCandidate);
+    }
+
+    #[test]
+    fn a_rejected_camera_utterance_falls_back_to_camera_direction() {
+        let index = load(&[
+            ("camera_shot:dolly_in", vec![unit([1.0, 0.0, 0.0, 0.0])]),
+            ("play_animation", vec![unit([0.0, 1.0, 0.0, 0.0])]),
+        ]);
+        let thresholds = RouterThresholds {
+            tau_reject: TUNED_TAU_REJECT,
+            delta: 0.0,
+            tau_confirm: TUNED_TAU_CONFIRM,
+            tau_raw: 0.0,
+            tau_raw_nearmiss: 0.0,
+        };
+        fn request(query: &[f32; DIMENSIONS]) -> RoutingRequest<'_> {
+            RoutingRequest {
+                utterance: "slowly bring the camera closer",
+                query_vector: query,
+                mode: HelmMode::AllowEdit,
+                raw_top_score: None,
+            }
+        }
+
+        let near_camera = unit([0.9, 0.0, 0.42, 0.0]);
+        let decision = route_utterance(request(&near_camera), &index, thresholds);
+        assert!(
+            matches!(
+                decision,
+                RouterDecision::Accept {
+                    route: Route::CameraDirection,
+                    needs_confirm: true,
+                    ..
+                }
+            ),
+            "got {decision:?}"
+        );
+
+        let far_from_camera = unit([0.6, 0.0, 0.8, 0.0]);
+        let decision = route_utterance(request(&far_from_camera), &index, thresholds);
+        assert!(
+            matches!(decision, RouterDecision::Reject { .. }),
+            "got {decision:?}"
+        );
+
+        let near_play = unit([0.0, 0.9, 0.42, 0.0]);
+        let decision = route_utterance(request(&near_play), &index, thresholds);
+        assert!(
+            matches!(decision, RouterDecision::Reject { .. }),
+            "non-camera routes must not fall back, got {decision:?}"
+        );
     }
 
     #[test]

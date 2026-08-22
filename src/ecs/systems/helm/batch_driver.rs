@@ -76,6 +76,10 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
         return;
     }
 
+    if finish_if_draining(ctx) {
+        return;
+    }
+
     let mut batch = ctx.world.resource_mut::<HelmBatchState>();
     if !batch.injected_last_frame {
         return;
@@ -324,8 +328,40 @@ pub fn run_after_helm(ctx: &mut EcsContext) {
         );
         println!("[helm-batch] bench: {:?}", bench_line);
 
-        std::process::exit(if mismatch == 0 { 0 } else { 1 });
+        batch.exit_code = if mismatch == 0 { 0 } else { 1 };
+        batch.drain_frames_left = Some(DRAIN_FRAMES_AFTER_LAST_ROW);
     }
+}
+
+const DRAIN_FRAMES_AFTER_LAST_ROW: u32 = 3;
+
+/// Counts down the drain frames after the last row; on zero writes the optional
+/// `--batch-anim-dump` and exits. Returns true while draining.
+fn finish_if_draining(ctx: &mut EcsContext) -> bool {
+    let (remaining, exit_code) = {
+        let batch = ctx.world.resource::<HelmBatchState>();
+        match batch.drain_frames_left {
+            Some(n) => (n, batch.exit_code),
+            None => return false,
+        }
+    };
+
+    if remaining > 0 {
+        ctx.world.resource_mut::<HelmBatchState>().drain_frames_left = Some(remaining - 1);
+        return true;
+    }
+
+    let args: Vec<String> = std::env::args().collect();
+    if let Some(pos) = args.iter().position(|a| a == "--batch-anim-dump") {
+        if let Some(path) = args.get(pos + 1) {
+            if let Err(e) = crate::ecs::systems::batch_anim_dump_write(ctx.world, path) {
+                eprintln!("[helm-batch] anim dump failed: {e}");
+                std::process::exit(1);
+            }
+            println!("[helm-batch] anim dump -> {path}");
+        }
+    }
+    std::process::exit(exit_code);
 }
 
 /// Calculate the p-th percentile of a sorted slice. Returns 0.0 if empty.

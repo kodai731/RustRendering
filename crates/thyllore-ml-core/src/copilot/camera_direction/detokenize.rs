@@ -68,6 +68,17 @@ pub fn quaternion_to_matrix(q: [f32; 4]) -> [[f32; 3]; 3] {
 /// The `raw10` array contains `[q0, q1, q2, q3, t0, t1, t2, fx_raw, fy_raw, scale_raw]`.
 /// Returns the camera-to-world 4x4 matrix (row-major, right-handed).
 pub fn detokenize_pose(raw10: [f32; 10]) -> [[f32; 4]; 4] {
+    detokenize_pose_with_scale(raw10, None)
+}
+
+/// GenDoP `eval.py` applies the scale decoded from the sequence's first pose
+/// (`scale[0]`) to every translation; `sequence_scale` carries that value and
+/// `None` falls back to the pose's own scale token.
+fn scale_from_token(scale_raw: f32) -> f32 {
+    (scale_raw / DISCRETE_BINS * SCALE_FACTOR - SCALE_OFFSET).exp()
+}
+
+fn detokenize_pose_with_scale(raw10: [f32; 10], sequence_scale: Option<f32>) -> [[f32; 4]; 4] {
     // Extract coords_traj (first 7) and coords_instri (last 3)
     let coords_traj = [
         raw10[0], raw10[1], raw10[2], raw10[3], raw10[4], raw10[5], raw10[6],
@@ -77,9 +88,7 @@ pub fn detokenize_pose(raw10: [f32; 10]) -> [[f32; 4]; 4] {
     // Inverse quantization of trajectory values: temp_traj = coords_traj / (TEMP_TRAJ_SCALE * DISCRETE_BINS) - 1.0
     let temp_traj: [f32; 7] = coords_traj.map(|c| c / (TEMP_TRAJ_SCALE * DISCRETE_BINS) - 1.0);
 
-    // Scale from exponential of scale_raw: scale = exp(scale_raw / DISCRETE_BINS * SCALE_FACTOR - SCALE_OFFSET)
-    let scale_raw = coords_instri[2];
-    let scale = (scale_raw / DISCRETE_BINS * SCALE_FACTOR - SCALE_OFFSET).exp();
+    let scale = sequence_scale.unwrap_or_else(|| scale_from_token(coords_instri[2]));
 
     // Rotation matrix from quaternion (first 4 of temp_traj)
     let quat: [f32; 4] = [temp_traj[0], temp_traj[1], temp_traj[2], temp_traj[3]];
@@ -112,10 +121,11 @@ pub fn detokenize_sequence(tokens: &[f32]) -> Result<Vec<[[f32; 4]; 4]>, String>
         ));
     }
 
+    let sequence_scale = tokens.get(9).map(|raw| scale_from_token(*raw));
     let mut poses = Vec::with_capacity(tokens.len() / 10);
     for chunk in tokens.chunks_exact(10) {
         let raw10: [f32; 10] = chunk.try_into().unwrap();
-        poses.push(detokenize_pose(raw10));
+        poses.push(detokenize_pose_with_scale(raw10, sequence_scale));
     }
 
     Ok(poses)

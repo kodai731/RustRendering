@@ -158,24 +158,17 @@ fn dispatch_camera_shot(world: &World, preset: ShotPreset, speed: SpeedPreset) -
     }
 }
 
-fn dispatch_camera_direction(world: &World, name: &str) -> DispatchOutcome {
-    let target = match resolve_entity_by_name(world, name) {
+fn dispatch_camera_direction(world: &World, utterance: &str) -> DispatchOutcome {
+    let target = match resolve_entity_by_name(world, utterance) {
         NameResolution::Resolved(entity) => Some(entity),
         NameResolution::NotFound => read_selected_entity(world),
         NameResolution::Ambiguous(entities) => {
-            // If ambiguous, fall back to selected entity
-            read_selected_entity(world).or_else(|| {
-                // If nothing selected, return the first match (best effort)
-                entities.first().copied()
-            })
+            read_selected_entity(world).or_else(|| entities.first().copied())
         }
     };
-    match target {
-        Some(entity) => DispatchOutcome::CameraDirectionRequest {
-            utterance: name.to_string(),
-            target: Some(entity),
-        },
-        None => DispatchOutcome::Rejected(DispatchError::NothingSelected),
+    DispatchOutcome::CameraDirectionRequest {
+        utterance: utterance.to_string(),
+        target,
     }
 }
 

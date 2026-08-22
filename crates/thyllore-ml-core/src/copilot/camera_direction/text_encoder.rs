@@ -11,6 +11,8 @@ use tokenizers::Tokenizer;
 /// by running it through a CLIP-style text encoder ONNX model. Unlike
 /// `SentenceEncoder`, this returns the raw per-token hidden states without
 /// mean pooling or normalization — shape [1, 77, 1024] flattened to Vec<f32>.
+const GENDOP_PAD_TOKEN: &str = "!";
+
 pub struct TextEncoder {
     tokenizer: Tokenizer,
     session: Session,
@@ -105,14 +107,15 @@ impl TextEncoder {
         Ok(hidden.iter().map(|v| v.to_f32()).collect())
     }
 
-    /// CLIP has no dedicated pad token; HF's `CLIPTokenizer` sets `pad_token = eos_token`
-    /// (`<|endoftext|>`) by default, matching GenDoP's `padding="max_length"` behavior.
-    /// Falling back to token id `0` here would silently pad with whatever ordinary word
-    /// happens to occupy that vocab slot.
+    /// GenDoP tokenizes with the `stabilityai/stable-diffusion-2-1-base` CLIP tokenizer, whose
+    /// `tokenizer_config.json` declares `pad_token = "!"` (id 0) — not the `<|endoftext|>`
+    /// default of a bare `CLIPTokenizer`. The decoder was trained on cond_embeds computed with
+    /// these `!` pads and attends to all 77 positions, so padding with `<|endoftext|>` shifts
+    /// the padded rows by ~8 and collapses the generated trajectory (verified 2026-08-22).
     fn pad_token_id(&self) -> Result<u32> {
         self.tokenizer
-            .token_to_id("<|endoftext|>")
-            .context("tokenizer has no <|endoftext|> token to use as pad")
+            .token_to_id(GENDOP_PAD_TOKEN)
+            .with_context(|| format!("tokenizer has no {GENDOP_PAD_TOKEN:?} token to use as pad"))
     }
 }
 

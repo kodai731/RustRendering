@@ -18,6 +18,10 @@ pub struct HelmBatchState {
     pub injected_last_frame: bool,
     pub ui_events_before: usize,
     pub rss_start_kb: usize,
+    /// Set once all rows are recorded: frames still to run so queued UI events
+    /// (camera_direction inference etc.) dispatch before the process exits.
+    pub drain_frames_left: Option<u32>,
+    pub exit_code: i32,
 }
 
 impl HelmBatchState {

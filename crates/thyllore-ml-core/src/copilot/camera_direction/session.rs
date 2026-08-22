@@ -2,8 +2,8 @@ use std::path::PathBuf;
 
 use anyhow::{anyhow, Result};
 use half::f16;
-use ort::io_binding::IoBinding;
 use ort::session::Session as OrtSession;
+use ort::session::SessionInputValue;
 use ort::value::Tensor;
 
 /// ONNX model paths for the GenDoP camera direction copilot.
@@ -163,7 +163,7 @@ impl CameraDirectionSession {
         Ok((logits, past))
     }
 
-    /// Run the with-past decoder using IoBinding for dynamic input count.
+    /// Run the with-past decoder: one new token embedding plus the 24 past tensors.
     fn run_with_past(
         &mut self,
         token_embd: &[f16],
@@ -172,30 +172,14 @@ impl CameraDirectionSession {
         let shape: Vec<i64> = vec![1, 1, HIDDEN_DIM as i64];
         let embeds_tensor = Tensor::from_array((shape, token_embd.to_vec()))?;
 
-        // Build IoBinding with all inputs
-        let mut binding: IoBinding = self.with_past.create_binding()?;
-        binding.clear_inputs();
-        binding.clear_outputs();
-        binding.bind_input("inputs_embeds", &embeds_tensor)?;
+        let mut inputs: Vec<(String, SessionInputValue<'_>)> =
+            vec![("inputs_embeds".to_string(), (&embeds_tensor).into())];
         for (layer, (k, v)) in past.iter().enumerate() {
-            let k_name = format!("past_{}_k", layer);
-            let v_name = format!("past_{}_v", layer);
-            binding.bind_input(&k_name, k)?;
-            binding.bind_input(&v_name, v)?;
+            inputs.push((format!("past_{}_k", layer), k.into()));
+            inputs.push((format!("past_{}_v", layer), v.into()));
         }
 
-        // Bind outputs — ONNX Runtime requires at least one output bound when using IoBinding.
-        // Use bind_output_to_device since shapes may vary between calls.
-        let mem_info = self.with_past.allocator().memory_info();
-        binding.bind_output_to_device("logits", &mem_info)?;
-        for layer in 0..N_LAYERS {
-            let k_name = format!("new_past_{}_k", layer);
-            let v_name = format!("new_past_{}_v", layer);
-            binding.bind_output_to_device(&k_name, &mem_info)?;
-            binding.bind_output_to_device(&v_name, &mem_info)?;
-        }
-
-        let outputs = self.with_past.run_binding(&binding)?;
+        let outputs = self.with_past.run(inputs)?;
 
         // Extract logits: [1, 1, 260]
         let (_shape, logits_data) = outputs["logits"].try_extract_tensor::<f16>()?;
