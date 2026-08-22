@@ -111,7 +111,7 @@ impl CameraDirectionSession {
                 break;
             }
 
-            content_tokens.push(next_token as f32);
+            content_tokens.push((next_token - 3) as f32);
             total_len += 1;
 
             // Build inputs_embeds for next step: embedding of the chosen token -> shape [1, 1, 1024]
@@ -300,6 +300,41 @@ mod tests {
         logits[EOS] = f16::from_f32(1.0);
         let chosen = greedy_argmax_constrained(&logits, 12);
         assert_eq!(chosen, 3); // first candidate token
+    }
+
+    #[test]
+    fn test_generate_tokens_offset_correction() {
+        // Verify that greedy_argmax_constrained returns token IDs >= 3,
+        // so (token - 3) is in [0, 256) — the range expected by detokenize_pose.
+        //
+        // Construct logits where index 100 has the highest value among candidates (3..VOCAB_SIZE).
+        let mut logits: Vec<f16> = vec![f16::from_f32(-100.0); VOCAB_SIZE];
+        logits[100] = f16::from_f32(1.0); // highest among candidates
+        let chosen = greedy_argmax_constrained(&logits, 1);
+        assert_eq!(chosen, 100);
+        let offset_corrected = (chosen - 3) as f32;
+        assert!(
+            offset_corrected >= 0.0 && offset_corrected < 256.0,
+            "offset-corrected token {} is out of [0, 256) range",
+            offset_corrected
+        );
+
+        // Edge case: lowest candidate (token 3) should map to 0.0
+        let mut logits_low: Vec<f16> = vec![f16::from_f32(-100.0); VOCAB_SIZE];
+        logits_low[3] = f16::from_f32(1.0);
+        let chosen_low = greedy_argmax_constrained(&logits_low, 1);
+        assert_eq!(chosen_low, 3);
+        let offset_corrected_low = (chosen_low - 3) as f32;
+        assert_eq!(offset_corrected_low, 0.0);
+
+        // Edge case: highest candidate (token VOCAB_SIZE-1 = 259) should map to 256.0
+        let mut logits_high: Vec<f16> = vec![f16::from_f32(-100.0); VOCAB_SIZE];
+        logits_high[VOCAB_SIZE - 1] = f16::from_f32(1.0);
+        let chosen_high = greedy_argmax_constrained(&logits_high, 1);
+        assert_eq!(chosen_high, VOCAB_SIZE - 1);
+        let offset_corrected_high = (chosen_high - 3) as f32;
+        assert_eq!(offset_corrected_high, 256.0_f32);
+        // Note: 256.0 is the boundary — detokenize_pose clamps to [0, 255], so this is acceptable.
     }
 }
 
