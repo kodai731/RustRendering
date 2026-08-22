@@ -16,6 +16,9 @@ pub struct FlameMix {
     /// Shear-layer ramp of the mixing degree, gain * u^2 over the normalized
     /// radius (0 on the axis, 1 at the support edge); 0 = off.
     pub radial_gain: f32,
+    /// Normalized radius below which the noise term fades out (smoothstep from
+    /// half this radius), keeping the core connected; 0 = off.
+    pub core_radius: f32,
 }
 
 impl Default for FlameMix {
@@ -26,6 +29,7 @@ impl Default for FlameMix {
             height_gain: 0.0,
             scale: 1.0,
             radial_gain: 0.0,
+            core_radius: 0.0,
         }
     }
 }
@@ -96,7 +100,8 @@ pub fn build_mix_params(mix: &FlameMix, low_carrier_std: f32) -> FlameMixParams 
         height_gain: mix.height_gain.max(0.0),
         scale: mix.scale.max(1e-3),
         radial_gain: mix.radial_gain.max(0.0),
-        _padding: [0.0; 2],
+        core_radius: mix.core_radius.clamp(0.0, 1.0),
+        _padding: 0.0,
     }
 }
 

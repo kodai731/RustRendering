@@ -100,6 +100,7 @@ pub fn build_effect_json(
     value["mix_height_gain"] = json!(effect.mix.height_gain);
     value["mix_scale"] = json!(effect.mix.scale);
     value["mix_radial_gain"] = json!(effect.mix.radial_gain);
+    value["mix_core_radius"] = json!(effect.mix.core_radius);
     value["density_exp"] = json!(effect.thermal.density_exp);
     value["temp_exp"] = json!(effect.thermal.temp_exp);
     value["wien_c_k"] = json!(effect.thermal.wien_c_k);
@@ -172,7 +173,7 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "color_tip": ubo.color_tip.rgb,
         "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
         "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
-        "mix_params": [ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain],
+        "mix_params": [ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain, ubo.mix_params.core_radius],
         "segment_params": [ubo.segment_params.count],
         "thermal_params": [ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_ck],
         "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],

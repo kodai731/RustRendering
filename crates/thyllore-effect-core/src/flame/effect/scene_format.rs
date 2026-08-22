@@ -284,6 +284,16 @@ declare_scene_format! {
                 tooltip: "Shear-layer ramp added to the mixing degree, gain * u^2 over the normalized radius: the axis stays an unmixed bright core while the rim thins and cools",
             },
         },
+        mix_core_radius: f32 = Style {
+            get: |e| e.mix.core_radius,
+            set: |e, v| e.mix.core_radius = v,
+            ui {
+                                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Normalized radius below which the noise mixing fades out (from half this radius): keeps the core one connected bright mass while the rim still breaks up",
+            },
+        },
         density_exp: f32 = Style {
             get: |e| e.thermal.density_exp,
             set: |e, v| e.thermal.density_exp = v,

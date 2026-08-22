@@ -26,6 +26,7 @@ const BATCH_FLAME_DEBUG_VIEW_FLAG: &str = "--batch-flame-debug-view";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const BATCH_WINDOW_FLAG: &str = "--batch-window";
+const BATCH_FLAME_HISTORY_FLAG: &str = "--batch-flame-history";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
 const GPU_TIMINGS_FLAG: &str = "--gpu-timings";
 const EXPOSURE_DUMP_FLAG: &str = "--exposure-dump";
@@ -259,6 +260,7 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
 
         let mut batch = BatchRun::new(PathBuf::from(dir), screenshot_frame, flame_set);
         batch.dump_wall_probe = dump_wall_probe;
+        batch.flame_history = args.iter().any(|arg| arg == BATCH_FLAME_HISTORY_FLAG);
         batch.captures_remaining = count;
         batch.stride = stride;
         batch.sequence_dir = Some(PathBuf::from(dir));
@@ -304,6 +306,7 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
 
         let mut batch = BatchRun::new(output, screenshot_frame, flame_set);
         batch.dump_wall_probe = dump_wall_probe;
+        batch.flame_history = args.iter().any(|arg| arg == BATCH_FLAME_HISTORY_FLAG);
         batch.flame_trace_path =
             flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
         batch.wall_probe_path =
@@ -2548,6 +2551,7 @@ mod tests {
             "mix_height_gain",
             "mix_scale",
             "mix_radial_gain",
+            "mix_core_radius",
             "density_exp",
             "temp_exp",
             "wien_c_k",

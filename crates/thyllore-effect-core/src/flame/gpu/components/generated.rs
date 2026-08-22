@@ -155,7 +155,8 @@ declare_gpu_block! {
         pub height_gain: f32,
         pub scale: f32,
         pub radial_gain: f32,
-        pub _padding: [f32; 2],
+        pub core_radius: f32,
+        pub _padding: f32,
     }
 }
 

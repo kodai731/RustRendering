@@ -7,8 +7,10 @@ use crate::ecs::resource::{
 const STABLE_FRAME_HISTORY_WEIGHT: f32 = 0.85;
 
 /// Reusing the previous frame's shading is only valid while the camera and the flame
-/// parameters hold still. Batch runs never reuse history so a single-frame screenshot
-/// stays deterministic.
+/// parameters hold still. Batch runs reuse history only when asked to
+/// (`--batch-flame-history`): the jitter walk is keyed on `frames_rendered`, so the
+/// blended result is still deterministic, but the default keeps the static grid the
+/// existing bit-identity gates were recorded with.
 pub fn flame_temporal_accumulate(ctx: &mut FrameContext) {
     let flame_entities = ctx.world.query_flames();
     let count = flame_entities.len();
@@ -41,7 +43,9 @@ pub fn flame_temporal_accumulate(ctx: &mut FrameContext) {
     // Collect data first to avoid borrow conflicts
     let view = ctx.world.resource::<ProjectionData>().view;
     let settings = *ctx.world.resource::<FlameRenderSettings>();
-    let has_batch_run = ctx.world.contains_resource::<BatchRun>();
+    let batch_run = ctx.world.get_resource::<BatchRun>();
+    let has_batch_run = batch_run.is_some();
+    let history_allowed = batch_run.map_or(true, |batch| batch.flame_history);
     let old_effect = ctx.world.get_component::<FlameEffect>(entity).cloned();
     let Some(old_effect) = old_effect else {
         return;
@@ -88,7 +92,7 @@ pub fn flame_temporal_accumulate(ctx: &mut FrameContext) {
             } else {
                 old_temporal.frame_index.wrapping_add(1)
             },
-            weight: if matches_previous_frame && !has_batch_run {
+            weight: if matches_previous_frame && history_allowed {
                 STABLE_FRAME_HISTORY_WEIGHT
             } else {
                 0.0

@@ -717,6 +717,8 @@ float flameMixingDegree(float carrierZ, float h, float uSquared) {
     float carveSign = flame.noiseAmplitude < 0.0 ? -1.0 : 1.0;
     float mixNoise = smoothstep(flame.mixParams.lo, flame.mixParams.hi,
         carveSign * carrierZ * flame.mixParams.invCarrierStd);
+    float coreRadius = flame.mixParams.coreRadius;
+    mixNoise *= coreRadius > 0.0 ? smoothstep(0.25 * coreRadius * coreRadius, coreRadius * coreRadius, uSquared) : 1.0;
     float mixHeight = flame.mixParams.heightGain * h * h;
     float mixRadial = flame.mixParams.radialGain * uSquared;
     return clamp(mixNoise + mixHeight + mixRadial, 0.0, 1.0);

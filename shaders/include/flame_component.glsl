@@ -155,8 +155,9 @@ struct FlameMixParams {
     // Wavenumber scale of the mixing eddies relative to the low erosion octave.
     float scale;
     float radialGain;
+    // Normalized radius below which the noise term fades out; 0 = off.
+    float coreRadius;
     float pad0;
-    float pad1;
 };
 
 struct FlameThermalParams {

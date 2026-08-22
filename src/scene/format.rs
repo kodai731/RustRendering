@@ -1157,6 +1157,7 @@ mod legacy_format_golden {
   "mix_height_gain": 0.0,
   "mix_scale": 1.0,
   "mix_radial_gain": 0.0,
+  "mix_core_radius": 0.0,
   "density_exp": 1.0,
   "temp_exp": 1.0,
   "wien_c_k": 12000.0,

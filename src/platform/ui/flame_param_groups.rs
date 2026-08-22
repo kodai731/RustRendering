@@ -20,6 +20,7 @@ pub const FLAME_MIX_PARAMS: &[&str] = &[
     "mix_hi",
     "mix_scale",
     "mix_radial_gain",
+    "mix_core_radius",
     "mix_height_gain",
 ];
 
