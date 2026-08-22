@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use thyllore_effect_core::flame::analytic::ubo::FlameUBO;
+use thyllore_effect_core::FlameUBO;
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_spirv_reflect::{
     compare_block_layout, BlockCoverage, DescriptorKind, GpuBlock, LayoutDifference, ReflectedBlock,

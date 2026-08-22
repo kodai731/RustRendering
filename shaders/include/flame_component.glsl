@@ -2,7 +2,7 @@
 #define FLAME_COMPONENT_GLSL
 
 // Every struct shared with the Rust side lives here; mirrored in
-// thyllore-effect-core/src/flame/analytic/ubo.rs (FlameUBO and its members) and
+// thyllore-effect-core/src/flame/gpu/components/ (FlameUBO and its members) and
 // flame/branch.rs (VortexElement).
 
 struct FlameColorBase {
