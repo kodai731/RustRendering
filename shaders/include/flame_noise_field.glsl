@@ -41,6 +41,18 @@ float flameRadialSupportRadius() {
   return flame.supportMotion.supportMargin * min(sqrt(2.0 / max(flame.radialSharpness, 1e-3)), FLAME_SHELL_SUPPORT_HEADROOM);
 }
 
+// Fire pool at the foot of the column: widens the radius by baseSpread at h=0,
+// fading quadratically to the plain taper at baseSpreadHeight. 0 = identity.
+// Mirrored in thyllore-effect-core/src/flame/analytic/radial.rs (flame_radial_base_spread).
+float flameRadialBaseSpread(float height01) {
+    float spread = flame.edgeStyle.baseSpread;
+    if (spread == 0.0) {
+        return 1.0;
+    }
+    float fade = max(1.0 - height01 / max(flame.edgeStyle.baseSpreadHeight, 1e-3), 0.0);
+    return 1.0 + spread * fade * fade;
+}
+
 // Internal helper: compute the advect vector from style params and time.
 vec3 flameNoiseAdvect() {
     return vec3(flame.windBend.windDirection.x, flame.warpStyle.riseSpeed, flame.windBend.windDirection.y) * flame.time;
@@ -705,12 +717,12 @@ float flameEmitterSmoothDensityDisplacedAt(vec3 c, float h, float wiggle, vec2 b
         return clamp(1.0 - max(d, 0.0) / shell, 0.0, 1.0) * thickness;
     }
     float hb = clamp(h / boundary.x, 0.0, 1.0);
-    float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hb, flame.warpStyle.taperPower));
+    float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hb, flame.warpStyle.taperPower)) * flameRadialBaseSpread(hb);
     float rm = flame.emitterParams.kind >= 0.5 ? flame.emitterParams.ringMajorRatio : 0.0;
     float minorScale = flame.emitterParams.kind >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
     float rho = (length(c.xz) - rm) / minorScale;
     float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
-    float u = rn / flameRadialSupportRadius();
+    float u = rn / (flameRadialSupportRadius() * flameFlowSample(hb).z);
     uSquared = u * u;
    return evaluateHeightFalloff(hb) * flameBiweight(uSquared) * flameCapFade(h, boundary.x);
 }

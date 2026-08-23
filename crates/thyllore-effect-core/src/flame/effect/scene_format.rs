@@ -104,6 +104,26 @@ declare_scene_format! {
             get: |e| e.edge.radius_tip_ratio,
             set: |e, v| e.edge.radius_tip_ratio = v,
         },
+        base_spread: f32 = Style {
+            get: |e| e.edge.base_spread,
+            set: |e, v| e.edge.base_spread = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Fire pool at the foot: extra radius ratio at h = 0 fading to the plain taper at base_spread_height; 0 = off",
+            },
+        },
+        base_spread_height: f32 = Style {
+            get: |e| e.edge.base_spread_height,
+            set: |e, v| e.edge.base_spread_height = v,
+            ui {
+                min: 0.02,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Normalized height over which the base spread fades out",
+            },
+        },
         edge_low: f32 = Style { get: |e| e.edge.low, set: |e, v| e.edge.low = v },
         edge_high: f32 = Style { get: |e| e.edge.high, set: |e, v| e.edge.high = v },
         white_boost: f32 = Style {
@@ -664,6 +684,86 @@ declare_scene_format! {
                 max: 5.0,
                 format: "%.2f",
                 tooltip: "Restoring rate of the markers toward the rest column per second: how long the column remembers the flow",
+            },
+        },
+        lobe_gain: f32 = Style {
+            get: |e| e.lobe.gain,
+            set: |e, v| e.lobe.gain = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Lobe train: peak one-sided bulge of one lobe in base radii (needs flow_gain > 0); 0 = off",
+            },
+        },
+        lobe_period: f32 = Style {
+            get: |e| e.lobe.period,
+            set: |e, v| e.lobe.period = v,
+            ui {
+                min: 0.01,
+                max: 5.0,
+                format: "%.3f",
+                tooltip: "Lobe spawn period in seconds",
+            },
+        },
+        lobe_life: f32 = Style {
+            get: |e| e.lobe.life,
+            set: |e, v| e.lobe.life = v,
+            ui {
+                min: 0.01,
+                max: 10.0,
+                format: "%.3f",
+                tooltip: "Lobe lifetime in seconds: swells over the first half, fades over the second",
+            },
+        },
+        lobe_rise: f32 = Style {
+            get: |e| e.lobe.rise,
+            set: |e, v| e.lobe.rise = v,
+            ui {
+                min: 0.0,
+                max: 50.0,
+                format: "%.2f",
+                tooltip: "Lobe rise speed in height units per second",
+            },
+        },
+        lobe_size: f32 = Style {
+            get: |e| e.lobe.size,
+            set: |e, v| e.lobe.size = v,
+            ui {
+                min: 0.01,
+                max: 0.5,
+                format: "%.3f",
+                tooltip: "Vertical half-extent of one lobe in height units",
+            },
+        },
+        lobe_spawn_height: f32 = Style {
+            get: |e| e.lobe.spawn_height,
+            set: |e, v| e.lobe.spawn_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Centre of the lobe spawn height band",
+            },
+        },
+        lobe_spread: f32 = Style {
+            get: |e| e.lobe.spread,
+            set: |e, v| e.lobe.spread = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Scatter of lobe spawn time, height and size",
+            },
+        },
+        lobe_shift: f32 = Style {
+            get: |e| e.lobe.shift,
+            set: |e, v| e.lobe.shift = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Centre shift per unit bulge: 1 = one-sided tongue (far side still), 0 = symmetric puff",
             },
         },
     },

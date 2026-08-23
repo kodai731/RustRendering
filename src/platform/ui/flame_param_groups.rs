@@ -1,6 +1,8 @@
 pub const FLAME_BODY_PARAMS: &[&str] = &[
     "height",
     "radius",
+    "base_spread",
+    "base_spread_height",
     "optical_depth",
     "intensity",
     "density_exp",
@@ -71,6 +73,17 @@ pub const FLAME_FLOW_PARAMS: &[&str] = &[
     "flow_damping",
 ];
 
+pub const FLAME_LOBE_PARAMS: &[&str] = &[
+    "lobe_gain",
+    "lobe_period",
+    "lobe_life",
+    "lobe_rise",
+    "lobe_size",
+    "lobe_spawn_height",
+    "lobe_spread",
+    "lobe_shift",
+];
+
 pub const FLAME_FOOTER_PARAMS: &[&str] = &["support_margin", "time_scale"];
 
 pub const FLAME_PARAM_GROUPS: &[&[&str]] = &[
@@ -81,6 +94,7 @@ pub const FLAME_PARAM_GROUPS: &[&[&str]] = &[
     FLAME_BRANCH_PARAMS,
     FLAME_PUFF_PARAMS,
     FLAME_FLOW_PARAMS,
+    FLAME_LOBE_PARAMS,
     FLAME_FOOTER_PARAMS,
 ];
 

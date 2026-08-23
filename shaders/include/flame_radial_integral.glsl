@@ -27,11 +27,12 @@ const float FLAME_POWDER_STRENGTH = 0.0;
 // bakes an arbitrary R(h) curve (profileParams.radiusActive flags it); the parametric taper
 // stays the default.
 float flameRadialRadiusScale(float height01) {
+    float spread = flameRadialBaseSpread(height01);
     if (flame.profileParams.radiusActive > 0.5) {
-        return FLAME_SHELL_BASE_RADIUS
+        return FLAME_SHELL_BASE_RADIUS * spread
             * max(evaluateChebyshev8(flame.radiusCoefficients[0], flame.radiusCoefficients[1], height01), 0.05);
     }
-    return FLAME_SHELL_BASE_RADIUS
+    return FLAME_SHELL_BASE_RADIUS * spread
         * mix(1.0, flame.edgeStyle.radiusTipRatio, pow(height01, flame.warpStyle.taperPower));
 }
 
@@ -165,7 +166,7 @@ bool flameRingSupportSpan(vec3 o, vec3 d, inout float tNear, inout float tFar) {
     float minorScale = max(1.0 - rm, 1e-3);
     float wTrim = (1.0 + max(flame.contourParams.wiggleAmp, 0.0))
         * (1.0 + 3.0 * abs(flame.boundaryParams.amp) * max(flame.boundaryParams.radiusRatio, 0.0));
-    float taperMax = max(1.0, flame.edgeStyle.radiusTipRatio);
+    float taperMax = max(1.0, flame.edgeStyle.radiusTipRatio) * (1.0 + max(flame.edgeStyle.baseSpread, 0.0));
    float rOut = rm + minorScale * flameRadialSupportRadius() * taperMax * wTrim + 2.0 * flame.supportMotion.meanderAmp;
 
     float a = dot(d.xz, d.xz);
@@ -281,12 +282,12 @@ FlameNodeSample flameWaveNodeSample(
         float wiggle = flameContourWiggle(ps, h);
         vec2 boundary = flameBoundaryDisplacement(ps.xz);
         float hb = clamp(h / boundary.x, 0.0, 1.0);
-        float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hb, flame.warpStyle.taperPower));
+        float taperR = mix(1.0, flame.edgeStyle.radiusTipRatio, pow(hb, flame.warpStyle.taperPower)) * flameRadialBaseSpread(hb);
         float rm = flame.emitterParams.kind >= 0.5 ? flame.emitterParams.ringMajorRatio : 0.0;
         float minorScale = flame.emitterParams.kind >= 0.5 ? max(1.0 - rm, 1e-3) : 1.0;
         float rho = (length(ps.xz) - rm) / minorScale;
         float rn = abs(rho) / max(taperR * wiggle * boundary.y, 1e-4);
-        float u = rn / flameRadialSupportRadius();
+        float u = rn / (flameRadialSupportRadius() * flameFlowSample(hb).z);
         uSquared = u * u;
     }
     float mixing = flameMixingDegree(sum.zMix, hs, uSquared);

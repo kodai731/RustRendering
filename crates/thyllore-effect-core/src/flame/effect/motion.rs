@@ -190,6 +190,45 @@ impl Default for FlameFlow {
     }
 }
 
+/// Lobe train on the silhouette: one-sided bulges that spawn near the foot,
+/// rise, swell and fade, riding the flow marker table (needs `flow.gain` > 0);
+/// gain 0 = off. Mirrors the round puffs stacked along the reference column.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameLobe {
+    /// Peak lateral bulge of one lobe in base radii; 0 = off.
+    pub gain: f32,
+    /// Spawn period in seconds.
+    pub period: f32,
+    /// Lifetime of one lobe in seconds (swells over the first half, fades over the second).
+    pub life: f32,
+    /// Rise speed in height units per second.
+    pub rise: f32,
+    /// Vertical half-extent of one lobe in height units.
+    pub size: f32,
+    /// Centre of the spawn height band in height units.
+    pub spawn_height: f32,
+    /// Scatter of spawn time, height and size in [0, 1].
+    pub spread: f32,
+    /// Centre shift per unit bulge in [0, 1]: 1 keeps the far side still (a
+    /// one-sided tongue), 0 swells both sides (a symmetric puff).
+    pub shift: f32,
+}
+
+impl Default for FlameLobe {
+    fn default() -> Self {
+        Self {
+            gain: 0.0,
+            period: 0.5,
+            life: 2.0,
+            rise: 0.1,
+            size: 0.08,
+            spawn_height: 0.2,
+            spread: 0.5,
+            shift: 1.0,
+        }
+    }
+}
+
 /// Stateless write-through of the Vortex macro knob onto (twist gain, twist
 /// speed); the two parameters stay the single source of truth.
 pub fn vortex_macro_parameters(v: f32) -> (f32, f32) {

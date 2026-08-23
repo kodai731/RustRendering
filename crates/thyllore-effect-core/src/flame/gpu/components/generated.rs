@@ -104,6 +104,9 @@ declare_gpu_block! {
         pub edge_low: f32,
         pub edge_high: f32,
         pub white_boost: f32,
+        pub base_spread: f32,
+        pub base_spread_height: f32,
+        pub _padding: [f32; 2],
     }
 }
 

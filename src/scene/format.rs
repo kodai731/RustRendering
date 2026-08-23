@@ -1166,6 +1166,8 @@ mod legacy_format_golden {
   "noise_lobe_scale": 0.55,
   "noise_lobe_aniso": 1.0,
   "edge_outer_sharpen": 0.0,
+  "base_spread": 0.0,
+  "base_spread_height": 0.25,
   "noise_scale_mode": 0.0,
   "erosion_noise_gain": 1.0,
   "twist_gain": 0.0,
@@ -1198,7 +1200,15 @@ mod legacy_format_golden {
   "flow_gust": 0.3,
   "flow_gust_frequency": 0.4,
   "flow_burst": 0.0,
-  "flow_damping": 0.5
+  "flow_damping": 0.5,
+  "lobe_gain": 0.0,
+  "lobe_period": 0.5,
+  "lobe_life": 2.0,
+  "lobe_rise": 0.1,
+  "lobe_size": 0.08,
+  "lobe_spawn_height": 0.2,
+  "lobe_spread": 0.5,
+  "lobe_shift": 1.0
 }"#;
 
     #[test]

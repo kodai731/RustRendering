@@ -7,6 +7,10 @@ const BURST_WIDTH_OVER_PERIOD: f32 = 0.08;
 const PLANE_COUNT: usize = 2;
 const FLOW_STEPS_PER_PERIOD: f32 = 40.0;
 const FLOW_DAMPING_MEMORY_FOLDS: f32 = 5.0;
+const LOBE_SPAWN_JITTER: f32 = 0.5;
+const LOBE_HEIGHT_SCATTER: f32 = 0.3;
+const LOBE_SIZE_SCATTER: f32 = 0.5;
+const LOBE_SEED: u32 = 23;
 
 /// Column markers in flame-local units: lateral centre offset per plane (x, z)
 /// and the width scale, one entry per height `i / (FLOW_MARKER_COUNT - 1)`.
@@ -244,9 +248,90 @@ pub fn simulate_flow_markers(
     markers
 }
 
+struct Lobe {
+    y: f32,
+    side: f32,
+    plane: usize,
+    amplitude: f32,
+    size: f32,
+}
+
+fn lobe_envelope(age01: f32) -> f32 {
+    let s = (std::f32::consts::PI * age01.clamp(0.0, 1.0)).sin();
+    s * s
+}
+
+/// Lobes alive at `time`, derived from (parameters, time) only.
+fn active_lobes(lobe: &FlameLobe, time: f32) -> Vec<Lobe> {
+    if lobe.gain == 0.0 || lobe.period <= 0.0 || lobe.life <= 0.0 {
+        return Vec::new();
+    }
+    let spread = lobe.spread.clamp(0.0, 1.0);
+    let first = ((time - lobe.life) / lobe.period).floor() as i64 - 1;
+    let last = (time / lobe.period).ceil() as i64 + 1;
+    (first..=last)
+        .filter_map(|index| {
+            let jitter = spread * LOBE_SPAWN_JITTER * (hash01(LOBE_SEED, index, 1) - 0.5);
+            let age = time - (index as f32 + jitter) * lobe.period;
+            if age < 0.0 || age >= lobe.life {
+                return None;
+            }
+            let alternating = if index.rem_euclid(2) == 0 { 1.0 } else { -1.0 };
+            let side = if hash01(LOBE_SEED, index, 2) < 0.5 * spread {
+                -alternating
+            } else {
+                alternating
+            };
+            let plane = if hash01(LOBE_SEED, index, 3) < 0.5 {
+                0
+            } else {
+                1
+            };
+            let spawn_height = lobe.spawn_height
+                + spread * LOBE_HEIGHT_SCATTER * (hash01(LOBE_SEED, index, 4) - 0.5);
+            let size = lobe.size
+                * (1.0 + spread * LOBE_SIZE_SCATTER * (2.0 * hash01(LOBE_SEED, index, 5) - 1.0));
+            Some(Lobe {
+                y: spawn_height + lobe.rise * age,
+                side,
+                plane,
+                amplitude: lobe.gain * lobe_envelope(age / lobe.life),
+                size: size.max(1e-3),
+            })
+        })
+        .collect()
+}
+
+/// One-sided bulge: the centre moves by `side * a` and the half-width grows by
+/// `a`, so the lobe side protrudes by 2a while the other side stays put.
+pub fn add_lobe_train(
+    markers: &mut [FlowMarker; FLOW_MARKER_COUNT],
+    lobe: &FlameLobe,
+    geometry: FlowGeometry,
+    time: f32,
+) {
+    let lobes = active_lobes(lobe, time);
+    if lobes.is_empty() {
+        return;
+    }
+    let self_shift = lobe.shift.clamp(0.0, 1.0);
+    for (index, marker) in markers.iter_mut().enumerate() {
+        let h = index as f32 / (FLOW_MARKER_COUNT - 1) as f32;
+        for lobe in &lobes {
+            let d = (h - lobe.y) / lobe.size;
+            let bump = lobe.amplitude * (-d * d).exp();
+            marker.offset[lobe.plane] += lobe.side * self_shift * bump * geometry.r0;
+            marker.width_scale += bump;
+        }
+    }
+}
+
 pub fn build_flow_field(effect: &FlameEffect, baked: &FlameBaked) -> FlameFlowField {
     let geometry = FlowGeometry::from_effect(effect, baked);
-    let markers = simulate_flow_markers(&effect.flow, geometry, effect.time);
+    let mut markers = simulate_flow_markers(&effect.flow, geometry, effect.time);
+    if effect.flow.gain != 0.0 {
+        add_lobe_train(&mut markers, &effect.lobe, geometry, effect.time);
+    }
     let mut table = [[0.0f32, 0.0, 1.0, 0.0]; FLOW_MARKER_COUNT];
     for (slot, marker) in table.iter_mut().zip(&markers) {
         *slot = [marker.offset[0], marker.offset[1], marker.width_scale, 0.0];
@@ -329,6 +414,33 @@ mod tests {
         assert!(markers
             .iter()
             .all(|m| m.width_scale >= 0.2 && m.offset[0].abs() < 5.0));
+    }
+
+    #[test]
+    fn lobe_train_is_one_sided_and_off_by_default() {
+        let mut markers = [FlowMarker::default(); FLOW_MARKER_COUNT];
+        add_lobe_train(&mut markers, &FlameLobe::default(), geometry(), 3.0);
+        assert!(markers.iter().all(|m| *m == FlowMarker::default()));
+
+        let lobe = FlameLobe {
+            gain: 0.5,
+            period: 10.0,
+            life: 2.0,
+            spread: 0.0,
+            ..FlameLobe::default()
+        };
+        add_lobe_train(&mut markers, &lobe, geometry(), 1.0);
+        let peak = markers
+            .iter()
+            .max_by(|a, b| a.width_scale.total_cmp(&b.width_scale))
+            .unwrap();
+        assert!(peak.width_scale > 1.05);
+        let bulge = (peak.width_scale - 1.0) * geometry().r0;
+        let offset = peak.offset[0].abs().max(peak.offset[1].abs());
+        assert!(
+            (offset - bulge).abs() < 1e-5,
+            "offset {offset} bulge {bulge}"
+        );
     }
 
     #[test]

@@ -45,6 +45,7 @@ pub struct FlameEffect {
     pub branch: FlameBranch,
     pub puff: FlamePuff,
     pub flow: FlameFlow,
+    pub lobe: FlameLobe,
 }
 
 impl Default for FlameEffect {
@@ -85,6 +86,7 @@ impl Default for FlameEffect {
             branch: FlameBranch::default(),
             puff: FlamePuff::default(),
             flow: FlameFlow::default(),
+            lobe: FlameLobe::default(),
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect

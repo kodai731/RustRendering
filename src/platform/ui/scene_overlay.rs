@@ -10,7 +10,8 @@ use crate::ecs::World;
 
 use super::flame_param_groups::{
     FLAME_BODY_PARAMS, FLAME_BRANCH_PARAMS, FLAME_FLOW_PARAMS, FLAME_FOOTER_PARAMS,
-    FLAME_MIX_PARAMS, FLAME_MOTION_PARAMS, FLAME_NOISE_PARAMS, FLAME_PUFF_PARAMS,
+    FLAME_LOBE_PARAMS, FLAME_MIX_PARAMS, FLAME_MOTION_PARAMS, FLAME_NOISE_PARAMS,
+    FLAME_PUFF_PARAMS,
 };
 use super::param_widgets::draw_scalar_params;
 use super::viewport_window::ViewportInfo;
@@ -991,6 +992,17 @@ fn build_flame_section(
                     draw_scalar_params(
                         ui,
                         FLAME_FLOW_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, name, value| flame_key_button(ui, ui_events, name, value),
+                    );
+
+                    ui.separator();
+                    ui.text("Lobe");
+                    draw_scalar_params(
+                        ui,
+                        FLAME_LOBE_PARAMS,
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,

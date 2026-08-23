@@ -45,6 +45,10 @@ struct FlameEdgeStyle {
     float edgeLow;
     float edgeHigh;
     float whiteBoost;
+    float baseSpread;
+    float baseSpreadHeight;
+    float pad0;
+    float pad1;
 };
 
 struct FlameWindBend {

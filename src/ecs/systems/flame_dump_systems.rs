@@ -88,6 +88,8 @@ pub fn build_effect_json(
     value["spread_gain"] = json!(effect.spread_gain);
     value["support_margin"] = json!(effect.support_margin);
     value["edge_outer_sharpen"] = json!(effect.edge.outer_sharpen);
+    value["base_spread"] = json!(effect.edge.base_spread);
+    value["base_spread_height"] = json!(effect.edge.base_spread_height);
     value["noise_scale_mode"] = json!(effect.noise.scale_mode);
     value["erosion_noise_gain"] = json!(effect.noise.erosion_gain);
     value["twist_gain"] = json!(effect.twist.gain);
@@ -133,6 +135,14 @@ pub fn build_effect_json(
     value["flow_gust_frequency"] = json!(effect.flow.gust_frequency);
     value["flow_burst"] = json!(effect.flow.burst);
     value["flow_damping"] = json!(effect.flow.damping);
+    value["lobe_gain"] = json!(effect.lobe.gain);
+    value["lobe_period"] = json!(effect.lobe.period);
+    value["lobe_life"] = json!(effect.lobe.life);
+    value["lobe_rise"] = json!(effect.lobe.rise);
+    value["lobe_size"] = json!(effect.lobe.size);
+    value["lobe_spawn_height"] = json!(effect.lobe.spawn_height);
+    value["lobe_spread"] = json!(effect.lobe.spread);
+    value["lobe_shift"] = json!(effect.lobe.shift);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!([
         strain.strain_base,
