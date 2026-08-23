@@ -340,6 +340,28 @@ declare_scene_format! {
                 tooltip: "Vertical scale of the noise cells: small = tall streaks, 1 = isotropic puffs (in the height-scaled mode)",
             },
         },
+        noise_lobe_scale: f32 = Style {
+            get: |e| e.noise.lobe_scale,
+            set: |e, v| e.noise.lobe_scale = v,
+            ui {
+                label: "Lobe Scale",
+                min: 0.1,
+                max: 1.5,
+                format: "%.2f",
+                tooltip: "Knee of the silhouette-scale low octaves: smaller lets larger, rounder lobes through, larger keeps only the fine carving band",
+            },
+        },
+        noise_lobe_aniso: f32 = Style {
+            get: |e| e.noise.lobe_aniso,
+            set: |e, v| e.noise.lobe_aniso = v,
+            ui {
+                label: "Lobe Aspect",
+                min: 0.25,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Vertical wavenumber multiplier of the low octaves: below 1 stretches the lobes into tall streaks, above 1 flattens them into stacked puffs",
+            },
+        },
         edge_outer_sharpen: f32 = Style {
             get: |e| e.edge.outer_sharpen,
             set: |e, v| e.edge.outer_sharpen = v,
@@ -484,6 +506,76 @@ declare_scene_format! {
             },
         },
         branch_seed: u32 = Frame { get: |e| e.branch.seed, set: |e, v| e.branch.seed = v },
+        puff_gain: f32 = Style {
+            get: |e| e.puff.gain,
+            set: |e, v| e.puff.gain = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Thinning of the medium between the puffs in [0, 1]: the puff cores keep the full density while the gaps drop to 1 - gain, so the column reads as stacked lumps rising from the base; 0 = off",
+            },
+        },
+        puff_period: f32 = Style {
+            get: |e| e.puff.period,
+            set: |e, v| e.puff.period = v,
+            ui {
+                min: 0.05,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Puffing period [s]: one density parcel leaves the base per period (puffing frequency 1 / period)",
+            },
+        },
+        puff_rise: f32 = Style {
+            get: |e| e.puff.rise,
+            set: |e, v| e.puff.rise = v,
+            ui {
+                min: 0.01,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Rise velocity of the puffs in local height units per second; spacing between lumps = rise * period",
+            },
+        },
+        puff_radius: f32 = Style {
+            get: |e| e.puff.radius,
+            set: |e, v| e.puff.radius = v,
+            ui {
+                min: 0.05,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Puff radius at spawn as a ratio of the base trunk radius",
+            },
+        },
+        puff_spread: f32 = Style {
+            get: |e| e.puff.spread,
+            set: |e, v| e.puff.spread = v,
+            ui {
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Entrainment growth of the puff radius per unit height, in spawn radii",
+            },
+        },
+        puff_decay: f32 = Style {
+            get: |e| e.puff.decay,
+            set: |e, v| e.puff.decay = v,
+            ui {
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Height over which the puff density e-folds (burnout); 0 = no decay",
+            },
+        },
+        puff_aspect: f32 = Style {
+            get: |e| e.puff.aspect,
+            set: |e, v| e.puff.aspect = v,
+            ui {
+                min: 0.1,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Vertical over lateral radius of a puff: below 1 flattens the lumps so a wide puff can still leave thin seams between neighbours",
+            },
+        },
     },
     runtime {
         time: f32 { get: |e| e.time, set: |e, v| e.time = v },

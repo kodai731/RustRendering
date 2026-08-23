@@ -706,6 +706,25 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
     return flameEmitterSmoothDensityDisplacedAt(c, h, wiggle, flameBoundaryDisplacement(c.xz));
 }
 
+// Puff density factor at trunk-local `ps`: the burning material is the puff
+// train, so the medium between puffs thins to (1 - gain) and each puff's
+// Gaussian core (isotropic, local y scaled by aspect) restores it. Count 0 = 1.
+// Mirrored in thyllore-effect-core/src/flame/puff.rs (puff_density_factor).
+float flamePuffDensityFactor(vec3 ps) {
+    int count = int(flame.puffField.count + 0.5);
+    if (count <= 0) { return 1.0; }
+    float sum = 0.0;
+    for (int i = 0; i < FLAME_PUFF_MAX_COUNT; ++i) {
+        if (i >= count) { break; }
+        vec4 puff = flame.puffField.puffs[i];
+        float dy = (ps.y - puff.x) * flame.puffField.aspect;
+        float r2 = (ps.x * ps.x + ps.z * ps.z) / max(puff.y * puff.y, 1e-6)
+            + dy * dy / max(puff.w * puff.w, 1e-6);
+        sum += puff.z * exp(-r2);
+    }
+    return mix(1.0 - flame.puffField.gain, 1.0, min(sum, 1.0));
+}
+
 // Mixing degree m: how far a parcel has mixed with ambient air, read from the
 // low-octave erosion modes at the mixing eddy scale (std units, carve-positive
 // = mixed) plus height and shear-layer (radial) ramps: entrainment is a

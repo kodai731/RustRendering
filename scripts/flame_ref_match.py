@@ -161,6 +161,21 @@ def puff_isotropy(lum, mask, column_width):
     return float(length_y / length_x), float((length_x + length_y) / 2.0 / column_width)
 
 
+def vertical_modulation(lum, mask, column_width):
+    rows = np.where(mask.any(axis=1))[0]
+    y0, y1 = rows.min(), rows.max() + 1
+    row_counts = mask[y0:y1].sum(axis=1)
+    row_means = (lum[y0:y1] * mask[y0:y1]).sum(axis=1) / np.maximum(row_counts, 1)
+    profile = row_means[row_counts > 0.3 * column_width]
+    if profile.size < column_width:
+        return [np.nan, np.nan]
+    out = []
+    for sigma in (column_width / 8.0, column_width / 4.0):
+        band = ndimage.gaussian_filter1d(profile, sigma) - ndimage.gaussian_filter1d(profile, 2.0 * sigma)
+        out.append(float(band.std() / profile.mean()))
+    return out
+
+
 def row_bands(mask):
     ys = np.where(mask.any(axis=1))[0]
     y0, y1 = ys.min(), ys.max() + 1
@@ -279,13 +294,15 @@ def frame_stats(rgb, column_width):
         "centerline_straightness": centerline_straightness(mask, column_width),
         "width_spread_base": width_profile(mask, column_width),
         "top_fragments": list(top_fragments(lum, mask, column_width)),
+        "vertical_modulation": vertical_modulation(lum, mask, column_width),
     }
 
 
 def aggregate(stat_list):
     keys = ["lum_p10_50_90", "dark_fraction", "bright_fraction", "band_mean", "band_p90", "gr_by_lum", "br_by_lum",
             "contrast_spectrum", "bright_largest_share", "bright_fragments_per_k", "interior_hole_ratio",
-            "puff_isotropy_scale", "centerline_amplitude", "centerline_straightness", "top_fragments"]
+            "puff_isotropy_scale", "centerline_amplitude", "centerline_straightness", "top_fragments",
+            "vertical_modulation"]
     out = {"frames": len(stat_list)}
     for key in keys:
         out[key] = np.nanmean(np.array([s[key] for s in stat_list], dtype=float), axis=0).tolist()
@@ -391,6 +408,8 @@ def compare_structure(ref, render):
     if count_ref < 0.5:
         width_row = width_row[:4] + (None,)
     rows.append(width_row)
+    rows.append(ratio_row("xii vertical mod w/8", ref["vertical_modulation"][0], render["vertical_modulation"][0], 0.6, 1.6, ".3f"))
+    rows.append(ratio_row("xii vertical mod w/4", ref["vertical_modulation"][1], render["vertical_modulation"][1], 0.6, 1.6, ".3f"))
     return rows
 
 

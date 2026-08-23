@@ -13,6 +13,8 @@ pub const FLAME_NOISE_PARAMS: &[&str] = &[
     "noise_contrast",
     "swirl_gain",
     "noise_aniso_y",
+    "noise_lobe_scale",
+    "noise_lobe_aniso",
 ];
 
 pub const FLAME_MIX_PARAMS: &[&str] = &[
@@ -47,6 +49,16 @@ pub const FLAME_BRANCH_PARAMS: &[&str] = &[
     "branch_spawn_range",
 ];
 
+pub const FLAME_PUFF_PARAMS: &[&str] = &[
+    "puff_gain",
+    "puff_period",
+    "puff_rise",
+    "puff_radius",
+    "puff_spread",
+    "puff_decay",
+    "puff_aspect",
+];
+
 pub const FLAME_FOOTER_PARAMS: &[&str] = &["support_margin", "time_scale"];
 
 pub const FLAME_PARAM_GROUPS: &[&[&str]] = &[
@@ -55,6 +67,7 @@ pub const FLAME_PARAM_GROUPS: &[&[&str]] = &[
     FLAME_MIX_PARAMS,
     FLAME_MOTION_PARAMS,
     FLAME_BRANCH_PARAMS,
+    FLAME_PUFF_PARAMS,
     FLAME_FOOTER_PARAMS,
 ];
 

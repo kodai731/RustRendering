@@ -43,6 +43,7 @@ pub struct FlameEffect {
     pub twist: FlameTwist,
     pub meander: FlameMeander,
     pub branch: FlameBranch,
+    pub puff: FlamePuff,
 }
 
 impl Default for FlameEffect {
@@ -81,6 +82,7 @@ impl Default for FlameEffect {
             twist: FlameTwist::default(),
             meander: FlameMeander::default(),
             branch: FlameBranch::default(),
+            puff: FlamePuff::default(),
         };
         refresh_flame_coefficients(&mut effect, &FlameBaked::default());
         effect

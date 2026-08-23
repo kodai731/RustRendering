@@ -113,6 +113,42 @@ impl Default for FlameBranch {
     }
 }
 
+/// Puff train: the characteristic solution of the density advection equation
+/// along the axis. Parcels of unburnt density leave the base every `period`,
+/// rise at `rise`, widen by entrainment and burn out; gain 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlamePuff {
+    /// How far the medium between puffs thins, in [0, 1]: the puff cores keep
+    /// the full density, the gaps drop to 1 - gain; 0 = off.
+    pub gain: f32,
+    /// Spawn period in seconds (puffing frequency 1 / period).
+    pub period: f32,
+    /// Rise velocity in local height units per second.
+    pub rise: f32,
+    /// Puff radius at spawn as a ratio of the base trunk radius.
+    pub radius: f32,
+    /// Radius growth per unit height (entrainment), in spawn radii.
+    pub spread: f32,
+    /// Height over which the puff density e-folds; 0 = no burnout.
+    pub decay: f32,
+    /// Vertical over lateral radius of a puff (isotropic units); below 1 = flat lumps.
+    pub aspect: f32,
+}
+
+impl Default for FlamePuff {
+    fn default() -> Self {
+        Self {
+            gain: 0.0,
+            period: 0.5,
+            rise: 0.3,
+            radius: 0.6,
+            spread: 0.5,
+            decay: 0.8,
+            aspect: 1.0,
+        }
+    }
+}
+
 /// Stateless write-through of the Vortex macro knob onto (twist gain, twist
 /// speed); the two parameters stay the single source of truth.
 pub fn vortex_macro_parameters(v: f32) -> (f32, f32) {

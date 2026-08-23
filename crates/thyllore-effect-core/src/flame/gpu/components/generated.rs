@@ -181,6 +181,17 @@ declare_gpu_block! {
 }
 
 declare_gpu_block! {
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    pub struct FlamePuffField {
+        pub count: f32,
+        pub gain: f32,
+        pub aspect: f32,
+        pub _padding: f32,
+        pub puffs: [[f32; 4]; 16],
+    }
+}
+
+declare_gpu_block! {
     #[derive(Clone, Copy, Debug)]
     pub struct FlameSegmentParams {
         pub count: f32,
@@ -386,6 +397,7 @@ declare_gpu_block! {
         pub twist_field: FlameTwistField = nested FlameTwistField,
         pub meander_modes: [FlameMeanderMode; 2] = nested FlameMeanderMode,
         pub branch_field: FlameBranchField = nested FlameBranchField,
+        pub puff_field: FlamePuffField = nested FlamePuffField,
         pub wave_modes: [[f32; 4]; 428],
         pub wave_jitter: [[f32; 4]; 96],
     }

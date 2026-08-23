@@ -272,6 +272,19 @@ struct FlameBranchField {
     FlameBranchElement elements[FLAME_BRANCH_MAX_ELEMENTS];
 };
 
+const int FLAME_PUFF_MAX_COUNT = 16;
+
+// Puff train (characteristic solution of the axial density advection): each entry
+// is (center height, lateral radius in trunk-local radial units, density, vertical radius
+// in isotropic units); count = 0 is a no-op.
+struct FlamePuffField {
+    float count;
+    float gain;
+    float aspect;
+    float pad0;
+    vec4 puffs[FLAME_PUFF_MAX_COUNT];
+};
+
 layout(set = 1, binding = 0) uniform FlameUBO {
     mat4 model;
     mat4 inverseModel;
@@ -321,6 +334,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     FlameTwistField twistField;
     FlameMeanderMode meanderModes[2];
     FlameBranchField branchField;
+    FlamePuffField puffField;
     vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;

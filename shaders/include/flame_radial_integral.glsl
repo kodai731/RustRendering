@@ -271,10 +271,13 @@ FlameNodeSample flameWaveNodeSample(
     node.density = density;
 
     float uSquared;
+    vec3 ps;
     if (flame.emitterParams.kind >= 1.5) {
         uSquared = 0.0;
+        float hSupport = h;
+        ps = flameSupportPosition(p, hSupport);
     } else {
-        vec3 ps = flameSupportPosition(p, h);
+        ps = flameSupportPosition(p, h);
         float wiggle = flameContourWiggle(ps, h);
         vec2 boundary = flameBoundaryDisplacement(ps.xz);
         float hb = clamp(h / boundary.x, 0.0, 1.0);
@@ -287,7 +290,7 @@ FlameNodeSample flameWaveNodeSample(
         uSquared = u * u;
     }
     float mixing = flameMixingDegree(sum.zMix, hs, uSquared);
-    node.mixDensity = flameMixDensityFactor(mixing);
+    node.mixDensity = flameMixDensityFactor(mixing) * flamePuffDensityFactor(ps);
     node.temperature = flameMixTemperature(mixing);
     node.emissivity = flameWienEmissivity(node.temperature);
     float erosion = flameNoiseErosionFromValue(node.shapedNoise, hs, node.density, uSquared);

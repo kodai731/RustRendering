@@ -1163,6 +1163,8 @@ mod legacy_format_golden {
   "wien_c_k": 12000.0,
   "wave_segments": 64,
   "noise_aniso_y": 0.35,
+  "noise_lobe_scale": 0.55,
+  "noise_lobe_aniso": 1.0,
   "edge_outer_sharpen": 0.0,
   "noise_scale_mode": 0.0,
   "erosion_noise_gain": 1.0,
@@ -1180,7 +1182,14 @@ mod legacy_format_golden {
   "branch_spread": 0.3,
   "branch_spawn_height": 0.35,
   "branch_spawn_range": 0.4,
-  "branch_seed": 0
+  "branch_seed": 0,
+  "puff_gain": 0.0,
+  "puff_period": 0.5,
+  "puff_rise": 0.3,
+  "puff_radius": 0.6,
+  "puff_spread": 0.5,
+  "puff_decay": 0.8,
+  "puff_aspect": 1.0
 }"#;
 
     #[test]

@@ -32,6 +32,8 @@ pub fn build_effect_json(
         "noise_frequency": effect.noise.frequency,
         "noise_scroll_speed": effect.noise.scroll_speed,
        "noise_aniso_y": effect.noise.aniso_y,
+        "noise_lobe_scale": effect.noise.lobe_scale,
+        "noise_lobe_aniso": effect.noise.lobe_aniso,
         "warp_y_scale": effect.warp.y_scale,
       "coefficients": {
             "height_primitive": effect.coefficients.height_primitive,
@@ -115,6 +117,13 @@ pub fn build_effect_json(
     value["branch_spawn_height"] = json!(effect.branch.spawn_height);
     value["branch_spawn_range"] = json!(effect.branch.spawn_range);
     value["branch_seed"] = json!(effect.branch.seed);
+    value["puff_gain"] = json!(effect.puff.gain);
+    value["puff_period"] = json!(effect.puff.period);
+    value["puff_rise"] = json!(effect.puff.rise);
+    value["puff_radius"] = json!(effect.puff.radius);
+    value["puff_spread"] = json!(effect.puff.spread);
+    value["puff_decay"] = json!(effect.puff.decay);
+    value["puff_aspect"] = json!(effect.puff.aspect);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!([
         strain.strain_base,

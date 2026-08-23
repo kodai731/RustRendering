@@ -2562,6 +2562,8 @@ mod tests {
             "edge_outer_sharpen",
             "noise_scale_mode",
             "erosion_noise_gain",
+            "noise_lobe_scale",
+            "noise_lobe_aniso",
             "twist_gain",
             "twist_speed",
             "burnout_gain",
