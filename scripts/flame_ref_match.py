@@ -31,7 +31,7 @@ Metrics (silhouette = R>90 && R-B>40, lum = 0.299R+0.587G+0.114B):
       extra width (halo width - silhouette width) / column width ratio within [0.7, 1.4]; tongues = halo
       runs at least width/4 tall protruding > 0.25 width beyond the silhouette on one side, count ratio
       within [0.5, 2]
-  xiii-xvi sequence gates: see flame_ref_match_temporal.py (--temporal; the render must be a 10 fps sequence
+  xiii-xvi sequence gates: see flame_ref_match_sequence.py (--temporal; the render must be a 10 fps sequence
       or pass --fps). The reference is measured over --ref-window (default frames 17-39: frames 0-1 precede a
       cut in the source video and 2-16 are a lateral whip of the whole column)
 """
@@ -45,7 +45,7 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-import flame_ref_match_temporal as temporal
+import flame_ref_match_sequence as sequence
 
 REF_DIR = Path(__file__).resolve().parents[1] / "assets/textures/flames/pillar_ref_seq"
 LUM_BINS = [(40, 80), (80, 120), (120, 160), (160, 200), (200, 256)]
@@ -484,8 +484,8 @@ def print_profiles(ref, render):
 
 
 def measure_sequence(paths, column_width, dt, crop=None, resample=True):
-    rgbs = temporal.load_sequence(paths, column_width, crop, resample, load_image, to_rgb, median_column_width)
-    return temporal.measure_temporal(rgbs, column_width, dt, silhouette_mask, row_centers)
+    rgbs = sequence.load_sequence(paths, column_width, crop, resample, load_image, to_rgb, median_column_width)
+    return sequence.measure_temporal(rgbs, column_width, dt, silhouette_mask, row_centers)
 
 
 def main():
@@ -514,7 +514,7 @@ def main():
         ref_temporal = measure_sequence(ref_paths[first:end], column_width, 1.0 / REF_FPS, resample=False)
     if args.ref_only or not args.render:
         if ref_temporal is not None:
-            temporal.print_temporal(ref_temporal, ref_temporal)
+            sequence.print_temporal(ref_temporal, ref_temporal)
             if args.json:
                 Path(args.json).write_text(json.dumps({"reference_temporal": ref_temporal}, indent=2))
         return
@@ -529,7 +529,7 @@ def main():
     render_temporal = None
     if args.temporal:
         render_temporal = measure_sequence(collect_frames(args.render), column_width, 1.0 / args.fps, crop)
-        rows.extend(temporal.compare_temporal(ref_temporal, render_temporal, ratio_row))
+        rows.extend(sequence.compare_temporal(ref_temporal, render_temporal, ratio_row))
     print(f"\n{'gate':<22}{'ref':>6}{'render':>8}  {'value':<14}status")
     passed = 0
     gated = 0
@@ -542,7 +542,7 @@ def main():
     print(f"\n{passed}/{gated} gates pass")
     print_profiles(ref, render)
     if render_temporal is not None:
-        temporal.print_temporal(ref_temporal, render_temporal)
+        sequence.print_temporal(ref_temporal, render_temporal)
 
     if args.json:
         Path(args.json).write_text(json.dumps({"reference": ref, "render": render,
