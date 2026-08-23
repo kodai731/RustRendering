@@ -317,6 +317,7 @@ fn dispatch_hierarchy_entity_events(
                 let camera_entity = match active_camera.0 {
                     Some(e) => e,
                     None => {
+                        log_warn!("camera_direction: no active camera for '{}'", utterance);
                         let mut state = world.resource_mut::<HelmState>();
                         state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(
                             "camera_direction: no active camera".to_string(),
@@ -330,6 +331,7 @@ fn dispatch_hierarchy_entity_events(
                     match thyllore_ml_core::model_path::resolve_camera_direction_model_paths() {
                         Some(p) => p,
                         None => {
+                            log_error!("camera_direction: model not found for '{}'", utterance);
                             let mut state = world.resource_mut::<HelmState>();
                             state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(
                                 "camera_direction: model not found".to_string(),
@@ -339,6 +341,10 @@ fn dispatch_hierarchy_entity_events(
                     };
 
                 let Some(caption) = build_movement_caption(utterance) else {
+                    log_warn!(
+                        "camera_direction: no movement keyword recognized in '{}'",
+                        utterance
+                    );
                     let mut state = world.resource_mut::<HelmState>();
                     state.feedback = Some(crate::ecs::resource::CommandFeedback::Report(format!(
                         "camera_direction: no movement keyword recognized in '{}'",
@@ -350,6 +356,12 @@ fn dispatch_hierarchy_entity_events(
                 let poses = match generate_camera_poses(&paths, &caption) {
                     Ok(p) => p,
                     Err(e) => {
+                        log_error!(
+                            "camera_direction: generation failed for '{}' (caption '{}'): {}",
+                            utterance,
+                            caption,
+                            e
+                        );
                         let mut state = world.resource_mut::<HelmState>();
                         state.feedback =
                             Some(crate::ecs::resource::CommandFeedback::DispatchError(
@@ -388,6 +400,12 @@ fn dispatch_hierarchy_entity_events(
                     },
                 );
 
+                log!(
+                    "camera_direction: {} keys from '{}' (caption '{}')",
+                    n,
+                    utterance,
+                    caption
+                );
                 let mut state = world.resource_mut::<HelmState>();
                 state.feedback = Some(crate::ecs::resource::CommandFeedback::Executed(format!(
                     "camera_direction: {} keys from '{}'",
