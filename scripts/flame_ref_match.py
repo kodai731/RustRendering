@@ -31,9 +31,11 @@ Metrics (silhouette = R>90 && R-B>40, lum = 0.299R+0.587G+0.114B):
       extra width (halo width - silhouette width) / column width ratio within [0.7, 1.4]; tongues = halo
       runs at least width/4 tall protruding > 0.25 width beyond the silhouette on one side, count ratio
       within [0.5, 2]
-  xiii-xvi sequence gates: see flame_ref_match_sequence.py (--temporal; the render must be a 10 fps sequence
-      or pass --fps). The reference is measured over --ref-window (default frames 17-39: frames 0-1 precede a
-      cut in the source video and 2-16 are a lateral whip of the whole column)
+  xiii-xvi sequence gates: see flame_ref_match_sequence.py (--temporal; the render must be a sequence at
+      --fps). The reference frame rate is read from the reference meta.json; --ref-window narrows the
+      reference span (default: every frame). Frames listed as caption_frames in meta.json carry burned-in
+      text and are excluded from the static reference (the silhouette fields the sequence gates use are
+      hole-filled, so captions inside the column do not disturb them).
 """
 
 import argparse
@@ -56,8 +58,12 @@ CONTRAST_SIGMA_WIDTH_FRACTIONS = [1 / 256, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 
 BRIGHT_PERCENTILE = 70.0
 HALO_TONGUE_PROTRUSION = 0.25
 HALO_BASE_POOL_FRACTION = 0.2
-REF_FPS = 10.0
-REF_TEMPORAL_WINDOW = (17, 40)
+def load_ref_meta(ref_dir):
+    meta_path = Path(ref_dir) / "meta.json"
+    if not meta_path.exists():
+        return 10.0, set()
+    meta = json.loads(meta_path.read_text())
+    return float(meta.get("fps", 10.0)), set(meta.get("caption_frames", []))
 
 
 def load_image(path, crop=None):
@@ -497,21 +503,22 @@ def main():
     parser.add_argument("--json", help="write reference/render/gate results to this path")
     parser.add_argument("--temporal", action="store_true", help="also measure the sequence gates xiii-xvi")
     parser.add_argument("--fps", type=float, default=10.0, help="frame rate of the render sequence")
-    parser.add_argument("--ref-window", default=f"{REF_TEMPORAL_WINDOW[0]},{REF_TEMPORAL_WINDOW[1]}",
-                        help="first,end reference frame for the sequence gates (default: the settled span after "
-                             "the cut and the lateral whip of frames 0-16)")
+    parser.add_argument("--ref-window", default=None,
+                        help="first,end reference frame for the sequence gates (default: every frame)")
     args = parser.parse_args()
 
+    ref_fps, caption_frames = load_ref_meta(args.ref_dir)
     ref_paths = collect_frames(args.ref_dir)
-    column_width = reference_column_width(ref_paths)
-    ref = measure(ref_paths, column_width, resample=False)
+    static_paths = [p for i, p in enumerate(ref_paths) if i not in caption_frames]
+    column_width = reference_column_width(static_paths)
+    ref = measure(static_paths, column_width, resample=False)
     print(f"reference: {ref['frames']} frames, column width {column_width:.0f} px, lum p10/50/90 = "
           f"{ref['lum_p10_50_90'][0]:.0f}/{ref['lum_p10_50_90'][1]:.0f}/{ref['lum_p10_50_90'][2]:.0f}, "
           f"dark {ref['dark_fraction'] * 100:.0f}%, bright {ref['bright_fraction'] * 100:.0f}%")
     ref_temporal = None
     if args.temporal:
-        first, end = (int(v) for v in args.ref_window.split(","))
-        ref_temporal = measure_sequence(ref_paths[first:end], column_width, 1.0 / REF_FPS, resample=False)
+        first, end = (int(v) for v in args.ref_window.split(",")) if args.ref_window else (0, len(ref_paths))
+        ref_temporal = measure_sequence(ref_paths[first:end], column_width, 1.0 / ref_fps, resample=False)
     if args.ref_only or not args.render:
         if ref_temporal is not None:
             sequence.print_temporal(ref_temporal, ref_temporal)

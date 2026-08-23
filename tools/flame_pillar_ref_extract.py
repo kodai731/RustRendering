@@ -3,9 +3,14 @@
 Usage:
   python tools/flame_pillar_ref_extract.py --video <pillar_src_1080.mp4> --out assets/textures/flames/pillar_ref_seq
     [--match-dir assets/textures/flames/pillar_ref_seq/low_quality] [--scale 3] [--stride 3]
+    [--source-range first,end]
 
 `--stride 1` writes every source frame of the same span (30 fps, for the sequence gates xiii-xvi of
 scripts/flame_ref_match.py); the default stride 3 reproduces the legacy 10 fps frames.
+
+`--source-range first,end` (end exclusive) skips the legacy alignment and extracts that span of source
+frames directly. Frames whose caption band holds burned-in text are listed in meta as `caption_frames`
+(the video only shows the flame untouched outside those overlays).
 
 The 40 output frames reproduce the legacy 280x560 sequence (now in low_quality/) at
 `scale` times the resolution: the same crop of the source, the same frames (the first found by
@@ -94,6 +99,20 @@ def match_source_indices(source_frames, legacy_frames, stride):
     return indices
 
 
+CAPTION_BAND = (900, 1100, 200, 900)
+CAPTION_WHITE_MIN = 500
+
+
+def has_caption(rgb):
+    y0, y1, x0, x1 = CAPTION_BAND
+    scale_y = rgb.shape[0] / 1920.0
+    scale_x = rgb.shape[1] / 1080.0
+    band = rgb[int(y0 * scale_y):int(y1 * scale_y), int(x0 * scale_x):int(x1 * scale_x)]
+    r, g, b = band[..., 0].astype(int), band[..., 1].astype(int), band[..., 2].astype(int)
+    white = ((r > 230) & (g > 230) & (b > 215)).sum()
+    return white * (1920.0 * 1080.0) / (rgb.shape[0] * rgb.shape[1]) > CAPTION_WHITE_MIN
+
+
 def scaled_crop(scale):
     return tuple(v * scale for v in LEGACY_CROP)
 
@@ -105,23 +124,26 @@ def extract_frame(rgb, scale):
     return attenuate_background(resized[y0:y1, x0:x1].astype(np.float32), LEGACY_BLUR_SIGMA * scale)
 
 
-def write_meta(out_dir, scale, indices, video_path, fps, stride):
+def write_meta(out_dir, scale, indices, video_path, fps, stride, caption_frames):
     x0, y0, x1, y1 = scaled_crop(scale)
+    scores = [s for _, s in indices if s == s]
     meta = {
-        "source": "youtube shorts -LzPOERYBBA (design 20260811_flame_noise_motion/reference)",
+        "source": "youtube shorts -LzPOERYBBA (usable range 0:00-0:02 per link.txt)",
         "source_video": Path(video_path).name,
         "source_resolution": [LEGACY_SOURCE_SIZE[0] * scale, LEGACY_SOURCE_SIZE[1] * scale],
         "frames": len(indices),
         "fps": fps / stride,
         "source_frame_indices": [i for i, _ in indices],
-        "legacy_match_correlation_min": min(s for _, s in indices if s == s),
+        "caption_frames": caption_frames,
         "crop_in_source": [x0, y0, x1, y1],
         "processing": (
             f"luminance soft-mask background attenuation (floor {BACKGROUND_FLOOR}, "
             f"smoothstep lum {MASK_LUM_LOW:.0f}-{MASK_LUM_HIGH:.0f}, gaussian blur sigma {LEGACY_BLUR_SIGMA * scale:.0f}px)"
         ),
-        "legacy": "low_quality/ holds the previous 280x560 sequence this one reproduces at higher resolution",
     }
+    if scores:
+        meta["legacy_match_correlation_min"] = min(scores)
+        meta["legacy"] = "low_quality/ holds the previous 280x560 sequence this one reproduces at higher resolution"
     (out_dir / "meta.json").write_text(json.dumps(meta, indent=1) + "\n")
 
 
@@ -132,23 +154,32 @@ def main():
     parser.add_argument("--match-dir", default=None, help="legacy frames to align to (default: <out>/low_quality)")
     parser.add_argument("--scale", type=int, default=3)
     parser.add_argument("--stride", type=int, default=SOURCE_FRAMES_PER_LEGACY_FRAME)
+    parser.add_argument("--source-range", default=None, help="first,end source frame span (end exclusive), skips legacy alignment")
     args = parser.parse_args()
 
     out_dir = Path(args.out)
-    match_dir = Path(args.match_dir) if args.match_dir else out_dir / "low_quality"
     source_frames = read_source_frames(args.video)
     fps = cv2.VideoCapture(args.video).get(cv2.CAP_PROP_FPS)
-    legacy_frames = load_legacy_frames(match_dir)
-    indices = match_source_indices(source_frames, legacy_frames, args.stride)
+    if args.source_range:
+        first, end = (int(v) for v in args.source_range.split(","))
+        indices = [(index, float("nan")) for index in range(first, end, args.stride)]
+    else:
+        match_dir = Path(args.match_dir) if args.match_dir else out_dir / "low_quality"
+        legacy_frames = load_legacy_frames(match_dir)
+        indices = match_source_indices(source_frames, legacy_frames, args.stride)
 
     out_dir.mkdir(parents=True, exist_ok=True)
     digits = len(str(len(indices) - 1))
+    caption_frames = []
     for k, (index, score) in enumerate(indices):
+        if has_caption(source_frames[index]):
+            caption_frames.append(k)
         frame = extract_frame(source_frames[index], args.scale)
         name = f"frame_{k:0{digits}d}"
         Image.fromarray(frame.astype(np.uint8)).save(out_dir / f"{name}.png")
-        print(f"{name} <- source {index} (corr {score:.3f})")
-    write_meta(out_dir, args.scale, indices, args.video, fps, args.stride)
+        caption = " caption" if caption_frames and caption_frames[-1] == k else ""
+        print(f"{name} <- source {index} (corr {score:.3f}){caption}")
+    write_meta(out_dir, args.scale, indices, args.video, fps, args.stride, caption_frames)
 
 
 if __name__ == "__main__":
