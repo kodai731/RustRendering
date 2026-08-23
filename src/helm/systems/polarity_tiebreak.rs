@@ -132,7 +132,9 @@ pub enum TieBreakOutcome {
 mod tests {
     use super::*;
     use crate::helm::components::route::ALL_ROUTES;
-    use crate::helm::components::tool_call::{SeekPosition, SpeedPreset, VisibilityState};
+    use crate::helm::components::tool_call::{
+        SeekPosition, ShotPreset, SpeedPreset, VisibilityState,
+    };
     use crate::helm::systems::normalize::normalize_utterance;
     use std::collections::HashSet;
 
@@ -218,6 +220,10 @@ mod tests {
                 | Route::StopAnimation
                 | Route::Undo
                 | Route::Redo
+                | Route::CameraShot(ShotPreset::DollyIn)
+                | Route::CameraShot(ShotPreset::DollyOut)
+                | Route::CameraShot(ShotPreset::CraneUp)
+                | Route::CameraShot(ShotPreset::CraneDown)
         )
     }
 
