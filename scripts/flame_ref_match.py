@@ -27,6 +27,10 @@ Metrics (silhouette = R>90 && R-B>40, lum = 0.299R+0.587G+0.114B):
       ratio within [0.7, 1.4]
   xi  detached silhouette fragments (area >= (width/16)^2) in the top quarter: count diff within +-1,
       median width ratio within [0.5, 2] (only gated when the reference has fragments)
+  xvii dim halo (the flame outside the silhouette but above R>35 && R-B>15, rows above the base pool):
+      extra width (halo width - silhouette width) / column width ratio within [0.7, 1.4]; tongues = halo
+      runs at least width/4 tall protruding > 0.25 width beyond the silhouette on one side, count ratio
+      within [0.5, 2]
   xiii-xvi sequence gates: see flame_ref_match_temporal.py (--temporal; the render must be a 10 fps sequence
       or pass --fps). The reference is measured over --ref-window (default frames 17-39: frames 0-1 precede a
       cut in the source video and 2-16 are a lateral whip of the whole column)
@@ -50,6 +54,8 @@ ROOT_BAND = 7
 DARK_LUM = 80.0
 CONTRAST_SIGMA_WIDTH_FRACTIONS = [1 / 256, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4]
 BRIGHT_PERCENTILE = 70.0
+HALO_TONGUE_PROTRUSION = 0.25
+HALO_BASE_POOL_FRACTION = 0.2
 REF_FPS = 10.0
 REF_TEMPORAL_WINDOW = (17, 40)
 
@@ -86,6 +92,39 @@ def resample_to_column_width(image, target_width):
 def silhouette_mask(rgb):
     r, b = rgb[:, :, 0], rgb[:, :, 2]
     return (r > 90) & (r - b > 40)
+
+
+def halo_mask(rgb):
+    r, b = rgb[:, :, 0], rgb[:, :, 2]
+    return (r > 35) & (r - b > 15)
+
+
+def row_edges(mask):
+    first = np.where(mask.any(axis=1), mask.argmax(axis=1), np.nan)
+    last = np.where(mask.any(axis=1), mask.shape[1] - 1 - mask[:, ::-1].argmax(axis=1), np.nan)
+    return first.astype(float), last.astype(float)
+
+
+def halo_spread(rgb, mask, column_width):
+    """(extra width / column width, tongue count) of the dim halo above the base pool."""
+    core = ndimage.binary_fill_holes(mask)
+    halo = ndimage.binary_fill_holes(halo_mask(rgb) | mask)
+    ys = np.where(core.any(axis=1))[0]
+    y0, y1 = ys.min(), ys.max() + 1
+    cut = y0 + int((y1 - y0) * (1.0 - HALO_BASE_POOL_FRACTION))
+    core, halo = core[y0:cut], halo[y0:cut]
+    rows = core.any(axis=1)
+    if rows.sum() < 10:
+        return np.nan, np.nan
+
+    extra_width = float(((halo.sum(axis=1) - core.sum(axis=1))[rows]).mean() / column_width)
+    core_left, core_right = row_edges(core)
+    halo_left, halo_right = row_edges(halo)
+    protrusion = np.nan_to_num(np.maximum(halo_right - core_right, core_left - halo_left)) / column_width
+    runs, count = ndimage.label(protrusion > HALO_TONGUE_PROTRUSION)
+    run_heights = ndimage.sum(np.ones_like(runs), runs, range(1, count + 1)) if count else []
+    tongues = float(sum(1 for height in run_heights if height >= column_width / 4.0))
+    return extra_width, tongues
 
 
 def luminance(rgb):
@@ -298,6 +337,7 @@ def frame_stats(rgb, column_width):
         "bright_fragments_per_k": fragments_per_k,
         "interior_hole_ratio": interior_hole_ratio(lum, mask, column_width),
         "puff_isotropy_scale": list(puff_isotropy(lum, mask, column_width)),
+        "halo_spread": list(halo_spread(rgb, mask, column_width)),
         "centerline_amplitude": centerline_amplitude(mask, column_width),
         "centerline_straightness": centerline_straightness(mask, column_width),
         "width_spread_base": width_profile(mask, column_width),
@@ -310,7 +350,7 @@ def aggregate(stat_list):
     keys = ["lum_p10_50_90", "dark_fraction", "bright_fraction", "band_mean", "band_p90", "gr_by_lum", "br_by_lum",
             "contrast_spectrum", "bright_largest_share", "bright_fragments_per_k", "interior_hole_ratio",
             "puff_isotropy_scale", "centerline_amplitude", "centerline_straightness", "top_fragments",
-            "vertical_modulation"]
+            "vertical_modulation", "halo_spread"]
     out = {"frames": len(stat_list)}
     for key in keys:
         out[key] = np.nanmean(np.array([s[key] for s in stat_list], dtype=float), axis=0).tolist()
@@ -418,6 +458,8 @@ def compare_structure(ref, render):
     rows.append(width_row)
     rows.append(ratio_row("xii vertical mod w/8", ref["vertical_modulation"][0], render["vertical_modulation"][0], 0.6, 1.6, ".3f"))
     rows.append(ratio_row("xii vertical mod w/4", ref["vertical_modulation"][1], render["vertical_modulation"][1], 0.6, 1.6, ".3f"))
+    rows.append(ratio_row("xvii halo extra width", ref["halo_spread"][0], render["halo_spread"][0], 0.7, 1.4))
+    rows.append(ratio_row("xvii halo tongues", ref["halo_spread"][1], render["halo_spread"][1], 0.5, 2.0, ".1f"))
     return rows
 
 
