@@ -124,6 +124,15 @@ pub fn build_effect_json(
     value["puff_spread"] = json!(effect.puff.spread);
     value["puff_decay"] = json!(effect.puff.decay);
     value["puff_aspect"] = json!(effect.puff.aspect);
+    value["flow_gain"] = json!(effect.flow.gain);
+    value["flow_period"] = json!(effect.flow.period);
+    value["flow_rise"] = json!(effect.flow.rise);
+    value["flow_strength"] = json!(effect.flow.strength);
+    value["flow_core"] = json!(effect.flow.core);
+    value["flow_gust"] = json!(effect.flow.gust);
+    value["flow_gust_frequency"] = json!(effect.flow.gust_frequency);
+    value["flow_burst"] = json!(effect.flow.burst);
+    value["flow_damping"] = json!(effect.flow.damping);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!([
         strain.strain_base,

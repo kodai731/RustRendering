@@ -207,6 +207,7 @@ fn test_flame_ubo_layout_is_std140_compatible() {
             + std::mem::size_of::<[FlameMeanderMode; 2]>()
             + std::mem::size_of::<FlameBranchField>()
             + std::mem::size_of::<FlamePuffField>()
+            + std::mem::size_of::<FlameFlowField>()
     );
     assert_eq!(std::mem::size_of::<FlameSupportMotion>(), 16);
     assert_eq!(std::mem::size_of::<FlameMixParams>(), 32);

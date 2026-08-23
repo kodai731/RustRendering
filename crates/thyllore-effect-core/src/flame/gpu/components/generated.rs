@@ -129,6 +129,16 @@ declare_gpu_block! {
 
 declare_gpu_block! {
     #[derive(Clone, Copy, Debug)]
+    pub struct FlameFlowField {
+        pub gain: f32,
+        pub count: f32,
+        pub _padding: [f32; 2],
+        pub markers: [[f32; 4]; 32],
+    }
+}
+
+declare_gpu_block! {
+    #[derive(Clone, Copy, Debug)]
     pub struct FlameLightParams {
         pub direction: [f32; 3],
         pub self_shadow_strength: f32,
@@ -398,6 +408,7 @@ declare_gpu_block! {
         pub meander_modes: [FlameMeanderMode; 2] = nested FlameMeanderMode,
         pub branch_field: FlameBranchField = nested FlameBranchField,
         pub puff_field: FlamePuffField = nested FlamePuffField,
+        pub flow_field: FlameFlowField = nested FlameFlowField,
         pub wave_modes: [[f32; 4]; 428],
         pub wave_jitter: [[f32; 4]; 96],
     }

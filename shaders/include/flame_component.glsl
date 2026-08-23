@@ -285,6 +285,19 @@ struct FlamePuffField {
     vec4 puffs[FLAME_PUFF_MAX_COUNT];
 };
 
+const int FLAME_FLOW_MARKER_COUNT = 32;
+
+// Fluid motion of the column: marker table over height01 (i / (count - 1)),
+// each (centre offset x, centre offset z, width scale, 0) in flame-local units;
+// gain 0 is the identity.
+struct FlameFlowField {
+    float gain;
+    float count;
+    float pad0;
+    float pad1;
+    vec4 markers[FLAME_FLOW_MARKER_COUNT];
+};
+
 layout(set = 1, binding = 0) uniform FlameUBO {
     mat4 model;
     mat4 inverseModel;
@@ -335,6 +348,7 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     FlameMeanderMode meanderModes[2];
     FlameBranchField branchField;
     FlamePuffField puffField;
+    FlameFlowField flowField;
     vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;

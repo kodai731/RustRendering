@@ -41,6 +41,13 @@ pub const BRANCH_MAX_ELEMENTS: usize = 32;
 /// Puff train: table size and the spawn-time jitter as a fraction of the period.
 pub const PUFF_MAX_COUNT: usize = 16;
 pub const PUFF_SPAWN_JITTER: f32 = 0.3;
+/// Fluid motion: marker column size, vortex table size, the coarsest
+/// integration step and the longest history window of the stateless re-simulation.
+pub const FLOW_MARKER_COUNT: usize = 32;
+pub const FLOW_VORTEX_MAX_PAIRS: usize = 16;
+pub const FLOW_SIM_DT: f32 = 1.0 / 60.0;
+pub const FLOW_HISTORY_SECONDS: f32 = 12.0;
+pub const FLOW_SPAWN_JITTER: f32 = 0.3;
 /// Reach at spawn as a ratio of the element's final reach (entrainment growth).
 pub const BRANCH_REACH_GROWTH_START: f32 = 0.6;
 pub const BRANCH_DRIFT_OVER_LIFE: f32 = 0.5;

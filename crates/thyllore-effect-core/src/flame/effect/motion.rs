@@ -149,6 +149,47 @@ impl Default for FlamePuff {
     }
 }
 
+/// Fluid motion of the column: a Lagrangian marker column (centre and width
+/// per height) carried by a 2D vortex-pair flow with a gust, so the silhouette
+/// lobes form, deform and sway instead of being advected rigidly; gain 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameFlow {
+    /// Scale of the flow's effect on the column (centre offset and width), 0 = off.
+    pub gain: f32,
+    /// Vortex pair spawn period in seconds.
+    pub period: f32,
+    /// Vortex pair rise speed in height units per second.
+    pub rise: f32,
+    /// Circulation of each vortex in base radii squared per second.
+    pub strength: f32,
+    /// Gaussian core radius of a vortex in base radii.
+    pub core: f32,
+    /// Gust velocity amplitude at the tip in base radii per second.
+    pub gust: f32,
+    /// Base gust frequency in Hz (three incommensurate components around it).
+    pub gust_frequency: f32,
+    /// Burst (whip) velocity amplitude in base radii per second; 0 = no bursts.
+    pub burst: f32,
+    /// Restoring rate of the markers toward the rest column, per second.
+    pub damping: f32,
+}
+
+impl Default for FlameFlow {
+    fn default() -> Self {
+        Self {
+            gain: 0.0,
+            period: 1.0,
+            rise: 0.3,
+            strength: 1.0,
+            core: 0.6,
+            gust: 0.3,
+            gust_frequency: 0.4,
+            burst: 0.0,
+            damping: 0.5,
+        }
+    }
+}
+
 /// Stateless write-through of the Vortex macro knob onto (twist gain, twist
 /// speed); the two parameters stay the single source of truth.
 pub fn vortex_macro_parameters(v: f32) -> (f32, f32) {

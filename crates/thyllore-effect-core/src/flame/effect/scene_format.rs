@@ -576,6 +576,96 @@ declare_scene_format! {
                 tooltip: "Vertical over lateral radius of a puff: below 1 flattens the lumps so a wide puff can still leave thin seams between neighbours",
             },
         },
+        flow_gain: f32 = Style {
+            get: |e| e.flow.gain,
+            set: |e, v| e.flow.gain = v,
+            ui {
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Scale of the fluid motion on the column centre and width (markers carried by the vortex-pair flow and the gust); 0 = off",
+            },
+        },
+        flow_period: f32 = Style {
+            get: |e| e.flow.period,
+            set: |e, v| e.flow.period = v,
+            ui {
+                min: 0.1,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Vortex pair spawn period in seconds",
+            },
+        },
+        flow_rise: f32 = Style {
+            get: |e| e.flow.rise,
+            set: |e, v| e.flow.rise = v,
+            ui {
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Vortex pair rise speed in height units per second",
+            },
+        },
+        flow_strength: f32 = Style {
+            get: |e| e.flow.strength,
+            set: |e, v| e.flow.strength = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Circulation of each vortex in base radii squared per second: how strongly a passing pair bulges and necks the column",
+            },
+        },
+        flow_core: f32 = Style {
+            get: |e| e.flow.core,
+            set: |e, v| e.flow.core = v,
+            ui {
+                min: 0.1,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Gaussian core radius of a vortex in base radii: the lobe size",
+            },
+        },
+        flow_gust: f32 = Style {
+            get: |e| e.flow.gust,
+            set: |e, v| e.flow.gust = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Gust velocity amplitude at the tip in base radii per second: the whole-column sway",
+            },
+        },
+        flow_gust_frequency: f32 = Style {
+            get: |e| e.flow.gust_frequency,
+            set: |e, v| e.flow.gust_frequency = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Base gust frequency in Hz",
+            },
+        },
+        flow_burst: f32 = Style {
+            get: |e| e.flow.burst,
+            set: |e, v| e.flow.burst = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Burst (whip) velocity amplitude in base radii per second, one burst every ten gust periods; 0 = none",
+            },
+        },
+        flow_damping: f32 = Style {
+            get: |e| e.flow.damping,
+            set: |e, v| e.flow.damping = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Restoring rate of the markers toward the rest column per second: how long the column remembers the flow",
+            },
+        },
     },
     runtime {
         time: f32 { get: |e| e.time, set: |e, v| e.time = v },

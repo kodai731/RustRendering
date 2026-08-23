@@ -73,16 +73,34 @@ vec2 flameBendOffsetAt(float h) {
     return flame.windBend.windDirection * flame.windBend.bendAmount * pow(h, flame.windBend.bendPower);
 }
 
+// Fluid motion sample at height01: (centre offset x, centre offset z, width
+// scale), linear over the marker table. Mirrored in
+// thyllore-effect-core/src/flame/flow.rs (flow_sample).
+vec3 flameFlowSample(float h) {
+    float gain = flame.flowField.gain;
+    if (gain == 0.0) {
+        return vec3(0.0, 0.0, 1.0);
+    }
+    float position = clamp(h, 0.0, 1.0) * float(FLAME_FLOW_MARKER_COUNT - 1);
+    int index = min(int(floor(position)), FLAME_FLOW_MARKER_COUNT - 2);
+    float t = position - float(index);
+    vec4 a = flame.flowField.markers[index];
+    vec4 b = flame.flowField.markers[index + 1];
+    vec3 marker = mix(a.xyz, b.xyz, t);
+    return vec3(gain * marker.xy, 1.0 + gain * (marker.z - 1.0));
+}
+
 // Animated meander: time-varying horizontal displacement of the centerline at
 // height h, with g(h) = h (base fixed, tip moves more). The mode table comes
-// from Rust (flame/constants.rs) through the UBO.
+// from Rust (flame/constants.rs) through the UBO. The fluid motion's centre
+// offset rides the same path so every consumer of the centerline sees it.
 vec2 flameMeanderOffsetAt(float h) {
     vec2 offset = vec2(0.0);
     for (int j = 0; j < 2; ++j) {
         FlameMeanderMode mode = flame.meanderModes[j];
         offset += sin(mode.kappa * h - mode.omega * flame.time + mode.phase) * mode.direction;
     }
-    return flame.supportMotion.meanderAmp * h * offset;
+    return flame.supportMotion.meanderAmp * h * offset + flameFlowSample(h).xy;
 }
 
 // Meander-only shifted position for density/support evaluation.

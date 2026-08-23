@@ -59,6 +59,18 @@ pub const FLAME_PUFF_PARAMS: &[&str] = &[
     "puff_aspect",
 ];
 
+pub const FLAME_FLOW_PARAMS: &[&str] = &[
+    "flow_gain",
+    "flow_period",
+    "flow_rise",
+    "flow_strength",
+    "flow_core",
+    "flow_gust",
+    "flow_gust_frequency",
+    "flow_burst",
+    "flow_damping",
+];
+
 pub const FLAME_FOOTER_PARAMS: &[&str] = &["support_margin", "time_scale"];
 
 pub const FLAME_PARAM_GROUPS: &[&[&str]] = &[
@@ -68,6 +80,7 @@ pub const FLAME_PARAM_GROUPS: &[&[&str]] = &[
     FLAME_MOTION_PARAMS,
     FLAME_BRANCH_PARAMS,
     FLAME_PUFF_PARAMS,
+    FLAME_FLOW_PARAMS,
     FLAME_FOOTER_PARAMS,
 ];
 

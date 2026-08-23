@@ -1189,7 +1189,16 @@ mod legacy_format_golden {
   "puff_radius": 0.6,
   "puff_spread": 0.5,
   "puff_decay": 0.8,
-  "puff_aspect": 1.0
+  "puff_aspect": 1.0,
+  "flow_gain": 0.0,
+  "flow_period": 1.0,
+  "flow_rise": 0.3,
+  "flow_strength": 1.0,
+  "flow_core": 0.6,
+  "flow_gust": 0.3,
+  "flow_gust_frequency": 0.4,
+  "flow_burst": 0.0,
+  "flow_damping": 0.5
 }"#;
 
     #[test]

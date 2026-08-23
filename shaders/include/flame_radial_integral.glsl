@@ -35,9 +35,9 @@ float flameRadialRadiusScale(float height01) {
         * mix(1.0, flame.edgeStyle.radiusTipRatio, pow(height01, flame.warpStyle.taperPower));
 }
 
-// Squared reciprocal of the support radius S * R(h), which is what u^2 scales by.
+// Squared reciprocal of the support radius S * R(h) * flow width, which is what u^2 scales by.
 float flameRadialSupportInvSq(float height01) {
-    float scale = max(flameRadialSupportRadius() * flameRadialRadiusScale(height01), 1e-4);
+    float scale = max(flameRadialSupportRadius() * flameRadialRadiusScale(height01) * flameFlowSample(height01).z, 1e-4);
     return 1.0 / (scale * scale);
 }
 
