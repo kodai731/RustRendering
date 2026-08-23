@@ -3,6 +3,7 @@
 Usage:
   python scripts/flame_ref_match.py --render <png|dir> [--crop x0,y0,x1,y1] [--json out.json]
   python scripts/flame_ref_match.py --ref-only
+  python scripts/flame_ref_match.py --render <dir> --temporal [--fps 10]   (sequence gates xiii-xvi)
 
 The reference is measured at its native resolution. Every render frame is first resampled
 with an area filter so that its median flame column width equals the reference's median
@@ -26,6 +27,9 @@ Metrics (silhouette = R>90 && R-B>40, lum = 0.299R+0.587G+0.114B):
       ratio within [0.7, 1.4]
   xi  detached silhouette fragments (area >= (width/16)^2) in the top quarter: count diff within +-1,
       median width ratio within [0.5, 2] (only gated when the reference has fragments)
+  xiii-xvi sequence gates: see flame_ref_match_temporal.py (--temporal; the render must be a 10 fps sequence
+      or pass --fps). The reference is measured over --ref-window (default frames 17-39: frames 0-1 precede a
+      cut in the source video and 2-16 are a lateral whip of the whole column)
 """
 
 import argparse
@@ -37,6 +41,8 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
+import flame_ref_match_temporal as temporal
+
 REF_DIR = Path(__file__).resolve().parents[1] / "assets/textures/flames/pillar_ref_seq"
 LUM_BINS = [(40, 80), (80, 120), (120, 160), (160, 200), (200, 256)]
 BAND_COUNT = 10
@@ -44,6 +50,8 @@ ROOT_BAND = 7
 DARK_LUM = 80.0
 CONTRAST_SIGMA_WIDTH_FRACTIONS = [1 / 256, 1 / 128, 1 / 64, 1 / 32, 1 / 16, 1 / 8, 1 / 4]
 BRIGHT_PERCENTILE = 70.0
+REF_FPS = 10.0
+REF_TEMPORAL_WINDOW = (17, 40)
 
 
 def load_image(path, crop=None):
@@ -433,6 +441,11 @@ def print_profiles(ref, render):
         print(f"  lum {lo:3d}-{hi:3d}: G/R ref {rg:.2f} render {cg:.2f} | B/R ref {rb:.2f} render {cb:.2f}")
 
 
+def measure_sequence(paths, column_width, dt, crop=None, resample=True):
+    rgbs = temporal.load_sequence(paths, column_width, crop, resample, load_image, to_rgb, median_column_width)
+    return temporal.measure_temporal(rgbs, column_width, dt, silhouette_mask, row_centers)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--render", help="rendered png or directory of pngs")
@@ -440,6 +453,11 @@ def main():
     parser.add_argument("--ref-dir", default=str(REF_DIR))
     parser.add_argument("--ref-only", action="store_true")
     parser.add_argument("--json", help="write reference/render/gate results to this path")
+    parser.add_argument("--temporal", action="store_true", help="also measure the sequence gates xiii-xvi")
+    parser.add_argument("--fps", type=float, default=10.0, help="frame rate of the render sequence")
+    parser.add_argument("--ref-window", default=f"{REF_TEMPORAL_WINDOW[0]},{REF_TEMPORAL_WINDOW[1]}",
+                        help="first,end reference frame for the sequence gates (default: the settled span after "
+                             "the cut and the lateral whip of frames 0-16)")
     args = parser.parse_args()
 
     ref_paths = collect_frames(args.ref_dir)
@@ -448,7 +466,15 @@ def main():
     print(f"reference: {ref['frames']} frames, column width {column_width:.0f} px, lum p10/50/90 = "
           f"{ref['lum_p10_50_90'][0]:.0f}/{ref['lum_p10_50_90'][1]:.0f}/{ref['lum_p10_50_90'][2]:.0f}, "
           f"dark {ref['dark_fraction'] * 100:.0f}%, bright {ref['bright_fraction'] * 100:.0f}%")
+    ref_temporal = None
+    if args.temporal:
+        first, end = (int(v) for v in args.ref_window.split(","))
+        ref_temporal = measure_sequence(ref_paths[first:end], column_width, 1.0 / REF_FPS, resample=False)
     if args.ref_only or not args.render:
+        if ref_temporal is not None:
+            temporal.print_temporal(ref_temporal, ref_temporal)
+            if args.json:
+                Path(args.json).write_text(json.dumps({"reference_temporal": ref_temporal}, indent=2))
         return
 
     crop = tuple(int(v) for v in args.crop.split(",")) if args.crop else None
@@ -458,6 +484,10 @@ def main():
           f"dark {render['dark_fraction'] * 100:.0f}%, bright {render['bright_fraction'] * 100:.0f}%")
 
     rows = compare(ref, render)
+    render_temporal = None
+    if args.temporal:
+        render_temporal = measure_sequence(collect_frames(args.render), column_width, 1.0 / args.fps, crop)
+        rows.extend(temporal.compare_temporal(ref_temporal, render_temporal, ratio_row))
     print(f"\n{'gate':<22}{'ref':>6}{'render':>8}  {'value':<14}status")
     passed = 0
     gated = 0
@@ -469,9 +499,12 @@ def main():
         print(f"{name:<22}{rv:>6}{cv:>8}  {value:<14}{status}")
     print(f"\n{passed}/{gated} gates pass")
     print_profiles(ref, render)
+    if render_temporal is not None:
+        temporal.print_temporal(ref_temporal, render_temporal)
 
     if args.json:
         Path(args.json).write_text(json.dumps({"reference": ref, "render": render,
+                                               "reference_temporal": ref_temporal, "render_temporal": render_temporal,
                                                "gates": [{"name": r[0], "value": r[3], "pass": r[4]} for r in rows]}, indent=2))
 
 

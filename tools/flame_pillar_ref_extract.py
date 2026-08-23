@@ -2,7 +2,10 @@
 
 Usage:
   python tools/flame_pillar_ref_extract.py --video <pillar_src_1080.mp4> --out assets/textures/flames/pillar_ref_seq
-    [--match-dir assets/textures/flames/pillar_ref_seq/low_quality] [--scale 3]
+    [--match-dir assets/textures/flames/pillar_ref_seq/low_quality] [--scale 3] [--stride 3]
+
+`--stride 1` writes every source frame of the same span (30 fps, for the sequence gates xiii-xvi of
+scripts/flame_ref_match.py); the default stride 3 reproduces the legacy 10 fps frames.
 
 The 40 output frames reproduce the legacy 280x560 sequence (now in low_quality/) at
 `scale` times the resolution: the same crop of the source, the same frames (the first found by
@@ -77,12 +80,16 @@ def find_first_source_index(source_frames, legacy_first):
     return int(np.argmax(scores))
 
 
-def match_source_indices(source_frames, legacy_frames):
+def match_source_indices(source_frames, legacy_frames, stride):
     first = find_first_source_index(source_frames, legacy_frames[0])
+    last = first + (len(legacy_frames) - 1) * SOURCE_FRAMES_PER_LEGACY_FRAME
     indices = []
-    for k, legacy in enumerate(legacy_frames):
-        index = first + k * SOURCE_FRAMES_PER_LEGACY_FRAME
-        score = masked_correlation(legacy_view(source_frames[index]), legacy, legacy > 90)
+    for index in range(first, last + 1, stride):
+        legacy_k, remainder = divmod(index - first, SOURCE_FRAMES_PER_LEGACY_FRAME)
+        score = float("nan")
+        if remainder == 0:
+            legacy = legacy_frames[legacy_k]
+            score = masked_correlation(legacy_view(source_frames[index]), legacy, legacy > 90)
         indices.append((index, score))
     return indices
 
@@ -98,16 +105,16 @@ def extract_frame(rgb, scale):
     return attenuate_background(resized[y0:y1, x0:x1].astype(np.float32), LEGACY_BLUR_SIGMA * scale)
 
 
-def write_meta(out_dir, scale, indices, video_path, fps):
+def write_meta(out_dir, scale, indices, video_path, fps, stride):
     x0, y0, x1, y1 = scaled_crop(scale)
     meta = {
         "source": "youtube shorts -LzPOERYBBA (design 20260811_flame_noise_motion/reference)",
         "source_video": Path(video_path).name,
         "source_resolution": [LEGACY_SOURCE_SIZE[0] * scale, LEGACY_SOURCE_SIZE[1] * scale],
         "frames": len(indices),
-        "fps": fps / SOURCE_FRAMES_PER_LEGACY_FRAME,
+        "fps": fps / stride,
         "source_frame_indices": [i for i, _ in indices],
-        "legacy_match_correlation_min": min(s for _, s in indices),
+        "legacy_match_correlation_min": min(s for _, s in indices if s == s),
         "crop_in_source": [x0, y0, x1, y1],
         "processing": (
             f"luminance soft-mask background attenuation (floor {BACKGROUND_FLOOR}, "
@@ -124,6 +131,7 @@ def main():
     parser.add_argument("--out", required=True)
     parser.add_argument("--match-dir", default=None, help="legacy frames to align to (default: <out>/low_quality)")
     parser.add_argument("--scale", type=int, default=3)
+    parser.add_argument("--stride", type=int, default=SOURCE_FRAMES_PER_LEGACY_FRAME)
     args = parser.parse_args()
 
     out_dir = Path(args.out)
@@ -131,14 +139,16 @@ def main():
     source_frames = read_source_frames(args.video)
     fps = cv2.VideoCapture(args.video).get(cv2.CAP_PROP_FPS)
     legacy_frames = load_legacy_frames(match_dir)
-    indices = match_source_indices(source_frames, legacy_frames)
+    indices = match_source_indices(source_frames, legacy_frames, args.stride)
 
     out_dir.mkdir(parents=True, exist_ok=True)
+    digits = len(str(len(indices) - 1))
     for k, (index, score) in enumerate(indices):
         frame = extract_frame(source_frames[index], args.scale)
-        Image.fromarray(frame.astype(np.uint8)).save(out_dir / f"frame_{k:02d}.png")
-        print(f"frame_{k:02d} <- source {index} (corr {score:.3f})")
-    write_meta(out_dir, args.scale, indices, args.video, fps)
+        name = f"frame_{k:0{digits}d}"
+        Image.fromarray(frame.astype(np.uint8)).save(out_dir / f"{name}.png")
+        print(f"{name} <- source {index} (corr {score:.3f})")
+    write_meta(out_dir, args.scale, indices, args.video, fps, args.stride)
 
 
 if __name__ == "__main__":
