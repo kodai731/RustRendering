@@ -631,7 +631,7 @@ mod tests {
         assert_eq!(flame.effect.mix.scale, 0.5);
         assert_eq!(flame.effect.edge.white_boost, 0.0);
         assert_eq!(flame.effect.noise.scale_mode, 1.0);
-        assert!(flame.effect.meander.amp > 0.0);
+        assert_eq!(flame.effect.meander.amp, 0.0);
     }
 
     #[test]
