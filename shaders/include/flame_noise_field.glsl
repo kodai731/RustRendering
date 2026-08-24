@@ -53,9 +53,13 @@ float flameRadialBaseSpread(float height01) {
     return 1.0 + spread * fade * fade;
 }
 
-// Internal helper: compute the advect vector from style params and time.
-vec3 flameNoiseAdvect() {
-    return vec3(flame.windBend.windDirection.x, flame.warpStyle.riseSpeed, flame.windBend.windDirection.y) * flame.time;
+// Internal helper: compute the advect vector from style params and time. The
+// vertical component scales with height (1 + riseAccel * h): the reference
+// column streams faster near the tip, and per ray h is effectively constant so
+// the closed-form integrals stay exact. riseAccel 0 keeps the uniform sweep.
+vec3 flameNoiseAdvectAt(float h) {
+    float rise = flame.warpStyle.riseSpeed * (1.0 + flame.warpStyle.riseAccel * max(h, 0.0));
+    return vec3(flame.windBend.windDirection.x, rise, flame.windBend.windDirection.y) * flame.time;
 }
 
 // Internal helper: anisotropic compression along the advection axis.
@@ -255,7 +259,7 @@ bool flameWaveCfActive() {
 void flameWaveCfPsiVectors(
     vec3 pb, vec3 dir, float h, out vec3 psiVec, out vec3 rateVec, out float ampDisp) {
     ampDisp = flameWarpStrength(h) / FLAME_WAVE_SHEAR_STRENGTH_SCALE;
-    vec3 m0 = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvect();
+    vec3 m0 = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvectAt(h);
     vec3 dm0 = flameAnisoCompress(dir, 0.35) * flame.warpStyle.warpFreq;
     int base = FLAME_WAVE_WARP_BASE;
     int count = FLAME_WAVE_WARP_COUNT;
@@ -452,7 +456,7 @@ vec3 flameWaveWarpOffset(vec3 pb, float h) {
     if (amp == 0.0 || warpCount == 0) {
         return vec3(0.0);
     }
-    vec3 wp = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvect();
+    vec3 wp = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvectAt(h);
     int base = FLAME_WAVE_WARP_BASE;
     vec3 displacement = vec3(0.0);
     for (int m = 0; m < warpCount; ++m) {
@@ -586,10 +590,10 @@ vec3 flameWaveFlowWarp(vec3 pb, float h) {
     if (strength == 0.0 || warpCount == 0) {
         return pb;
     }
-    vec3 z = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvect();
+    vec3 z = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvectAt(h);
     int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
     z = flameWarpMapZ(z, base, warpCount, strength);
-    return flameAnisoExpand(z / flame.warpStyle.warpFreq + flameNoiseAdvect() / flame.warpStyle.warpFreq, 0.35);
+    return flameAnisoExpand(z / flame.warpStyle.warpFreq + flameNoiseAdvectAt(h) / flame.warpStyle.warpFreq, 0.35);
 }
 
 // Flow-map warp rate: same shear composition as flameWaveFlowWarp but also
@@ -608,13 +612,13 @@ vec3 flameWaveFlowWarpRate(vec3 pb, vec3 dir, float h, out vec3 warpedPoint) {
 
     // M: warp space (same chain as flameWaveFlowWarp); v starts as dir
     // transformed by the linear part (no translation for a direction vector).
-    vec3 z = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvect();
+    vec3 z = flameAnisoCompress(pb, 0.35) * flame.warpStyle.warpFreq - flameNoiseAdvectAt(h);
     vec3 v = flameAnisoCompress(dir, 0.35) * flame.warpStyle.warpFreq;
     int base = cf ? FLAME_WAVE_CF_SHEAR_BASE : FLAME_WAVE_WARP_BASE;
     flameWarpMapJvp(z, v, base, warpCount, strength);
 
     // M^-1: back to physical space
-    warpedPoint = flameAnisoExpand(z / flame.warpStyle.warpFreq + flameNoiseAdvect() / flame.warpStyle.warpFreq, 0.35);
+    warpedPoint = flameAnisoExpand(z / flame.warpStyle.warpFreq + flameNoiseAdvectAt(h) / flame.warpStyle.warpFreq, 0.35);
     return flameAnisoExpand(v / flame.warpStyle.warpFreq, 0.35);
 }
 
@@ -696,7 +700,7 @@ FlameWarpFrame flameBuildWarpFrame(vec3 p, vec3 d, float h) {
     vec3 ds = vec3(dt.x * spread, dt.y * spreadY, dt.z * spread);
     vec3 rateRaw = flameWaveFlowWarpRate(frame.pb, ds, h, frame.q);
     frame.w = flameAnisoCompress(frame.q, flame.temporalData.noiseAnisoY) * flame.noiseFrequency
-        - flameNoiseAdvect();
+        - flameNoiseAdvectAt(h);
     frame.rate = flameAnisoCompress(rateRaw, flame.temporalData.noiseAnisoY) * flame.noiseFrequency;
     return frame;
 }

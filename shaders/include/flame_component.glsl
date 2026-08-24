@@ -38,6 +38,10 @@ struct FlameWarpStyle {
     float warpFreq;
     float riseSpeed;
     float taperPower;
+    float riseAccel;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct FlameEdgeStyle {

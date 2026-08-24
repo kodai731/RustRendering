@@ -96,6 +96,16 @@ declare_scene_format! {
             get: |e| e.warp.rise_speed,
             set: |e, v| e.warp.rise_speed = v,
         },
+        rise_accel: f32 = Style {
+            get: |e| e.warp.rise_accel,
+            set: |e, v| e.warp.rise_accel = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.2f",
+                tooltip: "Height gain of the upward noise advection: speed = rise_speed * (1 + rise_accel * h); 0 = uniform",
+            },
+        },
         taper_power: f32 = Shape {
             get: |e| e.warp.taper_power,
             set: |e, v| e.warp.taper_power = v,

@@ -328,6 +328,8 @@ declare_gpu_block! {
         pub warp_freq: f32,
         pub rise_speed: f32,
         pub taper_power: f32,
+        pub rise_accel: f32,
+        pub _padding: [f32; 3],
     }
 }
 

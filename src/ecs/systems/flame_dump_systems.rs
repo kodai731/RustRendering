@@ -135,6 +135,7 @@ pub fn build_effect_json(
     value["flow_gust_frequency"] = json!(effect.flow.gust_frequency);
     value["flow_burst"] = json!(effect.flow.burst);
     value["flow_damping"] = json!(effect.flow.damping);
+    value["rise_accel"] = json!(effect.warp.rise_accel);
     value["lobe_gain"] = json!(effect.lobe.gain);
     value["lobe_period"] = json!(effect.lobe.period);
     value["lobe_life"] = json!(effect.lobe.life);

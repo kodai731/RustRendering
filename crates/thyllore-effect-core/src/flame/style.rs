@@ -56,6 +56,7 @@ declare_style_group! {
         direct {
             noise_scroll_speed: f32 => noise.scroll_speed,
             rise_speed: f32 => warp.rise_speed,
+            rise_accel: f32 => warp.rise_accel,
             warp_amp: f32 => warp.amp,
             warp_freq: f32 => warp.freq,
             swirl_gain: f32 => swirl.gain,

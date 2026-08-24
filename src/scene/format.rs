@@ -1122,6 +1122,7 @@ mod legacy_format_golden {
   "warp_amp": 1.4,
   "warp_freq": 5.0,
   "rise_speed": 1.5,
+  "rise_accel": 0.0,
   "taper_power": 1.4,
   "radius_tip_ratio": 0.1,
   "edge_low": 0.27,

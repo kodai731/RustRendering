@@ -56,7 +56,7 @@ float flameRadialDensityFactor(vec3 p, float height01) {
 // Returns 1.0 when the contour wiggle amp is 0 (identity, matches old path).
 float flameContourWiggle(vec3 p, float h) {
     if (flame.contourParams.wiggleAmp == 0.0 || flame.unifiedParams.enabled > 0.5) { return 1.0; }
-    vec3 q = vec3(p.x, h - flame.warpStyle.riseSpeed * flame.time, p.z) * flame.noiseFrequency;
+    vec3 q = vec3(p.x, h - flame.warpStyle.riseSpeed * (1.0 + flame.warpStyle.riseAccel * max(h, 0.0)) * flame.time, p.z) * flame.noiseFrequency;
     return 1.0 + flame.contourParams.wiggleAmp * flameDetailNoise(q);
 }
 
