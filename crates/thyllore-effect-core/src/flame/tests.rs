@@ -197,7 +197,7 @@ fn test_flame_ubo_layout_is_std140_compatible() {
     // trail_coefficients is [[f32; 4]; 4] (64 bytes) instead of [f32; 4] (16 bytes)
     assert_eq!(
         std::mem::size_of::<FlameUBO>(),
-        784 + 16 + 16 + 16 + 32 + 128 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
+        784 + 16 + 16 + 16 + 32 + 128 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240 + 16 // rise_accel widened FlameWarpStyle to two vec4 rows
             + 48
             + 16
             + std::mem::size_of::<FlameMixParams>()
