@@ -180,32 +180,90 @@ fn lateral_velocity(
     induced + gust * (y / geometry.aspect.max(1e-3))
 }
 
-fn step_plane(
+fn transport_carried(
     flow: &FlameFlow,
     geometry: FlowGeometry,
     plane: usize,
     time: f32,
     dt: f32,
-    markers: &mut [FlowMarker],
+    src: &[FlowMarker],
+    carried: &mut [(f32, f32)],
+) {
+    let count = src.len();
+    for (index, entry) in carried.iter_mut().enumerate() {
+        let y = index as f32 / (count - 1) as f32 * geometry.aspect;
+        let v = flow.transport_speed * (1.0 + flow.transport_accel * y / geometry.aspect);
+        let y_src = y - v * dt;
+        entry.0 = if flow.transport_speed == 0.0 {
+            src[index].offset[plane]
+        } else {
+            interpolate_upstream(src, geometry.aspect, y_src, plane)
+        };
+        if plane == 0 {
+            entry.1 = if flow.transport_speed == 0.0 {
+                src[index].width_scale
+            } else {
+                interpolate_upstream_width(src, geometry.aspect, y_src)
+            };
+        }
+    }
+}
+
+fn injection_write(
+    flow: &FlameFlow,
+    geometry: FlowGeometry,
+    plane: usize,
+    time: f32,
+    dt: f32,
+    carried: &[(f32, f32)],
+    dst: &mut [FlowMarker],
 ) {
     let pairs = active_vortex_pairs(flow, geometry, plane, time);
     let gust = gust_velocity(flow, plane, time);
-    let count = markers.len();
-    for (index, marker) in markers.iter_mut().enumerate() {
-        let y = index as f32 / (count - 1) as f32 * geometry.aspect;
-        let x = marker.offset[plane];
-        let half_width = marker.width_scale * geometry.r0;
+    for (index, dst_marker) in dst.iter_mut().enumerate() {
+        let y = index as f32 / (carried.len() - 1) as f32 * geometry.aspect;
+        let x = carried[index].0;
+        let carried_width = carried[index].1;
+        let half_width = carried_width * geometry.r0;
         let centre = lateral_velocity(flow, geometry, &pairs, x, y, gust);
         let left = lateral_velocity(flow, geometry, &pairs, x - half_width, y, gust);
         let right = lateral_velocity(flow, geometry, &pairs, x + half_width, y, gust);
         let stretch = (right - left) / (2.0 * geometry.r0);
-        marker.offset[plane] += (centre - flow.damping * x) * dt;
+        dst_marker.offset[plane] = x + (centre - flow.damping * x) * dt;
         if plane == 0 {
-            marker.width_scale = (marker.width_scale
-                + (stretch - flow.damping * (marker.width_scale - 1.0)) * dt)
+            dst_marker.width_scale = (carried_width
+                + (stretch - flow.damping * (carried_width - 1.0)) * dt)
                 .clamp(0.2, 1.6);
         }
     }
+}
+
+fn interpolate_upstream(src: &[FlowMarker], aspect: f32, y_src: f32, plane: usize) -> f32 {
+    let count = src.len();
+    if y_src < 0.0 {
+        return 0.0;
+    }
+    let frac = y_src / aspect * (count - 1) as f32;
+    let j = frac.floor() as usize;
+    if j >= count - 1 {
+        return src[count - 1].offset[plane];
+    }
+    let t = frac - j as f32;
+    src[j].offset[plane] * (1.0 - t) + src[j + 1].offset[plane] * t
+}
+
+fn interpolate_upstream_width(src: &[FlowMarker], aspect: f32, y_src: f32) -> f32 {
+    let count = src.len();
+    if y_src < 0.0 {
+        return 1.0;
+    }
+    let frac = y_src / aspect * (count - 1) as f32;
+    let j = frac.floor() as usize;
+    if j >= count - 1 {
+        return src[count - 1].width_scale;
+    }
+    let t = frac - j as f32;
+    src[j].width_scale * (1.0 - t) + src[j + 1].width_scale * t
 }
 
 fn vortex_travel_time(flow: &FlameFlow, geometry: FlowGeometry) -> f32 {
@@ -219,8 +277,13 @@ fn vortex_travel_time(flow: &FlameFlow, geometry: FlowGeometry) -> f32 {
 fn simulation_schedule(flow: &FlameFlow, geometry: FlowGeometry) -> (f32, f32) {
     let dt = FLOW_SIM_DT.min(flow.period.max(1e-3) / FLOW_STEPS_PER_PERIOD);
     let memory = FLOW_DAMPING_MEMORY_FOLDS / flow.damping.max(1e-3);
-    let history =
+    let mut history =
         (2.0 * vortex_travel_time(flow, geometry) + memory).clamp(dt, FLOW_HISTORY_SECONDS);
+    if flow.transport_speed > 0.0 {
+        let v_min = flow.transport_speed;
+        let transport_time = geometry.aspect / v_min;
+        history = history.max(transport_time);
+    }
     (dt, history)
 }
 
@@ -239,11 +302,15 @@ pub fn simulate_flow_markers(
     let (dt, history) = simulation_schedule(flow, geometry);
     let start = (time - history).max(0.0);
     let steps = ((time - start) / dt).ceil().max(0.0) as usize;
+    let mut prev: [FlowMarker; FLOW_MARKER_COUNT] = [FlowMarker::default(); FLOW_MARKER_COUNT];
     for step in 0..steps {
         let sim_time = start + step as f32 * dt;
+        let mut carried: [(f32, f32); FLOW_MARKER_COUNT] = [(0.0, 1.0); FLOW_MARKER_COUNT];
         for plane in 0..PLANE_COUNT {
-            step_plane(flow, geometry, plane, sim_time, dt, &mut markers);
+            transport_carried(flow, geometry, plane, sim_time, dt, &prev, &mut carried);
+            injection_write(flow, geometry, plane, sim_time, dt, &carried, &mut markers);
         }
+        prev.copy_from_slice(&markers);
     }
     markers
 }
@@ -383,6 +450,8 @@ mod tests {
             gust_frequency: 0.4,
             burst: 0.5,
             damping: 0.5,
+            transport_speed: 0.0,
+            transport_accel: 0.0,
         }
     }
 
@@ -479,5 +548,64 @@ mod tests {
     fn base_marker_stays_put() {
         let markers = simulate_flow_markers(&flow_on(), geometry(), 6.0);
         assert!(markers[0].offset[0].abs() < 0.2 && markers[0].offset[1].abs() < 0.2);
+    }
+
+    #[test]
+    fn identity_with_old_impl_at_zero_transport_speed() {
+        let flow = flow_on();
+        let geo = geometry();
+        let time = 6.0;
+        let (dt, history) = simulation_schedule(&flow, geo);
+        let start = (time - history).max(0.0);
+        let steps = ((time - start) / dt).ceil().max(0.0) as usize;
+
+        // Reference: old in-place loop with offset += (centre - damping * x) * dt
+        let mut ref_markers: [FlowMarker; FLOW_MARKER_COUNT] =
+            [FlowMarker::default(); FLOW_MARKER_COUNT];
+        for step in 0..steps {
+            let sim_time = start + step as f32 * dt;
+            for plane in 0..PLANE_COUNT {
+                let pairs = active_vortex_pairs(&flow, geo, plane, sim_time);
+                let gust = gust_velocity(&flow, plane, sim_time);
+                let count = ref_markers.len();
+                for (index, marker) in ref_markers.iter_mut().enumerate() {
+                    let y = index as f32 / (count - 1) as f32 * geo.aspect;
+                    let x = marker.offset[plane];
+                    let half_width = marker.width_scale * geo.r0;
+                    let centre = lateral_velocity(&flow, geo, &pairs, x, y, gust);
+                    let left = lateral_velocity(&flow, geo, &pairs, x - half_width, y, gust);
+                    let right = lateral_velocity(&flow, geo, &pairs, x + half_width, y, gust);
+                    let stretch = (right - left) / (2.0 * geo.r0);
+                    marker.offset[plane] += (centre - flow.damping * x) * dt;
+                    if plane == 0 {
+                        marker.width_scale = (marker.width_scale
+                            + (stretch - flow.damping * (marker.width_scale - 1.0)) * dt)
+                            .clamp(0.2, 1.6);
+                    }
+                }
+            }
+        }
+
+        let new_markers = simulate_flow_markers(&flow, geo, time);
+        for i in 0..FLOW_MARKER_COUNT {
+            assert!(
+                (new_markers[i].offset[0] - ref_markers[i].offset[0]).abs() < 1e-6,
+                "marker[{i}] offset[0]: new={:?} ref={:?}",
+                new_markers[i].offset[0],
+                ref_markers[i].offset[0]
+            );
+            assert!(
+                (new_markers[i].offset[1] - ref_markers[i].offset[1]).abs() < 1e-6,
+                "marker[{i}] offset[1]: new={:?} ref={:?}",
+                new_markers[i].offset[1],
+                ref_markers[i].offset[1]
+            );
+            assert!(
+                (new_markers[i].width_scale - ref_markers[i].width_scale).abs() < 1e-6,
+                "marker[{i}] width_scale: new={:?} ref={:?}",
+                new_markers[i].width_scale,
+                ref_markers[i].width_scale
+            );
+        }
     }
 }

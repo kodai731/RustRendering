@@ -172,6 +172,10 @@ pub struct FlameFlow {
     pub burst: f32,
     /// Restoring rate of the markers toward the rest column, per second.
     pub damping: f32,
+    /// Upstream transport speed of the marker column in height units per second; 0 = off (bit-match).
+    pub transport_speed: f32,
+    /// Transport speed increase with height (multiplied by y/aspect); 0 = uniform transport.
+    pub transport_accel: f32,
 }
 
 impl Default for FlameFlow {
@@ -186,6 +190,8 @@ impl Default for FlameFlow {
             gust_frequency: 0.4,
             burst: 0.0,
             damping: 0.5,
+            transport_speed: 0.0,
+            transport_accel: 0.0,
         }
     }
 }

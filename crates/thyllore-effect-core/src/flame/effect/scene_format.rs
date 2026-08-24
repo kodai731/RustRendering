@@ -696,6 +696,26 @@ declare_scene_format! {
                 tooltip: "Restoring rate of the markers toward the rest column per second: how long the column remembers the flow",
             },
         },
+        flow_transport_speed: f32 = Style {
+            get: |e| e.flow.transport_speed,
+            set: |e, v| e.flow.transport_speed = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Upstream transport speed of the marker column in height units per second; 0 = off (bit-match)",
+            },
+        },
+        flow_transport_accel: f32 = Style {
+            get: |e| e.flow.transport_accel,
+            set: |e, v| e.flow.transport_accel = v,
+            ui {
+                min: -5.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Transport speed increase with height (multiplied by y/aspect); 0 = uniform transport",
+            },
+        },
         lobe_gain: f32 = Style {
             get: |e| e.lobe.gain,
             set: |e, v| e.lobe.gain = v,
