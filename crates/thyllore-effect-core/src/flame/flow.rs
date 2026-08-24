@@ -292,13 +292,14 @@ fn active_lobes(lobe: &FlameLobe, time: f32) -> Vec<Lobe> {
                 + spread * LOBE_HEIGHT_SCATTER * (hash01(LOBE_SEED, index, 4) - 0.5);
             let size = lobe.size
                 * (1.0 + spread * LOBE_SIZE_SCATTER * (2.0 * hash01(LOBE_SEED, index, 5) - 1.0));
-            let accel_lift = if lobe.accel > 0.0 {
-                spawn_height.max(0.0) * ((lobe.accel * age).exp() - 1.0)
+            let y = if lobe.accel > 0.0 {
+                let drift = lobe.rise / lobe.accel;
+                (spawn_height.max(0.0) + drift) * (lobe.accel * age).exp() - drift
             } else {
-                0.0
+                spawn_height + lobe.rise * age
             };
             Some(Lobe {
-                y: spawn_height + lobe.rise * age + accel_lift,
+                y,
                 side,
                 plane,
                 amplitude: lobe.gain * lobe_envelope(age / lobe.life),
