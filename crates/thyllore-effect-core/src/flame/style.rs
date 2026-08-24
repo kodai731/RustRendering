@@ -274,6 +274,7 @@ mod tests {
             motion: FlameStyleMotion {
                 noise_scroll_speed: Some(2.0),
                 rise_speed: Some(1.1),
+                rise_accel: Some(0.0),
                 warp_amp: Some(0.9),
                 warp_freq: Some(4.5),
                 swirl_gain: Some(0.7),

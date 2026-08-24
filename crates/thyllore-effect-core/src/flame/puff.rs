@@ -58,7 +58,7 @@ pub fn build_puff_field(effect: &FlameEffect, baked: &FlameBaked) -> FlamePuffFi
 }
 
 /// Mirror of flamePuffDensityFactor at trunk-local `ps`.
-pub fn puff_density_factor(field: &FlamePuffField, ps: [f32; 3]) -> f32 {
+pub fn puff_density_factor(field: &FlamePuffField, ps: [f32; 3], u: f32) -> f32 {
     let count = (field.count as usize).min(PUFF_MAX_COUNT);
     if count == 0 {
         return 1.0;
@@ -72,7 +72,10 @@ pub fn puff_density_factor(field: &FlamePuffField, ps: [f32; 3]) -> f32 {
             puff[2] * (-r2).exp()
         })
         .sum();
-    (1.0 - field.gain) + field.gain * sum.min(1.0)
+    let interior = (1.0 - field.gain) + field.gain * sum.min(1.0);
+    let t = ((u - 0.6) / 0.35).clamp(0.0, 1.0);
+    let edge_fade = t * t * (3.0 - 2.0 * t);
+    interior + (1.0 - interior) * edge_fade
 }
 
 #[cfg(test)]
@@ -97,7 +100,7 @@ mod tests {
         effect.time = 3.0;
         let field = build_puff_field(&effect, &FlameBaked::default());
         assert_eq!(field.count, 0.0);
-        assert_eq!(puff_density_factor(&field, [0.0, 0.5, 0.0]), 1.0);
+        assert_eq!(puff_density_factor(&field, [0.0, 0.5, 0.0], 0.0), 1.0);
     }
 
     #[test]
@@ -129,8 +132,8 @@ mod tests {
         effect.time = 4.0;
         let field = build_puff_field(&effect, &FlameBaked::default());
         let center = field.puffs[0];
-        let at_center = puff_density_factor(&field, [0.0, center[0], 0.0]);
-        let beside = puff_density_factor(&field, [2.0 * center[1], center[0], 0.0]);
+        let at_center = puff_density_factor(&field, [0.0, center[0], 0.0], 0.0);
+        let beside = puff_density_factor(&field, [2.0 * center[1], center[0], 0.0], 0.0);
         assert!(at_center > 1.0 - 0.1 * field.gain - (1.0 - center[2]) * field.gain);
         assert!(beside < at_center);
         assert!(beside >= 1.0 - field.gain);

@@ -958,7 +958,7 @@ impl<'a> UboCtx<'a> {
         };
         let mixing = self.mixing_degree(z_mix, hs, u_squared);
         let mix_density = self.mix_density_factor(mixing)
-            * thyllore_effect_core::puff_density_factor(&self.u.puff_field, ps);
+            * thyllore_effect_core::puff_density_factor(&self.u.puff_field, ps, u_squared.sqrt());
         let temperature = self.mix_temperature(mixing);
         let emissivity = self.wien_emissivity(temperature);
         let lambda = self.tip_carve_lambda(hs);
