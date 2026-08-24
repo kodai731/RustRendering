@@ -141,6 +141,8 @@ pub fn build_effect_json(
     value["lobe_rise"] = json!(effect.lobe.rise);
     value["lobe_size"] = json!(effect.lobe.size);
     value["lobe_spawn_height"] = json!(effect.lobe.spawn_height);
+    value["lobe_spawn_range"] = json!(effect.lobe.spawn_range);
+    value["lobe_accel"] = json!(effect.lobe.accel);
     value["lobe_spread"] = json!(effect.lobe.spread);
     value["lobe_shift"] = json!(effect.lobe.shift);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);

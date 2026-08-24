@@ -207,6 +207,11 @@ pub struct FlameLobe {
     pub size: f32,
     /// Centre of the spawn height band in height units.
     pub spawn_height: f32,
+    /// Width of the uniform spawn height band above `spawn_height`; 0 keeps the single band.
+    pub spawn_range: f32,
+    /// Exponential rise rate in 1/s: the spawn height grows by exp(accel * age), so
+    /// higher lobes rise faster (the reference column accelerates with height); 0 = off.
+    pub accel: f32,
     /// Scatter of spawn time, height and size in [0, 1].
     pub spread: f32,
     /// Centre shift per unit bulge in [0, 1]: 1 keeps the far side still (a
@@ -223,6 +228,8 @@ impl Default for FlameLobe {
             rise: 0.1,
             size: 0.08,
             spawn_height: 0.2,
+            spawn_range: 0.0,
+            accel: 0.0,
             spread: 0.5,
             shift: 1.0,
         }

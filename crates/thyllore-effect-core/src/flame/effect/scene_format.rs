@@ -746,6 +746,26 @@ declare_scene_format! {
                 tooltip: "Centre of the lobe spawn height band",
             },
         },
+        lobe_spawn_range: f32 = Style {
+            get: |e| e.lobe.spawn_range,
+            set: |e, v| e.lobe.spawn_range = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Width of the uniform lobe spawn band above lobe_spawn_height; 0 = single band",
+            },
+        },
+        lobe_accel: f32 = Style {
+            get: |e| e.lobe.accel,
+            set: |e, v| e.lobe.accel = v,
+            ui {
+                min: 0.0,
+                max: 20.0,
+                format: "%.2f",
+                tooltip: "Exponential lobe rise rate in 1/s: higher lobes rise faster; 0 = constant rise",
+            },
+        },
         lobe_spread: f32 = Style {
             get: |e| e.lobe.spread,
             set: |e, v| e.lobe.spread = v,

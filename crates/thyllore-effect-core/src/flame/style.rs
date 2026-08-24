@@ -97,6 +97,8 @@ declare_style_group! {
             lobe_rise: f32 => lobe.rise,
             lobe_size: f32 => lobe.size,
             lobe_spawn_height: f32 => lobe.spawn_height,
+            lobe_spawn_range: f32 => lobe.spawn_range,
+            lobe_accel: f32 => lobe.accel,
             lobe_spread: f32 => lobe.spread,
             lobe_shift: f32 => lobe.shift,
         }
@@ -313,6 +315,8 @@ mod tests {
                 lobe_rise: Some(0.1),
                 lobe_size: Some(0.08),
                 lobe_spawn_height: Some(0.2),
+                lobe_spawn_range: Some(0.0),
+                lobe_accel: Some(0.0),
                 lobe_spread: Some(0.5),
                 lobe_shift: Some(1.0),
             },

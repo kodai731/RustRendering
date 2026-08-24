@@ -80,6 +80,8 @@ pub const FLAME_LOBE_PARAMS: &[&str] = &[
     "lobe_rise",
     "lobe_size",
     "lobe_spawn_height",
+    "lobe_spawn_range",
+    "lobe_accel",
     "lobe_spread",
     "lobe_shift",
 ];

@@ -288,11 +288,17 @@ fn active_lobes(lobe: &FlameLobe, time: f32) -> Vec<Lobe> {
                 1
             };
             let spawn_height = lobe.spawn_height
+                + lobe.spawn_range.max(0.0) * hash01(LOBE_SEED, index, 6)
                 + spread * LOBE_HEIGHT_SCATTER * (hash01(LOBE_SEED, index, 4) - 0.5);
             let size = lobe.size
                 * (1.0 + spread * LOBE_SIZE_SCATTER * (2.0 * hash01(LOBE_SEED, index, 5) - 1.0));
+            let accel_lift = if lobe.accel > 0.0 {
+                spawn_height.max(0.0) * ((lobe.accel * age).exp() - 1.0)
+            } else {
+                0.0
+            };
             Some(Lobe {
-                y: spawn_height + lobe.rise * age,
+                y: spawn_height + lobe.rise * age + accel_lift,
                 side,
                 plane,
                 amplitude: lobe.gain * lobe_envelope(age / lobe.life),
@@ -420,6 +426,31 @@ mod tests {
     fn lobe_train_is_one_sided_and_off_by_default() {
         let mut markers = [FlowMarker::default(); FLOW_MARKER_COUNT];
         add_lobe_train(&mut markers, &FlameLobe::default(), geometry(), 3.0);
+        let mut markers_defaults_zeroed = [FlowMarker::default(); FLOW_MARKER_COUNT];
+        add_lobe_train(
+            &mut markers_defaults_zeroed,
+            &FlameLobe {
+                gain: 1.0,
+                spawn_range: 0.0,
+                accel: 0.0,
+                ..FlameLobe::default()
+            },
+            geometry(),
+            3.0,
+        );
+        let mut markers_enabled = [FlowMarker::default(); FLOW_MARKER_COUNT];
+        add_lobe_train(
+            &mut markers_enabled,
+            &FlameLobe {
+                gain: 1.0,
+                spawn_range: 0.6,
+                accel: 2.0,
+                ..FlameLobe::default()
+            },
+            geometry(),
+            3.0,
+        );
+        assert_ne!(markers_defaults_zeroed, markers_enabled);
         assert!(markers.iter().all(|m| *m == FlowMarker::default()));
 
         let lobe = FlameLobe {

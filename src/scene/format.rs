@@ -1207,6 +1207,8 @@ mod legacy_format_golden {
   "lobe_rise": 0.1,
   "lobe_size": 0.08,
   "lobe_spawn_height": 0.2,
+  "lobe_spawn_range": 0.0,
+  "lobe_accel": 0.0,
   "lobe_spread": 0.5,
   "lobe_shift": 1.0
 }"#;
