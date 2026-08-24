@@ -443,7 +443,21 @@ fn apply_editor_state(editor: &EditorState, world: &mut World) {
     }
 }
 
+fn ensure_resource<T: Default + 'static>(world: &mut World) {
+    if !world.contains_resource::<T>() {
+        world.insert_resource(T::default());
+    }
+}
+
 fn apply_rendering_params(camera_state: &CameraState, world: &mut World) {
+    ensure_resource::<PhysicalCameraParameters>(world);
+    ensure_resource::<Exposure>(world);
+    ensure_resource::<DepthOfField>(world);
+    ensure_resource::<ToneMapping>(world);
+    ensure_resource::<LensEffects>(world);
+    ensure_resource::<BloomSettings>(world);
+    ensure_resource::<AutoExposure>(world);
+
     if let Some(ref phys) = camera_state.physical_camera {
         if let Some(mut params) = world.get_resource_mut::<PhysicalCameraParameters>() {
             params.focal_length_mm = phys.focal_length_mm;
@@ -556,6 +570,26 @@ mod tests {
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
+    }
+
+    #[test]
+    fn test_rendering_params_apply_before_post_processing_resources_exist() {
+        let mut world = World::new();
+        let mut camera_state = CameraState::default();
+        camera_state.bloom = Some(super::super::format::BloomState {
+            enabled: true,
+            intensity: 0.3,
+            threshold: 0.3,
+            knee: 0.5,
+            mip_count: 5,
+        });
+
+        apply_rendering_params(&camera_state, &mut world);
+
+        let bloom = world.get_resource::<BloomSettings>().unwrap();
+        assert!(bloom.enabled);
+        assert_eq!(bloom.intensity, 0.3);
+        assert_eq!(bloom.threshold, 0.3);
     }
 
     #[test]
