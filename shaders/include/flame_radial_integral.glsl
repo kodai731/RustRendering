@@ -291,7 +291,7 @@ FlameNodeSample flameWaveNodeSample(
         uSquared = u * u;
     }
     float mixing = flameMixingDegree(sum.zMix, hs, uSquared);
-    node.mixDensity = flameMixDensityFactor(mixing) * flamePuffDensityFactor(ps);
+    node.mixDensity = flameMixDensityFactor(mixing) * flamePuffDensityFactor(ps, sqrt(uSquared));
     node.temperature = flameMixTemperature(mixing);
     node.emissivity = flameWienEmissivity(node.temperature);
     float erosion = flameNoiseErosionFromValue(node.shapedNoise, hs, node.density, uSquared);

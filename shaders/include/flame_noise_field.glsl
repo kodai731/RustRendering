@@ -744,7 +744,10 @@ float flameEmitterSmoothDensityAt(vec3 c, float h, float wiggle) {
 // train, so the medium between puffs thins to (1 - gain) and each puff's
 // Gaussian core (isotropic, local y scaled by aspect) restores it. Count 0 = 1.
 // Mirrored in thyllore-effect-core/src/flame/puff.rs (puff_density_factor).
-float flamePuffDensityFactor(vec3 ps) {
+// `u` is the normalized radial coordinate (1 at the support edge): the factor
+// fades to identity toward the edge so the puff modulation stays interior and
+// never moves the silhouette (the puffs the viewer sees are luminance lumps).
+float flamePuffDensityFactor(vec3 ps, float u) {
     int count = int(flame.puffField.count + 0.5);
     if (count <= 0) { return 1.0; }
     float sum = 0.0;
@@ -756,7 +759,8 @@ float flamePuffDensityFactor(vec3 ps) {
             + dy * dy / max(puff.w * puff.w, 1e-6);
         sum += puff.z * exp(-r2);
     }
-    return mix(1.0 - flame.puffField.gain, 1.0, min(sum, 1.0));
+    float interior = mix(1.0 - flame.puffField.gain, 1.0, min(sum, 1.0));
+    return mix(interior, 1.0, smoothstep(0.6, 0.95, u));
 }
 
 // Mixing degree m: how far a parcel has mixed with ambient air, read from the
