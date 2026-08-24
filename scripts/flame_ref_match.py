@@ -31,6 +31,9 @@ Metrics (silhouette = R>90 && R-B>40, lum = 0.299R+0.587G+0.114B):
       extra width (halo width - silhouette width) / column width ratio within [0.7, 1.4]; tongues = halo
       runs at least width/4 tall protruding > 0.25 width beyond the silhouette on one side, count ratio
       within [0.5, 2]
+  xviii video gate: see flame_ref_match_video.py (--video, implies --temporal); whole-clip streaming: moving
+      pair fraction, upward transport of the width and centre fields, centre phase lag between bands,
+      centre return. The summary line reports the video score (mean of the xviii scores) separately.
   xiii-xvi sequence gates: see flame_ref_match_sequence.py (--temporal; the render must be a sequence at
       --fps). The reference frame rate is read from the reference meta.json; --ref-window narrows the
       reference span (default: every frame). Frames listed as caption_frames in meta.json carry burned-in
@@ -48,6 +51,7 @@ from PIL import Image
 from scipy import ndimage
 
 import flame_ref_match_sequence as sequence
+import flame_ref_match_video as video
 
 REF_DIR = Path(__file__).resolve().parents[1] / "assets/textures/flames/pillar_ref_seq"
 LUM_BINS = [(40, 80), (80, 120), (120, 160), (160, 200), (200, 256)]
@@ -514,9 +518,25 @@ def print_profiles(ref, render):
         print(f"  lum {lo:3d}-{hi:3d}: G/R ref {rg:.2f} render {cg:.2f} | B/R ref {rb:.2f} render {cb:.2f}")
 
 
-def measure_sequence(paths, column_width, dt, crop=None, resample=True):
+def measure_sequence(paths, column_width, dt, crop=None, resample=True, with_video=False):
     rgbs = sequence.load_sequence(paths, column_width, crop, resample, load_image, to_rgb, median_column_width)
-    return sequence.measure_temporal(rgbs, column_width, dt, silhouette_mask, row_centers)
+    temporal = sequence.measure_temporal(rgbs, column_width, dt, silhouette_mask, row_centers)
+    if with_video:
+        temporal["video"] = video.measure_video(rgbs, column_width, dt, silhouette_mask, row_centers)
+    return temporal
+
+
+def print_summary(rows):
+    passed = sum(1 for r in rows if r[4])
+    gated = sum(1 for r in rows if r[4] is not None)
+    scores = [r[5] for r in rows if r[4] is not None]
+    above = sum(1 for v in scores if v >= 0.95)
+    print(f"\n{passed}/{gated} gates pass, score mean {np.mean(scores):.3f} min {min(scores):.2f}, {above}/{gated} >= 0.95")
+    video_rows = [r for r in rows if r[0].startswith("xviii")]
+    if video_rows:
+        video_scores = [r[5] for r in video_rows]
+        video_passed = sum(1 for r in video_rows if r[4])
+        print(f"video score {np.mean(video_scores):.3f} ({video_passed}/{len(video_rows)} xviii gates pass)")
 
 
 def main():
@@ -527,10 +547,12 @@ def main():
     parser.add_argument("--ref-only", action="store_true")
     parser.add_argument("--json", help="write reference/render/gate results to this path")
     parser.add_argument("--temporal", action="store_true", help="also measure the sequence gates xiii-xvi")
+    parser.add_argument("--video", action="store_true", help="also measure the whole-clip video gate xviii (implies --temporal)")
     parser.add_argument("--fps", type=float, default=10.0, help="frame rate of the render sequence")
     parser.add_argument("--ref-window", default=None,
                         help="first,end reference frame for the sequence gates (default: every frame)")
     args = parser.parse_args()
+    args.temporal = args.temporal or args.video
 
     ref_fps, caption_frames = load_ref_meta(args.ref_dir)
     ref_paths = collect_frames(args.ref_dir)
@@ -543,10 +565,13 @@ def main():
     ref_temporal = None
     if args.temporal:
         first, end = (int(v) for v in args.ref_window.split(",")) if args.ref_window else (0, len(ref_paths))
-        ref_temporal = measure_sequence(ref_paths[first:end], column_width, 1.0 / ref_fps, resample=False)
+        ref_temporal = measure_sequence(ref_paths[first:end], column_width, 1.0 / ref_fps, resample=False,
+                                        with_video=args.video)
     if args.ref_only or not args.render:
         if ref_temporal is not None:
             sequence.print_temporal(ref_temporal, ref_temporal)
+            if args.video:
+                video.print_video(ref_temporal["video"], ref_temporal["video"])
             if args.json:
                 Path(args.json).write_text(json.dumps({"reference_temporal": ref_temporal}, indent=2))
         return
@@ -560,25 +585,22 @@ def main():
     rows = compare(ref, render)
     render_temporal = None
     if args.temporal:
-        render_temporal = measure_sequence(collect_frames(args.render), column_width, 1.0 / args.fps, crop)
+        render_temporal = measure_sequence(collect_frames(args.render), column_width, 1.0 / args.fps, crop,
+                                           with_video=args.video)
         rows.extend(sequence.compare_temporal(ref_temporal, render_temporal, ratio_row))
+        if args.video:
+            rows.extend(video.compare_video(ref_temporal["video"], render_temporal["video"]))
     rows = score_rows(rows)
-    print(f"\n{'gate':<22}{'ref':>6}{'render':>8}  {'value':<14}{'status':<6}score")
-    passed = 0
-    gated = 0
-    scores = []
+    print(f"\n{'gate':<26}{'ref':>6}{'render':>8}  {'value':<14}{'status':<6}score")
     for name, rv, cv, value, ok, score in rows:
         status = "-" if ok is None else ("PASS" if ok else "FAIL")
-        if ok is not None:
-            gated += 1
-            passed += int(ok)
-            scores.append(score)
-        print(f"{name:<22}{rv:>6}{cv:>8}  {value:<14}{status:<6}{score:.2f}")
-    above = sum(1 for v in scores if v >= 0.95)
-    print(f"\n{passed}/{gated} gates pass, score mean {np.mean(scores):.3f} min {min(scores):.2f}, {above}/{gated} >= 0.95")
+        print(f"{name:<26}{rv:>6}{cv:>8}  {value:<14}{status:<6}{score:.2f}")
+    print_summary(rows)
     print_profiles(ref, render)
     if render_temporal is not None:
         sequence.print_temporal(ref_temporal, render_temporal)
+        if args.video:
+            video.print_video(ref_temporal["video"], render_temporal["video"])
 
     if args.json:
         Path(args.json).write_text(json.dumps({"reference": ref, "render": render,
