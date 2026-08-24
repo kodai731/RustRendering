@@ -437,6 +437,31 @@ def compare(ref, render):
     return rows
 
 
+def gate_score(name, value, rv, cv):
+    """Similarity in [0, 1] of one gate row, 1 = identical to the reference.
+
+    ratio rows: min(r, 1/r); diff rows: 1 - |render - ref| / max(|ref|, |render|); correlation rows: the
+    correlation; rms rows: 1 - rms (log2 rms rows: 1 - rms / 2, so a factor 4 scores 0)."""
+    kind, _, number = value.partition(" ")
+    if kind == "ratio":
+        r = float(number)
+        return float(min(r, 1.0 / r)) if r > 0 else 0.0
+    if kind == "diff":
+        a, b = float(rv), float(cv)
+        scale = max(abs(a), abs(b))
+        return 1.0 if scale == 0 else float(max(0.0, 1.0 - abs(b - a) / scale))
+    x = float(kind)
+    if "log2" in name:
+        return float(max(0.0, 1.0 - x / 2.0))
+    if "rms" in name:
+        return float(max(0.0, 1.0 - x))
+    return float(max(0.0, min(1.0, x)))
+
+
+def score_rows(rows):
+    return [(name, rv, cv, value, ok, gate_score(name, value, rv, cv)) for name, rv, cv, value, ok in rows]
+
+
 def ratio_row(label, rv, cv, low, high, fmt=".2f"):
     ratio = cv / rv if rv else np.nan
     return (label, f"{rv:{fmt}}", f"{cv:{fmt}}", f"ratio {ratio:.2f}", bool(low <= ratio <= high))
@@ -537,16 +562,20 @@ def main():
     if args.temporal:
         render_temporal = measure_sequence(collect_frames(args.render), column_width, 1.0 / args.fps, crop)
         rows.extend(sequence.compare_temporal(ref_temporal, render_temporal, ratio_row))
-    print(f"\n{'gate':<22}{'ref':>6}{'render':>8}  {'value':<14}status")
+    rows = score_rows(rows)
+    print(f"\n{'gate':<22}{'ref':>6}{'render':>8}  {'value':<14}{'status':<6}score")
     passed = 0
     gated = 0
-    for name, rv, cv, value, ok in rows:
+    scores = []
+    for name, rv, cv, value, ok, score in rows:
         status = "-" if ok is None else ("PASS" if ok else "FAIL")
         if ok is not None:
             gated += 1
             passed += int(ok)
-        print(f"{name:<22}{rv:>6}{cv:>8}  {value:<14}{status}")
-    print(f"\n{passed}/{gated} gates pass")
+            scores.append(score)
+        print(f"{name:<22}{rv:>6}{cv:>8}  {value:<14}{status:<6}{score:.2f}")
+    above = sum(1 for v in scores if v >= 0.95)
+    print(f"\n{passed}/{gated} gates pass, score mean {np.mean(scores):.3f} min {min(scores):.2f}, {above}/{gated} >= 0.95")
     print_profiles(ref, render)
     if render_temporal is not None:
         sequence.print_temporal(ref_temporal, render_temporal)
@@ -554,7 +583,7 @@ def main():
     if args.json:
         Path(args.json).write_text(json.dumps({"reference": ref, "render": render,
                                                "reference_temporal": ref_temporal, "render_temporal": render_temporal,
-                                               "gates": [{"name": r[0], "value": r[3], "pass": r[4]} for r in rows]}, indent=2))
+                                               "gates": [{"name": r[0], "value": r[3], "pass": r[4], "score": r[5]} for r in rows]}, indent=2))
 
 
 if __name__ == "__main__":
