@@ -176,6 +176,8 @@ pub struct FlameFlow {
     pub transport_speed: f32,
     /// Transport speed increase with height (multiplied by y/aspect); 0 = uniform transport.
     pub transport_accel: f32,
+    /// Height01 up to which the gust injects lateral displacement at the root (1 at the foot, 0 at this height); 0 = tip-weighted y/aspect (legacy).
+    pub inject_height: f32,
 }
 
 impl Default for FlameFlow {
@@ -192,6 +194,7 @@ impl Default for FlameFlow {
             damping: 0.5,
             transport_speed: 0.0,
             transport_accel: 0.0,
+            inject_height: 0.0,
         }
     }
 }

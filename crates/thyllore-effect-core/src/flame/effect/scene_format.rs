@@ -716,6 +716,16 @@ declare_scene_format! {
                 tooltip: "Transport speed increase with height (multiplied by y/aspect); 0 = uniform transport",
             },
         },
+        flow_inject_height: f32 = Style {
+            get: |e| e.flow.inject_height,
+            set: |e, v| e.flow.inject_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Height01 up to which the gust injects lateral displacement at the root (1 at the foot, 0 at this height); 0 = tip-weighted y/aspect (legacy)",
+            },
+        },
         lobe_gain: f32 = Style {
             get: |e| e.lobe.gain,
             set: |e, v| e.lobe.gain = v,

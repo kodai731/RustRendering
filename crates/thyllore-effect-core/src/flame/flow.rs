@@ -147,6 +147,14 @@ fn vortex_lateral_velocity(
 /// Lateral flow velocity at (x, y): the vortex pairs (left vortex
 /// counter-clockwise, right clockwise, so the pair propels itself upward) plus
 /// the gust growing with height.
+fn inject_weight(flow: &FlameFlow, geometry: FlowGeometry, y: f32) -> f32 {
+    if flow.inject_height <= 0.0 {
+        y / geometry.aspect.max(1e-3)
+    } else {
+        (1.0 - y / (flow.inject_height * geometry.aspect).max(1e-3)).clamp(0.0, 1.0)
+    }
+}
+
 fn lateral_velocity(
     flow: &FlameFlow,
     geometry: FlowGeometry,
@@ -177,7 +185,7 @@ fn lateral_velocity(
             )
         })
         .sum();
-    induced + gust * (y / geometry.aspect.max(1e-3))
+    induced + gust * inject_weight(flow, geometry, y)
 }
 
 fn transport_carried(
@@ -452,6 +460,7 @@ mod tests {
             damping: 0.5,
             transport_speed: 0.0,
             transport_accel: 0.0,
+            inject_height: 0.0,
         }
     }
 
@@ -607,5 +616,72 @@ mod tests {
                 ref_markers[i].width_scale
             );
         }
+    }
+
+    #[test]
+    fn inject_weight_zero_matches_legacy() {
+        let flow = FlameFlow {
+            inject_height: 0.0,
+            ..FlameFlow::default()
+        };
+        let geo = FlowGeometry {
+            aspect: 2.5,
+            r0: 0.7,
+        };
+        for i in 0..=10 {
+            let y = i as f32 * 0.25;
+            let weight = inject_weight(&flow, geo, y);
+            let legacy = y / geo.aspect.max(1e-3);
+            assert!(
+                (weight - legacy).abs() < 1e-9,
+                "y={}: inject_weight={:.6} legacy={:.6}",
+                y,
+                weight,
+                legacy
+            );
+        }
+    }
+
+    #[test]
+    fn inject_weight_root_focused() {
+        let aspect = 2.5;
+        let flow = FlameFlow {
+            inject_height: 0.25,
+            ..FlameFlow::default()
+        };
+        let geo = FlowGeometry { aspect, r0: 0.7 };
+
+        // At y=0, weight should be 1.0
+        let w0 = inject_weight(&flow, geo, 0.0);
+        assert!((w0 - 1.0).abs() < 1e-9, "y=0: expected 1.0, got {:.6}", w0);
+
+        // At y >= 0.25 * aspect, weight should be 0.0
+        let boundary_y = 0.25 * aspect;
+        let w_boundary = inject_weight(&flow, geo, boundary_y);
+        assert!(
+            (w_boundary - 0.0).abs() < 1e-9,
+            "y={}: expected 0.0, got {:.6}",
+            boundary_y,
+            w_boundary
+        );
+
+        // At y > boundary, weight should also be 0.0
+        let w_past = inject_weight(&flow, geo, boundary_y + 1.0);
+        assert!(
+            (w_past - 0.0).abs() < 1e-9,
+            "y={}: expected 0.0, got {:.6}",
+            boundary_y + 1.0,
+            w_past
+        );
+
+        // At y = 0.125 * aspect (halfway), weight should be 0.5
+        let mid_y = 0.125 * aspect;
+        let w_mid = inject_weight(&flow, geo, mid_y);
+        assert!(
+            (w_mid - 0.5).abs() < 1e-9,
+            "y={}: expected 0.5, got {:.6}",
+            mid_y,
+            w_mid
+        );
     }
 }
