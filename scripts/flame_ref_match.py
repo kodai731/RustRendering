@@ -1,4 +1,4 @@
-"""Measure how closely rendered flame frames match the pillar_ref_seq reference.
+"""Measure how closely rendered flame frames match the pillar_ref_seq_stable reference.
 
 Usage:
   python scripts/flame_ref_match.py --render <png|dir> [--crop x0,y0,x1,y1] [--json out.json]
@@ -53,7 +53,7 @@ from scipy import ndimage
 import flame_ref_match_sequence as sequence
 import flame_ref_match_video as video
 
-REF_DIR = Path(__file__).resolve().parents[1] / "assets/textures/flames/pillar_ref_seq"
+REF_DIR = Path(__file__).resolve().parents[1] / "assets/textures/flames/pillar_ref_seq_stable"
 LUM_BINS = [(40, 80), (80, 120), (120, 160), (160, 200), (200, 256)]
 BAND_COUNT = 10
 ROOT_BAND = 7
