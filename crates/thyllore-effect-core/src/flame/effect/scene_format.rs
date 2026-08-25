@@ -696,6 +696,16 @@ declare_scene_format! {
                 tooltip: "Restoring rate of the markers toward the rest column per second: how long the column remembers the flow",
             },
         },
+        flow_damping_slope: f32 = Style {
+            get: |e| e.flow.damping_slope,
+            set: |e, v| e.flow.damping_slope = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Linear reduction of the damping with height: damping at the tip = damping * (1 - damping_slope); 0 = uniform (legacy)",
+            },
+        },
         flow_transport_speed: f32 = Style {
             get: |e| e.flow.transport_speed,
             set: |e, v| e.flow.transport_speed = v,

@@ -216,6 +216,12 @@ fn transport_carried(
     }
 }
 
+fn damping_at(flow: &FlameFlow, geometry: FlowGeometry, y: f32) -> f32 {
+    flow.damping
+        * (1.0
+            - flow.damping_slope.clamp(0.0, 1.0) * (y / geometry.aspect.max(1e-3)).clamp(0.0, 1.0))
+}
+
 fn injection_write(
     flow: &FlameFlow,
     geometry: FlowGeometry,
@@ -236,10 +242,10 @@ fn injection_write(
         let left = lateral_velocity(flow, geometry, &pairs, x - half_width, y, gust);
         let right = lateral_velocity(flow, geometry, &pairs, x + half_width, y, gust);
         let stretch = (right - left) / (2.0 * geometry.r0);
-        dst_marker.offset[plane] = x + (centre - flow.damping * x) * dt;
+        dst_marker.offset[plane] = x + (centre - damping_at(flow, geometry, y) * x) * dt;
         if plane == 0 {
             dst_marker.width_scale = (carried_width
-                + (stretch - flow.damping * (carried_width - 1.0)) * dt)
+                + (stretch - damping_at(flow, geometry, y) * (carried_width - 1.0)) * dt)
                 .clamp(0.2, 1.6);
         }
     }
@@ -283,7 +289,8 @@ fn vortex_travel_time(flow: &FlameFlow, geometry: FlowGeometry) -> f32 {
 /// the markers' damping memory.
 fn simulation_schedule(flow: &FlameFlow, geometry: FlowGeometry) -> (f32, f32) {
     let dt = FLOW_SIM_DT.min(flow.period.max(1e-3) / FLOW_STEPS_PER_PERIOD);
-    let memory = FLOW_DAMPING_MEMORY_FOLDS / flow.damping.max(1e-3);
+    let memory = FLOW_DAMPING_MEMORY_FOLDS
+        / (flow.damping * (1.0 - flow.damping_slope.clamp(0.0, 1.0))).max(1e-3);
     let mut history =
         (2.0 * vortex_travel_time(flow, geometry) + memory).clamp(dt, FLOW_HISTORY_SECONDS);
     if flow.transport_speed > 0.0 {
@@ -355,7 +362,9 @@ fn lobe_height_amplitude(
                 * (flow.transport_speed * flow.transport_accel * age / geometry.aspect).exp()
                 - drift
         };
-        let amplitude = lobe.gain * lobe.transport * (-flow.damping * age).exp();
+        let amplitude = lobe.gain
+            * lobe.transport
+            * (-damping_at(flow, geometry, y * geometry.aspect) * age).exp();
         (y, amplitude)
     } else {
         let y = if lobe.accel > 0.0 {
@@ -379,7 +388,8 @@ fn active_lobes(
         return Vec::new();
     }
     let life = if lobe.transport > 0.0 {
-        FLOW_DAMPING_MEMORY_FOLDS / flow.damping.max(1e-3)
+        FLOW_DAMPING_MEMORY_FOLDS
+            / (flow.damping * (1.0 - flow.damping_slope.clamp(0.0, 1.0))).max(1e-3)
     } else {
         lobe.life
     };
@@ -508,6 +518,7 @@ mod tests {
             gust_frequency: 0.4,
             burst: 0.5,
             damping: 0.5,
+            damping_slope: 0.0,
             transport_speed: 0.0,
             transport_accel: 0.0,
             inject_height: 0.0,
@@ -863,6 +874,60 @@ mod tests {
             lobes.len(),
             1,
             "expected exactly one lobe at time 1.0 (age > lobe.life, but effective life comes from damping)"
+       );
+    }
+
+    #[test]
+    fn damping_at_slope_zero_is_uniform() {
+        let flow = FlameFlow {
+            damping: 0.5,
+            damping_slope: 0.0,
+            ..FlameFlow::default()
+        };
+        let geo = FlowGeometry {
+            aspect: 2.5,
+            r0: 1.0,
+        };
+        for &y in &[0.0, 1.0, 2.5, 5.0] {
+            let d = damping_at(&flow, geo, y);
+            assert!(
+                (d - flow.damping).abs() < 1e-6,
+                "slope 0: expected damping {} at y={}, got {}",
+                flow.damping,
+                y,
+                d
+            );
+        }
+    }
+
+    #[test]
+    fn damping_at_slope_half_halves_at_tip() {
+        let flow = FlameFlow {
+            damping: 0.5,
+            damping_slope: 0.5,
+            ..FlameFlow::default()
+        };
+        let geo = FlowGeometry {
+            aspect: 2.5,
+            r0: 1.0,
+        };
+        assert!(
+            (damping_at(&flow, geo, 0.0) - flow.damping).abs() < 1e-6,
+            "y=0: expected {}, got {}",
+            flow.damping,
+            damping_at(&flow, geo, 0.0)
+        );
+        assert!(
+            (damping_at(&flow, geo, geo.aspect) - flow.damping / 2.0).abs() < 1e-6,
+            "y=aspect: expected {}, got {}",
+            flow.damping / 2.0,
+            damping_at(&flow, geo, geo.aspect)
+        );
+        assert!(
+            (damping_at(&flow, geo, 2.0 * geo.aspect) - flow.damping / 2.0).abs() < 1e-6,
+            "y=2*aspect: expected {}, got {}",
+            flow.damping / 2.0,
+            damping_at(&flow, geo, 2.0 * geo.aspect)
         );
     }
 }
