@@ -226,6 +226,8 @@ pub struct FlameLobe {
     /// Centre shift per unit bulge in [0, 1]: 1 keeps the far side still (a
     /// one-sided tongue), 0 swells both sides (a symmetric puff).
     pub shift: f32,
+    /// 1 = inject each lobe once at spawn into the simulated marker column so the flow transport carries it and damping fades it (rise/accel/life unused); 0 = legacy overlay added after the simulation
+    pub transport: f32,
 }
 
 impl Default for FlameLobe {
@@ -241,6 +243,7 @@ impl Default for FlameLobe {
             accel: 0.0,
             spread: 0.5,
             shift: 1.0,
+            transport: 0.0,
         }
     }
 }

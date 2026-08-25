@@ -105,6 +105,7 @@ declare_style_group! {
             lobe_accel: f32 => lobe.accel,
             lobe_spread: f32 => lobe.spread,
             lobe_shift: f32 => lobe.shift,
+            lobe_transport: f32 => lobe.transport,
         }
         custom {
             meander_amp_over_r0: f32,
@@ -325,8 +326,9 @@ mod tests {
                 lobe_spawn_height: Some(0.2),
                 lobe_spawn_range: Some(0.0),
                 lobe_accel: Some(0.0),
-                lobe_spread: Some(0.5),
                 lobe_shift: Some(1.0),
+                lobe_spread: Some(0.5),
+                lobe_transport: Some(0.0),
             },
             texture: FlameStyleTexture {
                 noise_amplitude: Some(6.0),

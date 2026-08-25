@@ -192,7 +192,6 @@ fn transport_carried(
     flow: &FlameFlow,
     geometry: FlowGeometry,
     plane: usize,
-    time: f32,
     dt: f32,
     src: &[FlowMarker],
     carried: &mut [(f32, f32)],
@@ -301,6 +300,7 @@ fn simulation_schedule(flow: &FlameFlow, geometry: FlowGeometry) -> (f32, f32) {
 pub fn simulate_flow_markers(
     flow: &FlameFlow,
     geometry: FlowGeometry,
+    lobe: &FlameLobe,
     time: f32,
 ) -> [FlowMarker; FLOW_MARKER_COUNT] {
     let mut markers = [FlowMarker::default(); FLOW_MARKER_COUNT];
@@ -315,8 +315,12 @@ pub fn simulate_flow_markers(
         let sim_time = start + step as f32 * dt;
         let mut carried: [(f32, f32); FLOW_MARKER_COUNT] = [(0.0, 1.0); FLOW_MARKER_COUNT];
         for plane in 0..PLANE_COUNT {
-            transport_carried(flow, geometry, plane, sim_time, dt, &prev, &mut carried);
+            transport_carried(flow, geometry, plane, dt, &prev, &mut carried);
             injection_write(flow, geometry, plane, sim_time, dt, &carried, &mut markers);
+        }
+        if flow.gain != 0.0 && lobe.transport > 0.0 {
+            let spawned = spawned_lobes(lobe, sim_time, dt);
+            inject_lobes(&mut markers, &spawned, lobe, geometry, lobe.transport);
         }
         prev.copy_from_slice(&markers);
     }
@@ -329,6 +333,7 @@ struct Lobe {
     plane: usize,
     amplitude: f32,
     size: f32,
+    age: f32,
 }
 
 fn lobe_envelope(age01: f32) -> f32 {
@@ -379,40 +384,54 @@ fn active_lobes(lobe: &FlameLobe, time: f32) -> Vec<Lobe> {
                 plane,
                 amplitude: lobe.gain * lobe_envelope(age / lobe.life),
                 size: size.max(1e-3),
+                age,
             })
         })
         .collect()
 }
 
-/// One-sided bulge: the centre moves by `side * a` and the half-width grows by
-/// `a`, so the lobe side protrudes by 2a while the other side stays put.
-pub fn add_lobe_train(
+/// Lobes that were spawned in this step: active_lobes at time + dt where age > 0.0 && age <= dt.
+fn spawned_lobes(lobe: &FlameLobe, time: f32, dt: f32) -> Vec<Lobe> {
+    active_lobes(lobe, time + dt)
+        .into_iter()
+        .filter(|l| l.age > 0.0 && l.age <= dt)
+        .collect()
+}
+
+/// Inject lobes into the marker column using the bump formula.
+/// No envelope — uses raw amplitude at birth (the lobe's gain).
+fn inject_lobes(
     markers: &mut [FlowMarker; FLOW_MARKER_COUNT],
+    lobes: &[Lobe],
     lobe: &FlameLobe,
     geometry: FlowGeometry,
-    time: f32,
+    scale: f32,
 ) {
-    let lobes = active_lobes(lobe, time);
     if lobes.is_empty() {
         return;
     }
     let self_shift = lobe.shift.clamp(0.0, 1.0);
     for (index, marker) in markers.iter_mut().enumerate() {
         let h = index as f32 / (FLOW_MARKER_COUNT - 1) as f32;
-        for lobe in &lobes {
-            let d = (h - lobe.y) / lobe.size;
-            let bump = lobe.amplitude * (-d * d).exp();
-            marker.offset[lobe.plane] += lobe.side * self_shift * bump * geometry.r0;
+        for l in lobes {
+            let d = (h - l.y) / l.size;
+            let bump = l.amplitude * scale * (-d * d).exp();
+            marker.offset[l.plane] += l.side * self_shift * bump * geometry.r0;
             marker.width_scale += bump;
         }
     }
 }
-
 pub fn build_flow_field(effect: &FlameEffect, baked: &FlameBaked) -> FlameFlowField {
     let geometry = FlowGeometry::from_effect(effect, baked);
-    let mut markers = simulate_flow_markers(&effect.flow, geometry, effect.time);
-    if effect.flow.gain != 0.0 {
-        add_lobe_train(&mut markers, &effect.lobe, geometry, effect.time);
+    let mut markers = simulate_flow_markers(&effect.flow, geometry, &effect.lobe, effect.time);
+    if effect.flow.gain != 0.0 && effect.lobe.transport <= 0.0 {
+        inject_lobes(
+            &mut markers,
+            &active_lobes(&effect.lobe, effect.time),
+            &effect.lobe,
+            geometry,
+            1.0,
+        );
     }
     let mut table = [[0.0f32, 0.0, 1.0, 0.0]; FLOW_MARKER_COUNT];
     for (slot, marker) in table.iter_mut().zip(&markers) {
@@ -483,14 +502,14 @@ mod tests {
 
     #[test]
     fn markers_are_a_function_of_time_only() {
-        let a = simulate_flow_markers(&flow_on(), geometry(), 7.3);
-        let b = simulate_flow_markers(&flow_on(), geometry(), 7.3);
+        let a = simulate_flow_markers(&flow_on(), geometry(), &FlameLobe::default(), 7.3);
+        let b = simulate_flow_markers(&flow_on(), geometry(), &FlameLobe::default(), 7.3);
         assert_eq!(a, b);
     }
 
     #[test]
     fn flow_moves_and_reshapes_the_column() {
-        let markers = simulate_flow_markers(&flow_on(), geometry(), 6.0);
+        let markers = simulate_flow_markers(&flow_on(), geometry(), &FlameLobe::default(), 6.0);
         let moved = markers
             .iter()
             .any(|m| m.offset[0].abs() > 1e-3 || m.offset[1].abs() > 1e-3);
@@ -504,10 +523,25 @@ mod tests {
     #[test]
     fn lobe_train_is_one_sided_and_off_by_default() {
         let mut markers = [FlowMarker::default(); FLOW_MARKER_COUNT];
-        add_lobe_train(&mut markers, &FlameLobe::default(), geometry(), 3.0);
+        inject_lobes(
+            &mut markers,
+            &active_lobes(&FlameLobe::default(), 3.0),
+            &FlameLobe::default(),
+            geometry(),
+            1.0,
+        );
         let mut markers_defaults_zeroed = [FlowMarker::default(); FLOW_MARKER_COUNT];
-        add_lobe_train(
+        inject_lobes(
             &mut markers_defaults_zeroed,
+            &active_lobes(
+                &FlameLobe {
+                    gain: 1.0,
+                    spawn_range: 0.0,
+                    accel: 0.0,
+                    ..FlameLobe::default()
+                },
+                3.0,
+            ),
             &FlameLobe {
                 gain: 1.0,
                 spawn_range: 0.0,
@@ -515,11 +549,20 @@ mod tests {
                 ..FlameLobe::default()
             },
             geometry(),
-            3.0,
+            1.0,
         );
         let mut markers_enabled = [FlowMarker::default(); FLOW_MARKER_COUNT];
-        add_lobe_train(
+        inject_lobes(
             &mut markers_enabled,
+            &active_lobes(
+                &FlameLobe {
+                    gain: 1.0,
+                    spawn_range: 0.6,
+                    accel: 2.0,
+                    ..FlameLobe::default()
+                },
+                3.0,
+            ),
             &FlameLobe {
                 gain: 1.0,
                 spawn_range: 0.6,
@@ -527,7 +570,7 @@ mod tests {
                 ..FlameLobe::default()
             },
             geometry(),
-            3.0,
+            1.0,
         );
         assert_ne!(markers_defaults_zeroed, markers_enabled);
         assert!(markers.iter().all(|m| *m == FlowMarker::default()));
@@ -539,7 +582,13 @@ mod tests {
             spread: 0.0,
             ..FlameLobe::default()
         };
-        add_lobe_train(&mut markers, &lobe, geometry(), 1.0);
+        inject_lobes(
+            &mut markers,
+            &active_lobes(&lobe, 1.0),
+            &lobe,
+            geometry(),
+            1.0,
+        );
         let peak = markers
             .iter()
             .max_by(|a, b| a.width_scale.total_cmp(&b.width_scale))
@@ -555,7 +604,7 @@ mod tests {
 
     #[test]
     fn base_marker_stays_put() {
-        let markers = simulate_flow_markers(&flow_on(), geometry(), 6.0);
+        let markers = simulate_flow_markers(&flow_on(), geometry(), &FlameLobe::default(), 6.0);
         assert!(markers[0].offset[0].abs() < 0.2 && markers[0].offset[1].abs() < 0.2);
     }
 
@@ -595,7 +644,7 @@ mod tests {
             }
         }
 
-        let new_markers = simulate_flow_markers(&flow, geo, time);
+        let new_markers = simulate_flow_markers(&flow, geo, &FlameLobe::default(), time);
         for i in 0..FLOW_MARKER_COUNT {
             assert!(
                 (new_markers[i].offset[0] - ref_markers[i].offset[0]).abs() < 1e-6,
@@ -682,6 +731,59 @@ mod tests {
             "y={}: expected 0.5, got {:.6}",
             mid_y,
             w_mid
+        );
+    }
+
+    #[test]
+    fn lobe_transport_moves_and_damps() {
+        let flow = FlameFlow {
+            gain: 1.0,
+            gust: 0.0,
+            burst: 0.0,
+            strength: 0.0,
+            damping: 0.5,
+            transport_speed: 1.0,
+            inject_height: 0.0,
+            ..FlameFlow::default()
+        };
+        let geo = geometry();
+        let lobe = FlameLobe {
+            gain: 1.0,
+            period: 100.0,
+            life: 2.0,
+            rise: 0.0,
+            size: 0.08,
+            spawn_height: 0.2,
+            spawn_range: 0.0,
+            accel: 0.0,
+            spread: 0.0,
+            shift: 1.0,
+            transport: 1.0,
+        };
+
+        let markers_early = simulate_flow_markers(&flow, geo, &lobe, 0.5);
+        let (peak_index_0, peak_value_0) = markers_early
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.width_scale.total_cmp(&b.width_scale))
+            .unwrap();
+
+        let markers_later = simulate_flow_markers(&flow, geo, &lobe, 1.5);
+        let (peak_index_1, peak_value_1) = markers_later
+            .iter()
+            .enumerate()
+            .max_by(|(_, a), (_, b)| a.width_scale.total_cmp(&b.width_scale))
+            .unwrap();
+
+        assert!(
+            peak_index_1 > peak_index_0,
+            "peak index should increase: early={peak_index_0} later={peak_index_1}"
+        );
+        assert!(
+            peak_value_1.width_scale < peak_value_0.width_scale,
+            "peak value should decrease: early={:.4} later={:.4}",
+            peak_value_0.width_scale,
+            peak_value_1.width_scale
         );
     }
 }

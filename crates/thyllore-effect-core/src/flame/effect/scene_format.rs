@@ -736,6 +736,16 @@ declare_scene_format! {
                 tooltip: "Lobe train: peak one-sided bulge of one lobe in base radii (needs flow_gain > 0); 0 = off",
             },
         },
+        lobe_transport: f32 = Style {
+            get: |e| e.lobe.transport,
+            set: |e, v| e.lobe.transport = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "1 = inject each lobe once at spawn into the simulated marker column so the flow transport carries it and damping fades it (rise/accel/life unused); 0 = legacy overlay added after the simulation",
+            },
+        },
         lobe_period: f32 = Style {
             get: |e| e.lobe.period,
             set: |e, v| e.lobe.period = v,
