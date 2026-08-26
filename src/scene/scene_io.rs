@@ -581,23 +581,18 @@ mod tests {
     }
 
     #[test]
-    fn default_scene_asset_parses_with_recovered_flame() {
+    fn default_scene_asset_holds_campfire_flame() {
         let content = fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/default.scene.ron"),
         )
         .expect("default scene asset readable");
         let scene: SceneFile = ron::from_str(&content).expect("default scene asset parses");
 
-        let flame = scene.flame.expect("recovered flame section present");
-        assert_eq!(flame.effect.height, 8.0);
-        assert_eq!(flame.effect.radius, 1.0);
-        assert_eq!(flame.effect.edge.radius_tip_ratio, 1.0);
-        assert_eq!(flame.effect.color.temperature_base_k, 2900.0);
-        assert_eq!(flame.effect.color.temperature_tip_k, 1300.0);
-        assert_eq!(flame.effect.mix.scale, 0.5);
-        assert_eq!(flame.effect.edge.white_boost, 0.0);
-        assert_eq!(flame.effect.noise.scale_mode, 1.0);
-        assert!(flame.effect.meander.amp > 0.0);
+        let flame = scene.flame.expect("flame section present");
+        let mut campfire = thyllore_effect_core::FlameEffect::default();
+        thyllore_effect_core::apply_flame_preset(&mut campfire, "campfire");
+        assert_eq!(flame.effect, campfire);
+        assert!(flame.style.is_none());
     }
 
     #[test]
