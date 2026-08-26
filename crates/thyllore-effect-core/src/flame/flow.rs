@@ -207,11 +207,7 @@ fn transport_carried(
             interpolate_upstream(src, geometry.aspect, y_src, plane)
         };
         if plane == 0 {
-            entry.1 = if flow.transport_speed == 0.0 {
-                src[index].width_scale
-            } else {
-                interpolate_upstream_width(src, geometry.aspect, y_src)
-            };
+            entry.1 = src[index].width_scale;
         }
     }
 }
@@ -263,20 +259,6 @@ fn interpolate_upstream(src: &[FlowMarker], aspect: f32, y_src: f32, plane: usiz
     }
     let t = frac - j as f32;
     src[j].offset[plane] * (1.0 - t) + src[j + 1].offset[plane] * t
-}
-
-fn interpolate_upstream_width(src: &[FlowMarker], aspect: f32, y_src: f32) -> f32 {
-    let count = src.len();
-    if y_src < 0.0 {
-        return 1.0;
-    }
-    let frac = y_src / aspect * (count - 1) as f32;
-    let j = frac.floor() as usize;
-    if j >= count - 1 {
-        return src[count - 1].width_scale;
-    }
-    let t = frac - j as f32;
-    src[j].width_scale * (1.0 - t) + src[j + 1].width_scale * t
 }
 
 fn vortex_travel_time(flow: &FlameFlow, geometry: FlowGeometry) -> f32 {
@@ -713,6 +695,66 @@ mod tests {
                 ref_markers[i].width_scale
             );
         }
+    }
+
+    #[test]
+    fn width_scale_not_transporting_with_positive_speed() {
+        let flow = FlameFlow {
+            transport_speed: 1.0,
+            ..flow_on()
+        };
+        let geo = geometry();
+
+        let mut markers: [FlowMarker; FLOW_MARKER_COUNT] =
+            [FlowMarker::default(); FLOW_MARKER_COUNT];
+        for (i, m) in markers.iter_mut().enumerate() {
+            m.offset[0] = i as f32 * 1.0 + 1.0;
+            m.width_scale = 2.0;
+        }
+        let mut carried: Vec<(f32, f32)> = (0..FLOW_MARKER_COUNT).map(|_| (0.0, 0.0)).collect();
+
+        transport_carried(&flow, geo, 0, 0.01, &markers, &mut carried);
+
+        for (i, entry) in carried.iter().enumerate() {
+            if i == 0 {
+                continue;
+            }
+            assert_ne!(entry.0, 0.0, "Offset should have moved");
+            assert_eq!(entry.1, 2.0, "Width scale should remain unchanged");
+        }
+
+        let flow_no_transport = FlameFlow {
+            transport_speed: 0.0,
+            ..flow
+        };
+        let mut carried_no_transport: Vec<(f32, f32)> =
+            (0..FLOW_MARKER_COUNT).map(|_| (0.0, 0.0)).collect();
+        transport_carried(
+            &flow_no_transport,
+            geo,
+            0,
+            0.01,
+            &markers,
+            &mut carried_no_transport,
+        );
+
+        for i in 0..FLOW_MARKER_COUNT {
+            assert_eq!(
+                carried[i].1, carried_no_transport[i].1,
+                "width_scale should match no-transport result"
+            );
+        }
+
+        let mut offset_differs = false;
+        for i in 0..FLOW_MARKER_COUNT {
+            if (carried[i].0 - carried_no_transport[i].0).abs() > 1e-6 {
+                offset_differs = true;
+            }
+        }
+        assert!(
+            offset_differs,
+            "offset should differ between transport and no-transport runs"
+        );
     }
 
     #[test]
