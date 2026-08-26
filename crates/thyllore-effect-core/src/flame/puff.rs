@@ -11,7 +11,7 @@ pub fn active_puffs(puff: &FlamePuff, base_trunk_radius: f32, time: f32) -> Vec<
     }
     let spawn_radius = puff.radius.max(1e-3) * base_trunk_radius;
     let exit_height = 1.0 + spawn_radius * (1.0 + puff.spread.max(0.0));
-    let travel_time = exit_height / puff.rise;
+    let travel_time = (exit_height - puff.spawn_height) / puff.rise;
 
     let first = ((time - travel_time) / puff.period).floor() as i64 - 1;
     let last = (time / puff.period).ceil() as i64 + 1;
@@ -20,7 +20,7 @@ pub fn active_puffs(puff: &FlamePuff, base_trunk_radius: f32, time: f32) -> Vec<
             let jitter = PUFF_SPAWN_JITTER * (hash01(0, index, 11) - 0.5);
             let spawn_time = (index as f32 + jitter) * puff.period;
             let age = time - spawn_time;
-            let height = puff.rise * age;
+            let height = puff.spawn_height + puff.rise * age;
             if age < 0.0 || height >= exit_height {
                 return None;
             }
@@ -91,6 +91,7 @@ mod tests {
             spread: 0.5,
             decay: 0.8,
             aspect: 1.0,
+            spawn_height: 0.0,
         }
     }
 
@@ -137,5 +138,41 @@ mod tests {
         assert!(at_center > 1.0 - 0.1 * field.gain - (1.0 - center[2]) * field.gain);
         assert!(beside < at_center);
         assert!(beside >= 1.0 - field.gain);
+    }
+
+    #[test]
+    fn spawn_height_raises_all_puff_heights() {
+        let mut puff = puff_on();
+        puff.spawn_height = 0.3;
+        let base = puff_on();
+        let shifted = active_puffs(&puff, 1.0, 4.0);
+        let baseline = active_puffs(&base, 1.0, 4.0);
+        assert!(!shifted.is_empty());
+        for entry in &shifted {
+            assert!(
+                entry[0] >= 0.3 - 1e-6,
+                "height {} < spawn_height 0.3",
+                entry[0]
+            );
+        }
+        // With higher spawn_height, puffs reach exit_height faster, so fewer are active.
+        // Match by index: each shifted puff corresponds to a baseline puff at the same
+        // spawn time (same index in the filtered range), offset by 0.3 in height.
+        assert!(
+            shifted.len() <= baseline.len(),
+            "shifted count {} > baseline count {}",
+            shifted.len(),
+            baseline.len()
+        );
+        for (i, s) in shifted.iter().enumerate() {
+            let b = &baseline[i];
+            let diff = s[0] - b[0];
+            assert!(
+                (diff - 0.3).abs() < 1e-5,
+                "puff[{}] height offset {:.4} != 0.3",
+                i,
+                diff
+            );
+        }
     }
 }

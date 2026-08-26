@@ -59,6 +59,7 @@ pub const FLAME_PUFF_PARAMS: &[&str] = &[
     "puff_spread",
     "puff_decay",
     "puff_aspect",
+    "puff_spawn_height",
 ];
 
 pub const FLAME_FLOW_PARAMS: &[&str] = &[

@@ -1193,6 +1193,7 @@ mod legacy_format_golden {
   "puff_spread": 0.5,
   "puff_decay": 0.8,
   "puff_aspect": 1.0,
+  "puff_spawn_height": 0.0,
   "flow_gain": 0.0,
   "flow_period": 1.0,
   "flow_rise": 0.3,
@@ -1202,6 +1203,10 @@ mod legacy_format_golden {
   "flow_gust_frequency": 0.4,
   "flow_burst": 0.0,
   "flow_damping": 0.5,
+  "flow_damping_slope": 0.0,
+  "flow_transport_speed": 0.0,
+  "flow_transport_accel": 0.0,
+  "flow_inject_height": 0.0,
   "lobe_gain": 0.0,
   "lobe_period": 0.5,
   "lobe_life": 2.0,
@@ -1211,7 +1216,8 @@ mod legacy_format_golden {
   "lobe_spawn_range": 0.0,
   "lobe_accel": 0.0,
   "lobe_spread": 0.5,
-  "lobe_shift": 1.0
+  "lobe_shift": 1.0,
+  "lobe_transport": 0.0
 }"#;
 
     #[test]

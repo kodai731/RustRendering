@@ -606,6 +606,16 @@ declare_scene_format! {
                 tooltip: "Vertical over lateral radius of a puff: below 1 flattens the lumps so a wide puff can still leave thin seams between neighbours",
             },
         },
+        puff_spawn_height: f32 = Style {
+            get: |e| e.puff.spawn_height,
+            set: |e, v| e.puff.spawn_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Height at which puffs are spawned, in local height units [0, 1]",
+            },
+        },
         flow_gain: f32 = Style {
             get: |e| e.flow.gain,
             set: |e, v| e.flow.gain = v,

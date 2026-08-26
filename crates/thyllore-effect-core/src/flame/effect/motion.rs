@@ -133,6 +133,8 @@ pub struct FlamePuff {
     pub decay: f32,
     /// Vertical over lateral radius of a puff (isotropic units); below 1 = flat lumps.
     pub aspect: f32,
+    /// Height at which puffs are spawned, in local height units [0, 1].
+    pub spawn_height: f32,
 }
 
 impl Default for FlamePuff {
@@ -145,6 +147,7 @@ impl Default for FlamePuff {
             spread: 0.5,
             decay: 0.8,
             aspect: 1.0,
+            spawn_height: 0.0,
         }
     }
 }
