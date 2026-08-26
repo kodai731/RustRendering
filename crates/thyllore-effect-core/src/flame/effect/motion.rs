@@ -135,6 +135,10 @@ pub struct FlamePuff {
     pub aspect: f32,
     /// Height at which puffs are spawned, in local height units [0, 1].
     pub spawn_height: f32,
+    /// Density of the static root puff; 0 = off.
+    pub root_gain: f32,
+    /// Center height of the static root puff, in local height units [0, 1].
+    pub root_height: f32,
 }
 
 impl Default for FlamePuff {
@@ -148,6 +152,8 @@ impl Default for FlamePuff {
             decay: 0.8,
             aspect: 1.0,
             spawn_height: 0.0,
+            root_gain: 0.0,
+            root_height: 0.0,
         }
     }
 }

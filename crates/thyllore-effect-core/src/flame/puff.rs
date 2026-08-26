@@ -38,7 +38,24 @@ pub fn active_puffs(puff: &FlamePuff, base_trunk_radius: f32, time: f32) -> Vec<
         .collect();
     puffs.sort_by(|a, b| b.0.total_cmp(&a.0));
     puffs.truncate(PUFF_MAX_COUNT);
-    puffs.into_iter().map(|(_, entry)| entry).collect()
+
+    let mut result: Vec<[f32; 4]> = puffs.into_iter().map(|(_, entry)| entry).collect();
+
+    if puff.root_gain > 0.0 {
+        let root_radius = spawn_radius * (1.0 + puff.spread.max(0.0) * puff.root_height);
+        let root_entry: [f32; 4] = [
+            puff.root_height,
+            root_radius,
+            puff.root_gain,
+            root_radius * puff.aspect.max(1e-3),
+        ];
+        if result.len() >= PUFF_MAX_COUNT {
+            result.pop();
+        }
+        result.insert(0, root_entry);
+    }
+
+    result
 }
 
 pub fn build_puff_field(effect: &FlameEffect, baked: &FlameBaked) -> FlamePuffField {
@@ -92,6 +109,8 @@ mod tests {
             decay: 0.8,
             aspect: 1.0,
             spawn_height: 0.0,
+            root_gain: 0.0,
+            root_height: 0.0,
         }
     }
 
@@ -173,6 +192,53 @@ mod tests {
                 i,
                 diff
             );
+        }
+    }
+
+    #[test]
+    fn root_puff_is_static_at_front() {
+        let mut puff = puff_on();
+        puff.root_gain = 0.6;
+        puff.root_height = 0.1;
+        let spawn_radius = puff.radius * 1.0;
+        let expected_radius = spawn_radius * (1.0 + puff.spread * puff.root_height);
+        let expected_entry: [f32; 4] = [
+            puff.root_height,
+            expected_radius,
+            puff.root_gain,
+            expected_radius * puff.aspect,
+        ];
+
+        let puffs_t0 = active_puffs(&puff, 1.0, 4.0);
+        let puffs_t1 = active_puffs(&puff, 1.0, 5.0);
+        assert!(!puffs_t0.is_empty());
+        for i in 0..4 {
+            assert!(
+                (puffs_t0[0][i] - expected_entry[i]).abs() < 1e-6,
+                "root entry[{}] {:.6} != {:.6}",
+                i,
+                puffs_t0[0][i],
+                expected_entry[i]
+            );
+        }
+        assert!(
+            (puffs_t1[0][0] - puffs_t0[0][0]).abs() < 1e-6,
+            "root entry height changed over time"
+        );
+
+        let base = puff_on();
+        let baseline = active_puffs(&base, 1.0, 4.0);
+        let expected_len = (baseline.len() + 1).min(PUFF_MAX_COUNT);
+        assert_eq!(puffs_t0.len(), expected_len);
+        for i in 0..expected_len - 1 {
+            for j in 0..4 {
+                assert!(
+                    (puffs_t0[i + 1][j] - baseline[i][j]).abs() < 1e-6,
+                    "moving puff[{}][{}] differs from baseline",
+                    i,
+                    j
+                );
+            }
         }
     }
 }

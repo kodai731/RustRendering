@@ -1194,6 +1194,8 @@ mod legacy_format_golden {
   "puff_decay": 0.8,
   "puff_aspect": 1.0,
   "puff_spawn_height": 0.0,
+  "puff_root_gain": 0.0,
+  "puff_root_height": 0.0,
   "flow_gain": 0.0,
   "flow_period": 1.0,
   "flow_rise": 0.3,

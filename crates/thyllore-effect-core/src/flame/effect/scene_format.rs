@@ -616,6 +616,26 @@ declare_scene_format! {
                 tooltip: "Height at which puffs are spawned, in local height units [0, 1]",
             },
         },
+        puff_root_gain: f32 = Style {
+            get: |e| e.puff.root_gain,
+            set: |e, v| e.puff.root_gain = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Gain of the static root puff [0, 1]",
+            },
+        },
+        puff_root_height: f32 = Style {
+            get: |e| e.puff.root_height,
+            set: |e, v| e.puff.root_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Height of the static root puff center [0, 1]",
+            },
+        },
         flow_gain: f32 = Style {
             get: |e| e.flow.gain,
             set: |e, v| e.flow.gain = v,

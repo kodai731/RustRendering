@@ -127,6 +127,8 @@ pub fn build_effect_json(
     value["puff_decay"] = json!(effect.puff.decay);
     value["puff_aspect"] = json!(effect.puff.aspect);
     value["puff_spawn_height"] = json!(effect.puff.spawn_height);
+    value["puff_root_gain"] = json!(effect.puff.root_gain);
+    value["puff_root_height"] = json!(effect.puff.root_height);
     value["flow_gain"] = json!(effect.flow.gain);
     value["flow_period"] = json!(effect.flow.period);
     value["flow_rise"] = json!(effect.flow.rise);
