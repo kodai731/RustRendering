@@ -260,6 +260,59 @@ impl Default for FlameLobe {
     }
 }
 
+/// Coarse 2D buoyancy grid driving the column (trunk-local x in [-1, 1],
+/// height in [0, GRID_HEIGHT_EXTENT]): fuel and heat injected at the root rise
+/// under buoyancy, curl under vorticity confinement and burn out; enabled 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameGrid {
+    /// 1 = the grid replaces the marker column, puffs and lobes; 0 = off.
+    pub enabled: f32,
+    /// Height01 of the injection band at the root.
+    pub inject_height: f32,
+    /// Gaussian half width of the injection in x units (flame width = 1).
+    pub inject_width: f32,
+    /// Mean injection rate of fuel and heat per second.
+    pub inject_rate: f32,
+    /// Relative amplitude of the periodic injection pulse (puffing) in [0, 1].
+    pub puff_amp: f32,
+    /// Puffing frequency in Hz.
+    pub puff_hz: f32,
+    /// Upward acceleration per unit temperature (Nguyen 2002 eq. 14 alpha).
+    pub buoyancy_heat: f32,
+    /// Downward acceleration per unit fuel density (Nguyen 2002 eq. 14 beta).
+    pub buoyancy_density: f32,
+    /// Height01 below which the lateral gust accelerates the flow (1 at the foot, 0 there).
+    pub gust_height: f32,
+    /// Vorticity confinement strength (Nguyen 2002 eq. 15 epsilon).
+    pub confinement: f32,
+    /// Fuel burn-out rate per second (Mantaflow reaction speed).
+    pub burn_rate: f32,
+    /// Heat loss rate per second.
+    pub cool_rate: f32,
+    /// Gauss-Seidel iterations of the pressure projection.
+    pub pressure_iters: f32,
+}
+
+impl Default for FlameGrid {
+    fn default() -> Self {
+        Self {
+            enabled: 0.0,
+            inject_height: 0.08,
+            inject_width: 0.18,
+            inject_rate: 1.0,
+            puff_amp: 0.6,
+            puff_hz: 12.5,
+            buoyancy_heat: 2000.0,
+            buoyancy_density: 0.0,
+            gust_height: 0.25,
+            confinement: 0.5,
+            burn_rate: 12.0,
+            cool_rate: 10.0,
+            pressure_iters: 32.0,
+        }
+    }
+}
+
 /// Stateless write-through of the Vortex macro knob onto (twist gain, twist
 /// speed); the two parameters stay the single source of truth.
 pub fn vortex_macro_parameters(v: f32) -> (f32, f32) {

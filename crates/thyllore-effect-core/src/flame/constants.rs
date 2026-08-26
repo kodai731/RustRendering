@@ -43,6 +43,12 @@ pub const PUFF_MAX_COUNT: usize = 16;
 pub const PUFF_SPAWN_JITTER: f32 = 0.3;
 /// Fluid motion: marker column size, vortex table size, the coarsest
 /// integration step and the longest history window of the stateless re-simulation.
+pub const GRID_WIDTH_CELLS: usize = 64;
+pub const GRID_HEIGHT_CELLS: usize = 128;
+pub const GRID_HEIGHT_EXTENT: f32 = 1.1;
+pub const GRID_CFL_LIMIT: f32 = 0.8;
+pub const GRID_BORDER_FADE_CELLS: f32 = 3.0;
+
 pub const FLOW_MARKER_COUNT: usize = 32;
 pub const FLOW_VORTEX_MAX_PAIRS: usize = 16;
 pub const FLOW_SIM_DT: f32 = 1.0 / 60.0;
