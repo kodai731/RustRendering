@@ -33,12 +33,14 @@ import thyllore_effect_core as fx
 import blender_flame_addon as addon
 addon.register()
 
+scene = bpy.context.scene
+scene.render.engine = "BLENDER_WORKBENCH"
+
 cam_data = bpy.data.cameras.new("Camera")
 cam_obj = bpy.data.objects.new("Camera", cam_data)
 bpy.context.collection.objects.link(cam_obj)
 cam_obj.location = (0.0, -4.0, 1.2)
 cam_obj.rotation_euler = (1.5707963, 0.0, 0.0)
-scene = bpy.context.scene
 scene.camera = cam_obj
 bpy.context.view_layer.update()
 
@@ -53,10 +55,34 @@ scene.collection.objects.link(obj)
 obj.thyllore_flame.is_flame = True
 obj.thyllore_flame.preset = "campfire"
 
+mesh = bpy.data.meshes.new("Cube")
+verts = [
+    (-0.6, -0.6, 0.4 - 0.6), (0.6, -0.6, 0.4 - 0.6),
+    (0.6, 0.6, 0.4 - 0.6), (-0.6, 0.6, 0.4 - 0.6),
+    (-0.6, -0.6, 0.4 + 0.6), (0.6, -0.6, 0.4 + 0.6),
+    (0.6, 0.6, 0.4 + 0.6), (-0.6, 0.6, 0.4 + 0.6),
+]
+faces = [
+    (0, 1, 2, 3), (4, 7, 6, 5),
+    (0, 3, 7, 4), (1, 5, 6, 2),
+    (0, 4, 5, 1), (3, 2, 6, 7),
+]
+mesh.from_pydata(verts, [], faces)
+cube_obj = bpy.data.objects.new("Cube", mesh)
+scene.collection.objects.link(cube_obj)
+
 from blender_flame_addon.render import render_flame_sequence
+from blender_flame_addon.compositor import setup_flame_compositor
 
 tmp_dir = tempfile.mkdtemp()
-paths = render_flame_sequence(scene, obj, tmp_dir, 1, 3, write_npy=True)
+setup_flame_compositor(scene, obj, tmp_dir, 1, 3)
+node_count_after_first = len(scene.compositing_node_group.nodes)
+setup_flame_compositor(scene, obj, tmp_dir, 1, 3)
+node_count_after_second = len(scene.compositing_node_group.nodes)
+assert node_count_after_first == node_count_after_second, f"compositor not idempotent: {node_count_after_first} vs {node_count_after_second}"
+print("COMPOSITOR_SMOKE ok", flush=True)
+
+paths = render_flame_sequence(scene, obj, tmp_dir, 1, 3, write_npy=True, use_scene_depth=False)
 
 assert len(paths) == 3, f"expected 3 paths, got {len(paths)}"
 
@@ -71,7 +97,7 @@ for i, p in enumerate(paths):
     assert alpha_count > 0, f"frame {i+1} has no alpha>0 pixels"
 
 tmp_dir2 = tempfile.mkdtemp()
-paths2 = render_flame_sequence(scene, obj, tmp_dir2, 1, 3, write_npy=True)
+paths2 = render_flame_sequence(scene, obj, tmp_dir2, 1, 3, write_npy=True, use_scene_depth=False)
 for i in range(3):
     npy1 = Path(paths[i]).with_suffix(".npy")
     npy2 = Path(paths2[i]).with_suffix(".npy")
@@ -80,6 +106,22 @@ for i in range(3):
     assert bytes1 == bytes2, f"idempotency check failed: frame {i+1} npy bytes differ"
 
 print("RENDER_SMOKE ok", flush=True)
+
+tmp_dir_depth = tempfile.mkdtemp()
+paths_depth = render_flame_sequence(scene, obj, tmp_dir_depth, 1, 1, write_npy=True, use_scene_depth=True)
+npy_depth = Path(paths_depth[0]).with_suffix(".npy")
+arr_depth = np.load(npy_depth)
+alpha_depth = int((arr_depth[:, :, 3] > 0.0).sum())
+
+npy_no_depth = Path(paths[0]).with_suffix(".npy")
+arr_no_depth = np.load(npy_no_depth)
+alpha_no_depth = int((arr_no_depth[:, :, 3] > 0.0).sum())
+
+if alpha_depth == 0:
+    print("DEPTH_SMOKE skipped (no viewer pixels)", flush=True)
+else:
+    assert alpha_depth < alpha_no_depth, f"depth alpha {alpha_depth} should be less than no-depth alpha {alpha_no_depth}"
+    print("DEPTH_SMOKE ok", flush=True)
 
 addon.unregister()
 sys.exit(0)

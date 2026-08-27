@@ -1,15 +1,33 @@
+import array
 import struct
-
-
 from .coordinates import (
     blender_camera_to_engine_matrix,
     blender_to_engine_point,
     blender_to_engine_quaternion,
     engine_projection,
     engine_view_matrix,
+    z_pass_to_engine_depth,
 )
 from .draw_handler import FlameViewportRenderer
 from .properties import collect_params
+
+
+def capture_scene_depth(scene, w, h, near):
+    import bpy
+    try:
+        bpy.ops.render.render(write_still=False)
+    except Exception:
+        return None
+    viewer = bpy.data.images.get("Viewer Node")
+    if viewer is None or len(viewer.pixels) == 0:
+        return None
+    if len(viewer.pixels) != w * h * 4:
+        return None
+    buf = array.array('f', [0.0] * len(viewer.pixels))
+    viewer.pixels.foreach_get(buf)
+    r_channel = buf[0::4]
+    depth_values = [z_pass_to_engine_depth(z, near) for z in r_channel]
+    return depth_values
 
 
 def _write_npy(pixels, h, w, filepath):
@@ -44,7 +62,7 @@ def sequence_path(out_dir, obj_name, frame):
     return f"{out_dir}/flame_{obj_name}_{frame:04d}.exr"
 
 
-def render_flame_sequence(scene, obj, out_dir, frame_start, frame_end, write_npy=False):
+def render_flame_sequence(scene, obj, out_dir, frame_start, frame_end, write_npy=False, use_scene_depth=False):
     import bpy
     cam = scene.camera
     rx = int(scene.render.resolution_x * scene.render.resolution_percentage / 100.0)
@@ -52,6 +70,10 @@ def render_flame_sequence(scene, obj, out_dir, frame_start, frame_end, write_npy
 
     renderer = FlameViewportRenderer()
     written = []
+
+    if use_scene_depth:
+        from .compositor import setup_flame_compositor
+        setup_flame_compositor(scene, obj, out_dir, frame_start, frame_end)
 
     for frame in range(frame_start, frame_end + 1):
         scene.frame_set(frame)
@@ -77,7 +99,11 @@ def render_flame_sequence(scene, obj, out_dir, frame_start, frame_end, write_npy
         cls = type(props)
         params = collect_params(props, cls.PARAM_NAMES)
 
-        tex = renderer.render(view, proj, camera_pos, light_pos, params, time, position, rotation, rx, ry)
+        depth_values = None
+        if use_scene_depth:
+            depth_values = capture_scene_depth(scene, rx, ry, clip_start)
+
+        tex = renderer.render(view, proj, camera_pos, light_pos, params, time, position, rotation, rx, ry, depth_values=depth_values)
         rows = tex.read().to_list()
         pixels = [px for row in rows for px in row]
 
@@ -98,5 +124,9 @@ def render_flame_sequence(scene, obj, out_dir, frame_start, frame_end, write_npy
             _write_npy(pixels, ry, rx, npy_path)
 
     renderer.release()
-    return written
 
+    if use_scene_depth:
+        from .compositor import setup_flame_compositor
+        setup_flame_compositor(scene, obj, out_dir, frame_start, frame_end)
+
+    return written

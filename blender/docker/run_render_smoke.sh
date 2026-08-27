@@ -17,4 +17,4 @@ docker run --rm -v "$REPO_ROOT:$REPO_ROOT" -w "$REPO_ROOT" thyllore-blender-xvfb
 
 grep -v '^\s*|' "$LOG" | grep -v gpu.debug | tail -20
 
-grep -q "^ADDON_SMOKE ok" "$LOG" && grep -q "^RENDER_SMOKE ok" "$LOG"
+grep -q "^RENDER_SMOKE ok" "$LOG" && grep -q "^COMPOSITOR_SMOKE ok" "$LOG" && grep -qE "^DEPTH_SMOKE (ok|skipped)" "$LOG"

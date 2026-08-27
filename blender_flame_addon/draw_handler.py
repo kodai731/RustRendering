@@ -11,9 +11,13 @@ from .coordinates import (
 from .flame_shader import build_flame_shader, pack_frame_ubo
 
 
+def flip_projection_y(proj) -> list:
+    return [proj[0], [-v for v in proj[1]], proj[2], proj[3]]
+
+
 _draw_handle = None
-_renderers: dict[str, "FlameViewportRenderer"] = {}
 _cached_shader = None
+_renderers: dict[str, "FlameViewportRenderer"] = {}
 
 
 def _load_shader():
@@ -94,11 +98,13 @@ class FlameViewportRenderer:
         with self.fb_b.bind():
             self.fb_b.clear(color=(0.0, 0.0, 0.0, 0.0))
 
-    def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h):
+    def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h, depth_values=None, flip_y=True):
         import gpu
         import thyllore_effect_core as fx
 
         self.ensure_size(w, h)
+        if flip_y:
+            proj = flip_projection_y(proj)
         frame_bytes = pack_frame_ubo(view, proj, camera_pos + (1.0,), light_pos + (1.0,), (1.0, 1.0, 1.0, 1.0))
         if self.frame_ubo is None:
             self.frame_ubo = gpu.types.GPUUniformBuf(frame_bytes)
@@ -109,6 +115,11 @@ class FlameViewportRenderer:
             self.flame_ubo = gpu.types.GPUUniformBuf(flame_bytes)
         else:
             self.flame_ubo.update(flame_bytes)
+        if depth_values is not None:
+            buf = gpu.types.Buffer("FLOAT", [w * h], depth_values)
+            depth_tex = gpu.types.GPUTexture((w, h), format="R32F", data=buf)
+        else:
+            depth_tex = self.depth_tex
         cur = self.frame_index % 2
         if cur == 0:
             fb = self.fb_a
@@ -122,7 +133,7 @@ class FlameViewportRenderer:
             self.shader.uniform_block("flame", self.flame_ubo)
             self.shader.uniform_sampler("flameHistorySampler", history_tex)
             self.shader.uniform_sampler("flameSdfSampler", self.sdf_tex)
-            self.shader.uniform_sampler("sceneDepthSampler", self.depth_tex)
+            self.shader.uniform_sampler("sceneDepthSampler", depth_tex)
             self.shader.uniform_int("push_mode", 0)
             self.shader.uniform_int("push_stepCount", 0)
             self.shader.uniform_int("push_debugView", 0)

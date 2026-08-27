@@ -8,6 +8,7 @@ from blender_flame_addon.coordinates import (
 from blender_flame_addon.draw_handler import (
     blender_view_to_engine_view,
     blender_window_to_engine_projection,
+    flip_projection_y,
 )
 
 
@@ -68,3 +69,13 @@ def test_blender_view_to_engine_view_point_ahead():
     assert _almost_equal(vt, 0.0)
     assert _almost_equal(vy, 0.0)
     assert _almost_equal(vz, -4.0)
+
+
+def test_flip_projection_y():
+    proj = engine_projection(math.radians(45), 1.0, 0.1)
+    flipped = flip_projection_y(proj)
+    f = 1.0 / math.tan(math.radians(22.5))
+    assert _almost_equal(flipped[1][1], f)
+    for i in (0, 2, 3):
+        for j in range(4):
+            assert _almost_equal(flipped[i][j], proj[i][j])
