@@ -1,0 +1,3 @@
+shaders/flame_resolve.glsl
+shaders/flame_resolve.bindings.json
+wheels/

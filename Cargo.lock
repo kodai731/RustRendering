@@ -3737,6 +3737,9 @@ name = "thyllore-effect-core"
 version = "0.0.1"
 dependencies = [
  "cgmath",
+ "numpy",
+ "pyo3",
+ "pythonize",
  "ron",
  "serde",
  "serde_json",
