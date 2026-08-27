@@ -93,6 +93,10 @@ def blender_to_engine_matrix(m):
     return _mat4_mul(C, _mat4_mul(m, C_INV))
 
 
+def blender_camera_to_engine_matrix(m):
+    return _mat4_mul(C, m)
+
+
 def blender_to_engine_quaternion(q):
     w, x, y, z = q
     return (w, x, z, -y)

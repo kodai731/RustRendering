@@ -3,6 +3,7 @@ import math
 from blender_flame_addon.coordinates import (
     blender_to_engine_point,
     engine_projection,
+    mat4_inverse,
 )
 from blender_flame_addon.draw_handler import (
     blender_view_to_engine_view,
@@ -47,3 +48,23 @@ def test_blender_view_to_engine_view_camera_at_origin():
     assert _almost_equal(x, 0.0)
     assert _almost_equal(y, 0.0)
     assert _almost_equal(z, 0.0)
+
+
+def test_blender_view_to_engine_view_point_ahead():
+    camera_world = [
+        [1, 0, 0, 0],
+        [0, 0, -1, -4],
+        [0, 1, 0, 1.2],
+        [0, 0, 0, 1],
+    ]
+    view = mat4_inverse(camera_world)
+    result_view, camera_pos = blender_view_to_engine_view(view)
+    assert _almost_equal(camera_pos[0], 0.0)
+    assert _almost_equal(camera_pos[1], 1.2)
+    assert _almost_equal(camera_pos[2], 4.0)
+    vt = result_view[0][0] * 0 + result_view[0][1] * 1.2 + result_view[0][2] * 0 + result_view[0][3]
+    vy = result_view[1][0] * 0 + result_view[1][1] * 1.2 + result_view[1][2] * 0 + result_view[1][3]
+    vz = result_view[2][0] * 0 + result_view[2][1] * 1.2 + result_view[2][2] * 0 + result_view[2][3]
+    assert _almost_equal(vt, 0.0)
+    assert _almost_equal(vy, 0.0)
+    assert _almost_equal(vz, -4.0)

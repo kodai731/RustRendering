@@ -3,6 +3,7 @@ import math
 from blender_flame_addon.coordinates import (
     mat4_inverse,
     blender_to_engine_matrix,
+    blender_camera_to_engine_matrix,
     blender_to_engine_point,
     blender_to_engine_quaternion,
     engine_projection,
@@ -165,3 +166,25 @@ def test_orbit_camera_view_transforms_position_to_origin():
     assert _almost_equal(transformed[0], 0.0)
     assert _almost_equal(transformed[1], 0.0)
     assert _almost_equal(transformed[2], 0.0)
+
+
+def test_blender_camera_to_engine_matrix():
+    m = [
+        [1, 0, 0, 0],
+        [0, 0, -1, -4],
+        [0, 1, 0, 1.2],
+        [0, 0, 0, 1],
+    ]
+    engine_world = blender_camera_to_engine_matrix(m)
+    forward_x = engine_world[0][0] * 0 + engine_world[0][1] * 0 + engine_world[0][2] * -1
+    forward_y = engine_world[1][0] * 0 + engine_world[1][1] * 0 + engine_world[1][2] * -1
+    forward_z = engine_world[2][0] * 0 + engine_world[2][1] * 0 + engine_world[2][2] * -1
+    assert _almost_equal(forward_x, 0.0)
+    assert _almost_equal(forward_y, 0.0)
+    assert _almost_equal(forward_z, -1.0)
+    up_x = engine_world[0][0] * 0 + engine_world[0][1] * 1 + engine_world[0][2] * 0
+    up_y = engine_world[1][0] * 0 + engine_world[1][1] * 1 + engine_world[1][2] * 0
+    up_z = engine_world[2][0] * 0 + engine_world[2][1] * 1 + engine_world[2][2] * 0
+    assert _almost_equal(up_x, 0.0)
+    assert _almost_equal(up_y, 1.0)
+    assert _almost_equal(up_z, 0.0)

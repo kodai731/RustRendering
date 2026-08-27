@@ -23,6 +23,7 @@ class VIEW3D_PT_thyllore_flame(bpy.types.Panel):
         layout = self.layout
         props = obj.thyllore_flame
 
+        layout.operator("thyllore.flame_render_sequence")
         layout.prop(props, "preset")
 
         cls = type(props)

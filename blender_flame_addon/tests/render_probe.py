@@ -17,13 +17,8 @@ from gpu_extras.batch import batch_for_shader
 from blender_flame_addon.flame_shader import build_flame_shader, pack_frame_ubo
 from blender_flame_addon.coordinates import engine_view_matrix, engine_projection, orbit_camera, look_at_view_matrix
 
-def _write_npy(pixels, h, w, filepath):
-    flat = [v for px in pixels for v in px]
-    hdr = "{'descr': '<f4', 'fortran_order': False, 'shape': (%d, %d, 4), }" % (h, w)
-    pad = 64 - ((10 + len(hdr) + 1) % 64)
-    hdr = hdr + " " * pad + "\n"
-    with open(filepath, 'wb') as f:
-        f.write(bytes([0x93]) + b"NUMPY" + bytes([1, 0]) + struct.pack("<H", len(hdr)) + hdr.encode("latin1") + struct.pack("<%df" % len(flat), *flat))
+from blender_flame_addon.render import _write_npy
+
 
 
 def main():

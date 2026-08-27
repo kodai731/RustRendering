@@ -1,7 +1,7 @@
 import math
 
 from .coordinates import (
-    blender_to_engine_matrix,
+    blender_camera_to_engine_matrix,
     blender_to_engine_point,
     blender_to_engine_quaternion,
     engine_projection,
@@ -48,7 +48,7 @@ def blender_view_to_engine_view(view_matrix):
         ]
         return identity, (0.0, 0.0, 0.0)
     camera_world_blender = inv
-    camera_world_engine = blender_to_engine_matrix(camera_world_blender)
+    camera_world_engine = blender_camera_to_engine_matrix(camera_world_blender)
     view = engine_view_matrix(camera_world_engine)
     camera_pos = (camera_world_engine[0][3], camera_world_engine[1][3], camera_world_engine[2][3])
     return view, camera_pos
