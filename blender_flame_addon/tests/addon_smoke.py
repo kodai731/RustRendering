@@ -1,10 +1,6 @@
-"""Headless smoke test for the Thyllore Flame addon.
-
-Run inside Blender with:
-    blender --python tests/addon_smoke.py
-"""
 from __future__ import annotations
 
+import math
 import sys
 import zipfile
 from pathlib import Path
@@ -58,5 +54,30 @@ assert set(collected.keys()).issubset(set(campfire_params.keys())), (
 
 print("ADDON_SMOKE ok", flush=True)
 
+from math import radians
+from blender_flame_addon.draw_handler import FlameViewportRenderer
+from blender_flame_addon.coordinates import look_at_view_matrix, engine_projection
+
+view = look_at_view_matrix((0, 1.2, 4.5), (0, 0, -1), (0, 1, 0))
+proj = engine_projection(radians(45), 1, 0.1)
+
+renderer = FlameViewportRenderer()
+params = collect_params(obj.thyllore_flame, cls.PARAM_NAMES)
+position = (0.0, 0.0, 0.0)
+rotation = (1.0, 0.0, 0.0, 0.0)
+light_pos = (0.0, 2.0, 2.0)
+camera_pos = (0.0, 1.2, 4.5)
+
+for i in range(3):
+    tex = renderer.render(view, proj, camera_pos, light_pos, params, 1.5, position, rotation, 256, 256)
+
+pixels = tex.read().to_list()
+alpha_count = sum(1 for row in pixels for px in row if px[3] > 0.0)
+assert alpha_count > 0, f"expected alpha > 0 pixels, got {alpha_count}"
+assert renderer.frame_index == 3, f"expected frame_index == 3, got {renderer.frame_index}"
+
+print("DRAW_SMOKE ok", flush=True)
+
+renderer.release()
 addon.unregister()
 sys.exit(0)

@@ -7,6 +7,7 @@ from . import properties
 def register():
     import bpy
 
+    from . import draw_handler
     from . import operators
     from . import panels
 
@@ -20,12 +21,17 @@ def register():
     bpy.utils.register_class(operators.THYLLORE_OT_flame_add)
     bpy.utils.register_class(panels.VIEW3D_PT_thyllore_flame)
 
+    draw_handler.register_draw_handler()
+
 
 def unregister():
     import bpy
 
+    from . import draw_handler
     from . import operators
     from . import panels
+
+    draw_handler.unregister_draw_handler()
 
     bpy.utils.unregister_class(panels.VIEW3D_PT_thyllore_flame)
     bpy.utils.unregister_class(operators.THYLLORE_OT_flame_add)

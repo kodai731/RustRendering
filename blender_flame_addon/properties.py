@@ -41,6 +41,13 @@ def build_flame_property_group():
     ui_params = fx.flame_ui_params()
     param_names = [p["name"] for p in ui_params]
 
+    param_owners: dict[str, list[str]] = {}
+    for p in ui_params:
+        owner = p["owner"]
+        if owner not in param_owners:
+            param_owners[owner] = []
+        param_owners[owner].append(p["name"])
+
     def apply_preset(self, context):
         preset_values = fx.flame_preset_params(self.preset)
         for name in param_names:
@@ -102,6 +109,7 @@ def build_flame_property_group():
     attrs = {
         "__annotations__": annotations,
         "PARAM_NAMES": param_names,
+        "PARAM_OWNERS": param_owners,
         "__module__": __name__,
     }
 

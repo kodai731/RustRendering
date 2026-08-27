@@ -1,7 +1,7 @@
 import math
 
 from blender_flame_addon.coordinates import (
-    _mat4_inverse,
+    mat4_inverse,
     blender_to_engine_matrix,
     blender_to_engine_point,
     blender_to_engine_quaternion,
@@ -152,7 +152,7 @@ def test_look_at_view_matrix_inverse_translation():
         [0.0, 0.0, 1.0, 4.5],
         [0.0, 0.0, 0.0, 1.0],
     ]
-    inv_translation = _mat4_inverse(translation)
+    inv_translation = mat4_inverse(translation)
     for i in range(4):
         for j in range(4):
             assert _almost_equal(view[i][j], inv_translation[i][j])

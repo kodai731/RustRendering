@@ -25,33 +25,13 @@ class VIEW3D_PT_thyllore_flame(bpy.types.Panel):
 
         layout.prop(props, "preset")
 
-        import thyllore_effect_core as fx
-
-        ui_params = fx.flame_ui_params()
-        param_owners: dict[str, list[dict]] = {}
-        for p in ui_params:
-            owner = p["owner"]
-            if owner not in param_owners:
-                param_owners[owner] = []
-            param_owners[owner].append(p)
+        cls = type(props)
+        param_owners = cls.PARAM_OWNERS
 
         for owner in ("frame", "shape", "style"):
             if owner not in param_owners:
                 continue
             box = layout.box()
             box.label(text=owner.title())
-            for p in param_owners[owner]:
-                name = p["name"]
-                kind = _property_kind(p["default"])
-                if kind == "vector":
-                    box.prop(props, name)
-                else:
-                    box.prop(props, name)
-
-
-def _property_kind(default) -> str:
-    if isinstance(default, bool):
-        return "bool"
-    if isinstance(default, (list, tuple)):
-        return "vector"
-    return "float"
+            for name in param_owners[owner]:
+                box.prop(props, name)

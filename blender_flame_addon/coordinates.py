@@ -12,7 +12,7 @@ def _mat4_mul(a, b):
     return result
 
 
-def _mat4_inverse(m):
+def mat4_inverse(m):
     aug = [[0.0] * 8 for _ in range(4)]
     for i in range(4):
         for j in range(4):
@@ -119,7 +119,7 @@ def z_pass_to_engine_depth(z_eye, near):
 
 
 def engine_view_matrix(camera_world_engine):
-    inv = _mat4_inverse(camera_world_engine)
+    inv = mat4_inverse(camera_world_engine)
     if inv is None:
         return _mat4_row_major_identity()
     return inv

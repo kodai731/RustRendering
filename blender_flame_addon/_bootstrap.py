@@ -12,11 +12,6 @@ _EXTRACTED_SENTINEL = ".thyllore_extracted"
 
 
 def _wheels_dir() -> Path:
-    """Resolve wheels/ relative to this file.
-
-    Works both for the source-tree layout (``blender_flame_addon/wheels/``) and
-    for the extension ZIP layout where this module sits at the package root.
-    """
     return Path(__file__).resolve().parent / "wheels"
 
 
@@ -26,7 +21,7 @@ def _extracted_root() -> Path:
 
 def _is_blender_runtime() -> bool:
     try:
-        import bpy  # type: ignore  # noqa: F401
+        import bpy
     except ImportError:
         return False
     return True
@@ -48,11 +43,6 @@ def _wheel_sha256(wheel_path: Path) -> str:
 
 
 def _extract_wheel_once(wheel_path: Path, target_dir: Path) -> None:
-    """Extract a single wheel into ``target_dir`` if not already done.
-
-    Idempotent: the sentinel stores the wheel's SHA256, so re-running with an
-    unchanged wheel is a no-op while a replaced wheel is re-extracted.
-    """
     import shutil
 
     wheel_hash = _wheel_sha256(wheel_path)
@@ -71,10 +61,6 @@ def _extract_wheel_once(wheel_path: Path, target_dir: Path) -> None:
 
 
 def insert_wheels_to_sys_path() -> None:
-    """Extract vendored wheels and insert their directories into sys.path.
-
-    Idempotent — re-importing has no effect after the first call.
-    """
     global _WHEELS_INSERTED
     if _WHEELS_INSERTED:
         return
@@ -128,8 +114,6 @@ def insert_wheels_to_sys_path() -> None:
 
 
 def remove_wheels_from_sys_path() -> None:
-    """Remove vendored wheels from sys.path. Optional — Blender unregister
-    typically does not need to call this, but it is exposed for tests."""
     global _WHEELS_INSERTED
     if not _WHEELS_INSERTED:
         return
@@ -140,5 +124,4 @@ def remove_wheels_from_sys_path() -> None:
 
 
 def is_wheel_inserted() -> bool:
-    """Test helper."""
     return _WHEELS_INSERTED
