@@ -193,16 +193,15 @@ if [[ "$SKIP_VALIDATE" -ne 1 ]]; then
         echo "[build_blender_flame_addon] Building Blender docker image..."
         docker build -f blender/docker/Dockerfile.xvfb -t thyllore-blender-xvfb:local blender/docker
     fi
-  LOG_FILE="$REPO_ROOT/build/extension_validate_${PLATFORM}.log"
-    if ! docker run --rm \
+    if ! VALIDATE_OUTPUT=$(docker run --rm \
         -v "$REPO_ROOT:$REPO_ROOT" \
         -w "$REPO_ROOT" \
         thyllore-blender-xvfb:local \
-        sh -c "xvfb-run -a -s '-screen 0 1280x720x24' blender --command extension validate '$STAGE_DIR' > '$LOG_FILE' 2>&1"; then
-        cat "$LOG_FILE" >&2
+        sh -c "xvfb-run -a -s '-screen 0 1280x720x24' blender --command extension validate '$STAGE_DIR' 2>&1"); then
+        echo "$VALIDATE_OUTPUT" >&2
         exit 1
     fi
-    tail -5 "$LOG_FILE"
+    echo "$VALIDATE_OUTPUT" | tail -5
 else
     echo "[build_blender_flame_addon] Skipping validation (--skip-validate)"
 fi
