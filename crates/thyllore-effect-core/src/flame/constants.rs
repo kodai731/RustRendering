@@ -11,7 +11,7 @@ pub const NOISE_SHARPNESS_SCALE_SOFT: f32 = 6.0;
 pub const NOISE_SHARPNESS_SCALE_SHARP: f32 = 0.1;
 
 /// Runtime range of the closed-form wave walk segment count per ray.
-pub const WAVE_SEGMENTS_MIN: u32 = 16;
+pub const WAVE_SEGMENTS_MIN: u32 = 4;
 pub const WAVE_SEGMENTS_MAX: u32 = 256;
 
 /// Medium twist field (V design): Lamb-Oseen core radius^2 and the two
