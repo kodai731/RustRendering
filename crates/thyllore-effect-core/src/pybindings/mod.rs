@@ -67,9 +67,7 @@ fn flame_preset_params<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, 
     Ok(dict)
 }
 
-#[pyfunction]
-#[pyo3(signature = (params, time, position, rotation, light_position=None, frame_index=0))]
-fn pack_flame_ubo(
+fn build_ubo_from_params(
     py: Python<'_>,
     params: &Bound<'_, PyDict>,
     time: f32,
@@ -77,7 +75,7 @@ fn pack_flame_ubo(
     rotation: [f32; 4],
     light_position: Option<[f32; 3]>,
     frame_index: u64,
-) -> PyResult<Vec<u8>> {
+) -> PyResult<FlameUBO> {
     let merged: Bound<'_, PyDict> =
         pythonize::pythonize(py, &FlameEffect::default())?.cast_into::<PyDict>()?;
     for key in params.keys() {
@@ -117,7 +115,29 @@ fn pack_flame_ubo(
         frame_index,
         ..Default::default()
     };
-    let ubo = build_flame_ubo(&effect, &baked, &temporal);
+    Ok(build_flame_ubo(&effect, &baked, &temporal))
+}
+
+#[pyfunction]
+#[pyo3(signature = (params, time, position, rotation, light_position=None, frame_index=0))]
+fn pack_flame_ubo(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    time: f32,
+    position: [f32; 3],
+    rotation: [f32; 4],
+    light_position: Option<[f32; 3]>,
+    frame_index: u64,
+) -> PyResult<Vec<u8>> {
+    let ubo = build_ubo_from_params(
+        py,
+        params,
+        time,
+        position,
+        rotation,
+        light_position,
+        frame_index,
+    )?;
 
     let bytes = unsafe {
         std::slice::from_raw_parts(
@@ -126,6 +146,23 @@ fn pack_flame_ubo(
         )
     };
     Ok(bytes.to_vec())
+}
+
+/// Uniform members that only select a code path in `flameResolveFragment.frag`.
+/// The Blender addon bakes them into the GLSL as constants so the dead paths are
+/// not compiled; the values come from the same UBO the shader would read.
+#[pyfunction]
+fn flame_shader_specialization<'py>(
+    py: Python<'py>,
+    params: &Bound<'py, PyDict>,
+) -> PyResult<Bound<'py, PyDict>> {
+    let ubo = build_ubo_from_params(py, params, 0.0, [0.0; 3], [1.0, 0.0, 0.0, 0.0], None, 0)?;
+
+    let dict = PyDict::new(py);
+    dict.set_item("flame.emitterParams.kind", ubo.emitter_params.kind)?;
+    dict.set_item("flame.contourParams.rteBands", ubo.contour_params.rte_bands)?;
+    dict.set_item("flame.trailMeta.sampleCount", ubo.trail_meta.sample_count)?;
+    Ok(dict)
 }
 
 #[pyfunction]
@@ -140,6 +177,7 @@ fn thyllore_effect_core(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flame_preset_params, m)?)?;
     m.add_function(wrap_pyfunction!(pack_flame_ubo, m)?)?;
     m.add_function(wrap_pyfunction!(flame_ubo_size, m)?)?;
+    m.add_function(wrap_pyfunction!(flame_shader_specialization, m)?)?;
     Ok(())
 }
 

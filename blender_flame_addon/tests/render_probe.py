@@ -99,11 +99,12 @@ def main():
         frame_index = int(record.get("frame_index", 0))
         flame_bytes = fx.pack_flame_ubo(flame_params, time, position, rotation, light_position=light_position_world, frame_index=frame_index)
     else:
-        flame_bytes = fx.pack_flame_ubo(fx.flame_preset_params("campfire"), args.time, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0])
+        flame_params = fx.flame_preset_params("campfire")
+        flame_bytes = fx.pack_flame_ubo(flame_params, args.time, [0.0, 0.0, 0.0], [1.0, 0.0, 0.0, 0.0])
 
     frame_bytes = pack_frame_ubo(view, proj, camera_pos + (1.0,), (0.0, 3.0, 3.0, 1.0), (1.0, 1.0, 1.0, 1.0))
 
-    shader = build_flame_shader(glsl_path, bindings_path)
+    shader = build_flame_shader(glsl_path, bindings_path, fx.flame_shader_specialization(flame_params))
 
     frame_ubo = gpu.types.GPUUniformBuf(frame_bytes)
     flame_ubo = gpu.types.GPUUniformBuf(flame_bytes)
@@ -122,12 +123,9 @@ def main():
         shader.bind()
         shader.uniform_block("frame", frame_ubo)
         shader.uniform_block("flame", flame_ubo)
-        shader.uniform_sampler("flameHistorySampler", make_tex(0.0))
-        shader.uniform_sampler("flameSdfSampler", make_tex(0.5))
-        shader.uniform_sampler("sceneDepthSampler", make_tex(0.0))
-        shader.uniform_int("push_mode", 0)
-        shader.uniform_int("push_stepCount", 0)
-        shader.uniform_int("push_debugView", 0)
+        sampler_textures = {"flameHistorySampler": make_tex(0.0), "flameSdfSampler": make_tex(0.5), "sceneDepthSampler": make_tex(0.0)}
+        for name, texture in sampler_textures.items():
+            shader.uniform_sampler(name, texture)
         batch.draw(shader)
 
     rows = color.read().to_list()

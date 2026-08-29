@@ -1,4 +1,6 @@
 import math
+import time
+import traceback
 
 from .coordinates import (
     blender_camera_to_engine_matrix,
@@ -8,7 +10,7 @@ from .coordinates import (
     engine_view_matrix,
     mat4_inverse,
 )
-from .flame_shader import build_flame_shader, pack_frame_ubo
+from .flame_shader import build_flame_shader, pack_frame_ubo, specialization_key
 
 
 def flip_projection_y(proj) -> list:
@@ -16,21 +18,26 @@ def flip_projection_y(proj) -> list:
 
 
 _draw_handle = None
-_cached_shader = None
+_cached_shaders: dict[tuple, object] = {}
 _renderers: dict[str, "FlameViewportRenderer"] = {}
+_draw_failure_reported = False
+_draw_diagnostic_reported = False
 
 
-def _load_shader():
-    global _cached_shader
-    if _cached_shader is not None:
-        return _cached_shader
+def _load_shader(specialization):
+    key = specialization_key(specialization)
+    if key in _cached_shaders:
+        return _cached_shaders[key]
     from pathlib import Path
 
     root = Path(__file__).resolve().parent
     glsl_path = str(root / "shaders" / "flame_resolve.glsl")
     bindings_path = str(root / "shaders" / "flame_resolve.bindings.json")
-    _cached_shader = build_flame_shader(glsl_path, bindings_path)
-    return _cached_shader
+    started = time.perf_counter()
+    shader = build_flame_shader(glsl_path, bindings_path, specialization)
+    print(f"[Thyllore Flame] shader built in {time.perf_counter() - started:.2f}s for {key}", flush=True)
+    _cached_shaders[key] = shader
+    return shader
 
 
 def blender_window_to_engine_projection(window_matrix, near):
@@ -61,7 +68,9 @@ def blender_view_to_engine_view(view_matrix):
 class FlameViewportRenderer:
 
     def __init__(self):
-        self.shader = _load_shader()
+        self.shader = None
+        self.batch = None
+        self.shader_key = None
         self.frame_ubo = None
         self.flame_ubo = None
         self.sdf_tex = None
@@ -74,9 +83,18 @@ class FlameViewportRenderer:
         self.frame_index = 0
         self._w = 0
         self._h = 0
-        import gpu
+
+    def ensure_shader(self, params):
+        import thyllore_effect_core as fx
         from gpu_extras.batch import batch_for_shader
+
+        specialization = fx.flame_shader_specialization(params)
+        key = specialization_key(specialization)
+        if key == self.shader_key:
+            return
+        self.shader = _load_shader(specialization)
         self.batch = batch_for_shader(self.shader, "TRIS", {"pos": [(-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0)]})
+        self.shader_key = key
 
     def ensure_size(self, w, h):
         if self._w == w and self._h == h:
@@ -103,6 +121,7 @@ class FlameViewportRenderer:
         import thyllore_effect_core as fx
 
         self.ensure_size(w, h)
+        self.ensure_shader(params)
         if flip_y:
             proj = flip_projection_y(proj)
         frame_bytes = pack_frame_ubo(view, proj, camera_pos + (1.0,), light_pos + (1.0,), (1.0, 1.0, 1.0, 1.0))
@@ -134,9 +153,6 @@ class FlameViewportRenderer:
             self.shader.uniform_sampler("flameHistorySampler", history_tex)
             self.shader.uniform_sampler("flameSdfSampler", self.sdf_tex)
             self.shader.uniform_sampler("sceneDepthSampler", depth_tex)
-            self.shader.uniform_int("push_mode", 0)
-            self.shader.uniform_int("push_stepCount", 0)
-            self.shader.uniform_int("push_debugView", 0)
             self.batch.draw(self.shader)
         self.frame_index += 1
         return self.color
@@ -150,9 +166,20 @@ class FlameViewportRenderer:
 
 
 def draw_viewport():
+    global _draw_failure_reported
+    try:
+        draw_flames()
+    except Exception:
+        if not _draw_failure_reported:
+            _draw_failure_reported = True
+            print("[Thyllore Flame] viewport draw failed:\n" + traceback.format_exc(), flush=True)
+
+
+def draw_flames():
     import bpy
     import gpu
     from gpu_extras.batch import batch_for_shader
+    from mathutils import Matrix
 
     from .properties import collect_params
 
@@ -168,7 +195,7 @@ def draw_viewport():
     h = region.height
 
     scene = context.scene
-    time = (scene.frame_current - scene.frame_start) / scene.render.fps
+    scene_time = (scene.frame_current - scene.frame_start) / scene.render.fps
 
     light_pos = None
     for obj in scene.objects:
@@ -184,6 +211,7 @@ def draw_viewport():
             flame_objects.append(obj)
 
     last_color = None
+    render_started = time.perf_counter()
     for obj in flame_objects:
         name = obj.name
         if name not in _renderers:
@@ -196,7 +224,9 @@ def draw_viewport():
         rotation = blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
         if light_pos is None:
             light_pos = (position[0], position[1] + 2.0, position[2] + 2.0)
-        last_color = renderer.render(view, proj, camera_pos, light_pos, params, time, position, rotation, w, h)
+        last_color = renderer.render(view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h)
+
+    report_first_draw(w, h, camera_pos, flame_objects, time.perf_counter() - render_started)
 
     if last_color is not None:
         image_shader = gpu.shader.from_builtin("IMAGE")
@@ -204,19 +234,36 @@ def draw_viewport():
             image_shader, "TRI_FAN",
             {"pos": [(0, 0), (w, 0), (w, h), (0, h)], "texCoord": [(0, 0), (1, 0), (1, 1), (0, 1)]},
         )
+        previous_blend = gpu.state.blend_get()
+        previous_depth_test = gpu.state.depth_test_get()
         gpu.matrix.push_projection()
-        gpu.matrix.load_projection_matrix(bpy.types.Matrix(((2.0 / w, 0, 0, -1), (0, 2.0 / h, 0, -1), (0, 0, -1, 0), (0, 0, 0, 1))))
         gpu.matrix.push()
-        gpu.matrix.load_identity()
-        gpu.state.blend_set("ALPHA")
-        gpu.state.depth_test_set("NONE")
-        image_shader.bind()
-        image_shader.uniform_sampler("image", last_color)
-        batch.draw(image_shader)
-        gpu.state.depth_test_set("LESS")
-        gpu.state.blend_set("OFF")
-        gpu.matrix.pop()
-        gpu.matrix.pop_projection()
+        try:
+            gpu.matrix.load_projection_matrix(Matrix(((2.0 / w, 0, 0, -1), (0, 2.0 / h, 0, -1), (0, 0, -1, 0), (0, 0, 0, 1))))
+            gpu.matrix.load_identity()
+            gpu.state.blend_set("ALPHA_PREMULT")
+            gpu.state.depth_test_set("NONE")
+            image_shader.bind()
+            image_shader.uniform_sampler("image", last_color)
+            batch.draw(image_shader)
+        finally:
+            gpu.state.depth_test_set(previous_depth_test)
+            gpu.state.blend_set(previous_blend)
+            gpu.matrix.pop()
+            gpu.matrix.pop_projection()
+
+
+def report_first_draw(w, h, camera_pos, flame_objects, render_seconds):
+    global _draw_diagnostic_reported
+    if _draw_diagnostic_reported:
+        return
+    _draw_diagnostic_reported = True
+    positions = [tuple(round(v, 3) for v in blender_to_engine_point(o.matrix_world.translation)) for o in flame_objects]
+    print(
+        f"[Thyllore Flame] first draw: region={w}x{h} flames={len(flame_objects)} "
+        f"camera_engine={tuple(round(v, 3) for v in camera_pos)} flame_engine={positions} render={render_seconds:.2f}s",
+        flush=True,
+    )
 
 
 def register_draw_handler():
@@ -229,6 +276,4 @@ def unregister_draw_handler():
     for renderer in _renderers.values():
         renderer.release()
     _renderers.clear()
-    global _cached_shader
-    if _cached_shader is not None:
-        _cached_shader = None
+    _cached_shaders.clear()

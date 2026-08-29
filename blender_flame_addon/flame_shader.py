@@ -27,8 +27,20 @@ def split_typedef_and_body(glsl_text: str) -> tuple[str, str]:
 def push_prelude() -> str:
     return (
         "struct FlamePush { int mode; int stepCount; int debugView; };\n"
-        "#define push FlamePush(push_mode, push_stepCount, push_debugView)\n"
+        "const FlamePush push = FlamePush(0, 0, 0);\n"
     )
+
+
+def specialize_body(body: str, specialization: dict[str, float]) -> str:
+    for uniform_path, value in specialization.items():
+        if uniform_path not in body:
+            raise ValueError(f"specialized uniform not referenced by the shader: {uniform_path}")
+        body = body.replace(uniform_path, f"({float(value)!r})")
+    return body
+
+
+def specialization_key(specialization: dict[str, float]) -> tuple:
+    return tuple(sorted((name, float(value)) for name, value in specialization.items()))
 
 
 def pack_frame_ubo(
@@ -51,7 +63,7 @@ def pack_frame_ubo(
     return struct.pack("44f", *values)
 
 
-def build_flame_shader(glsl_path: str, bindings_path: str):
+def build_flame_shader(glsl_path: str, bindings_path: str, specialization: dict[str, float]):
     import bpy
     import gpu
 
@@ -68,9 +80,6 @@ def build_flame_shader(glsl_path: str, bindings_path: str):
     info.uniform_buf(1, "FlameUBO", "flame")
     for i, sampler in enumerate(bindings["samplers"]):
         info.sampler(i, "FLOAT_2D", sampler["name"])
-    info.push_constant("INT", "push_mode")
-    info.push_constant("INT", "push_stepCount")
-    info.push_constant("INT", "push_debugView")
     iface = gpu.types.GPUStageInterfaceInfo("flame_iface")
     iface.smooth("VEC2", "fragTexCoord")
     info.vertex_in(0, "VEC2", "pos")
@@ -78,5 +87,5 @@ def build_flame_shader(glsl_path: str, bindings_path: str):
     info.fragment_out(0, "VEC4", "outColor")
     info.fragment_out(1, "VEC4", "outHistory")
     info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
-    info.fragment_source(push_prelude() + body)
+    info.fragment_source(push_prelude() + specialize_body(body, specialization))
     return gpu.shader.create_from_info(info)

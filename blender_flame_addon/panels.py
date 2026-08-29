@@ -25,6 +25,7 @@ class VIEW3D_PT_thyllore_flame(bpy.types.Panel):
 
         layout.operator("thyllore.flame_setup_compositor")
         layout.operator("thyllore.flame_render_sequence")
+        layout.operator("thyllore.flame_dump_viewport")
         layout.prop(props, "preset")
 
         cls = type(props)

@@ -202,3 +202,35 @@ fn test_frame_index_value() {
         );
     });
 }
+
+#[test]
+fn test_shader_specialization_matches_packed_ubo() {
+    Python::attach(|py| {
+        let preset_dict: Bound<'_, PyDict> = super::flame_preset_params(py, "campfire").unwrap();
+        let spec = super::flame_shader_specialization(py, &preset_dict).unwrap();
+
+        let mut effect = FlameEffect::default();
+        apply_flame_preset(&mut effect, "campfire");
+        let baked = FlameBaked::default();
+        refresh_flame_coefficients(&mut effect, &baked);
+        let ubo = build_flame_ubo(&effect, &baked, &FlameTemporalAccum::default());
+
+        let get = |key: &str| -> f32 {
+            spec.get_item(key)
+                .unwrap()
+                .unwrap()
+                .extract::<f32>()
+                .unwrap()
+        };
+        assert_eq!(get("flame.emitterParams.kind"), ubo.emitter_params.kind);
+        assert_eq!(
+            get("flame.contourParams.rteBands"),
+            ubo.contour_params.rte_bands
+        );
+        assert_eq!(
+            get("flame.trailMeta.sampleCount"),
+            ubo.trail_meta.sample_count
+        );
+        assert_eq!(spec.len(), 3);
+    });
+}

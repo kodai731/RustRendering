@@ -8,7 +8,15 @@ import subprocess
 import sys
 import tempfile
 
-from blender_flame_addon.flame_shader import split_typedef_and_body, pack_frame_ubo
+import pytest
+
+from blender_flame_addon.flame_shader import (
+    pack_frame_ubo,
+    push_prelude,
+    specialization_key,
+    specialize_body,
+    split_typedef_and_body,
+)
 
 
 SCRIPT = os.path.join(os.path.dirname(__file__), "..", "..", "scripts", "export_flame_glsl.py")
@@ -74,3 +82,32 @@ def test_pack_frame_ubo_column_major():
     values = struct.unpack("44f", data)
     # view[0][1] = 2.0 should be at index 4 in column-major
     assert values[4] == 2.0, f"view[0][1]=2.0 expected at index 4, got {values[4]}"
+
+
+def test_push_prelude_fixes_mode_zero_at_compile_time():
+    assert "const FlamePush push = FlamePush(0, 0, 0);" in push_prelude()
+    assert "#define" not in push_prelude()
+
+
+def test_specialize_body_replaces_every_reference():
+    body = "if (flame.contourParams.rteBands >= 2.0) x = flame.contourParams.rteBands;"
+    out = specialize_body(body, {"flame.contourParams.rteBands": 4.0})
+    assert "flame.contourParams.rteBands" not in out
+    assert out.count("(4.0)") == 2
+
+
+def test_specialize_body_rejects_unreferenced_uniform():
+    with pytest.raises(ValueError):
+        specialize_body("void main() {}", {"flame.emitterParams.kind": 0.0})
+
+
+def test_specialization_key_is_order_independent():
+    a = specialization_key({"b": 1.0, "a": 0.0})
+    b = specialization_key({"a": 0, "b": 1})
+    assert a == b == (("a", 0.0), ("b", 1.0))
+
+
+def test_exported_body_references_all_specialized_uniforms(tmp_path):
+    _, body = split_typedef_and_body(_run_exporter(str(tmp_path)))
+    for name in ("flame.contourParams.rteBands", "flame.trailMeta.sampleCount", "flame.emitterParams.kind"):
+        assert name in body
