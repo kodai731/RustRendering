@@ -9,6 +9,7 @@ from .coordinates import (
     engine_projection,
     engine_view_matrix,
     mat4_inverse,
+    project_bounds_to_pixel_rect,
 )
 from .flame_shader import build_flame_shader, pack_frame_ubo, specialization_key
 
@@ -153,14 +154,23 @@ class FlameViewportRenderer:
             fb = self.fb_b
             history_tex = self.history_a
         self.clear_color_for_discarded_fragments()
+        scissor = project_bounds_to_pixel_rect(fx.flame_bounds_corners(params, position, rotation), view, proj, w, h)
+        if scissor is None:
+            self.frame_index += 1
+            return self.color
         with fb.bind():
-            self.shader.bind()
-            self.shader.uniform_block("frame", self.frame_ubo)
-            self.shader.uniform_block("flame", self.flame_ubo)
-            self.shader.uniform_sampler("flameHistorySampler", history_tex)
-            self.shader.uniform_sampler("flameSdfSampler", self.sdf_tex)
-            self.shader.uniform_sampler("sceneDepthSampler", depth_tex)
-            self.batch.draw(self.shader)
+            gpu.state.scissor_test_set(True)
+            gpu.state.scissor_set(*scissor)
+            try:
+                self.shader.bind()
+                self.shader.uniform_block("frame", self.frame_ubo)
+                self.shader.uniform_block("flame", self.flame_ubo)
+                self.shader.uniform_sampler("flameHistorySampler", history_tex)
+                self.shader.uniform_sampler("flameSdfSampler", self.sdf_tex)
+                self.shader.uniform_sampler("sceneDepthSampler", depth_tex)
+                self.batch.draw(self.shader)
+            finally:
+                gpu.state.scissor_test_set(False)
         self.frame_index += 1
         return self.color
 

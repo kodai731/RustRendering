@@ -10,6 +10,7 @@ from blender_flame_addon.coordinates import (
     engine_view_matrix,
     look_at_view_matrix,
     orbit_camera,
+    project_bounds_to_pixel_rect,
     z_pass_to_engine_depth,
 )
 
@@ -188,3 +189,28 @@ def test_blender_camera_to_engine_matrix():
     assert _almost_equal(up_x, 0.0)
     assert _almost_equal(up_y, 1.0)
     assert _almost_equal(up_z, 0.0)
+
+
+def _unit_box(cx, cy, cz, half):
+    return [(cx + sx * half, cy + sy * half, cz + sz * half) for sx in (-1, 1) for sy in (-1, 1) for sz in (-1, 1)]
+
+
+def test_project_bounds_centred_box_lands_at_screen_centre():
+    view = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, -10.0], [0.0, 0.0, 0.0, 1.0]]
+    proj = engine_projection(math.radians(60.0), 1.0, 0.1)
+    rect = project_bounds_to_pixel_rect(_unit_box(0.0, 0.0, 0.0, 0.5), view, proj, 400, 400, margin_px=0.0)
+    x, y, w, h = rect
+    assert abs((x + w / 2) - 200) <= 1 and abs((y + h / 2) - 200) <= 1
+    assert 20 < w < 80 and 20 < h < 80
+
+
+def test_project_bounds_behind_camera_falls_back_to_full_rect():
+    view = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 10.0], [0.0, 0.0, 0.0, 1.0]]
+    proj = engine_projection(math.radians(60.0), 1.0, 0.1)
+    assert project_bounds_to_pixel_rect(_unit_box(0.0, 0.0, 0.0, 0.5), view, proj, 400, 300) == (0, 0, 400, 300)
+
+
+def test_project_bounds_offscreen_box_is_none():
+    view = [[1.0, 0.0, 0.0, 0.0], [0.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, -10.0], [0.0, 0.0, 0.0, 1.0]]
+    proj = engine_projection(math.radians(60.0), 1.0, 0.1)
+    assert project_bounds_to_pixel_rect(_unit_box(50.0, 0.0, 0.0, 0.5), view, proj, 400, 400) is None

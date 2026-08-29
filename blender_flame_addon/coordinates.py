@@ -169,3 +169,27 @@ def look_at_view_matrix(position, forward, up_in):
         [-forward[0], -forward[1], -forward[2], forward[0] * position[0] + forward[1] * position[1] + forward[2] * position[2]],
         [0.0, 0.0, 0.0, 1.0],
     ]
+
+
+def project_bounds_to_pixel_rect(corners, view, proj, width, height, margin_px=2.0):
+    view_proj = _mat4_mul(proj, view)
+    min_x = min_y = float("inf")
+    max_x = max_y = float("-inf")
+    for corner in corners:
+        clip = [sum(view_proj[row][col] * (corner[col] if col < 3 else 1.0) for col in range(4)) for row in range(4)]
+        if clip[3] <= 0.0:
+            return (0, 0, width, height)
+        screen_x = (clip[0] / clip[3] + 1.0) * 0.5 * width
+        screen_y = (clip[1] / clip[3] + 1.0) * 0.5 * height
+        min_x = min(min_x, screen_x)
+        min_y = min(min_y, screen_y)
+        max_x = max(max_x, screen_x)
+        max_y = max(max_y, screen_y)
+
+    min_x = min(max(min_x - margin_px, 0.0), float(width))
+    min_y = min(max(min_y - margin_px, 0.0), float(height))
+    max_x = min(max(max_x + margin_px, 0.0), float(width))
+    max_y = min(max(max_y + margin_px, 0.0), float(height))
+    if max_x - min_x < 1.0 or max_y - min_y < 1.0:
+        return None
+    return (int(min_x), int(min_y), int(math.ceil(max_x - min_x)), int(math.ceil(max_y - min_y)))

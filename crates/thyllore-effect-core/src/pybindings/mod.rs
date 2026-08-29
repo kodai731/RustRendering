@@ -1,9 +1,10 @@
 use crate::flame::{
-    apply_flame_preset, build_flame_ubo, overwrite_persisted_fields, parameter_owner,
-    refresh_flame_coefficients, FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO,
-    FLAME_PRESET_NAMES, FLAME_UI_PARAMS,
+    apply_flame_preset, build_flame_model_matrix, build_flame_ubo, flame_bend_offset,
+    flame_local_bounds, flame_local_bounds_corners, flame_proxy_pad, flame_support_scale,
+    overwrite_persisted_fields, parameter_owner, refresh_flame_coefficients, FlameBaked,
+    FlameEffect, FlameTemporalAccum, FlameUBO, FLAME_PRESET_NAMES, FLAME_UI_PARAMS,
 };
-use cgmath::{Quaternion, Vector3};
+use cgmath::{Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
@@ -67,15 +68,14 @@ fn flame_preset_params<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, 
     Ok(dict)
 }
 
-fn build_ubo_from_params(
+fn build_effect_from_params(
     py: Python<'_>,
     params: &Bound<'_, PyDict>,
     time: f32,
     position: [f32; 3],
     rotation: [f32; 4],
     light_position: Option<[f32; 3]>,
-    frame_index: u64,
-) -> PyResult<FlameUBO> {
+) -> PyResult<(FlameEffect, FlameBaked)> {
     let merged: Bound<'_, PyDict> =
         pythonize::pythonize(py, &FlameEffect::default())?.cast_into::<PyDict>()?;
     for key in params.keys() {
@@ -110,12 +110,54 @@ fn build_ubo_from_params(
 
     let baked = FlameBaked::default();
     refresh_flame_coefficients(&mut effect, &baked);
+    Ok((effect, baked))
+}
+
+fn build_ubo_from_params(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    time: f32,
+    position: [f32; 3],
+    rotation: [f32; 4],
+    light_position: Option<[f32; 3]>,
+    frame_index: u64,
+) -> PyResult<FlameUBO> {
+    let (effect, baked) =
+        build_effect_from_params(py, params, time, position, rotation, light_position)?;
 
     let temporal = FlameTemporalAccum {
         frame_index,
         ..Default::default()
     };
     Ok(build_flame_ubo(&effect, &baked, &temporal))
+}
+
+/// World-space corners of the shell proxy box, the same box the engine scissors its
+/// flame pass to (`compute_flame_scissor`) and picks against.
+#[pyfunction]
+fn flame_bounds_corners(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    position: [f32; 3],
+    rotation: [f32; 4],
+) -> PyResult<Vec<[f32; 3]>> {
+    let (effect, baked) = build_effect_from_params(py, params, 0.0, position, rotation, None)?;
+
+    let bounds = flame_local_bounds(
+        flame_bend_offset(&effect),
+        flame_support_scale(&effect),
+        effect.support_margin,
+        flame_proxy_pad(&effect, &baked),
+    );
+    let model = build_flame_model_matrix(&effect);
+
+    Ok(flame_local_bounds_corners(&bounds)
+        .iter()
+        .map(|corner| {
+            let world = model * Vector4::new(corner.x, corner.y, corner.z, 1.0);
+            [world.x, world.y, world.z]
+        })
+        .collect())
 }
 
 #[pyfunction]
@@ -178,6 +220,7 @@ fn thyllore_effect_core(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pack_flame_ubo, m)?)?;
     m.add_function(wrap_pyfunction!(flame_ubo_size, m)?)?;
     m.add_function(wrap_pyfunction!(flame_shader_specialization, m)?)?;
+    m.add_function(wrap_pyfunction!(flame_bounds_corners, m)?)?;
     Ok(())
 }
 

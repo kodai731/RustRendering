@@ -234,3 +234,34 @@ fn test_shader_specialization_matches_packed_ubo() {
         assert_eq!(spec.len(), 3);
     });
 }
+
+#[test]
+fn test_bounds_corners_follow_position_and_height() {
+    Python::attach(|py| {
+        let preset_dict: Bound<'_, PyDict> = super::flame_preset_params(py, "campfire").unwrap();
+        let corners =
+            super::flame_bounds_corners(py, &preset_dict, [1.0, 2.0, 3.0], [1.0, 0.0, 0.0, 0.0])
+                .unwrap();
+
+        let mut effect = FlameEffect::default();
+        apply_flame_preset(&mut effect, "campfire");
+        let min_y = corners.iter().map(|c| c[1]).fold(f32::MAX, f32::min);
+        let max_y = corners.iter().map(|c| c[1]).fold(f32::MIN, f32::max);
+        let min_x = corners.iter().map(|c| c[0]).fold(f32::MAX, f32::min);
+        let max_x = corners.iter().map(|c| c[0]).fold(f32::MIN, f32::max);
+
+        assert_eq!(corners.len(), 8);
+        assert!(
+            (min_y - 2.0).abs() < 1e-4,
+            "base sits at the flame position, got {min_y}"
+        );
+        assert!(
+            max_y > 2.0 + effect.height * 0.9,
+            "top reaches the flame height, got {max_y}"
+        );
+        assert!(
+            (min_x + max_x - 2.0).abs() < 1e-4,
+            "box is centred on x, got {min_x}..{max_x}"
+        );
+    });
+}
