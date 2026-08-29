@@ -78,6 +78,7 @@ class FlameViewportRenderer:
         self.history_a = None
         self.history_b = None
         self.color = None
+        self.fb_color = None
         self.fb_a = None
         self.fb_b = None
         self.frame_index = 0
@@ -109,12 +110,17 @@ class FlameViewportRenderer:
         self.history_a = gpu.types.GPUTexture((w, h), format="RGBA32F")
         self.history_b = gpu.types.GPUTexture((w, h), format="RGBA32F")
         self.color = gpu.types.GPUTexture((w, h), format="RGBA32F")
+        self.fb_color = gpu.types.GPUFrameBuffer(color_slots=(self.color,))
         self.fb_a = gpu.types.GPUFrameBuffer(color_slots=(self.color, self.history_a))
         self.fb_b = gpu.types.GPUFrameBuffer(color_slots=(self.color, self.history_b))
         with self.fb_a.bind():
             self.fb_a.clear(color=(0.0, 0.0, 0.0, 0.0))
         with self.fb_b.bind():
             self.fb_b.clear(color=(0.0, 0.0, 0.0, 0.0))
+
+    def clear_color_for_discarded_fragments(self):
+        with self.fb_color.bind():
+            self.fb_color.clear(color=(0.0, 0.0, 0.0, 0.0))
 
     def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h, depth_values=None, flip_y=True):
         import gpu
@@ -146,6 +152,7 @@ class FlameViewportRenderer:
         else:
             fb = self.fb_b
             history_tex = self.history_a
+        self.clear_color_for_discarded_fragments()
         with fb.bind():
             self.shader.bind()
             self.shader.uniform_block("frame", self.frame_ubo)
@@ -160,7 +167,7 @@ class FlameViewportRenderer:
     def release(self):
         for attr in (
             "frame_ubo", "flame_ubo", "sdf_tex", "depth_tex",
-            "history_a", "history_b", "color", "fb_a", "fb_b",
+            "history_a", "history_b", "color", "fb_color", "fb_a", "fb_b",
         ):
             setattr(self, attr, None)
 
