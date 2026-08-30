@@ -22,15 +22,15 @@ pub fn torus_gradient(p: Vector3<f32>, r_hat: f32) -> Vector3<f32> {
     )
 }
 
-pub fn water_local_bounds(R: f32, r: f32) -> (Vector3<f32>, Vector3<f32>) {
-    let radius = R + r;
-    let min = Vector3::new(-radius, -r, -radius);
-    let max = Vector3::new(radius, r, radius);
+pub fn water_local_bounds(major_radius: f32, minor_radius: f32) -> (Vector3<f32>, Vector3<f32>) {
+    let radius = major_radius + minor_radius;
+    let min = Vector3::new(-radius, -minor_radius, -radius);
+    let max = Vector3::new(radius, minor_radius, radius);
     (min, max)
 }
 
-pub fn water_local_bounds_corners(R: f32, r: f32) -> [Vector3<f32>; 8] {
-    let (min, max) = water_local_bounds(R, r);
+pub fn water_local_bounds_corners(major_radius: f32, minor_radius: f32) -> [Vector3<f32>; 8] {
+    let (min, max) = water_local_bounds(major_radius, minor_radius);
     let mut corners = [Vector3::new(0.0, 0.0, 0.0); 8];
     for (index, corner) in corners.iter_mut().enumerate() {
         corner.x = if index & 1 == 0 { min.x } else { max.x };
@@ -48,16 +48,16 @@ fn quartic_coefficients(origin: Vector3<f64>, dir: Vector3<f64>, r_hat: f64) -> 
     let dy = dir.y;
     let dz = dir.z;
 
-    let A = dx * dx + dy * dy + dz * dz;
-    let B = 2.0 * (ox * dx + oy * dy + oz * dz);
-    let C = ox * ox + oy * oy + oz * oz;
-    let D = C + 1.0 - r_hat * r_hat;
+    let coeff_a = dx * dx + dy * dy + dz * dz;
+    let coeff_b = 2.0 * (ox * dx + oy * dy + oz * dz);
+    let coeff_c = ox * ox + oy * oy + oz * oz;
+    let coeff_d = coeff_c + 1.0 - r_hat * r_hat;
 
-    let a4 = A * A;
-    let a3 = 2.0 * A * B;
-    let a2 = 2.0 * A * D + B * B - 4.0 * A + 4.0 * dy * dy;
-    let a1 = 2.0 * B * D - 4.0 * B + 8.0 * oy * dy;
-    let a0 = D * D - 4.0 * C + 4.0 * oy * oy;
+    let a4 = coeff_a * coeff_a;
+    let a3 = 2.0 * coeff_a * coeff_b;
+    let a2 = 2.0 * coeff_a * coeff_d + coeff_b * coeff_b - 4.0 * coeff_a + 4.0 * dy * dy;
+    let a1 = 2.0 * coeff_b * coeff_d - 4.0 * coeff_b + 8.0 * oy * dy;
+    let a0 = coeff_d * coeff_d - 4.0 * coeff_c + 4.0 * oy * oy;
 
     [a4, a3, a2, a1, a0]
 }
@@ -75,37 +75,38 @@ const EQUATION_EPSILON: f64 = 1e-9;
 fn solve_quadratic(c: [f64; 3]) -> Vec<f64> {
     let p = c[1] / (2.0 * c[2]);
     let q = c[0] / c[2];
-    let D = p * p - q;
-    if D < -EQUATION_EPSILON {
+    let disc = p * p - q;
+    if disc < -EQUATION_EPSILON {
         return Vec::new();
     }
-    if D.abs() < EQUATION_EPSILON {
+    if disc.abs() < EQUATION_EPSILON {
         return vec![-p];
     }
-    let sqrt_D = D.sqrt();
-    vec![-p - sqrt_D, -p + sqrt_D]
+    let sqrt_disc = disc.sqrt();
+    vec![-p - sqrt_disc, -p + sqrt_disc]
 }
 
 fn solve_cubic(c: [f64; 4]) -> Vec<f64> {
-    let A = c[2] / c[3];
-    let B = c[1] / c[3];
-    let C = c[0] / c[3];
-    let sq_A = A * A;
-    let p = (1.0 / 3.0) * (-(1.0 / 3.0) * sq_A + B);
-    let q = (1.0 / 2.0) * ((2.0 / 27.0) * A * sq_A - (1.0 / 3.0) * A * B + C);
+    let cubic_a = c[2] / c[3];
+    let cubic_b = c[1] / c[3];
+    let cubic_c = c[0] / c[3];
+    let sq_a = cubic_a * cubic_a;
+    let p = (1.0 / 3.0) * (-(1.0 / 3.0) * sq_a + cubic_b);
+    let q =
+        (1.0 / 2.0) * ((2.0 / 27.0) * cubic_a * sq_a - (1.0 / 3.0) * cubic_a * cubic_b + cubic_c);
     let cb_p = p * p * p;
-    let D = q * q + cb_p;
+    let cubic_d = q * q + cb_p;
 
     let mut roots: Vec<f64>;
 
-    if D.abs() < EQUATION_EPSILON {
+    if cubic_d.abs() < EQUATION_EPSILON {
         if q.abs() < EQUATION_EPSILON {
             roots = vec![0.0];
         } else {
             let u = (-q).cbrt();
             roots = vec![2.0 * u, -u];
         }
-    } else if D < 0.0 {
+    } else if cubic_d < 0.0 {
         let phi = (1.0 / 3.0) * (-q / (-cb_p).sqrt()).acos();
         let t = 2.0 * (-p).sqrt();
         roots = vec![
@@ -114,14 +115,14 @@ fn solve_cubic(c: [f64; 4]) -> Vec<f64> {
             -t * (phi - std::f64::consts::PI / 3.0).cos(),
         ];
     } else {
-        let sqrt_D = D.sqrt();
-        let u = (sqrt_D - q).cbrt();
-        let v = -(sqrt_D + q).cbrt();
+        let sqrt_disc = cubic_d.sqrt();
+        let u = (sqrt_disc - q).cbrt();
+        let v = -(sqrt_disc + q).cbrt();
         roots = vec![u + v];
     }
 
     for root in &mut roots {
-        *root -= A / 3.0;
+        *root -= cubic_a / 3.0;
     }
     roots
 }
@@ -151,14 +152,17 @@ fn non_negative_sqrt(value: f64) -> Option<f64> {
 }
 
 fn solve_quartic(c: [f64; 5]) -> Vec<f64> {
-    let A = c[3] / c[4];
-    let B = c[2] / c[4];
-    let C = c[1] / c[4];
-    let D = c[0] / c[4];
-    let sq_A = A * A;
-    let p = -(3.0 / 8.0) * sq_A + B;
-    let q = (1.0 / 8.0) * sq_A * A - (1.0 / 2.0) * A * B + C;
-    let r = -(3.0 / 256.0) * sq_A * sq_A + (1.0 / 16.0) * sq_A * B - (1.0 / 4.0) * A * C + D;
+    let quartic_a = c[3] / c[4];
+    let quartic_b = c[2] / c[4];
+    let quartic_c = c[1] / c[4];
+    let quartic_d = c[0] / c[4];
+    let quartic_sq_a = quartic_a * quartic_a;
+    let p = -(3.0 / 8.0) * quartic_sq_a + quartic_b;
+    let q =
+        (1.0 / 8.0) * quartic_sq_a * quartic_a - (1.0 / 2.0) * quartic_a * quartic_b + quartic_c;
+    let r = -(3.0 / 256.0) * quartic_sq_a * quartic_sq_a + (1.0 / 16.0) * quartic_sq_a * quartic_b
+        - (1.0 / 4.0) * quartic_a * quartic_c
+        + quartic_d;
 
     let mut roots: Vec<f64>;
 
@@ -192,7 +196,7 @@ fn solve_quartic(c: [f64; 5]) -> Vec<f64> {
     }
 
     for root in &mut roots {
-        *root -= A / 4.0;
+        *root -= quartic_a / 4.0;
     }
     roots
 }
