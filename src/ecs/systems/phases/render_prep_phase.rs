@@ -62,6 +62,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     crate::ecs::systems::flame_bone_attach_sync(ctx);
 
     let t = Instant::now();
+    crate::ecs::systems::water_time_advance(ctx);
     crate::ecs::systems::flame_time_advance(ctx);
     crate::ecs::systems::field_manifest_sync(ctx);
     sub.insert("flame_time".to_string(), t.elapsed().as_secs_f32() * 1000.0);

@@ -1,4 +1,5 @@
 use super::flame::find_flame_by_pick_ray;
+use super::water::find_water_by_pick_ray;
 use crate::asset::AssetStorage;
 use crate::ecs::resource::CurveEditorState;
 use crate::ecs::resource::{
@@ -78,7 +79,7 @@ pub fn apply_mesh_selection(
 }
 
 /// Whichever of the two candidates the click actually landed on: the surface reported by the
-/// object-id buffer, or a flame in front of it.
+/// object-id buffer, or a flame/water in front of it.
 fn resolve_closest_pick(
     world: &World,
     surface_entity: Option<Entity>,
@@ -89,12 +90,29 @@ fn resolve_closest_pick(
         return surface_entity;
     };
 
-    let Some((flame_entity, flame_distance)) = find_flame_by_pick_ray(world, ray) else {
+    // Collect flame and water candidates, pick the closest effect
+    let flame_candidate = find_flame_by_pick_ray(world, ray);
+    let water_candidate = find_water_by_pick_ray(world, ray);
+
+    let effect_candidate: Option<(Entity, f32)> = match (flame_candidate, water_candidate) {
+        (Some(f), Some(w)) => {
+            if f.1 <= w.1 {
+                Some(f)
+            } else {
+                Some(w)
+            }
+        }
+        (Some(f), None) => Some(f),
+        (None, Some(w)) => Some(w),
+        (None, None) => None,
+    };
+
+    let Some((effect_entity, effect_distance)) = effect_candidate else {
         return surface_entity;
     };
 
     if surface_entity.is_none() {
-        return Some(flame_entity);
+        return Some(effect_entity);
     }
 
     let surface_distance = surface_world_position
@@ -102,8 +120,8 @@ fn resolve_closest_pick(
         .map(|to_surface| cgmath::dot(to_surface, ray.direction))
         .unwrap_or(f32::INFINITY);
 
-    if flame_distance < surface_distance {
-        Some(flame_entity)
+    if effect_distance < surface_distance {
+        Some(effect_entity)
     } else {
         surface_entity
     }
