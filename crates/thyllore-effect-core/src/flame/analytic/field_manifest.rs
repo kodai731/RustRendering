@@ -321,7 +321,7 @@ mod tests {
             vec![
                 "flameWaveModeSum",
                 "flameWaveCfPsiVectors",
-                "flameWaveCfLoadCheb",
+                "flameWaveCfChebCoefficient",
                 "flameWaveWarpOffset",
                 "flameMediumSwirlShear",
                 "flameWarpMapZ",
