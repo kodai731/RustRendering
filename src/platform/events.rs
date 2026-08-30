@@ -332,6 +332,7 @@ fn handle_redraw_requested(
         model_path: model_state.model_path.clone(),
         load_status: model_state.load_status.clone(),
         flame_preset_index: model_state.flame_preset_index,
+        water_preset_index: 0,
         texture_fit_path: model_state.texture_fit_path.clone(),
         texture_fit_blend: model_state.texture_fit_blend,
         texture_fit_groups: model_state.texture_fit_groups,

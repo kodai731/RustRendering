@@ -1,6 +1,6 @@
 use imgui::Condition;
 
-use crate::ecs::component::FlameParam;
+use crate::ecs::component::{FlameParam, WaterParam};
 use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
@@ -14,6 +14,10 @@ use super::flame_param_groups::{
 };
 use super::param_widgets::draw_scalar_params;
 use super::viewport_window::ViewportInfo;
+use super::water_param_groups::{
+    WATER_FLOW_PARAMS, WATER_LOOK_PARAMS, WATER_OPTICS_PARAMS, WATER_PARAM_GROUPS,
+    WATER_SHAPE_PARAMS, WATER_WAVE_PARAMS,
+};
 
 const OVERLAY_MARGIN: f32 = 8.0;
 const OVERLAY_WIDTH: f32 = 420.0;
@@ -22,6 +26,7 @@ pub struct SceneOverlayState {
     pub model_path: String,
     pub load_status: String,
     pub flame_preset_index: usize,
+    pub water_preset_index: usize,
     pub texture_fit_path: String,
     pub texture_fit_blend: f32,
     pub texture_fit_groups: [bool; 4],
@@ -84,6 +89,8 @@ pub fn build_scene_overlay(
             build_auto_exposure_section(ui, ui_events, ecs_world);
 
             build_onion_skinning_section(ui, ui_events, ecs_world);
+
+            build_water_section(ui, ui_events, overlay_state, ecs_world);
 
             build_flame_section(ui, ui_events, overlay_state, ecs_world, viewport_info);
         });
@@ -245,6 +252,19 @@ fn build_screenshot_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue) {
 
 fn flame_key_button(ui: &imgui::Ui, ui_events: &mut UIEventQueue, name: &'static str, value: f32) {
     let Some(param) = FlameParam::from_cli_name(name) else {
+        return;
+    };
+    ui.same_line();
+    if ui.small_button(format!("K##{name}")) {
+        ui_events.send(UIEvent::InsertScalarKey {
+            property_type: param.property_type(),
+            value,
+        });
+    }
+}
+
+fn water_key_button(ui: &imgui::Ui, ui_events: &mut UIEventQueue, name: &'static str, value: f32) {
+    let Some(param) = WaterParam::from_cli_name(name) else {
         return;
     };
     ui.same_line();
@@ -468,6 +488,124 @@ fn build_onion_skinning_section(ui: &imgui::Ui, ui_events: &mut UIEventQueue, ec
             ));
 
             ui_events.send(UIEvent::UpdateOnionSkinning(config_copy));
+        }
+    }
+}
+
+fn build_water_section(
+    ui: &imgui::Ui,
+    ui_events: &mut UIEventQueue,
+    overlay_state: &mut SceneOverlayState,
+    ecs_world: &World,
+) {
+    use crate::ecs::component::WaterTorusEffect;
+    use crate::ecs::resource::WaterRenderSettings;
+
+    if ui.collapsing_header("Water", imgui::TreeNodeFlags::empty()) {
+        // WaterRenderSettings: secondary_rays combo and debug_view slider
+        if let Some(settings) = ecs_world.get_resource::<WaterRenderSettings>() {
+            let mut settings_copy = *settings;
+            drop(settings);
+
+            if let Some(_token) =
+                ui.begin_combo("Secondary Rays", settings_copy.secondary_rays.label())
+            {
+                for mode in thyllore_effect_core::WaterSecondaryRays::ALL {
+                    let selected = mode == settings_copy.secondary_rays;
+                    if ui
+                        .selectable_config(mode.label())
+                        .selected(selected)
+                        .build()
+                    {
+                        settings_copy.secondary_rays = mode;
+                    }
+                }
+            }
+
+            let mut debug_view = settings_copy.debug_view as f32;
+            if ui
+                .slider_config("Debug View", 0.0f32, 1.0f32)
+                .build(&mut debug_view)
+            {
+                settings_copy.debug_view = debug_view as i32;
+            }
+
+            ui_events.send(UIEvent::UpdateWaterRenderSettings(settings_copy));
+        }
+
+        // Add Water button (before instance selector, accessible even when no water exists)
+        if ui.button("Add Water") {
+            ui_events.send(UIEvent::AddWater);
+        }
+
+        // Instance selector
+        let waters = ecs_world.query_waters();
+        let selected_water_entity = crate::ecs::systems::resolve_selected_water(ecs_world);
+        let clamped_index = selected_water_entity
+            .and_then(|entity| waters.iter().position(|&e| e == entity))
+            .unwrap_or(0);
+
+        if waters.len() > 1 {
+            let mut current = clamped_index;
+            let items: Vec<String> = waters
+                .iter()
+                .enumerate()
+                .map(|(i, &entity)| {
+                    ecs_world
+                        .get_component::<crate::ecs::world::Name>(entity)
+                        .map(|n| n.0.clone())
+                        .unwrap_or_else(|| format!("Water {}", i + 1))
+                })
+                .collect();
+            if ui.combo_simple_string("Instance", &mut current, &items) {
+                ui_events.send(UIEvent::SelectWaterInstance(current));
+            }
+        }
+
+        // Preset combo
+        let presets: Vec<String> = thyllore_effect_core::WATER_PRESET_NAMES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
+        let mut effect_applied_this_frame = false;
+        {
+            let mut preset_index = overlay_state.water_preset_index;
+            let preset_changed =
+                ui.combo_simple_string("Water Preset", &mut preset_index, &presets);
+            overlay_state.water_preset_index = preset_index;
+            if preset_changed {
+                if selected_water_entity.is_some() {
+                    ui_events.send(UIEvent::ClearScalarKeys);
+                    ui_events.send(UIEvent::ApplyWaterPreset(presets[preset_index].clone()));
+                    effect_applied_this_frame = true;
+                }
+            }
+
+            // Scalar parameters
+            if let Some(selected_water) = selected_water_entity {
+                if let Some(effect) = ecs_world.get_component::<WaterTorusEffect>(selected_water) {
+                    let mut effect_copy = effect.clone();
+
+                    for group in WATER_PARAM_GROUPS {
+                        draw_scalar_params(
+                            ui,
+                            group,
+                            thyllore_effect_core::WATER_UI_PARAMS,
+                            thyllore_effect_core::WATER_SCALAR_PARAMS,
+                            &mut effect_copy,
+                            |ui, name, value| water_key_button(ui, ui_events, name, value),
+                        );
+                    }
+
+                    if !effect_applied_this_frame {
+                        ui_events.send(UIEvent::UpdateWaterEffect(Box::new(effect_copy)));
+                    }
+
+                    if ui.button("Curves") {
+                        ui_events.send(UIEvent::OpenScalarCurveEditor);
+                    }
+                }
+            }
         }
     }
 }
