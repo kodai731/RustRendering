@@ -126,7 +126,7 @@ $UnshippedRelPaths = @(
 if ($IsWindows -or $env:OS -like "*Windows*") {
     $RoboArgs = @(
         $Source, $StageDir, "/MIR",
-        "/XD", "tests", "__pycache__", ".pytest_cache", ".egg-info", "wheels-extracted",
+        "/XD", "tests", "effects", "__pycache__", ".pytest_cache", ".egg-info", "wheels-extracted",
         "/XF", "*.pyc"
     )
     $proc = Start-Process robocopy -ArgumentList $RoboArgs -NoNewWindow -PassThru -Wait
@@ -137,11 +137,11 @@ if ($IsWindows -or $env:OS -like "*Windows*") {
 } else {
     # POSIX fallback (rsync if available, else cp)
     if (Get-Command rsync -ErrorAction SilentlyContinue) {
-        & rsync -a --exclude='tests/' --exclude='__pycache__/' --exclude='wheels-extracted/' --exclude='*.pyc' "$Source/" "$StageDir/"
+        & rsync -a --exclude='tests/' --exclude='effects/' --exclude='__pycache__/' --exclude='wheels-extracted/' --exclude='*.pyc' "$Source/" "$StageDir/"
     } else {
         Copy-Item -Recurse -Force "$Source/*" $StageDir
         Get-ChildItem -Recurse -Force -Directory $StageDir |
-            Where-Object { $_.Name -in @("tests", "__pycache__", ".pytest_cache", ".egg-info", "wheels-extracted") } |
+            Where-Object { $_.Name -in @("tests", "effects", "__pycache__", ".pytest_cache", ".egg-info", "wheels-extracted") } |
             Remove-Item -Recurse -Force
         Get-ChildItem -Recurse -Force -File $StageDir -Filter "*.pyc" | Remove-Item -Force
     }

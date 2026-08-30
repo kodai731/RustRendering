@@ -370,6 +370,25 @@ pub fn flame_dump_path_resolve_from_args(args: &[String]) -> Result<Option<Strin
     Ok(Some(value.clone()))
 }
 
+pub fn flame_dump_npy_path(json_path: &Path) -> PathBuf {
+    let mut npy = json_path.to_path_buf();
+    if npy.extension().is_some() {
+        npy.set_extension("npy");
+    }
+    npy
+}
+
+#[test]
+fn test_flame_dump_npy_path() {
+    let json = Path::new("/tmp/flame_dump_frame_0001.json");
+    let npy = flame_dump_npy_path(json);
+    assert_eq!(npy, PathBuf::from("/tmp/flame_dump_frame_0001.npy"));
+
+    let jsonl = Path::new("/tmp/flame_dump_frame_0001.jsonl");
+    let npy = flame_dump_npy_path(jsonl);
+    assert_eq!(npy, PathBuf::from("/tmp/flame_dump_frame_0001.npy"));
+}
+
 pub fn gpu_timings_path_resolve_from_args(args: &[String]) -> Result<Option<String>> {
     let Some(position) = args.iter().position(|arg| arg == GPU_TIMINGS_FLAG) else {
         return Ok(None);

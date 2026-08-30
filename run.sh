@@ -26,6 +26,15 @@ Commands:
       .config/curve_copilot_full.env for THYLLORE_FEEDBACK_TEST_ENDPOINT /
       THYLLORE_INGEST_TOKEN (dev builds always bake the test endpoint).
         ./run.sh blender --mode full
+  blender --flame [--skip-build] [--release] [--overlap] [--software-gl] [scene.blend]
+      Build the flame addon ZIP, install it into a pristine Docker Blender on
+      the NVIDIA GPU and open blender/test.blend with a campfire flame already
+      added (scripts/blender/flame/launch.sh). Fresh-install checks use blender-verify:
+        ./run.sh blender --flame
+        ./run.sh blender-verify --zip dist/thyllore_flame-0.0.1-linux_x86_64.zip
+  blend [--scene PATH.blend] [--software-gl] [args...]
+      Open a pristine Docker Blender on the NVIDIA GPU with a new empty scene,
+      no addon installed (blender/docker/run_gui.sh --no-install).
   blender-verify [--mode degrade|full|private] [--zip PATH] [args...]
       Launch a pristine Blender GUI in Docker with NO addon installed
       (blender/docker/run_gui.sh --no-install). The ZIP is mounted at
@@ -51,7 +60,14 @@ case "$command" in
         exec bash "$REPO_ROOT/scripts/run_engine.sh" "$@"
         ;;
     blender)
+        if [[ "${1:-}" == "--flame" ]]; then
+            shift
+            exec bash "$REPO_ROOT/scripts/blender/flame/launch.sh" "$@"
+        fi
         exec bash "$REPO_ROOT/scripts/run_blender_debug.sh" "$@"
+        ;;
+    blend)
+        exec bash "$REPO_ROOT/blender/docker/run_gui.sh" --no-install "$@"
         ;;
     blender-verify)
         exec bash "$REPO_ROOT/blender/docker/run_gui.sh" --no-install "$@"

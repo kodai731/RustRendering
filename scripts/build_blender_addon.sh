@@ -156,6 +156,7 @@ mkdir -p "$STAGE_DIR"
 if command -v rsync >/dev/null 2>&1; then
     rsync -a \
         --exclude='tests/' \
+        --exclude='effects/' \
         --exclude='__pycache__/' \
         --exclude='.pytest_cache/' \
         --exclude='.egg-info/' \
@@ -164,7 +165,7 @@ if command -v rsync >/dev/null 2>&1; then
         "$SOURCE_DIR/" "$STAGE_DIR/"
 else
     cp -a "$SOURCE_DIR/." "$STAGE_DIR/"
-    find "$STAGE_DIR" -type d \( -name tests -o -name __pycache__ -o -name .pytest_cache -o -name .egg-info -o -name wheels-extracted \) -prune -exec rm -rf {} +
+    find "$STAGE_DIR" -type d \( -name tests -o -name effects -o -name __pycache__ -o -name .pytest_cache -o -name .egg-info -o -name wheels-extracted \) -prune -exec rm -rf {} +
     find "$STAGE_DIR" -type f -name "*.pyc" -delete
 fi
 

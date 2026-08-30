@@ -8,6 +8,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         libgl1 libegl1 libxkbcommon0 libsm6 libice6 \
         libxcursor1 libxrandr2 libxinerama1 libxkbcommon-x11-0 \
         libglx-mesa0 libgl1-mesa-dri \
+        libvulkan1 vulkan-tools \
     && rm -rf /var/lib/apt/lists/*
 
 RUN BLENDER_SERIES="$(echo "${BLENDER_VERSION}" | cut -d. -f1,2)" \
