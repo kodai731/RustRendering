@@ -1,0 +1,7 @@
+# Parameters bundled into the Thyllore Water extension UI.
+# Every other water parameter stays at its preset value.
+# Names follow crates/thyllore-effect-core water UI params (water_ui_params()).
+
+[exposed]
+names = ["major_radius", "minor_radius", "ior", "flow_longitudinal", "flow_meridional", "wave_amplitude", "wave_frequency", "wave_speed", "reflect_strength", "refract_strength"]
+prefixes = ["absorption_", "tint_"]
