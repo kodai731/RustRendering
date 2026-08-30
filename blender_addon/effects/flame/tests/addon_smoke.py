@@ -34,6 +34,7 @@ addon.register()
 bpy.ops.thyllore.flame_add()
 obj = bpy.context.active_object
 
+assert abs(obj.thyllore_flame.optical_depth - 1.0) < 1e-5, "initial optical_depth from flame_params.toml"
 assert abs(obj.thyllore_flame.height - 1.6) < 1e-5, (
     f"campfire height expected 1.6, got {obj.thyllore_flame.height}"
 )
@@ -46,13 +47,19 @@ assert abs(obj.thyllore_flame.height - 0.28) < 1e-5, (
 from blender_addon.effects.flame.properties import flame_render_params
 
 cls = addon.properties._registered_cls
-assert set(cls.PARAM_NAMES) == {"height", "radius", "optical_depth", "noise_amplitude", "noise_contrast", "noise_aniso_y"}, (
+assert set(cls.PARAM_NAMES) == {
+    "height", "radius", "intensity", "optical_depth", "noise_amplitude", "noise_contrast", "noise_aniso_y",
+    "color_base", "color_tip", "use_blackbody", "temperature_base_k", "temperature_tip_k",
+}, (
     f"unexpected exposed params {cls.PARAM_NAMES}"
 )
 candle_params = fx.flame_preset_params("candle")
 collected = flame_render_params(obj.thyllore_flame)
 assert set(collected.keys()) == set(candle_params.keys()), "render params must cover every preset key"
 assert collected["height"] == obj.thyllore_flame.height
+obj.thyllore_flame.preset = "blue"
+assert not obj.thyllore_flame.use_blackbody and abs(obj.thyllore_flame.color_base[2] - 1.0) < 1e-5, "blue preset must reach the color props"
+assert flame_render_params(obj.thyllore_flame)["color_base"][2] == obj.thyllore_flame.color_base[2]
 
 print("ADDON_SMOKE ok", flush=True)
 

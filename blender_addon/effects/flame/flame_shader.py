@@ -116,3 +116,40 @@ def build_depth_convert_shader():
     info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
     info.fragment_source(depth_convert_fragment_source())
     return gpu.shader.create_from_info(info)
+
+
+def tonemap_composite_fragment_source() -> str:
+    return (
+        "vec3 acesFilmic(vec3 x){"
+        " return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);"
+        " }"
+        "vec3 encodeSrgb(vec3 c){"
+        " return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));"
+        " }"
+        "void main(){"
+        " vec4 hdr = texture(image, fragTexCoord);"
+        " vec3 display = acesFilmic(hdr.rgb * tonemapParams.x);"
+        " if (tonemapParams.y > 0.5) { display = encodeSrgb(display); }"
+        " outColor = vec4(display, hdr.a);"
+        " }"
+    )
+
+
+def build_tonemap_composite_shader():
+    import gpu
+
+    info = gpu.types.GPUShaderCreateInfo()
+    info.sampler(0, "FLOAT_2D", "image")
+    info.push_constant("MAT4", "ModelViewProjectionMatrix")
+    info.push_constant("VEC2", "tonemapParams")
+    iface = gpu.types.GPUStageInterfaceInfo("tonemap_composite_iface")
+    iface.smooth("VEC2", "fragTexCoord")
+    info.vertex_in(0, "VEC2", "pos")
+    info.vertex_in(1, "VEC2", "texCoord")
+    info.vertex_out(iface)
+    info.fragment_out(0, "VEC4", "outColor")
+    info.vertex_source(
+        "void main(){ fragTexCoord = texCoord; gl_Position = ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0); }"
+    )
+    info.fragment_source(tonemap_composite_fragment_source())
+    return gpu.shader.create_from_info(info)

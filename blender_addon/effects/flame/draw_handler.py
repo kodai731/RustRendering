@@ -3,20 +3,25 @@ import time
 import traceback
 
 from ._common import coordinates
-from .flame_shader import build_flame_shader, pack_frame_ubo, specialization_key
+from .flame_shader import build_flame_shader, build_tonemap_composite_shader, pack_frame_ubo, specialization_key
 from .viewport_depth import ViewportDepthCapture
 
 VIEWPORT_NEAR = 0.1
+ENGINE_EXPOSURE = 1.0
+DISPLAY_ENCODE_SRGB = 1.0
 
 
 def flip_projection_y(proj) -> list:
     return [proj[0], [-v for v in proj[1]], proj[2], proj[3]]
 
 
+_depth_handle = None
 _draw_handle = None
 _cached_shaders: dict[tuple, object] = {}
 _renderers: dict[str, "FlameViewportRenderer"] = {}
 _viewport_depth = ViewportDepthCapture()
+_scene_depth = None
+_composite_shader = None
 _draw_failure_reported = False
 _draw_diagnostic_reported = False
 
@@ -175,6 +180,15 @@ class FlameViewportRenderer:
             setattr(self, attr, None)
 
 
+def capture_scene_depth():
+    global _scene_depth
+    import bpy
+
+    region = bpy.context.region
+    window_matrix = list(bpy.context.region_data.window_matrix)
+    _scene_depth = _viewport_depth.capture(region.width, region.height, window_matrix, VIEWPORT_NEAR)
+
+
 def draw_viewport():
     global _draw_failure_reported
     try:
@@ -185,11 +199,19 @@ def draw_viewport():
             print("[Thyllore Flame] viewport draw failed:\n" + traceback.format_exc(), flush=True)
 
 
+def find_light_position(scene):
+    for obj in scene.objects:
+        if obj.type == "LIGHT":
+            return coordinates.blender_to_engine_point(obj.matrix_world.translation)
+    return (0.0, 2.0, 2.0)
+
+
+def find_flame_objects(scene):
+    return [obj for obj in scene.objects if hasattr(obj, "thyllore_flame") and obj.thyllore_flame.is_flame]
+
+
 def draw_flames():
     import bpy
-    import gpu
-    from gpu_extras.batch import batch_for_shader
-    from mathutils import Matrix
 
     from .properties import flame_render_params
 
@@ -202,65 +224,53 @@ def draw_flames():
     view, camera_pos = blender_view_to_engine_view(view_matrix)
     w = region.width
     h = region.height
-    scene_depth = _viewport_depth.capture(w, h, window_matrix, VIEWPORT_NEAR)
 
     scene = context.scene
     scene_time = (scene.frame_current - scene.frame_start) / scene.render.fps
-
-    light_pos = None
-    for obj in scene.objects:
-        if obj.type == "LIGHT":
-            light_pos = coordinates.blender_to_engine_point(obj.matrix_world.translation)
-            break
-    if light_pos is None:
-        light_pos = (0.0, 2.0, 2.0)
-
-    flame_objects = []
-    for obj in scene.objects:
-        if hasattr(obj, "thyllore_flame") and obj.thyllore_flame.is_flame:
-            flame_objects.append(obj)
+    light_pos = find_light_position(scene)
+    flame_objects = find_flame_objects(scene)
 
     last_color = None
     render_started = time.perf_counter()
     for obj in flame_objects:
-        name = obj.name
-        if name not in _renderers:
-            _renderers[name] = FlameViewportRenderer()
-        renderer = _renderers[name]
+        renderer = _renderers.setdefault(obj.name, FlameViewportRenderer())
         params = flame_render_params(obj.thyllore_flame)
         position = coordinates.blender_to_engine_point(obj.matrix_world.translation)
         rotation = coordinates.blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
-        if light_pos is None:
-            light_pos = (position[0], position[1] + 2.0, position[2] + 2.0)
         last_color = renderer.render(
-            view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h, depth_tex=scene_depth
+            view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h, depth_tex=_scene_depth
         )
 
     report_first_draw(w, h, camera_pos, flame_objects, time.perf_counter() - render_started)
 
     if last_color is not None:
-        image_shader = gpu.shader.from_builtin("IMAGE")
-        batch = batch_for_shader(
-            image_shader, "TRI_FAN",
-            {"pos": [(0, 0), (w, 0), (w, h), (0, h)], "texCoord": [(0, 0), (1, 0), (1, 1), (0, 1)]},
-        )
-        previous_blend = gpu.state.blend_get()
-        previous_depth_test = gpu.state.depth_test_get()
-        gpu.matrix.push_projection()
-        gpu.matrix.push()
-        try:
-            gpu.matrix.load_projection_matrix(Matrix(((2.0 / w, 0, 0, -1), (0, 2.0 / h, 0, -1), (0, 0, -1, 0), (0, 0, 0, 1))))
-            gpu.matrix.load_identity()
-            gpu.state.blend_set("ALPHA_PREMULT")
-            gpu.state.depth_test_set("NONE")
-            image_shader.bind()
-            image_shader.uniform_sampler("image", last_color)
-            batch.draw(image_shader)
-        finally:
-            gpu.state.depth_test_set(previous_depth_test)
-            gpu.state.blend_set(previous_blend)
-            gpu.matrix.pop()
-            gpu.matrix.pop_projection()
+        composite_tonemapped(last_color, w, h)
+
+
+def composite_tonemapped(color_tex, w, h):
+    global _composite_shader
+    import gpu
+    from gpu_extras.batch import batch_for_shader
+
+    if _composite_shader is None:
+        _composite_shader = build_tonemap_composite_shader()
+    batch = batch_for_shader(
+        _composite_shader, "TRI_FAN",
+        {"pos": [(0, 0), (w, 0), (w, h), (0, h)], "texCoord": [(0, 0), (1, 0), (1, 1), (0, 1)]},
+    )
+    previous_blend = gpu.state.blend_get()
+    previous_depth_test = gpu.state.depth_test_get()
+    try:
+        gpu.state.blend_set("ALPHA_PREMULT")
+        gpu.state.depth_test_set("NONE")
+        _composite_shader.bind()
+        _composite_shader.uniform_float("ModelViewProjectionMatrix", gpu.matrix.get_projection_matrix() @ gpu.matrix.get_model_view_matrix())
+        _composite_shader.uniform_float("tonemapParams", (ENGINE_EXPOSURE, DISPLAY_ENCODE_SRGB))
+        _composite_shader.uniform_sampler("image", color_tex)
+        batch.draw(_composite_shader)
+    finally:
+        gpu.state.depth_test_set(previous_depth_test)
+        gpu.state.blend_set(previous_blend)
 
 
 def report_first_draw(w, h, camera_pos, flame_objects, render_seconds):
@@ -277,14 +287,25 @@ def report_first_draw(w, h, camera_pos, flame_objects, render_seconds):
 
 
 def register_draw_handler():
+    global _depth_handle, _draw_handle
     import bpy
 
-    bpy.types.SpaceView3D.draw_handler_add(draw_viewport, (), "WINDOW", "POST_VIEW")
+    _depth_handle = bpy.types.SpaceView3D.draw_handler_add(capture_scene_depth, (), "WINDOW", "POST_VIEW")
+    _draw_handle = bpy.types.SpaceView3D.draw_handler_add(draw_viewport, (), "WINDOW", "POST_PIXEL")
 
 
 def unregister_draw_handler():
+    global _depth_handle, _draw_handle, _scene_depth, _composite_shader
+    import bpy
+
+    for handle in (_draw_handle, _depth_handle):
+        if handle is not None:
+            bpy.types.SpaceView3D.draw_handler_remove(handle, "WINDOW")
+    _depth_handle = _draw_handle = None
     for renderer in _renderers.values():
         renderer.release()
     _renderers.clear()
-    _viewport_depth.release()
     _cached_shaders.clear()
+    _viewport_depth.release()
+    _scene_depth = None
+    _composite_shader = None

@@ -11,7 +11,18 @@ def load_exposed_param_rules(params_file: Path = PARAMS_FILE) -> dict:
     return {"names": tuple(exposed["names"]), "prefixes": tuple(exposed["prefixes"])}
 
 
+def load_initial_values(params_file: Path = PARAMS_FILE) -> dict:
+    return dict(tomllib.loads(params_file.read_text(encoding="utf-8")).get("initial", {}))
+
+
 EXPOSED_PARAM_RULES = load_exposed_param_rules()
+INITIAL_VALUES = load_initial_values()
+
+
+def apply_initial_values(props, initial_values: dict = INITIAL_VALUES) -> None:
+    for name, value in initial_values.items():
+        if name in type(props).PARAM_NAMES:
+            setattr(props, name, value)
 
 
 def precision_from_format(fmt: str) -> int:
@@ -48,10 +59,10 @@ def collect_params(props, names: list[str]) -> dict:
     result = {}
     for name in names:
         value = getattr(props, name)
-        if isinstance(value, (list, tuple)):
-            result[name] = list(value)
-        else:
+        if isinstance(value, (str, bool, int, float)):
             result[name] = value
+        else:
+            result[name] = [float(v) for v in value]
     return result
 
 
@@ -80,13 +91,7 @@ def build_flame_property_group():
         preset_values = fx.flame_preset_params(self.preset)
         for name in param_names:
             if name in preset_values:
-                value = preset_values[name]
-                kind = property_kind(value)
-                if kind == "vector":
-                    for i, v in enumerate(value):
-                        setattr(self, f"{name}_{i}", v)
-                else:
-                    setattr(self, name, value)
+                setattr(self, name, preset_values[name])
 
     annotations: dict[str, object] = {}
 

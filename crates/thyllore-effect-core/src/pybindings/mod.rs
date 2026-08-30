@@ -3,6 +3,7 @@ use crate::flame::{
     flame_local_bounds, flame_local_bounds_corners, flame_proxy_pad, flame_support_scale,
     overwrite_persisted_fields, parameter_owner, refresh_flame_coefficients, FlameBaked,
     FlameEffect, FlameTemporalAccum, FlameUBO, FLAME_PRESET_NAMES, FLAME_UI_PARAMS,
+    TEXTURE_FIT_COLOR_PARAMETERS,
 };
 use cgmath::{Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
@@ -51,7 +52,48 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
 
         list.append(dict)?;
     }
+    for name in TEXTURE_FIT_COLOR_PARAMETERS {
+        let Some(default_value) = default_dict.get_item(name)? else {
+            continue;
+        };
+        let dict = PyDict::new(py);
+        dict.set_item("name", name)?;
+        dict.set_item("label", color_param_label(name))?;
+        dict.set_item("tooltip", color_param_tooltip(name))?;
+        dict.set_item("default", default_value)?;
+        dict.set_item("owner", "style")?;
+        if name.starts_with("temperature_") {
+            dict.set_item("min", 1000.0)?;
+            dict.set_item("max", 6500.0)?;
+            dict.set_item("format", "%.0f")?;
+        }
+        list.append(dict)?;
+    }
     Ok(list)
+}
+
+fn color_param_label(name: &str) -> String {
+    name.split('_')
+        .map(|word| {
+            let mut chars = word.chars();
+            match chars.next() {
+                Some(first) => first.to_uppercase().collect::<String>() + chars.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn color_param_tooltip(name: &str) -> &'static str {
+    match name {
+        "color_base" => "Emission color at the flame base (used when blackbody is off)",
+        "color_tip" => "Emission color at the flame tip (used when blackbody is off)",
+        "use_blackbody" => "Derive the base/tip colors from the blackbody temperatures",
+        "temperature_base_k" => "Blackbody temperature at the base in kelvin",
+        "temperature_tip_k" => "Blackbody temperature at the tip in kelvin",
+        _ => "",
+    }
 }
 
 #[pyfunction]

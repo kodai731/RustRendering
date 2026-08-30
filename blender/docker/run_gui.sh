@@ -140,7 +140,7 @@ docker run --rm \
     -v "$WORK_DIR:/scenes" \
     -v "$SCREENSHOT_DIR_HOST:/screenshots" \
     -v "$GPU_CACHE_DIR:/tmp/blender_home/.cache" \
-    -e THYLLORE_SCREENSHOT_DIR -e THYLLORE_SCREENSHOT_DELAY -e THYLLORE_SCREENSHOT_QUIT \
+    -e THYLLORE_SCREENSHOT_DIR -e THYLLORE_SCREENSHOT_DELAY -e THYLLORE_SCREENSHOT_QUIT -e THYLLORE_FLAME_PRESET \
     "$IMAGE_TAG" \
     bash -c "
         export HOME=/tmp/blender_home && mkdir -p \"\$HOME\" &&

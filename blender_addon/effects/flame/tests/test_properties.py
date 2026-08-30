@@ -5,7 +5,9 @@ import pytest
 
 from blender_addon.effects.flame.properties import (
     EXPOSED_PARAM_RULES,
+    INITIAL_VALUES,
     PARAMS_FILE,
+    apply_initial_values,
     collect_params,
     is_exposed_param,
     load_exposed_param_rules,
@@ -106,8 +108,8 @@ class TestExposedParamRules:
         assert load_exposed_param_rules() == EXPOSED_PARAM_RULES
 
     def test_rules_file_lists_names_and_prefixes(self):
-        assert EXPOSED_PARAM_RULES["names"] == ("height", "radius", "optical_depth")
-        assert EXPOSED_PARAM_RULES["prefixes"] == ("noise_",)
+        assert EXPOSED_PARAM_RULES["names"] == ("height", "radius", "intensity", "optical_depth", "use_blackbody")
+        assert EXPOSED_PARAM_RULES["prefixes"] == ("noise_", "color_", "temperature_")
 
     def test_custom_rules_override_file(self):
         rules = {"names": ("intensity",), "prefixes": ()}
@@ -119,19 +121,22 @@ class TestExposedParams:
     def test_named_params_are_exposed(self):
         assert is_exposed_param("height")
         assert is_exposed_param("radius")
+        assert is_exposed_param("intensity")
         assert is_exposed_param("optical_depth")
+        assert is_exposed_param("use_blackbody")
 
     def test_noise_prefix_is_exposed(self):
         assert is_exposed_param("noise_amplitude")
         assert is_exposed_param("noise_aniso_y")
+        assert is_exposed_param("color_base")
+        assert is_exposed_param("temperature_tip_k")
 
     def test_other_params_are_hidden(self):
-        assert not is_exposed_param("intensity")
         assert not is_exposed_param("branch_gain")
         assert not is_exposed_param("swirl_gain")
 
     def test_select_keeps_order_and_filters(self):
-        ui_params = [{"name": "intensity"}, {"name": "height"}, {"name": "noise_contrast"}, {"name": "mix_lo"}]
+        ui_params = [{"name": "swirl_gain"}, {"name": "height"}, {"name": "noise_contrast"}, {"name": "mix_lo"}]
         assert [p["name"] for p in select_exposed_params(ui_params)] == ["height", "noise_contrast"]
 
 
@@ -144,3 +149,18 @@ class TestMergePresetParams:
         preset = {"height": 1.6}
         merge_preset_params(preset, {"height": 0.3})
         assert preset == {"height": 1.6}
+
+
+class TestInitialValues:
+    def test_initial_values_come_from_flame_params_toml(self):
+        assert INITIAL_VALUES == {"optical_depth": 1.0}
+
+    def test_apply_sets_only_exposed_params(self):
+        class FakeProps:
+            PARAM_NAMES = ["optical_depth"]
+            optical_depth = 0.0
+
+        props = FakeProps()
+        apply_initial_values(props, {"optical_depth": 1.0, "height": 9.0})
+        assert props.optical_depth == 1.0
+        assert not hasattr(props, "height")

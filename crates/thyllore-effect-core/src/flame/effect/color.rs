@@ -40,14 +40,19 @@ pub fn resolve_flame_colors(color: &FlameColor) -> ([f32; 3], [f32; 3], [f32; 3]
     (color.base, mid, color.tip)
 }
 
-/// Planckian chromaticity sampled from the tip temperature (index 0) to the
-/// base temperature (index 7).
+/// Emission chromaticity from the tip temperature (index 0) to the base
+/// temperature (index 7): Planckian when `use_blackbody`, otherwise the authored
+/// tip -> base colors so the RTE path honours `color_base` / `color_tip`.
 pub fn build_temperature_ramp(color: &FlameColor) -> [[f32; 4]; 8] {
-    let cold = color.temperature_tip_k;
-    let hot = color.temperature_base_k;
     std::array::from_fn(|index| {
-        let kelvin = cold + (hot - cold) * index as f32 / 7.0;
-        let rgb = blackbody_rgb(kelvin);
+        let t = index as f32 / 7.0;
+        let rgb = if color.use_blackbody {
+            blackbody_rgb(
+                color.temperature_tip_k + (color.temperature_base_k - color.temperature_tip_k) * t,
+            )
+        } else {
+            std::array::from_fn(|c| color.tip[c] + (color.base[c] - color.tip[c]) * t)
+        };
         [rgb[0], rgb[1], rgb[2], 1.0]
     })
 }
@@ -77,4 +82,31 @@ pub fn build_color_ramp(color: &FlameColor, baked_state: &FlameBaked) -> [[f32; 
             0.0,
         ]
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn temperature_ramp_uses_authored_colors_without_blackbody() {
+        let color = FlameColor {
+            base: [0.15, 0.35, 1.0],
+            tip: [0.45, 0.65, 1.0],
+            use_blackbody: false,
+            ..FlameColor::default()
+        };
+        let ramp = build_temperature_ramp(&color);
+        assert_eq!(&ramp[0][..3], &color.tip);
+        assert_eq!(&ramp[7][..3], &color.base);
+        assert!((ramp[3][0] - (0.45 + (0.15 - 0.45) * 3.0 / 7.0)).abs() < 1e-6);
+    }
+
+    #[test]
+    fn temperature_ramp_is_planckian_with_blackbody() {
+        let color = FlameColor::default();
+        let ramp = build_temperature_ramp(&color);
+        assert_eq!(&ramp[0][..3], &blackbody_rgb(color.temperature_tip_k));
+        assert_eq!(&ramp[7][..3], &blackbody_rgb(color.temperature_base_k));
+    }
 }

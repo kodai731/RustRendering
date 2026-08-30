@@ -6,6 +6,16 @@ import bpy
 SCREENSHOT_DIR = os.environ.get("THYLLORE_SCREENSHOT_DIR", "")
 SCREENSHOT_DELAY_SECONDS = float(os.environ.get("THYLLORE_SCREENSHOT_DELAY", "3"))
 QUIT_AFTER_SCREENSHOT = os.environ.get("THYLLORE_SCREENSHOT_QUIT", "") == "1"
+FLAME_PRESET = os.environ.get("THYLLORE_FLAME_PRESET", "")
+
+
+def apply_preset_override():
+    if not FLAME_PRESET:
+        return
+    for obj in bpy.context.scene.objects:
+        if obj.thyllore_flame.is_flame:
+            obj.thyllore_flame.preset = FLAME_PRESET
+            print(f"[flame/embed] {obj.name} preset -> {FLAME_PRESET}", flush=True)
 
 
 def add_campfire():
@@ -46,5 +56,6 @@ def take_screenshot():
 
 
 add_campfire()
+apply_preset_override()
 if SCREENSHOT_DIR:
     bpy.app.timers.register(take_screenshot, first_interval=SCREENSHOT_DELAY_SECONDS)
