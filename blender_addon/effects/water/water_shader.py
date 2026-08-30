@@ -1,6 +1,10 @@
 import json
 import struct
 
+from ._common import _import_shared
+
+shader_info = _import_shared("shader_info")
+
 
 def pack_frame_ubo(
     view: list[list[float]],
@@ -31,7 +35,10 @@ def build_water_shader(glsl_path: str, bindings_path: str):
     with open(bindings_path) as f:
         bindings = json.load(f)
 
+    typedef, body = shader_info.split_typedef_and_body(glsl_text)
+
     info = gpu.types.GPUShaderCreateInfo()
+    info.typedef_source(typedef)
     info.uniform_buf(0, "FrameUBO", "frame")
     info.uniform_buf(1, "WaterUBO", "water")
     for i, sampler in enumerate(bindings["samplers"]):
@@ -42,7 +49,9 @@ def build_water_shader(glsl_path: str, bindings_path: str):
     info.vertex_out(iface)
     info.fragment_out(0, "VEC4", "outColor")
     info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
-    info.fragment_source(glsl_text)
+    pc = bindings["push_constants"][0]
+    wanted = {"push.secondaryRays": 1.0, "push.debugView": 0.0}
+    info.fragment_source(shader_info.push_prelude(pc["type"], pc["members"]) + shader_info.specialize_body(body, {k: v for k, v in wanted.items() if k in body}))
     return gpu.shader.create_from_info(info)
 
 

@@ -124,7 +124,7 @@ def build_water_property_group():
     annotations["is_water"] = bpy.props.BoolProperty(default=False)
     annotations["preset"] = bpy.props.EnumProperty(
         items=[(n, n.title(), "") for n in fx.water_preset_names()],
-        default="default",
+        default="pond",
         update=apply_preset,
     )
 

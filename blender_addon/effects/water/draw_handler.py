@@ -90,7 +90,7 @@ class WaterViewportRenderer:
         with self.fb_color.bind():
             self.fb_color.clear(color=(0.0, 0.0, 0.0, 0.0))
 
-    def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h, depth_tex=None, flip_y=True):
+    def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h, flip_y=True):
         import gpu
         import thyllore_effect_core as fx
 
@@ -120,8 +120,6 @@ class WaterViewportRenderer:
                 shader.bind()
                 shader.uniform_block("frame", self.frame_ubo)
                 shader.uniform_block("water", self.water_ubo)
-                if depth_tex is not None:
-                    shader.uniform_sampler("sceneDepthSampler", depth_tex)
                 from gpu_extras.batch import batch_for_shader
                 batch = batch_for_shader(shader, "TRIS", {"pos": [(-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0)]})
                 batch.draw(shader)
@@ -193,7 +191,7 @@ def draw_water():
         position = coordinates.blender_to_engine_point(obj.matrix_world.translation)
         rotation = coordinates.blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
         last_color = renderer.render(
-            view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h, depth_tex=_scene_depth
+            view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h
         )
 
     report_first_draw(w, h, camera_pos, water_objects, time.perf_counter() - render_started)

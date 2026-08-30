@@ -13,6 +13,8 @@ class THYLLORE_OT_water_add(bpy.types.Operator):
         return context.mode == "OBJECT"
 
     def execute(self, context):
+        import thyllore_effect_core as fx
+
         cursor_location = context.scene.cursor.location
 
         obj = bpy.data.objects.new("Water", None)
@@ -23,7 +25,7 @@ class THYLLORE_OT_water_add(bpy.types.Operator):
         context.collection.objects.link(obj)
 
         obj.thyllore_water.is_water = True
-        obj.thyllore_water.preset = "default"
+        obj.thyllore_water.preset = fx.water_preset_names()[0]
 
         context.view_layer.objects.active = obj
         obj.select_set(True)
