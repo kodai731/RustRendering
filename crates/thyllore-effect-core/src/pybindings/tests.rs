@@ -265,3 +265,22 @@ fn test_bounds_corners_follow_position_and_height() {
         );
     });
 }
+
+#[test]
+fn test_effective_optical_depth_falls_back_to_sigma_t_times_radius() {
+    Python::attach(|py| {
+        let campfire = super::flame_preset_params(py, "campfire").unwrap();
+        let depth = super::flame_effective_optical_depth(py, &campfire).unwrap();
+        assert!(
+            (depth - 0.6).abs() < 1e-5,
+            "campfire sigma_t 1.0 * radius 0.6, got {depth}"
+        );
+
+        campfire.set_item("optical_depth", 3.0).unwrap();
+        let depth = super::flame_effective_optical_depth(py, &campfire).unwrap();
+        assert!(
+            (depth - 3.0).abs() < 1e-5,
+            "explicit optical_depth wins, got {depth}"
+        );
+    });
+}

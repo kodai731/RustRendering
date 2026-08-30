@@ -1,9 +1,9 @@
 use crate::flame::{
-    apply_flame_preset, build_flame_model_matrix, build_flame_ubo, flame_bend_offset,
-    flame_local_bounds, flame_local_bounds_corners, flame_proxy_pad, flame_support_scale,
-    overwrite_persisted_fields, parameter_owner, refresh_flame_coefficients, FlameBaked,
-    FlameEffect, FlameTemporalAccum, FlameUBO, FLAME_PRESET_NAMES, FLAME_UI_PARAMS,
-    TEXTURE_FIT_COLOR_PARAMETERS,
+    apply_flame_preset, build_flame_model_matrix, build_flame_ubo, effective_sigma_t,
+    flame_bend_offset, flame_local_bounds, flame_local_bounds_corners, flame_proxy_pad,
+    flame_support_scale, overwrite_persisted_fields, parameter_owner, refresh_flame_coefficients,
+    FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO, FLAME_PRESET_NAMES, FLAME_UI_PARAMS,
+    MIN_FLAME_EXTENT, TEXTURE_FIT_COLOR_PARAMETERS,
 };
 use cgmath::{Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
@@ -249,6 +249,15 @@ fn flame_shader_specialization<'py>(
     Ok(dict)
 }
 
+/// Optical depth the effect really renders with: `optical_depth` when set,
+/// otherwise `sigma_t * radius` (the `0 = use sigma_t directly` convention).
+#[pyfunction]
+fn flame_effective_optical_depth(py: Python<'_>, params: &Bound<'_, PyDict>) -> PyResult<f32> {
+    let (effect, _) =
+        build_effect_from_params(py, params, 0.0, [0.0; 3], [1.0, 0.0, 0.0, 0.0], None)?;
+    Ok(effective_sigma_t(&effect) * effect.radius.max(MIN_FLAME_EXTENT))
+}
+
 #[pyfunction]
 fn flame_ubo_size() -> usize {
     std::mem::size_of::<FlameUBO>()
@@ -258,6 +267,7 @@ fn flame_ubo_size() -> usize {
 fn thyllore_effect_core(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flame_preset_names, m)?)?;
     m.add_function(wrap_pyfunction!(flame_ui_params, m)?)?;
+    m.add_function(wrap_pyfunction!(flame_effective_optical_depth, m)?)?;
     m.add_function(wrap_pyfunction!(flame_preset_params, m)?)?;
     m.add_function(wrap_pyfunction!(pack_flame_ubo, m)?)?;
     m.add_function(wrap_pyfunction!(flame_ubo_size, m)?)?;

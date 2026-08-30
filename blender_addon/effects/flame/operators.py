@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import bpy
 
-from .properties import apply_initial_values
-
 
 class THYLLORE_OT_flame_add(bpy.types.Operator):
 
@@ -26,7 +24,6 @@ class THYLLORE_OT_flame_add(bpy.types.Operator):
 
         obj.thyllore_flame.is_flame = True
         obj.thyllore_flame.preset = "campfire"
-        apply_initial_values(obj.thyllore_flame)
 
         context.view_layer.objects.active = obj
         obj.select_set(True)

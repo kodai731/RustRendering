@@ -6,6 +6,3 @@
 names = ["height", "radius", "intensity", "optical_depth", "use_blackbody"]
 prefixes = ["noise_", "color_", "temperature_"]
 
-# Values applied once when a flame is added (after the campfire preset).
-[initial]
-optical_depth = 1.0

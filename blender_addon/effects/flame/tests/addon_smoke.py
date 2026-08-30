@@ -34,7 +34,7 @@ addon.register()
 bpy.ops.thyllore.flame_add()
 obj = bpy.context.active_object
 
-assert abs(obj.thyllore_flame.optical_depth - 1.0) < 1e-5, "initial optical_depth from flame_params.toml"
+assert abs(obj.thyllore_flame.optical_depth - 0.6) < 1e-5, "campfire effective optical depth = sigma_t 1.0 * radius 0.6"
 assert abs(obj.thyllore_flame.height - 1.6) < 1e-5, (
     f"campfire height expected 1.6, got {obj.thyllore_flame.height}"
 )

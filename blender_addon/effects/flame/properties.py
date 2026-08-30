@@ -11,18 +11,13 @@ def load_exposed_param_rules(params_file: Path = PARAMS_FILE) -> dict:
     return {"names": tuple(exposed["names"]), "prefixes": tuple(exposed["prefixes"])}
 
 
-def load_initial_values(params_file: Path = PARAMS_FILE) -> dict:
-    return dict(tomllib.loads(params_file.read_text(encoding="utf-8")).get("initial", {}))
-
-
 EXPOSED_PARAM_RULES = load_exposed_param_rules()
-INITIAL_VALUES = load_initial_values()
 
 
-def apply_initial_values(props, initial_values: dict = INITIAL_VALUES) -> None:
-    for name, value in initial_values.items():
-        if name in type(props).PARAM_NAMES:
-            setattr(props, name, value)
+def resolve_preset_values(preset_values: dict, effective_optical_depth: float) -> dict:
+    resolved = dict(preset_values)
+    resolved["optical_depth"] = effective_optical_depth
+    return resolved
 
 
 def precision_from_format(fmt: str) -> int:
@@ -89,6 +84,7 @@ def build_flame_property_group():
 
     def apply_preset(self, context):
         preset_values = fx.flame_preset_params(self.preset)
+        preset_values = resolve_preset_values(preset_values, fx.flame_effective_optical_depth(preset_values))
         for name in param_names:
             if name in preset_values:
                 setattr(self, name, preset_values[name])

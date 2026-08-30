@@ -5,15 +5,14 @@ import pytest
 
 from blender_addon.effects.flame.properties import (
     EXPOSED_PARAM_RULES,
-    INITIAL_VALUES,
     PARAMS_FILE,
-    apply_initial_values,
     collect_params,
     is_exposed_param,
     load_exposed_param_rules,
     merge_preset_params,
     precision_from_format,
     property_kind,
+    resolve_preset_values,
     select_exposed_params,
 )
 
@@ -151,16 +150,13 @@ class TestMergePresetParams:
         assert preset == {"height": 1.6}
 
 
-class TestInitialValues:
-    def test_initial_values_come_from_flame_params_toml(self):
-        assert INITIAL_VALUES == {"optical_depth": 1.0}
 
-    def test_apply_sets_only_exposed_params(self):
-        class FakeProps:
-            PARAM_NAMES = ["optical_depth"]
-            optical_depth = 0.0
+class TestResolvePresetValues:
+    def test_optical_depth_takes_the_effective_value(self):
+        resolved = resolve_preset_values({"optical_depth": 0.0, "radius": 0.6}, 0.6)
+        assert resolved == {"optical_depth": 0.6, "radius": 0.6}
 
-        props = FakeProps()
-        apply_initial_values(props, {"optical_depth": 1.0, "height": 9.0})
-        assert props.optical_depth == 1.0
-        assert not hasattr(props, "height")
+    def test_input_is_not_mutated(self):
+        preset = {"optical_depth": 0.0}
+        resolve_preset_values(preset, 0.6)
+        assert preset == {"optical_depth": 0.0}
