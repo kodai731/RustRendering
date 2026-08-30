@@ -3,10 +3,7 @@ use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
 use super::pick::pick_torus;
 use super::project::{project_to_torus, water_surface_normal, water_surface_point};
 use super::torus_intersect::{intersect_torus, torus_implicit};
-use super::wave::{
-    generate_water_wave_modes, water_height_and_gradient, water_perturbed_normal, WaterWaveMode,
-    WATER_WAVE_MODE_COUNT,
-};
+use super::wave::{generate_water_wave_modes, water_height_and_gradient, water_perturbed_normal};
 
 fn random_in_unit_sphere() -> Vector3<f32> {
     let mut x: f32 = 0.0;
@@ -292,7 +289,7 @@ fn test_wave_numerical_gradient() {
     let v = 0.3;
     let time = 1.0;
 
-    let (h, h_u, h_v) = water_height_and_gradient(u, v, time, flow, &modes);
+    let (_h, h_u, h_v) = water_height_and_gradient(u, v, time, flow, &modes);
 
     let delta = 1e-3;
     let (h_u_num, _, _) = water_height_and_gradient(u + delta, v, time, flow, &modes);

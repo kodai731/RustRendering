@@ -33,23 +33,19 @@ pub fn generate_water_wave_modes(
     let mut modes: [WaterWaveMode; WATER_WAVE_MODE_COUNT] =
         [WaterWaveMode::default(); WATER_WAVE_MODE_COUNT];
 
-    // First pass: compute m, n, omega, phase and raw amplitudes
     for k in 0..WATER_WAVE_MODE_COUNT {
         let mut m = (wave_frequency * F[k]).round() as i32;
-        let mut n = (wave_frequency * G[k]).round() as i32;
+        let n = (wave_frequency * G[k]).round() as i32;
 
-        // If (m, n) == (0, 0), set m = 1
         if m == 0 && n == 0 {
             m = 1;
         }
 
         let omega = wave_speed * ((m * m + n * n) as f32).sqrt();
 
-        // Phase from LCG in [0, 2π)
         let phase =
             (lcg_next(&mut state) as f64 / (1u64 << 63) as f64 * 2.0 * std::f64::consts::PI) as f32;
 
-        // Raw amplitude = wave_amplitude * 2^(-k/2)
         let raw_amplitude = wave_amplitude * (2.0_f32).powi(-(k as i32) / 2);
 
         modes[k] = WaterWaveMode {
@@ -61,7 +57,6 @@ pub fn generate_water_wave_modes(
         };
     }
 
-    // Normalize amplitudes so Σ amplitude ≈ wave_amplitude
     let sum: f32 = modes.iter().map(|m| m.amplitude).sum();
     if sum > 1e-6 {
         let scale = wave_amplitude / sum;
@@ -124,16 +119,12 @@ pub fn water_perturbed_normal(
     let cos_v = v.cos();
     let sin_v = v.sin();
 
-    // Tangent vectors and surface normal
     let e_u = Vector3::new(-sin_u, 0.0, cos_u);
     let e_v = Vector3::new(-sin_v * cos_u, cos_v, -sin_v * sin_u);
     let n = Vector3::new(cos_v * cos_u, sin_v, cos_v * sin_u);
-
-    // Curvatures
     let kappa1 = 1.0 / minor_radius;
     let kappa2 = cos_v / (major_radius + minor_radius * cos_v);
 
-    // Perturbed normal
     let mut n_prime = (1.0 + h * kappa1) * (1.0 + h * kappa2) * n
         - (1.0 + h * kappa1) * h_u / (major_radius + minor_radius * cos_v) * e_u
         - (1.0 + h * kappa2) * h_v / minor_radius * e_v;

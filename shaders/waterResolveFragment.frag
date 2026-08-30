@@ -12,6 +12,8 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 
 #include "include/water_component.glsl"
 #include "include/water_torus_intersect.glsl"
+#include "include/water_flow.glsl"
+#include "include/water_surface.glsl"
 
 
 layout(location = 0) in vec2 fragTexCoord;
@@ -66,9 +68,32 @@ void main() {
         chord = (roots[1] - roots[0]) * water.radii.x;
     }
 
-    // Surface normal at first hit
+    // Surface normal at first hit via analytic wave gradient
     vec3 pLocal1 = pLocalOrigin + roots[0] * dLocal;
-    vec3 n = normalize(mat3(water.model) * torusGradient(pLocal1, water.radii.y / water.radii.x));
+    float rHat = water.radii.y / water.radii.x;
+    vec2 uv = torusUV(pLocal1);
+
+    float du_dx = dFdx(uv.x);
+    float du_dy = dFdy(uv.x);
+    float dv_dx = dFdx(uv.y);
+    float dv_dy = dFdy(uv.y);
+    vec2 footprint = vec2(length(vec2(du_dx, du_dy)), length(vec2(dv_dx, dv_dy)));
+
+    if (abs(du_dx) > 3.0) {
+        footprint.x = 0.0;
+    }
+
+    float h, hu, hv, var;
+    waterHeightAndGradient(uv, water.flow.z, water.flow.xy, int(water.composite.z), footprint, h, hu, hv, var);
+
+    vec3 nLocal = waterPerturbedNormal(uv.x, uv.y, h, hu, hv, rHat);
+    vec3 n = normalize(mat3(water.model) * nLocal);
+
+    // Debug view: normal visualization
+    if (push.debugView == 2) {
+        outColor = vec4(n * 0.5 + 0.5, 1.0);
+        return;
+    }
 
     // Fresnel: Aqoole Reflectance P/S (average of parallel and perpendicular)
     float eta = water.absorption.w;
@@ -83,7 +108,7 @@ void main() {
     // Reflection: constant environment + specular highlight
     vec3 reflDir = reflect(rayDir, n);
     vec3 lightDir = normalize(frame.light_pos.xyz - p1);
-    float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0);
+    float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
     vec3 reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
 
     // Transmission: tint * exp(-absorption * chord)
