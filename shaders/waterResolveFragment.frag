@@ -113,8 +113,44 @@ void main() {
     float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
     vec3 reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
 
-    // Transmission: scene color * exp(-absorption * chord)
-    vec3 transmission = texture(sceneColorSampler, fragTexCoord).rgb * exp(-water.absorption.rgb * chord);
+    // Transmission: exit-point refraction
+    vec3 dRefr = refract(dLocal, nLocal, 1.0 / eta);
+    if (length(dRefr) < 1e-4) {
+        dRefr = reflect(dLocal, nLocal);
+    }
+
+    float exitRoots[4];
+    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots);
+    vec3 pExitLocal;
+    if (exitCount > 0) {
+        pExitLocal = pLocal1 + dRefr * (1e-3 + exitRoots[0]);
+    } else {
+        pExitLocal = pLocal1;
+    }
+
+    // Secondary TIR check at exit point
+    vec3 nExit = normalize(torusGradient(pExitLocal, rHat));
+    vec3 dExit = refract(dRefr, -nExit, eta);
+    if (length(dExit) < 1e-4) {
+        dRefr = reflect(dRefr, nExit);
+        float reRoots[4];
+        int reCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, reRoots);
+        if (reCount > 0) {
+            pExitLocal = pLocal1 + dRefr * (1e-3 + reRoots[0]);
+        }
+    }
+
+    vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
+    vec4 clip = frame.proj * frame.view * pExitWorld;
+    vec3 background;
+    if (clip.w > 0) {
+        vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
+        background = texture(sceneColorSampler, uvExit).rgb;
+    } else {
+        background = texture(sceneColorSampler, fragTexCoord).rgb;
+    }
+
+    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
 
     // Composite output
     outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
