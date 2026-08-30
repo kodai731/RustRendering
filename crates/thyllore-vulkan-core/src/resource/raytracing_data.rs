@@ -509,7 +509,6 @@ impl RayTracingData {
         rrrender: &RRRender,
         graphics_resources: &GraphicsResources,
         water_buffer: &WaterBuffer,
-        scene_depth_view: vk::ImageView,
     ) -> Result<()> {
         let water_ubo = UniformBuffer::new(
             instance,
@@ -520,7 +519,7 @@ impl RayTracingData {
         water_ubo.write_slot(rrdevice, 0, &WaterUBO::default())?;
 
         let water_descriptor = RRWaterDescriptorSet::new(rrdevice)?;
-        water_descriptor.write_all(rrdevice, &water_ubo, scene_depth_view)?;
+        water_descriptor.write_all(rrdevice, &water_ubo)?;
 
         let water_shading_pipeline = PipelineBuilder::from_pass(&WATER_RESOLVE)
             .vertex_input(VertexInputConfig::Custom {

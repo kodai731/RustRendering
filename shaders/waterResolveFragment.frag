@@ -13,7 +13,6 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 #include "include/water_component.glsl"
 #include "include/water_torus_intersect.glsl"
 
-layout(set = 1, binding = 1) uniform sampler2D sceneDepthSampler;
 
 layout(location = 0) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
@@ -57,12 +56,7 @@ void main() {
     float t1 = roots[0] * water.radii.x;
     vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
 
-    // Depth test against scene depth
-    float sceneDepth = texture(sceneDepthSampler, fragTexCoord).r;
     float waterDepth = worldToClipDepth(p1, frame.view, frame.proj);
-    if (sceneDepth > waterDepth) {
-        discard;
-    }
 
     // Compute chord length in world units
     float chord;
