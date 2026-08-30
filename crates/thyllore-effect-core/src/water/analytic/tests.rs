@@ -30,21 +30,22 @@ fn test_intersect_torus_residuals_and_root_counts() {
 
     for _ in 0..10000 {
         let ratio = fastrand::f32() * 18.0 + 2.0;
-        let r = fastrand::f32() * 0.5 + 0.1;
-        let R = ratio * r;
-        let r_hat = r / R;
+        let minor_radius = fastrand::f32() * 0.5 + 0.1;
+        let major_radius = ratio * minor_radius;
+        let r_hat = minor_radius / major_radius;
         let is_nearby = fastrand::usize(..4) == 0;
         let origin = if is_nearby {
-            let scale = fastrand::f32() * (R + r) * 1.5;
+            let scale = fastrand::f32() * (major_radius + minor_radius) * 1.5;
             random_in_unit_sphere() * scale
         } else {
-            let scale = fastrand::f32() * (R + r) * 5.0 + (R + r);
+            let scale = fastrand::f32() * (major_radius + minor_radius) * 5.0
+                + (major_radius + minor_radius);
             random_in_unit_sphere() * scale
         };
 
         let dir = random_direction();
 
-        let hits = intersect_torus(origin, dir, R, r);
+        let hits = intersect_torus(origin, dir, major_radius, minor_radius);
         total_rays += 1;
 
         if hits.fallback_used {
@@ -53,29 +54,29 @@ fn test_intersect_torus_residuals_and_root_counts() {
 
         assert!(
             hits.count == 0 || hits.count == 2 || hits.count == 4,
-            "count={} for origin={:?} dir={:?} R={} r={}",
+            "count={} for origin={:?} dir={:?} major_radius={} minor_radius={}",
             hits.count,
             origin,
             dir,
-            R,
-            r
+            major_radius,
+            minor_radius
         );
 
         for i in 0..hits.count as usize {
             let t = hits.roots[i];
             let p = origin + dir * t;
-            let p_norm = Vector3::new(p.x / R, p.y / R, p.z / R);
+            let p_norm = Vector3::new(p.x / major_radius, p.y / major_radius, p.z / major_radius);
             let residual = torus_implicit(p_norm, r_hat);
             assert!(
                 residual.abs() < 1e-5,
-                "root[{}] residual={:.6} t={} origin={:?} dir={:?} R={} r={}",
+                "root[{}] residual={:.6} t={} origin={:?} dir={:?} major_radius={} minor_radius={}",
                 i,
                 residual,
                 t,
                 origin,
                 dir,
-                R,
-                r
+                major_radius,
+                minor_radius
             );
         }
     }
@@ -91,30 +92,34 @@ fn test_intersect_torus_residuals_and_root_counts() {
 fn test_project_to_torus_residual_and_identity() {
     for _ in 0..10000 {
         let ratio = fastrand::f32() * 18.0 + 2.0;
-        let r = fastrand::f32() * 0.5 + 0.1;
-        let R = ratio * r;
-        let r_hat = r / R;
+        let minor_radius = fastrand::f32() * 0.5 + 0.1;
+        let major_radius = ratio * minor_radius;
+        let r_hat = minor_radius / major_radius;
 
-        let p = random_in_unit_sphere() * (R + r) * 2.0;
+        let p = random_in_unit_sphere() * (major_radius + minor_radius) * 2.0;
 
-        let proj = project_to_torus(p, R, r);
+        let proj = project_to_torus(p, major_radius, minor_radius);
 
-        let p_norm = Vector3::new(proj.point.x / R, proj.point.y / R, proj.point.z / R);
+        let p_norm = Vector3::new(
+            proj.point.x / major_radius,
+            proj.point.y / major_radius,
+            proj.point.z / major_radius,
+        );
         let residual = torus_implicit(p_norm, r_hat);
         assert!(
             residual.abs() < 1e-6,
-            "projection residual={:.8} p={:?} proj={:?} R={} r={}",
+            "projection residual={:.8} p={:?} proj={:?} major_radius={} minor_radius={}",
             residual,
             p,
             proj.point,
-            R,
-            r
+            major_radius,
+            minor_radius
         );
 
-        let surface_point = water_surface_point(proj.u, proj.v, R, r);
+        let surface_point = water_surface_point(proj.u, proj.v, major_radius, minor_radius);
         let diff = (surface_point - proj.point).magnitude();
         assert!(
-            diff < 1e-5 * R.max(1.0),
+            diff < 1e-5 * major_radius.max(1.0),
             "identity diff={:.8} p={:?} proj={:?} surface={:?} u={} v={}",
             diff,
             p,
@@ -128,19 +133,26 @@ fn test_project_to_torus_residual_and_identity() {
 
 #[test]
 fn test_pick_torus_identity_transform() {
-    let R = 5.0;
-    let r = 1.0;
+    let major_radius = 5.0;
+    let minor_radius = 1.0;
     let model = Matrix4::identity();
     let inverse_model = model.invert().unwrap();
 
     let ray_origin = Vector3::new(0.0, 0.0, -10.0);
     let ray_dir = Vector3::new(0.0, 0.0, 1.0);
 
-    let hit = pick_torus(ray_origin, ray_dir, model, inverse_model, R, r);
+    let hit = pick_torus(
+        ray_origin,
+        ray_dir,
+        model,
+        inverse_model,
+        major_radius,
+        minor_radius,
+    );
     assert!(hit.is_some());
 
     let t = hit.unwrap();
-    let expected_t = 10.0 - (R + r);
+    let expected_t = 10.0 - (major_radius + minor_radius);
     assert!(
         (t - expected_t).abs() < 1e-4,
         "pick hit={:.4} expected={:.4}",
@@ -151,18 +163,18 @@ fn test_pick_torus_identity_transform() {
 
 #[test]
 fn test_water_local_bounds() {
-    let R = 5.0;
-    let r = 1.0;
-    let (min, max) = super::torus_intersect::water_local_bounds(R, r);
+    let major_radius = 5.0;
+    let minor_radius = 1.0;
+    let (min, max) = super::torus_intersect::water_local_bounds(major_radius, minor_radius);
     assert_eq!(min, Vector3::new(-6.0, -1.0, -6.0));
     assert_eq!(max, Vector3::new(6.0, 1.0, 6.0));
 }
 
 #[test]
 fn test_water_local_bounds_corners() {
-    let R = 5.0;
-    let r = 1.0;
-    let corners = super::torus_intersect::water_local_bounds_corners(R, r);
+    let major_radius = 5.0;
+    let minor_radius = 1.0;
+    let corners = super::torus_intersect::water_local_bounds_corners(major_radius, minor_radius);
     assert_eq!(corners.len(), 8);
     for corner in &corners {
         assert!(corner.x >= -6.0 && corner.x <= 6.0);
@@ -181,21 +193,21 @@ fn test_torus_gradient() {
 
 #[test]
 fn test_bounding_sphere_reject() {
-    let R = 5.0;
-    let r = 1.0;
+    let major_radius = 5.0;
+    let minor_radius = 1.0;
     let origin = Vector3::new(100.0, 100.0, 100.0);
     let dir = Vector3::new(0.0, 0.0, 1.0);
-    let hits = intersect_torus(origin, dir, R, r);
+    let hits = intersect_torus(origin, dir, major_radius, minor_radius);
     assert_eq!(hits.count, 0);
 }
 
 #[test]
 fn test_roots_are_sorted() {
-    let R = 5.0;
-    let r = 1.0;
+    let major_radius = 5.0;
+    let minor_radius = 1.0;
     let origin = Vector3::new(0.0, 0.0, -10.0);
     let dir = Vector3::new(0.0, 0.0, 1.0);
-    let hits = intersect_torus(origin, dir, R, r);
+    let hits = intersect_torus(origin, dir, major_radius, minor_radius);
     assert_eq!(hits.count, 4);
     for i in 1..hits.count as usize {
         assert!(
@@ -218,11 +230,11 @@ fn test_roots_are_sorted() {
 
 #[test]
 fn test_roots_are_positive() {
-    let R = 5.0;
-    let r = 1.0;
+    let major_radius = 5.0;
+    let minor_radius = 1.0;
     let origin = Vector3::new(0.0, 0.0, -10.0);
     let dir = Vector3::new(0.0, 0.0, 1.0);
-    let hits = intersect_torus(origin, dir, R, r);
+    let hits = intersect_torus(origin, dir, major_radius, minor_radius);
     for i in 0..hits.count as usize {
         assert!(hits.roots[i] > 0.0, "root[{}] = {}", i, hits.roots[i]);
     }

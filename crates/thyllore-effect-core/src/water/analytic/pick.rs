@@ -1,4 +1,4 @@
-use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3, Vector4};
+use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
 
 use super::torus_intersect::intersect_torus;
 
@@ -7,13 +7,18 @@ pub fn pick_torus(
     ray_dir: Vector3<f32>,
     model: Matrix4<f32>,
     inverse_model: Matrix4<f32>,
-    R: f32,
+    major_radius: f32,
     r: f32,
 ) -> Option<f32> {
     let local_origin = inverse_model * Vector4::new(ray_origin.x, ray_origin.y, ray_origin.z, 1.0);
     let local_dir = inverse_model * Vector4::new(ray_dir.x, ray_dir.y, ray_dir.z, 0.0);
 
-    let hits = intersect_torus(local_origin.truncate(), local_dir.truncate(), R, r);
+    let hits = intersect_torus(
+        local_origin.truncate(),
+        local_dir.truncate(),
+        major_radius,
+        r,
+    );
     if hits.count == 0 {
         return None;
     }
