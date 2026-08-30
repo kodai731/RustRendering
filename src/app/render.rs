@@ -513,13 +513,19 @@ impl App {
 
         // Recreate with new dimensions
         let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
+            &self.instance,
             &self.rrdevice,
             width,
             height,
             hdr_view,
             depth_view,
         )?;
+        let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
         self.data.viewport.water_buffer = Some(water_buffer);
+
+        if let Some(descriptor) = &self.data.raytracing.water_descriptor {
+            descriptor.update_scene_color(&self.rrdevice, scene_color_view, scene_color_sampler)?;
+        }
 
         Ok(())
     }

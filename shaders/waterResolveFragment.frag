@@ -16,6 +16,8 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 #include "include/water_surface.glsl"
 
 
+layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
+
 layout(location = 0) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
 
@@ -111,8 +113,8 @@ void main() {
     float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
     vec3 reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
 
-    // Transmission: tint * exp(-absorption * chord)
-    vec3 transmission = water.tint.rgb * exp(-water.absorption.rgb * chord);
+    // Transmission: scene color * exp(-absorption * chord)
+    vec3 transmission = texture(sceneColorSampler, fragTexCoord).rgb * exp(-water.absorption.rgb * chord);
 
     // Composite output
     outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);

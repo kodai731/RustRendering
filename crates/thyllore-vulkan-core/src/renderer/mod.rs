@@ -31,4 +31,4 @@ pub use push_constants::{
 };
 pub use rayquery::record_ray_query_pass;
 pub use tonemap::{begin_tonemap_render_pass, end_tonemap_render_pass, record_tonemap_draw};
-pub use water::record_water_shading_pass;
+pub use water::{record_water_scene_color_copy, record_water_shading_pass};

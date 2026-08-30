@@ -113,8 +113,9 @@ impl App {
         let w = data.viewport.width;
         let h = data.viewport.height;
 
-        let water_buffer =
-            thyllore_vulkan_core::resource::WaterBuffer::new(rrdevice, w, h, hdr_view, depth_view)?;
+        let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
+            instance, rrdevice, w, h, hdr_view, depth_view,
+        )?;
 
         let water_buffer = data.viewport.water_buffer.insert(water_buffer);
 

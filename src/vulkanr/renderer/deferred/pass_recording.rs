@@ -783,6 +783,10 @@ pub unsafe fn record_water_passes(
         return Ok(());
     };
 
+    let Some(hdr_buffer) = app.data.viewport.hdr_buffer.as_ref() else {
+        return Ok(());
+    };
+
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
     let waters: Vec<_> = app.data.ecs_world.query_waters();
@@ -794,6 +798,13 @@ pub unsafe fn record_water_passes(
     if instance_count == 0 {
         return Ok(());
     }
+
+    thyllore_vulkan_core::renderer::record_water_scene_color_copy(
+        &ctx,
+        hdr_buffer.color_image,
+        water_buffer,
+        command_buffer,
+    );
 
     for i in 0..instance_count {
         let water = waters[i];

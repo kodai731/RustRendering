@@ -3,6 +3,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
+use crate::resource::image::{create_image, create_image_view};
 
 #[derive(Clone, Debug, Default)]
 pub struct WaterBuffer {
@@ -10,10 +11,15 @@ pub struct WaterBuffer {
     pub framebuffer: vk::Framebuffer,
     pub width: u32,
     pub height: u32,
+    pub scene_color_image: vk::Image,
+    pub scene_color_image_memory: vk::DeviceMemory,
+    pub scene_color_image_view: vk::ImageView,
+    pub scene_color_sampler: vk::Sampler,
 }
 
 impl WaterBuffer {
     pub unsafe fn new(
+        instance: &Instance,
         rrdevice: &RRDevice,
         width: u32,
         height: u32,
@@ -33,6 +39,30 @@ impl WaterBuffer {
             .device
             .create_framebuffer(&framebuffer_info, None)?;
 
+        // Create scene color image (TRANSFER_DST | SAMPLED)
+        let (scene_color_image, scene_color_image_memory) = create_image(
+            instance,
+            rrdevice,
+            width,
+            height,
+            1,
+            vk::SampleCountFlags::_1,
+            HDR_FORMAT,
+            vk::ImageTiling::OPTIMAL,
+            vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        let scene_color_image_view = create_image_view(
+            rrdevice,
+            scene_color_image,
+            HDR_FORMAT,
+            vk::ImageAspectFlags::COLOR,
+            1,
+        )?;
+
+        let scene_color_sampler = Self::create_scene_color_sampler(rrdevice)?;
+
         log!("Created water buffer: {}x{}", width, height);
 
         Ok(Self {
@@ -40,6 +70,10 @@ impl WaterBuffer {
             framebuffer,
             width,
             height,
+            scene_color_image,
+            scene_color_image_memory,
+            scene_color_image_view,
+            scene_color_sampler,
         })
     }
 
@@ -137,8 +171,25 @@ impl WaterBuffer {
         Ok(rrdevice.device.create_render_pass(&info, None)?)
     }
 
+    unsafe fn create_scene_color_sampler(rrdevice: &RRDevice) -> Result<vk::Sampler> {
+        let address_mode = vk::SamplerAddressMode::CLAMP_TO_EDGE;
+        let info = vk::SamplerCreateInfo::builder()
+            .mag_filter(vk::Filter::LINEAR)
+            .min_filter(vk::Filter::LINEAR)
+            .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
+            .address_mode_u(address_mode)
+            .address_mode_v(address_mode)
+            .address_mode_w(address_mode)
+            .border_color(vk::BorderColor::FLOAT_OPAQUE_BLACK)
+            .anisotropy_enable(false)
+            .max_anisotropy(1.0);
+
+        Ok(rrdevice.device.create_sampler(&info, None)?)
+    }
+
     pub unsafe fn resize(
         &mut self,
+        instance: &Instance,
         rrdevice: &RRDevice,
         new_width: u32,
         new_height: u32,
@@ -147,6 +198,7 @@ impl WaterBuffer {
     ) -> Result<()> {
         self.destroy(&rrdevice.device);
         *self = Self::new(
+            instance,
             rrdevice,
             new_width,
             new_height,
@@ -168,6 +220,24 @@ impl WaterBuffer {
             self.render_pass = vk::RenderPass::null();
         }
 
+        // Destroy scene color resources
+        if self.scene_color_sampler != vk::Sampler::null() {
+            device.destroy_sampler(self.scene_color_sampler, None);
+            self.scene_color_sampler = vk::Sampler::null();
+        }
+        if self.scene_color_image_view != vk::ImageView::null() {
+            device.destroy_image_view(self.scene_color_image_view, None);
+            self.scene_color_image_view = vk::ImageView::null();
+        }
+        if self.scene_color_image != vk::Image::null() {
+            device.destroy_image(self.scene_color_image, None);
+            self.scene_color_image = vk::Image::null();
+        }
+        if self.scene_color_image_memory != vk::DeviceMemory::null() {
+            device.free_memory(self.scene_color_image_memory, None);
+            self.scene_color_image_memory = vk::DeviceMemory::null();
+        }
+
         log!("Destroyed water buffer");
     }
 
@@ -176,6 +246,10 @@ impl WaterBuffer {
             width: self.width,
             height: self.height,
         }
+    }
+
+    pub fn scene_color_binding(&self) -> (vk::ImageView, vk::Sampler) {
+        (self.scene_color_image_view, self.scene_color_sampler)
     }
 }
 

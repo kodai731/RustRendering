@@ -519,7 +519,8 @@ impl RayTracingData {
         water_ubo.write_slot(rrdevice, 0, &WaterUBO::default())?;
 
         let water_descriptor = RRWaterDescriptorSet::new(rrdevice)?;
-        water_descriptor.write_all(rrdevice, &water_ubo)?;
+        let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
+        water_descriptor.write_all(rrdevice, &water_ubo, scene_color_view, scene_color_sampler)?;
 
         let water_shading_pipeline = PipelineBuilder::from_pass(&WATER_RESOLVE)
             .vertex_input(VertexInputConfig::Custom {

@@ -34,10 +34,36 @@ impl RRWaterDescriptorSet {
         &self,
         rrdevice: &RRDevice,
         water_ubo: &UniformBuffer<WaterUBO>,
+        scene_color_view: vk::ImageView,
+        scene_color_sampler: vk::Sampler,
     ) -> Result<()> {
         self.layout
             .writer(self.descriptor_set)
             .uniform_dynamic(water_resolve::WATER, water_ubo)?
+            .image(
+                water_resolve::SCENE_COLOR_SAMPLER,
+                scene_color_view,
+                scene_color_sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .apply(rrdevice);
+        Ok(())
+    }
+
+    pub unsafe fn update_scene_color(
+        &self,
+        rrdevice: &RRDevice,
+        view: vk::ImageView,
+        sampler: vk::Sampler,
+    ) -> Result<()> {
+        self.layout
+            .writer(self.descriptor_set)
+            .image(
+                water_resolve::SCENE_COLOR_SAMPLER,
+                view,
+                sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
             .apply(rrdevice);
         Ok(())
     }
