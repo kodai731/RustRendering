@@ -23,6 +23,18 @@ def property_kind(default) -> str:
     return "float"
 
 
+EXPOSED_PARAM_NAMES = ("height", "radius", "optical_depth")
+EXPOSED_PARAM_PREFIX = "noise_"
+
+
+def is_exposed_param(name: str) -> bool:
+    return name in EXPOSED_PARAM_NAMES or name.startswith(EXPOSED_PARAM_PREFIX)
+
+
+def select_exposed_params(ui_params: list[dict]) -> list[dict]:
+    return [p for p in ui_params if is_exposed_param(p["name"])]
+
+
 def collect_params(props, names: list[str]) -> dict:
     result = {}
     for name in names:
@@ -34,19 +46,26 @@ def collect_params(props, names: list[str]) -> dict:
     return result
 
 
+def merge_preset_params(preset_values: dict, exposed_values: dict) -> dict:
+    merged = dict(preset_values)
+    merged.update(exposed_values)
+    return merged
+
+
+def flame_render_params(props) -> dict:
+    import thyllore_effect_core as fx
+
+    preset_values = fx.flame_preset_params(props.preset)
+    exposed_values = collect_params(props, type(props).PARAM_NAMES)
+    return merge_preset_params(preset_values, exposed_values)
+
+
 def build_flame_property_group():
     import bpy
     import thyllore_effect_core as fx
 
-    ui_params = fx.flame_ui_params()
+    ui_params = select_exposed_params(fx.flame_ui_params())
     param_names = [p["name"] for p in ui_params]
-
-    param_owners: dict[str, list[str]] = {}
-    for p in ui_params:
-        owner = p["owner"]
-        if owner not in param_owners:
-            param_owners[owner] = []
-        param_owners[owner].append(p["name"])
 
     def apply_preset(self, context):
         preset_values = fx.flame_preset_params(self.preset)
@@ -109,7 +128,6 @@ def build_flame_property_group():
     attrs = {
         "__annotations__": annotations,
         "PARAM_NAMES": param_names,
-        "PARAM_OWNERS": param_owners,
         "__module__": __name__,
     }
 

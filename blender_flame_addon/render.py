@@ -9,7 +9,7 @@ from .coordinates import (
     z_pass_to_engine_depth,
 )
 from .draw_handler import FlameViewportRenderer
-from .properties import collect_params
+from .properties import flame_render_params
 
 
 def capture_scene_depth(scene, w, h, near):
@@ -95,9 +95,7 @@ def render_flame_sequence(scene, obj, out_dir, frame_start, frame_end, write_npy
         if light_pos is None:
             light_pos = (position[0], position[1] + 2.0, position[2] + 2.0)
 
-        props = obj.thyllore_flame
-        cls = type(props)
-        params = collect_params(props, cls.PARAM_NAMES)
+        params = flame_render_params(obj.thyllore_flame)
 
         depth_values = None
         if use_scene_depth:

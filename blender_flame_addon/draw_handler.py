@@ -198,7 +198,7 @@ def draw_flames():
     from gpu_extras.batch import batch_for_shader
     from mathutils import Matrix
 
-    from .properties import collect_params
+    from .properties import flame_render_params
 
     context = bpy.context
     region = context.region
@@ -234,9 +234,7 @@ def draw_flames():
         if name not in _renderers:
             _renderers[name] = FlameViewportRenderer()
         renderer = _renderers[name]
-        props = obj.thyllore_flame
-        cls = type(props)
-        params = collect_params(props, cls.PARAM_NAMES)
+        params = flame_render_params(obj.thyllore_flame)
         position = blender_to_engine_point(obj.matrix_world.translation)
         rotation = blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
         if light_pos is None:

@@ -43,14 +43,16 @@ assert abs(obj.thyllore_flame.height - 0.28) < 1e-5, (
     f"candle height expected 0.28, got {obj.thyllore_flame.height}"
 )
 
-from blender_flame_addon.properties import collect_params
+from blender_flame_addon.properties import flame_render_params
 
 cls = addon.properties._registered_cls
-campfire_params = fx.flame_preset_params("campfire")
-collected = collect_params(obj.thyllore_flame, cls.PARAM_NAMES)
-assert set(collected.keys()).issubset(set(campfire_params.keys())), (
-    f"collected keys {set(collected.keys())} not subset of preset keys {set(campfire_params.keys())}"
+assert set(cls.PARAM_NAMES) == {"height", "radius", "optical_depth", "noise_amplitude", "noise_contrast", "noise_aniso_y"}, (
+    f"unexpected exposed params {cls.PARAM_NAMES}"
 )
+candle_params = fx.flame_preset_params("candle")
+collected = flame_render_params(obj.thyllore_flame)
+assert set(collected.keys()) == set(candle_params.keys()), "render params must cover every preset key"
+assert collected["height"] == obj.thyllore_flame.height
 
 print("ADDON_SMOKE ok", flush=True)
 
@@ -62,7 +64,7 @@ view = look_at_view_matrix((0, 1.2, 4.5), (0, 0, -1), (0, 1, 0))
 proj = engine_projection(radians(45), 1, 0.1)
 
 renderer = FlameViewportRenderer()
-params = collect_params(obj.thyllore_flame, cls.PARAM_NAMES)
+params = flame_render_params(obj.thyllore_flame)
 position = (0.0, 0.0, 0.0)
 rotation = (1.0, 0.0, 0.0, 0.0)
 light_pos = (0.0, 2.0, 2.0)

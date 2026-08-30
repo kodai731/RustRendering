@@ -5,8 +5,11 @@ import pytest
 
 from blender_flame_addon.properties import (
     collect_params,
+    is_exposed_param,
+    merge_preset_params,
     precision_from_format,
     property_kind,
+    select_exposed_params,
 )
 
 
@@ -92,3 +95,34 @@ class TestCollectParams:
         props = FakeProps()
         result = collect_params(props, [])
         assert result == {}
+
+
+class TestExposedParams:
+    def test_named_params_are_exposed(self):
+        assert is_exposed_param("height")
+        assert is_exposed_param("radius")
+        assert is_exposed_param("optical_depth")
+
+    def test_noise_prefix_is_exposed(self):
+        assert is_exposed_param("noise_amplitude")
+        assert is_exposed_param("noise_aniso_y")
+
+    def test_other_params_are_hidden(self):
+        assert not is_exposed_param("intensity")
+        assert not is_exposed_param("branch_gain")
+        assert not is_exposed_param("swirl_gain")
+
+    def test_select_keeps_order_and_filters(self):
+        ui_params = [{"name": "intensity"}, {"name": "height"}, {"name": "noise_contrast"}, {"name": "mix_lo"}]
+        assert [p["name"] for p in select_exposed_params(ui_params)] == ["height", "noise_contrast"]
+
+
+class TestMergePresetParams:
+    def test_exposed_overrides_preset(self):
+        merged = merge_preset_params({"height": 1.6, "intensity": 2.0}, {"height": 0.3})
+        assert merged == {"height": 0.3, "intensity": 2.0}
+
+    def test_inputs_are_not_mutated(self):
+        preset = {"height": 1.6}
+        merge_preset_params(preset, {"height": 0.3})
+        assert preset == {"height": 1.6}
