@@ -1,11 +1,14 @@
-use crate::ecs::component::{FlameEffect, FlameTrail};
+use crate::ecs::component::{FlameEffect, FlameTrail, WaterTorusEffect};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
     AutoExposure, DepthOfField, FlameRenderSettings, GridMeshData, HierarchyState, MessageLog,
-    OnionSkinningConfig, PhysicalCameraParameters, TransformGizmoState, WeightHeatmapState,
+    OnionSkinningConfig, PhysicalCameraParameters, TransformGizmoState, WaterRenderSettings,
+    WeightHeatmapState,
 };
-use crate::ecs::systems::{resolve_selected_flame, write_flame_transform};
+use crate::ecs::systems::{
+    resolve_selected_flame, resolve_selected_water, write_flame_transform, write_water_transform,
+};
 use crate::ecs::world::{Animator, World};
 
 pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
@@ -167,6 +170,33 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 let clamped = (*index as usize).min(flames.len() - 1);
                 if let Some(mut hierarchy) = world.get_resource_mut::<HierarchyState>() {
                     hierarchy.selected_entity = Some(flames[clamped]);
+                }
+            }
+            UIEvent::UpdateWaterEffect(effect) => {
+                let Some(target) = resolve_selected_water(world) else {
+                    continue;
+                };
+                write_water_transform(world, target, effect.position, effect.rotation);
+                if let Some(current) = world.get_component_mut::<WaterTorusEffect>(target) {
+                    *current = effect.as_ref().clone();
+                }
+            }
+            UIEvent::ApplyWaterPreset(name) => {
+                crate::ecs::systems::apply_water_preset_to_selected(world, name);
+            }
+            UIEvent::UpdateWaterRenderSettings(new_settings) => {
+                if let Some(mut settings) = world.get_resource_mut::<WaterRenderSettings>() {
+                    *settings = new_settings.clone();
+                }
+            }
+            UIEvent::SelectWaterInstance(index) => {
+                let waters = world.query_waters();
+                if waters.is_empty() {
+                    continue;
+                }
+                let clamped = (*index as usize).min(waters.len() - 1);
+                if let Some(mut hierarchy) = world.get_resource_mut::<HierarchyState>() {
+                    hierarchy.selected_entity = Some(waters[clamped]);
                 }
             }
             UIEvent::DumpFlameWallProbe { viewport_size } => {

@@ -9,13 +9,13 @@ use crate::animation::{ConstraintId, ConstraintType};
 use crate::app::data::LightMoveTarget;
 use crate::ecs::component::{
     ColliderShape, FlameEffect, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
-    SpringColliderGroupId, SpringColliderId, SpringJointParam,
+    SpringColliderGroupId, SpringColliderId, SpringJointParam, WaterTorusEffect,
 };
 use crate::ecs::resource::gizmo::BoneDisplayStyle;
 use crate::ecs::resource::{
     AutoExposure, CoordinateSpace, CurveTrackRef, DepthOfField, FlameRenderSettings,
     HierarchyDisplayMode, OnionSkinningConfig, PhysicalCameraParameters, SelectedKeyframe,
-    SelectionModifier, TransformGizmoMode, TransformGizmoState,
+    SelectionModifier, TransformGizmoMode, TransformGizmoState, WaterRenderSettings,
 };
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;
@@ -444,6 +444,11 @@ pub enum UIEvent {
         seconds: f32,
     },
     SelectFlameInstance(usize),
+    AddWater,
+    UpdateWaterEffect(Box<WaterTorusEffect>),
+    ApplyWaterPreset(String),
+    UpdateWaterRenderSettings(WaterRenderSettings),
+    SelectWaterInstance(usize),
     OpenScalarCurveEditor,
 }
 

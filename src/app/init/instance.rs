@@ -1175,6 +1175,7 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::AutoExposure>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::WaterRenderSettings>(data);
         if data.ecs_world.query_flames().is_empty() {
             crate::ecs::systems::spawn_flame_with_clip(
                 &mut data.ecs_world,

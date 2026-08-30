@@ -4,10 +4,11 @@ use std::path::{Path, PathBuf};
 use super::clip_io::{load_animation_clip, save_animation_clip};
 use super::error::{SceneError, SceneResult};
 use super::format::{
-    apply_flame_state_to_world, build_flame_scene_data, AnimationClipRef, AutoExposureState,
-    BloomState, CameraState, DepthOfFieldState, EditorState, ExposureState, LensEffectsState,
-    ModelReference, PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata,
-    TimelineConfig, ToneMappingState, SCENE_FORMAT_VERSION,
+    apply_flame_state_to_world, apply_water_state_to_world, build_flame_scene_data,
+    build_water_scene_data, AnimationClipRef, AutoExposureState, BloomState, CameraState,
+    DepthOfFieldState, EditorState, ExposureState, LensEffectsState, ModelReference,
+    PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata, TimelineConfig,
+    ToneMappingState, SCENE_FORMAT_VERSION,
 };
 use crate::animation::editable::SourceClipId;
 use crate::ecs::resource::CurveEditorState;
@@ -253,6 +254,7 @@ fn build_scene_file(
     scene.editor = collected.editor;
     scene.panel_layout = collected.panel_layout;
     scene.flame = build_flame_scene_data(world);
+    scene.water = build_water_scene_data(world);
 
     if let Some(prev) = previous_metadata {
         scene.metadata.created_at = prev.created_at;
@@ -383,6 +385,9 @@ pub fn apply_loaded_scene_to_world(
     apply_panel_layout(loaded.scene.panel_layout.as_ref(), world);
     if let Some(ref flame) = loaded.scene.flame {
         apply_flame_state_to_world(world, assets, flame);
+    }
+    if let Some(ref water) = loaded.scene.water {
+        apply_water_state_to_world(world, assets, water);
     }
 }
 
@@ -605,5 +610,65 @@ mod tests {
         let loaded = load_scene(&scene_path).expect("model file exists");
 
         assert_eq!(loaded.model_path, Some(dir.join("models/mesh.glb")));
+    }
+
+    #[test]
+    fn water_roundtrip() {
+        let dir = temp_dir("water_roundtrip");
+        let scenes_dir = dir.join("scenes");
+        fs::create_dir_all(&scenes_dir).unwrap();
+        let scene_path = scenes_dir.join("test.scene.ron");
+
+        // Build a world with a water entity
+        let mut world = World::new();
+        world.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets = crate::asset::AssetStorage::new();
+        let effect = crate::ecs::component::WaterTorusEffect::default();
+        let entity =
+            crate::ecs::systems::spawn_water_with_clip(&mut world, &mut assets, "Water", effect);
+
+        // Set major_radius = 2.5 and AppliedWaterPreset { name: "sea" }
+        if let Some(mut water) =
+            world.get_component_mut::<crate::ecs::component::WaterTorusEffect>(entity)
+        {
+            water.major_radius = 2.5;
+        }
+        world.insert_component(
+            entity,
+            crate::ecs::component::AppliedWaterPreset {
+                name: "sea".to_string(),
+            },
+        );
+
+        // Save the scene
+        save_scene(&scene_path, &world).unwrap();
+
+        // Load into a new world
+        let loaded = load_scene(&scene_path).unwrap();
+        let mut world2 = World::new();
+        world2.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets2 = crate::asset::AssetStorage::new();
+        apply_loaded_scene_to_world(&loaded, &mut world2, &mut assets2, &[]);
+
+        // Assert: exactly 1 water entity, major_radius == 2.5, preset name == "sea"
+        let waters: Vec<_> = world2.query_waters();
+        assert_eq!(waters.len(), 1, "expected exactly 1 water entity");
+        let water_entity = waters[0];
+        let water = world2
+            .get_component::<crate::ecs::component::WaterTorusEffect>(water_entity)
+            .unwrap();
+        assert!(
+            (water.major_radius - 2.5).abs() < f32::EPSILON,
+            "expected major_radius == 2.5, got {}",
+            water.major_radius
+        );
+        let preset = world2
+            .get_component::<crate::ecs::component::AppliedWaterPreset>(water_entity)
+            .unwrap();
+        assert_eq!(
+            preset.name, "sea",
+            "expected preset name == \"sea\", got \"{}\"",
+            preset.name
+        );
     }
 }

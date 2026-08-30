@@ -29,6 +29,17 @@ pub fn dispatch_scalar_clip_events(
                     crate::ecs::systems::spawn_flame_with_clip(world, assets, &name, effect);
                 }
             }
+            UIEvent::AddWater => {
+                let water_count = world.query_waters().len();
+                if water_count < thyllore_vulkan_core::resource::MAX_WATER_INSTANCES {
+                    let effect = crate::ecs::component::WaterTorusEffect {
+                        position: cgmath::Vector3::new(0.0, -0.5, 2.5 * water_count as f32),
+                        ..crate::ecs::component::WaterTorusEffect::default()
+                    };
+                    let name = format!("Water {}", water_count + 1);
+                    crate::ecs::systems::spawn_water_with_clip(world, assets, &name, effect);
+                }
+            }
             UIEvent::InsertScalarKey {
                 property_type,
                 value,
