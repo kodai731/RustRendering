@@ -150,6 +150,22 @@ int solveQuartic(float c[5], out float roots[4]) {
     return count;
 }
 
+// Sphere-tracing fallback: SDF of torus in normalized coordinates.
+// Returns true if hit found within max steps (t > 1e-6), false otherwise.
+bool torusSphereTraceFallback(vec3 o, vec3 d, float rHat, out float t) {
+    t = 0.0;
+    for (int i = 0; i < 48; ++i) {
+        vec3 p = o + d * t;
+        float sdf = length(vec2(length(p.xz) - 1.0, p.y)) - rHat;
+        if (abs(sdf) < 1e-4) {
+            if (t > 1e-6) return true;
+        }
+        if (t > 4.0) return false;
+        t += max(sdf, 1e-4);
+    }
+    return false;
+}
+
 // Intersect ray with torus. o is origin normalized by major radius, d is unit direction.
 // Returns number of valid (t > 1e-6) ascending roots written to roots[].
 int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
@@ -194,6 +210,16 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
     for (int i = 0; i < count; ++i) {
         if (roots[i] > 1e-6) {
             roots[validCount++] = roots[i];
+        }
+    }
+
+    // Sphere-tracing fallback: if quartic found no valid roots but bounding sphere hit,
+    // use SDF sphere tracing to catch grazing intersections the quartic misses.
+    if (validCount == 0) {
+        float t_out;
+        if (torusSphereTraceFallback(o, d, rHat, t_out)) {
+            roots[0] = t_out;
+            validCount = 1;
         }
     }
 

@@ -24,7 +24,7 @@ void waterHeightAndGradient(vec2 uv, float time, vec2 flowRate, int modeCount, v
 
         int m = int(water.waveModes[k * 2].x);
         int n = int(water.waveModes[k * 2].y);
-       float amp = water.waveModes[k * 2].z;
+        float amp = water.waveModes[k * 2].z;
         float omega = water.waveModes[k * 2].w;
         float phase = water.waveModes[k * 2 + 1].x;
         float ampN = amp / water.radii.x;
