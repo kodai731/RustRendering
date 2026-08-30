@@ -1,6 +1,5 @@
 pub mod analytic;
 mod effect;
-#[path = "gpu/mod.rs"]
 mod gpu;
 mod ownership;
 mod presets;

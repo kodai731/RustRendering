@@ -11,9 +11,9 @@ use crate::descriptor::{
     CompositeGBufferViews, FlameImageBindings, RRAutoExposureAverageDescriptorSet,
     RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
     RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
-    RRToneMapDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM, BLOOM_DOWNSAMPLE,
-    BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE, GBUFFER, ONION_SKIN_COMPOSITE, ONION_SKIN_GHOST,
-    RAY_QUERY_SHADOW, TONEMAP,
+    RRToneMapDescriptorSet, RRWaterDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM,
+    BLOOM_DOWNSAMPLE, BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE, GBUFFER, ONION_SKIN_COMPOSITE,
+    ONION_SKIN_GHOST, RAY_QUERY_SHADOW, TONEMAP, WATER_RESOLVE,
 };
 use crate::pipeline::{
     BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
@@ -27,10 +27,11 @@ use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::uniform_buffer::{Placement, UniformBuffer};
-use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
-use thyllore_effect_core::FlameUBO;
+use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer};
+use thyllore_effect_core::{FlameUBO, WaterUBO};
 
 pub const MAX_FLAME_INSTANCES: usize = 4;
+pub const MAX_WATER_INSTANCES: usize = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
@@ -67,6 +68,10 @@ pub struct RayTracingData {
     pub flame_shading_pipeline: Option<RRPipeline>,
     pub flame_descriptor: Option<RRFlameDescriptorSet>,
     pub flame_ubo: Option<UniformBuffer<FlameUBO>>,
+
+    pub water_shading_pipeline: Option<RRPipeline>,
+    pub water_descriptor: Option<RRWaterDescriptorSet>,
+    pub water_ubo: Option<UniformBuffer<WaterUBO>>,
 
     pub flame_sdf_image: vk::Image,
     pub flame_sdf_image_memory: vk::DeviceMemory,
@@ -494,6 +499,69 @@ impl RayTracingData {
         self.flame_ubo = Some(flame_ubo);
 
         log!("Created flame pipelines");
+        Ok(())
+    }
+
+    pub unsafe fn create_water_pipeline(
+        &mut self,
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        rrrender: &RRRender,
+        graphics_resources: &GraphicsResources,
+        water_buffer: &WaterBuffer,
+        scene_depth_view: vk::ImageView,
+    ) -> Result<()> {
+        let water_ubo = UniformBuffer::new(
+            instance,
+            rrdevice,
+            MAX_WATER_INSTANCES,
+            Placement::DeviceUpdated,
+        )?;
+        water_ubo.write_slot(rrdevice, 0, &WaterUBO::default())?;
+
+        let water_descriptor = RRWaterDescriptorSet::new(rrdevice)?;
+        water_descriptor.write_all(rrdevice, &water_ubo, scene_depth_view)?;
+
+        let water_shading_pipeline = PipelineBuilder::from_pass(&WATER_RESOLVE)
+            .vertex_input(VertexInputConfig::Custom {
+                bindings: vec![],
+                attributes: vec![],
+            })
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .depth_test(DepthTestConfig {
+                test_enable: true,
+                write_enable: true,
+                compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+            })
+            .custom_render_pass(water_buffer.render_pass)
+            .msaa_samples(vk::SampleCountFlags::_1)
+            .mrt_attachments(1)
+            .blend(BlendConfig {
+                enable: false,
+                src_color_factor: vk::BlendFactor::ONE,
+                dst_color_factor: vk::BlendFactor::ZERO,
+                color_op: vk::BlendOp::ADD,
+                src_alpha_factor: vk::BlendFactor::ONE,
+                dst_alpha_factor: vk::BlendFactor::ZERO,
+                alpha_op: vk::BlendOp::ADD,
+            })
+            .push_constants(PushConstantConfig {
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                offset: 0,
+                size: std::mem::size_of::<crate::renderer::WaterPushConstants>() as u32,
+            })
+            .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
+            .descriptor_layouts(&[
+                &graphics_resources.frame_set.layout,
+                &water_descriptor.layout,
+            ])
+            .build(rrdevice, rrrender, Some(water_buffer.extent()))?;
+
+        self.water_shading_pipeline = Some(water_shading_pipeline);
+        self.water_descriptor = Some(water_descriptor);
+        self.water_ubo = Some(water_ubo);
+
+        log!("Created water pipelines");
         Ok(())
     }
 

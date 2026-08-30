@@ -1,3 +1,4 @@
+use crate::water::effect::WaterTorusEffect;
 use crate::water::*;
 use cgmath::{Matrix4, SquareMatrix};
 
@@ -24,5 +25,11 @@ pub fn build_water_ubo(effect: &WaterTorusEffect) -> WaterUBO {
         composite: [effect.reflect_strength, effect.refract_strength, 0.0, 0.0],
         tint: [effect.tint[0], effect.tint[1], effect.tint[2], 0.0],
         temporal: [0.0, 0.0, 0.0, 0.0],
+    }
+}
+
+impl Default for WaterUBO {
+    fn default() -> Self {
+        build_water_ubo(&WaterTorusEffect::default())
     }
 }

@@ -15,6 +15,7 @@ pub mod reflected_layout;
 pub mod reflection;
 pub mod shader_bindings;
 pub mod tonemap;
+pub mod water;
 
 pub use auto_exposure::*;
 pub use billboard::*;
@@ -32,3 +33,4 @@ pub use ray_query::*;
 pub use reflected_layout::*;
 pub use reflection::*;
 pub use tonemap::*;
+pub use water::RRWaterDescriptorSet;

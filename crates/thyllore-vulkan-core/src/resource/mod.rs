@@ -15,6 +15,7 @@ pub mod onion_skin_pass;
 pub mod pipeline_storage;
 pub mod raytracing_data;
 pub mod uniform_buffer;
+pub mod water_buffer;
 
 pub use auto_exposure_buffers::{AutoExposureBuffers, LUMINANCE_BUFFER_SIZE};
 pub use bloom_chain::BloomChain;
@@ -31,5 +32,6 @@ pub use mesh_buffer::*;
 pub use offscreen::OffscreenFramebuffer;
 pub use onion_skin_pass::OnionSkinPassResources;
 pub use pipeline_storage::PipelineStorage;
-pub use raytracing_data::{RayTracingData, MAX_FLAME_INSTANCES};
+pub use raytracing_data::{RayTracingData, MAX_FLAME_INSTANCES, MAX_WATER_INSTANCES};
 pub use uniform_buffer::{Placement, UniformBuffer};
+pub use water_buffer::WaterBuffer;
