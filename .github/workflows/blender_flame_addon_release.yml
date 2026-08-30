@@ -18,6 +18,13 @@ on:
         description: "Attach the ZIPs to the GitHub Release flame-v<version> (created when missing)"
         type: boolean
         default: true
+      deploy_pages:
+        description: "Publish to the GitHub Pages extension repository (keeps the other extensions already served)"
+        type: boolean
+        default: true
+
+env:
+  PAGES_URL: https://kodai731.github.io/Thyllore-Animation
 
 permissions:
   contents: write
@@ -124,3 +131,49 @@ jobs:
           name: Thyllore Flame ${{ inputs.version }}
           prerelease: true
           files: dist/flame/*.zip
+
+  pages:
+    name: Extension repository (GitHub Pages)
+    needs: package
+    if: inputs.deploy_pages
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download flame ZIPs
+        uses: actions/download-artifact@v4
+        with:
+          name: thyllore_flame-${{ inputs.build_mode }}-${{ inputs.version }}
+          path: site
+
+      - name: Keep the other extensions already served
+        run: python3 scripts/blender/merge_live_extensions.py --site site --url "$PAGES_URL" --exclude-id thyllore_flame
+
+      - name: Install Blender 4.2 LTS
+        run: |
+          wget -q -O blender.tar.xz https://download.blender.org/release/Blender4.2/blender-4.2.0-linux-x64.tar.xz
+          mkdir -p /opt/blender
+          tar -xJf blender.tar.xz -C /opt/blender --strip-components=1
+
+      - name: Generate index.json
+        run: |
+          /opt/blender/blender --command extension server-generate --repo-dir=site --html
+          cat site/index.json
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
