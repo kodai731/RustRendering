@@ -19,6 +19,8 @@ mod motion_path;
 mod render;
 mod scalar_channel;
 mod spring_bone;
+mod water;
+mod water_param;
 
 pub use animation_meta::*;
 pub use clip_schedule::*;
@@ -41,3 +43,5 @@ pub use motion_path::*;
 pub use render::*;
 pub use scalar_channel::*;
 pub use spring_bone::*;
+pub use water::*;
+pub use water_param::*;

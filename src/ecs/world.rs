@@ -472,6 +472,15 @@ impl World {
         entities
     }
 
+    pub fn query_waters(&self) -> Vec<Entity> {
+        let mut entities: Vec<Entity> = self
+            .iter_components::<crate::ecs::component::WaterTorusEffect>()
+            .map(|(e, _)| e)
+            .collect();
+        entities.sort();
+        entities
+    }
+
     pub fn query_with_parent(&self) -> Vec<Entity> {
         self.iter_components::<Parent>().map(|(e, _)| e).collect()
     }
@@ -686,6 +695,11 @@ impl<'a> EntityBuilder<'a> {
             self.entity,
             crate::ecs::component::FlameTemporalAccum::default(),
         );
+        self
+    }
+
+    pub fn with_water(self, effect: crate::ecs::component::WaterTorusEffect) -> Self {
+        self.world.insert_component(self.entity, effect);
         self
     }
 
