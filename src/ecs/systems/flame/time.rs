@@ -54,7 +54,8 @@ pub fn flame_time_advance(ctx: &mut FrameContext) {
     for &entity in &flame_entities {
         if let Some(mut effect) = ctx.world.get_component_mut::<FlameEffect>(entity) {
             if let Some(frames_rendered) = batch_frames_rendered {
-                effect.time = frames_rendered * (1.0 / 60.0);
+                let batch_time = frames_rendered * (1.0 / 60.0);
+                effect.time = batch_time * effect.time_scale + effect.time_offset;
             } else if let Some(timeline_time) = timeline_current_time {
                 effect.time = timeline_time * effect.time_scale + effect.time_offset;
             } else {

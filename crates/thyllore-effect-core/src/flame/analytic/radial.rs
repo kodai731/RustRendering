@@ -19,6 +19,8 @@ pub struct FlameRadialTaper {
     pub tip_ratio: f32,
     pub power: f32,
     pub baked_series: Option<[[f32; 4]; 2]>,
+    pub base_spread: f32,
+    pub base_spread_height: f32,
 }
 
 impl FlameRadialTaper {
@@ -29,6 +31,8 @@ impl FlameRadialTaper {
         Self {
             tip_ratio: effect.edge.radius_tip_ratio,
             power: effect.warp.taper_power,
+            base_spread: effect.edge.base_spread,
+            base_spread_height: effect.edge.base_spread_height,
             baked_series: if baked.radius.is_some() && baked.blend > 0.0 {
                 Some(effect.coefficients.radius_scale)
             } else {
@@ -40,16 +44,31 @@ impl FlameRadialTaper {
 
 /// Radius `R(h)` of the radial density profile, in flame-local units.
 pub fn flame_radial_radius_scale(height01: f32, taper: FlameRadialTaper) -> f32 {
+    let spread = flame_radial_base_spread(height01, taper.base_spread, taper.base_spread_height);
     if let Some(series) = taper.baked_series {
         FLAME_SHELL_BASE_RADIUS
+            * spread
             * evaluate_chebyshev(
                 &ChebyshevSeries::new(series.iter().flatten().copied().collect(), (0.0, 1.0)),
                 height01,
             )
             .max(0.05)
     } else {
-        FLAME_SHELL_BASE_RADIUS * (1.0 + (taper.tip_ratio - 1.0) * height01.powf(taper.power))
+        FLAME_SHELL_BASE_RADIUS
+            * spread
+            * (1.0 + (taper.tip_ratio - 1.0) * height01.powf(taper.power))
     }
+}
+
+/// Fire pool at the foot of the column: widens the radius by `base_spread` at
+/// h = 0, fading quadratically to 1 at `base_spread_height`. 0 is the identity.
+/// Mirrored in shaders/include/flame_noise_field.glsl (flameRadialBaseSpread).
+pub fn flame_radial_base_spread(height01: f32, base_spread: f32, base_spread_height: f32) -> f32 {
+    if base_spread == 0.0 {
+        return 1.0;
+    }
+    let fade = (1.0 - height01 / base_spread_height.max(1e-3)).max(0.0);
+    1.0 + base_spread * fade * fade
 }
 
 /// Support radius `S` of the biweight profile in R(h) units. The curvature at the
@@ -518,5 +537,39 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn base_spread_widens_only_the_foot() {
+        let plain = default_taper();
+        let spread = FlameRadialTaper {
+            base_spread: 1.0,
+            base_spread_height: 0.25,
+            ..plain
+        };
+        for h in [0.0, 0.1, 0.25, 0.5, 1.0] {
+            let zero = FlameRadialTaper {
+                base_spread: 0.0,
+                ..spread
+            };
+            assert_eq!(
+                flame_radial_radius_scale(h, zero),
+                flame_radial_radius_scale(h, plain)
+            );
+        }
+        assert!(
+            (flame_radial_radius_scale(0.0, spread) - 2.0 * flame_radial_radius_scale(0.0, plain))
+                .abs()
+                < 1e-6
+        );
+        assert_eq!(
+            flame_radial_radius_scale(0.25, spread),
+            flame_radial_radius_scale(0.25, plain)
+        );
+        assert_eq!(
+            flame_radial_radius_scale(0.7, spread),
+            flame_radial_radius_scale(0.7, plain)
+        );
+        assert!(flame_radial_radius_scale(0.1, spread) > flame_radial_radius_scale(0.1, plain));
     }
 }

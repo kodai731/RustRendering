@@ -104,6 +104,9 @@ declare_gpu_block! {
         pub edge_low: f32,
         pub edge_high: f32,
         pub white_boost: f32,
+        pub base_spread: f32,
+        pub base_spread_height: f32,
+        pub _padding: [f32; 2],
     }
 }
 
@@ -124,6 +127,16 @@ declare_gpu_block! {
         pub kappa: f32,
         pub weight1: f32,
         pub weight2: f32,
+    }
+}
+
+declare_gpu_block! {
+    #[derive(Clone, Copy, Debug)]
+    pub struct FlameFlowField {
+        pub gain: f32,
+        pub count: f32,
+        pub _padding: [f32; 2],
+        pub markers: [[f32; 4]; 32],
     }
 }
 
@@ -155,7 +168,8 @@ declare_gpu_block! {
         pub height_gain: f32,
         pub scale: f32,
         pub radial_gain: f32,
-        pub _padding: [f32; 2],
+        pub core_radius: f32,
+        pub _padding: f32,
     }
 }
 
@@ -176,6 +190,17 @@ declare_gpu_block! {
         pub radius_max: f32,
         pub color_active: f32,
         pub _padding: f32,
+    }
+}
+
+declare_gpu_block! {
+    #[derive(Clone, Copy, Debug, Default, PartialEq)]
+    pub struct FlamePuffField {
+        pub count: f32,
+        pub gain: f32,
+        pub aspect: f32,
+        pub _padding: f32,
+        pub puffs: [[f32; 4]; 16],
     }
 }
 
@@ -303,6 +328,8 @@ declare_gpu_block! {
         pub warp_freq: f32,
         pub rise_speed: f32,
         pub taper_power: f32,
+        pub rise_accel: f32,
+        pub _padding: [f32; 3],
     }
 }
 
@@ -385,6 +412,8 @@ declare_gpu_block! {
         pub twist_field: FlameTwistField = nested FlameTwistField,
         pub meander_modes: [FlameMeanderMode; 2] = nested FlameMeanderMode,
         pub branch_field: FlameBranchField = nested FlameBranchField,
+        pub puff_field: FlamePuffField = nested FlamePuffField,
+        pub flow_field: FlameFlowField = nested FlameFlowField,
         pub wave_modes: [[f32; 4]; 428],
         pub wave_jitter: [[f32; 4]; 96],
     }

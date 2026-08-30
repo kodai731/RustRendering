@@ -58,7 +58,7 @@ fn hash_u32(mut x: u32) -> u32 {
     x
 }
 
-fn hash01(seed: u32, index: i64, lane: u32) -> f32 {
+pub(crate) fn hash01(seed: u32, index: i64, lane: u32) -> f32 {
     let mixed =
         hash_u32(seed ^ hash_u32((index as u32) ^ hash_u32(lane.wrapping_add(0x9e37_79b9))));
     (mixed >> 8) as f32 / (1u32 << 24) as f32

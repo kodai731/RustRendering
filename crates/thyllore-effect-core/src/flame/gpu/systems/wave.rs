@@ -94,6 +94,7 @@ pub(super) fn build_wave_ubo_fields(effect: &FlameEffect) -> WaveUboFields {
             read_env_wave_env_mu(),
             effect.boundary.amp * read_env_unified_tilt_gain_b(),
             effect.contour.wiggle_amp * read_env_unified_tilt_gain_w(),
+            crate::noise_lobe_shape(&effect.noise),
         )
     } else {
         let mut modes = generate_wave_modes_with_ratio(k_ratio).to_vec();
@@ -267,6 +268,7 @@ pub fn build_unified_field_params(effect: &FlameEffect) -> FlameUnifiedParams {
         read_env_wave_env_mu(),
         effect.boundary.amp * read_env_unified_tilt_gain_b(),
         effect.contour.wiggle_amp * read_env_unified_tilt_gain_w(),
+        crate::noise_lobe_shape(&effect.noise),
     );
     let sigma_floor =
         read_env_unified_beta() * effect.noise.amplitude.abs() * std * amplitude_ratio;

@@ -39,7 +39,7 @@ pub enum FlameGpuBlocksError {
 
 fn flame_codegen_config() -> GpuBlockCodegenConfig {
     let mut extra_derives = BTreeMap::new();
-    for name in ["FlameBranchElement", "FlameBranchField"] {
+    for name in ["FlameBranchElement", "FlameBranchField", "FlamePuffField"] {
         extra_derives.insert(name.to_string(), vec!["Default".into(), "PartialEq".into()]);
     }
     extra_derives.insert("FlameBranchAgeProfile".into(), vec!["PartialEq".into()]);

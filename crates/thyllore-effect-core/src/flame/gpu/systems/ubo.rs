@@ -234,6 +234,8 @@ pub fn build_flame_ubo_from_inputs(inputs: &FlameUboInputs) -> FlameUBO {
         twist_field: build_twist_field(&effect.twist, &effect.swirl),
         meander_modes: build_meander_modes(&effect.meander, &effect.swirl),
         branch_field: build_branch_field(effect, baked),
+        puff_field: build_puff_field(effect, baked),
+        flow_field: build_flow_field(effect, baked),
         wave_modes: wave_fields.packed,
         wave_jitter: wave_fields.jitter,
     }

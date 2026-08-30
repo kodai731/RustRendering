@@ -197,7 +197,7 @@ fn test_flame_ubo_layout_is_std140_compatible() {
     // trail_coefficients is [[f32; 4]; 4] (64 bytes) instead of [f32; 4] (16 bytes)
     assert_eq!(
         std::mem::size_of::<FlameUBO>(),
-        784 + 16 + 16 + 16 + 32 + 128 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240
+        784 + 16 + 16 + 16 + 32 + 128 + 128 + 16 + 16 + 16 + 16 + 16 + 16 + 16 + 6848 + 1536 - 240 + 16 // rise_accel widened FlameWarpStyle to two vec4 rows
             + 48
             + 16
             + std::mem::size_of::<FlameMixParams>()
@@ -206,7 +206,12 @@ fn test_flame_ubo_layout_is_std140_compatible() {
             + std::mem::size_of::<FlameTwistField>()
             + std::mem::size_of::<[FlameMeanderMode; 2]>()
             + std::mem::size_of::<FlameBranchField>()
+            + std::mem::size_of::<FlamePuffField>()
+            + std::mem::size_of::<FlameFlowField>()
+            + std::mem::size_of::<FlameEdgeStyle>()
+            - 16
     );
+    assert_eq!(std::mem::size_of::<FlameEdgeStyle>(), 32);
     assert_eq!(std::mem::size_of::<FlameSupportMotion>(), 16);
     assert_eq!(std::mem::size_of::<FlameMixParams>(), 32);
     assert_eq!(std::mem::size_of::<FlameSegmentParams>(), 16);
@@ -218,6 +223,10 @@ fn test_flame_ubo_layout_is_std140_compatible() {
     assert_eq!(
         std::mem::size_of::<FlameBranchField>(),
         64 + 32 + 48 * BRANCH_MAX_ELEMENTS
+    );
+    assert_eq!(
+        std::mem::size_of::<FlamePuffField>(),
+        16 + 16 * PUFF_MAX_COUNT
     );
     assert_eq!(std::mem::align_of::<FlameUBO>() % 4, 0);
 }

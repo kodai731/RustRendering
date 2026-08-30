@@ -113,6 +113,206 @@ impl Default for FlameBranch {
     }
 }
 
+/// Puff train: the characteristic solution of the density advection equation
+/// along the axis. Parcels of unburnt density leave the base every `period`,
+/// rise at `rise`, widen by entrainment and burn out; gain 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlamePuff {
+    /// How far the medium between puffs thins, in [0, 1]: the puff cores keep
+    /// the full density, the gaps drop to 1 - gain; 0 = off.
+    pub gain: f32,
+    /// Spawn period in seconds (puffing frequency 1 / period).
+    pub period: f32,
+    /// Rise velocity in local height units per second.
+    pub rise: f32,
+    /// Puff radius at spawn as a ratio of the base trunk radius.
+    pub radius: f32,
+    /// Radius growth per unit height (entrainment), in spawn radii.
+    pub spread: f32,
+    /// Height over which the puff density e-folds; 0 = no burnout.
+    pub decay: f32,
+    /// Vertical over lateral radius of a puff (isotropic units); below 1 = flat lumps.
+    pub aspect: f32,
+    /// Height at which puffs are spawned, in local height units [0, 1].
+    pub spawn_height: f32,
+    /// Density of the static root puff; 0 = off.
+    pub root_gain: f32,
+    /// Center height of the static root puff, in local height units [0, 1].
+    pub root_height: f32,
+}
+
+impl Default for FlamePuff {
+    fn default() -> Self {
+        Self {
+            gain: 0.0,
+            period: 0.5,
+            rise: 0.3,
+            radius: 0.6,
+            spread: 0.5,
+            decay: 0.8,
+            aspect: 1.0,
+            spawn_height: 0.0,
+            root_gain: 0.0,
+            root_height: 0.0,
+        }
+    }
+}
+
+/// Fluid motion of the column: a Lagrangian marker column (centre and width
+/// per height) carried by a 2D vortex-pair flow with a gust, so the silhouette
+/// lobes form, deform and sway instead of being advected rigidly; gain 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameFlow {
+    /// Scale of the flow's effect on the column (centre offset and width), 0 = off.
+    pub gain: f32,
+    /// Vortex pair spawn period in seconds.
+    pub period: f32,
+    /// Vortex pair rise speed in height units per second.
+    pub rise: f32,
+    /// Circulation of each vortex in base radii squared per second.
+    pub strength: f32,
+    /// Gaussian core radius of a vortex in base radii.
+    pub core: f32,
+    /// Gust velocity amplitude at the tip in base radii per second.
+    pub gust: f32,
+    /// Base gust frequency in Hz (three incommensurate components around it).
+    pub gust_frequency: f32,
+    /// Burst (whip) velocity amplitude in base radii per second; 0 = no bursts.
+    pub burst: f32,
+    /// Restoring rate of the markers toward the rest column, per second.
+    pub damping: f32,
+    /// Linear reduction of the damping with height: damping at the tip = damping * (1 - damping_slope); 0 = uniform (legacy).
+    pub damping_slope: f32,
+    /// Upstream transport speed of the marker column in height units per second; 0 = off (bit-match).
+    pub transport_speed: f32,
+    /// Transport speed increase with height (multiplied by y/aspect); 0 = uniform transport.
+    pub transport_accel: f32,
+    /// Height01 up to which the gust injects lateral displacement at the root (1 at the foot, 0 at this height); 0 = tip-weighted y/aspect (legacy).
+    pub inject_height: f32,
+}
+
+impl Default for FlameFlow {
+    fn default() -> Self {
+        Self {
+            gain: 0.0,
+            period: 1.0,
+            rise: 0.3,
+            strength: 1.0,
+            core: 0.6,
+            gust: 0.3,
+            gust_frequency: 0.4,
+            burst: 0.0,
+            damping: 0.5,
+            damping_slope: 0.0,
+            transport_speed: 0.0,
+            transport_accel: 0.0,
+            inject_height: 0.0,
+        }
+    }
+}
+
+/// Lobe train on the silhouette: one-sided bulges that spawn near the foot,
+/// rise, swell and fade, riding the flow marker table (needs `flow.gain` > 0);
+/// gain 0 = off. Mirrors the round puffs stacked along the reference column.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameLobe {
+    /// Peak lateral bulge of one lobe in base radii; 0 = off.
+    pub gain: f32,
+    /// Spawn period in seconds.
+    pub period: f32,
+    /// Lifetime of one lobe in seconds (swells over the first half, fades over the second).
+    pub life: f32,
+    /// Rise speed in height units per second.
+    pub rise: f32,
+    /// Vertical half-extent of one lobe in height units.
+    pub size: f32,
+    /// Centre of the spawn height band in height units.
+    pub spawn_height: f32,
+    /// Width of the uniform spawn height band above `spawn_height`; 0 keeps the single band.
+    pub spawn_range: f32,
+    /// Exponential rise rate in 1/s: the spawn height grows by exp(accel * age), so
+    /// higher lobes rise faster (the reference column accelerates with height); 0 = off.
+    pub accel: f32,
+    /// Scatter of spawn time, height and size in [0, 1].
+    pub spread: f32,
+    /// Centre shift per unit bulge in [0, 1]: 1 keeps the far side still (a
+    /// one-sided tongue), 0 swells both sides (a symmetric puff).
+    pub shift: f32,
+    /// 1 = inject each lobe once at spawn into the simulated marker column so the flow transport carries it and damping fades it (rise/accel/life unused); 0 = legacy overlay added after the simulation
+    pub transport: f32,
+}
+
+impl Default for FlameLobe {
+    fn default() -> Self {
+        Self {
+            gain: 0.0,
+            period: 0.5,
+            life: 2.0,
+            rise: 0.1,
+            size: 0.08,
+            spawn_height: 0.2,
+            spawn_range: 0.0,
+            accel: 0.0,
+            spread: 0.5,
+            shift: 1.0,
+            transport: 0.0,
+        }
+    }
+}
+
+/// Coarse 2D buoyancy grid driving the column (trunk-local x in [-1, 1],
+/// height in [0, GRID_HEIGHT_EXTENT]): fuel and heat injected at the root rise
+/// under buoyancy, curl under vorticity confinement and burn out; enabled 0 = off.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct FlameGrid {
+    /// 1 = the grid replaces the marker column, puffs and lobes; 0 = off.
+    pub enabled: f32,
+    /// Height01 of the injection band at the root.
+    pub inject_height: f32,
+    /// Gaussian half width of the injection in x units (flame width = 1).
+    pub inject_width: f32,
+    /// Mean injection rate of fuel and heat per second.
+    pub inject_rate: f32,
+    /// Relative amplitude of the periodic injection pulse (puffing) in [0, 1].
+    pub puff_amp: f32,
+    /// Puffing frequency in Hz.
+    pub puff_hz: f32,
+    /// Upward acceleration per unit temperature (Nguyen 2002 eq. 14 alpha).
+    pub buoyancy_heat: f32,
+    /// Downward acceleration per unit fuel density (Nguyen 2002 eq. 14 beta).
+    pub buoyancy_density: f32,
+    /// Height01 below which the lateral gust accelerates the flow (1 at the foot, 0 there).
+    pub gust_height: f32,
+    /// Vorticity confinement strength (Nguyen 2002 eq. 15 epsilon).
+    pub confinement: f32,
+    /// Fuel burn-out rate per second (Mantaflow reaction speed).
+    pub burn_rate: f32,
+    /// Heat loss rate per second.
+    pub cool_rate: f32,
+    /// Gauss-Seidel iterations of the pressure projection.
+    pub pressure_iters: f32,
+}
+
+impl Default for FlameGrid {
+    fn default() -> Self {
+        Self {
+            enabled: 0.0,
+            inject_height: 0.08,
+            inject_width: 0.18,
+            inject_rate: 1.0,
+            puff_amp: 0.6,
+            puff_hz: 12.5,
+            buoyancy_heat: 2000.0,
+            buoyancy_density: 0.0,
+            gust_height: 0.25,
+            confinement: 0.5,
+            burn_rate: 12.0,
+            cool_rate: 10.0,
+            pressure_iters: 32.0,
+        }
+    }
+}
+
 /// Stateless write-through of the Vortex macro knob onto (twist gain, twist
 /// speed); the two parameters stay the single source of truth.
 pub fn vortex_macro_parameters(v: f32) -> (f32, f32) {

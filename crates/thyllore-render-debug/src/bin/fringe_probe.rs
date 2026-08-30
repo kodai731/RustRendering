@@ -155,6 +155,7 @@ fn main() {
             WAVE_ENV_MU,
             effect.boundary.amp * thyllore_effect_core::read_env_unified_tilt_gain_b(),
             effect.contour.wiggle_amp * thyllore_effect_core::read_env_unified_tilt_gain_w(),
+            thyllore_effect_core::noise_lobe_shape(&effect.noise),
         )
     } else {
         let mut m = generate_wave_modes_with_ratio(WAVE_K_RATIO).to_vec();

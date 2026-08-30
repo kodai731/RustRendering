@@ -32,6 +32,8 @@ pub fn build_effect_json(
         "noise_frequency": effect.noise.frequency,
         "noise_scroll_speed": effect.noise.scroll_speed,
        "noise_aniso_y": effect.noise.aniso_y,
+        "noise_lobe_scale": effect.noise.lobe_scale,
+        "noise_lobe_aniso": effect.noise.lobe_aniso,
         "warp_y_scale": effect.warp.y_scale,
       "coefficients": {
             "height_primitive": effect.coefficients.height_primitive,
@@ -86,6 +88,8 @@ pub fn build_effect_json(
     value["spread_gain"] = json!(effect.spread_gain);
     value["support_margin"] = json!(effect.support_margin);
     value["edge_outer_sharpen"] = json!(effect.edge.outer_sharpen);
+    value["base_spread"] = json!(effect.edge.base_spread);
+    value["base_spread_height"] = json!(effect.edge.base_spread_height);
     value["noise_scale_mode"] = json!(effect.noise.scale_mode);
     value["erosion_noise_gain"] = json!(effect.noise.erosion_gain);
     value["twist_gain"] = json!(effect.twist.gain);
@@ -100,6 +104,7 @@ pub fn build_effect_json(
     value["mix_height_gain"] = json!(effect.mix.height_gain);
     value["mix_scale"] = json!(effect.mix.scale);
     value["mix_radial_gain"] = json!(effect.mix.radial_gain);
+    value["mix_core_radius"] = json!(effect.mix.core_radius);
     value["density_exp"] = json!(effect.thermal.density_exp);
     value["temp_exp"] = json!(effect.thermal.temp_exp);
     value["wien_c_k"] = json!(effect.thermal.wien_c_k);
@@ -114,6 +119,36 @@ pub fn build_effect_json(
     value["branch_spawn_height"] = json!(effect.branch.spawn_height);
     value["branch_spawn_range"] = json!(effect.branch.spawn_range);
     value["branch_seed"] = json!(effect.branch.seed);
+    value["puff_gain"] = json!(effect.puff.gain);
+    value["puff_period"] = json!(effect.puff.period);
+    value["puff_rise"] = json!(effect.puff.rise);
+    value["puff_radius"] = json!(effect.puff.radius);
+    value["puff_spread"] = json!(effect.puff.spread);
+    value["puff_decay"] = json!(effect.puff.decay);
+    value["puff_aspect"] = json!(effect.puff.aspect);
+    value["puff_spawn_height"] = json!(effect.puff.spawn_height);
+    value["puff_root_gain"] = json!(effect.puff.root_gain);
+    value["puff_root_height"] = json!(effect.puff.root_height);
+    value["flow_gain"] = json!(effect.flow.gain);
+    value["flow_period"] = json!(effect.flow.period);
+    value["flow_rise"] = json!(effect.flow.rise);
+    value["flow_strength"] = json!(effect.flow.strength);
+    value["flow_core"] = json!(effect.flow.core);
+    value["flow_gust"] = json!(effect.flow.gust);
+    value["flow_gust_frequency"] = json!(effect.flow.gust_frequency);
+    value["flow_burst"] = json!(effect.flow.burst);
+    value["flow_damping"] = json!(effect.flow.damping);
+    value["rise_accel"] = json!(effect.warp.rise_accel);
+    value["lobe_gain"] = json!(effect.lobe.gain);
+    value["lobe_period"] = json!(effect.lobe.period);
+    value["lobe_life"] = json!(effect.lobe.life);
+    value["lobe_rise"] = json!(effect.lobe.rise);
+    value["lobe_size"] = json!(effect.lobe.size);
+    value["lobe_spawn_height"] = json!(effect.lobe.spawn_height);
+    value["lobe_spawn_range"] = json!(effect.lobe.spawn_range);
+    value["lobe_accel"] = json!(effect.lobe.accel);
+    value["lobe_spread"] = json!(effect.lobe.spread);
+    value["lobe_shift"] = json!(effect.lobe.shift);
     let strain = thyllore_effect_core::build_warp_strain_params(effect);
     value["warp_strain_params"] = json!([
         strain.strain_base,
@@ -172,7 +207,7 @@ pub fn build_ubo_json(ubo: &FlameUBO) -> serde_json::Value {
         "color_tip": ubo.color_tip.rgb,
         "light_data": [ubo.light_data.direction[0], ubo.light_data.direction[1], ubo.light_data.direction[2], ubo.light_data.self_shadow_strength],
         "unified_params": [ubo.unified_params.enabled, ubo.unified_params.sigma_floor],
-        "mix_params": [ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain],
+        "mix_params": [ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain, ubo.mix_params.core_radius],
         "segment_params": [ubo.segment_params.count],
         "thermal_params": [ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_ck],
         "spread_params": [ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain],

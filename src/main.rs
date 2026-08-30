@@ -26,6 +26,8 @@ use vulkanalia::vk;
 
 use anyhow::Result;
 
+const DEFAULT_WINDOW_SIZE: (u32, u32) = (2560, 1440);
+
 fn main() -> Result<()> {
     env_logger::init();
 
@@ -57,7 +59,8 @@ fn main() -> Result<()> {
         thyllore_animation::ecs::systems::curve_copilot_mode_resolve_from_env_args()?;
 
     let window_title = format!("Thyllore Animation v{}", env!("CARGO_PKG_VERSION"));
-    let mut system = platform::init(&window_title, !is_batch_mode);
+    let window_size = overrides.window_size.unwrap_or(DEFAULT_WINDOW_SIZE);
+    let mut system = platform::init(&window_title, !is_batch_mode, window_size);
 
     #[cfg(feature = "ml")]
     let mut app = unsafe { App::create(&system.window, curve_copilot_mode)? };

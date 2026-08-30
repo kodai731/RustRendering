@@ -38,6 +38,10 @@ struct FlameWarpStyle {
     float warpFreq;
     float riseSpeed;
     float taperPower;
+    float riseAccel;
+    float pad0;
+    float pad1;
+    float pad2;
 };
 
 struct FlameEdgeStyle {
@@ -45,6 +49,10 @@ struct FlameEdgeStyle {
     float edgeLow;
     float edgeHigh;
     float whiteBoost;
+    float baseSpread;
+    float baseSpreadHeight;
+    float pad0;
+    float pad1;
 };
 
 struct FlameWindBend {
@@ -155,8 +163,9 @@ struct FlameMixParams {
     // Wavenumber scale of the mixing eddies relative to the low erosion octave.
     float scale;
     float radialGain;
+    // Normalized radius below which the noise term fades out; 0 = off.
+    float coreRadius;
     float pad0;
-    float pad1;
 };
 
 struct FlameThermalParams {
@@ -271,6 +280,32 @@ struct FlameBranchField {
     FlameBranchElement elements[FLAME_BRANCH_MAX_ELEMENTS];
 };
 
+const int FLAME_PUFF_MAX_COUNT = 16;
+
+// Puff train (characteristic solution of the axial density advection): each entry
+// is (center height, lateral radius in trunk-local radial units, density, vertical radius
+// in isotropic units); count = 0 is a no-op.
+struct FlamePuffField {
+    float count;
+    float gain;
+    float aspect;
+    float pad0;
+    vec4 puffs[FLAME_PUFF_MAX_COUNT];
+};
+
+const int FLAME_FLOW_MARKER_COUNT = 32;
+
+// Fluid motion of the column: marker table over height01 (i / (count - 1)),
+// each (centre offset x, centre offset z, width scale, 0) in flame-local units;
+// gain 0 is the identity.
+struct FlameFlowField {
+    float gain;
+    float count;
+    float pad0;
+    float pad1;
+    vec4 markers[FLAME_FLOW_MARKER_COUNT];
+};
+
 layout(set = 1, binding = 0) uniform FlameUBO {
     mat4 model;
     mat4 inverseModel;
@@ -320,6 +355,8 @@ layout(set = 1, binding = 0) uniform FlameUBO {
     FlameTwistField twistField;
     FlameMeanderMode meanderModes[2];
     FlameBranchField branchField;
+    FlamePuffField puffField;
+    FlameFlowField flowField;
     vec4 waveModes[428];
     vec4 waveJitter[96];
 } flame;

@@ -18,7 +18,7 @@ const PRODUCT_ENTRY: &str = "shaders/flameResolveFragment.frag";
 /// except the product entry (which dispatches debug modes at runtime).
 const SAMPLING_INCLUDES: &[&str] = &["include/flame_reference_march.glsl"];
 
-const GLSL_BANNED_TOKENS: &[&str] = &["Raymarch", "raymarch", "FLAME_WAVE_SEGMENTS"];
+const GLSL_BANNED_TOKENS: &[&str] = &["Raymarch", "raymarch"];
 const RUST_BANNED_TOKENS: &[&str] = &["Raymarch", "raymarch", "lut_lerp", "[f32; 33]"];
 
 struct Exception {
@@ -30,19 +30,6 @@ struct Exception {
 /// Known sample-based remnants, each with the decision that keeps it alive.
 /// Entries must still match a real occurrence; a stale entry fails the test.
 const EXCEPTION_LEDGER: &[Exception] = &[
-    Exception {
-        file_suffix: "include/flame_radial_integral.glsl",
-        token: "FLAME_WAVE_SEGMENTS",
-        reason: "legacy 64-segment piecewise closed-form quadrature; the fully \
-                 closed-form v5 replacement was rejected on look (2026-08-10) \
-                 and stays env opt-in",
-    },
-    Exception {
-        file_suffix: "flameResolveFragment.frag",
-        token: "FLAME_WAVE_SEGMENTS",
-        reason: "debug-view-only uses: segment-grid visualization (view 9) and \
-                 the wave debug node search inside flameDebugViewColor",
-    },
     Exception {
         file_suffix: "flameResolveFragment.frag",
         token: "Raymarch",

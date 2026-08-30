@@ -96,6 +96,16 @@ declare_scene_format! {
             get: |e| e.warp.rise_speed,
             set: |e, v| e.warp.rise_speed = v,
         },
+        rise_accel: f32 = Style {
+            get: |e| e.warp.rise_accel,
+            set: |e, v| e.warp.rise_accel = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.2f",
+                tooltip: "Height gain of the upward noise advection: speed = rise_speed * (1 + rise_accel * h); 0 = uniform",
+            },
+        },
         taper_power: f32 = Shape {
             get: |e| e.warp.taper_power,
             set: |e, v| e.warp.taper_power = v,
@@ -103,6 +113,26 @@ declare_scene_format! {
         radius_tip_ratio: f32 = Shape {
             get: |e| e.edge.radius_tip_ratio,
             set: |e, v| e.edge.radius_tip_ratio = v,
+        },
+        base_spread: f32 = Style {
+            get: |e| e.edge.base_spread,
+            set: |e, v| e.edge.base_spread = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Fire pool at the foot: extra radius ratio at h = 0 fading to the plain taper at base_spread_height; 0 = off",
+            },
+        },
+        base_spread_height: f32 = Style {
+            get: |e| e.edge.base_spread_height,
+            set: |e, v| e.edge.base_spread_height = v,
+            ui {
+                min: 0.02,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Normalized height over which the base spread fades out",
+            },
         },
         edge_low: f32 = Style { get: |e| e.edge.low, set: |e, v| e.edge.low = v },
         edge_high: f32 = Style { get: |e| e.edge.high, set: |e, v| e.edge.high = v },
@@ -284,6 +314,16 @@ declare_scene_format! {
                 tooltip: "Shear-layer ramp added to the mixing degree, gain * u^2 over the normalized radius: the axis stays an unmixed bright core while the rim thins and cools",
             },
         },
+        mix_core_radius: f32 = Style {
+            get: |e| e.mix.core_radius,
+            set: |e, v| e.mix.core_radius = v,
+            ui {
+                                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Normalized radius below which the noise mixing fades out (from half this radius): keeps the core one connected bright mass while the rim still breaks up",
+            },
+        },
         density_exp: f32 = Style {
             get: |e| e.thermal.density_exp,
             set: |e, v| e.thermal.density_exp = v,
@@ -328,6 +368,28 @@ declare_scene_format! {
                 max: 1.5,
                 format: "%.2f",
                 tooltip: "Vertical scale of the noise cells: small = tall streaks, 1 = isotropic puffs (in the height-scaled mode)",
+            },
+        },
+        noise_lobe_scale: f32 = Style {
+            get: |e| e.noise.lobe_scale,
+            set: |e, v| e.noise.lobe_scale = v,
+            ui {
+                label: "Lobe Scale",
+                min: 0.1,
+                max: 1.5,
+                format: "%.2f",
+                tooltip: "Knee of the silhouette-scale low octaves: smaller lets larger, rounder lobes through, larger keeps only the fine carving band",
+            },
+        },
+        noise_lobe_aniso: f32 = Style {
+            get: |e| e.noise.lobe_aniso,
+            set: |e, v| e.noise.lobe_aniso = v,
+            ui {
+                label: "Lobe Aspect",
+                min: 0.25,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Vertical wavenumber multiplier of the low octaves: below 1 stretches the lobes into tall streaks, above 1 flattens them into stacked puffs",
             },
         },
         edge_outer_sharpen: f32 = Style {
@@ -474,6 +536,346 @@ declare_scene_format! {
             },
         },
         branch_seed: u32 = Frame { get: |e| e.branch.seed, set: |e, v| e.branch.seed = v },
+        puff_gain: f32 = Style {
+            get: |e| e.puff.gain,
+            set: |e, v| e.puff.gain = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Thinning of the medium between the puffs in [0, 1]: the puff cores keep the full density while the gaps drop to 1 - gain, so the column reads as stacked lumps rising from the base; 0 = off",
+            },
+        },
+        puff_period: f32 = Style {
+            get: |e| e.puff.period,
+            set: |e, v| e.puff.period = v,
+            ui {
+                min: 0.05,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Puffing period [s]: one density parcel leaves the base per period (puffing frequency 1 / period)",
+            },
+        },
+        puff_rise: f32 = Style {
+            get: |e| e.puff.rise,
+            set: |e, v| e.puff.rise = v,
+            ui {
+                min: 0.01,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Rise velocity of the puffs in local height units per second; spacing between lumps = rise * period",
+            },
+        },
+        puff_radius: f32 = Style {
+            get: |e| e.puff.radius,
+            set: |e, v| e.puff.radius = v,
+            ui {
+                min: 0.05,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Puff radius at spawn as a ratio of the base trunk radius",
+            },
+        },
+        puff_spread: f32 = Style {
+            get: |e| e.puff.spread,
+            set: |e, v| e.puff.spread = v,
+            ui {
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Entrainment growth of the puff radius per unit height, in spawn radii",
+            },
+        },
+        puff_decay: f32 = Style {
+            get: |e| e.puff.decay,
+            set: |e, v| e.puff.decay = v,
+            ui {
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Height over which the puff density e-folds (burnout); 0 = no decay",
+            },
+        },
+        puff_aspect: f32 = Style {
+            get: |e| e.puff.aspect,
+            set: |e, v| e.puff.aspect = v,
+            ui {
+                min: 0.1,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Vertical over lateral radius of a puff: below 1 flattens the lumps so a wide puff can still leave thin seams between neighbours",
+            },
+        },
+        puff_spawn_height: f32 = Style {
+            get: |e| e.puff.spawn_height,
+            set: |e, v| e.puff.spawn_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Height at which puffs are spawned, in local height units [0, 1]",
+            },
+        },
+        puff_root_gain: f32 = Style {
+            get: |e| e.puff.root_gain,
+            set: |e, v| e.puff.root_gain = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Gain of the static root puff [0, 1]",
+            },
+        },
+        puff_root_height: f32 = Style {
+            get: |e| e.puff.root_height,
+            set: |e, v| e.puff.root_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Height of the static root puff center [0, 1]",
+            },
+        },
+        flow_gain: f32 = Style {
+            get: |e| e.flow.gain,
+            set: |e, v| e.flow.gain = v,
+            ui {
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Scale of the fluid motion on the column centre and width (markers carried by the vortex-pair flow and the gust); 0 = off",
+            },
+        },
+        flow_period: f32 = Style {
+            get: |e| e.flow.period,
+            set: |e, v| e.flow.period = v,
+            ui {
+                min: 0.1,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Vortex pair spawn period in seconds",
+            },
+        },
+        flow_rise: f32 = Style {
+            get: |e| e.flow.rise,
+            set: |e, v| e.flow.rise = v,
+            ui {
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Vortex pair rise speed in height units per second",
+            },
+        },
+        flow_strength: f32 = Style {
+            get: |e| e.flow.strength,
+            set: |e, v| e.flow.strength = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Circulation of each vortex in base radii squared per second: how strongly a passing pair bulges and necks the column",
+            },
+        },
+        flow_core: f32 = Style {
+            get: |e| e.flow.core,
+            set: |e, v| e.flow.core = v,
+            ui {
+                min: 0.1,
+                max: 2.0,
+                format: "%.2f",
+                tooltip: "Gaussian core radius of a vortex in base radii: the lobe size",
+            },
+        },
+        flow_gust: f32 = Style {
+            get: |e| e.flow.gust,
+            set: |e, v| e.flow.gust = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Gust velocity amplitude at the tip in base radii per second: the whole-column sway",
+            },
+        },
+        flow_gust_frequency: f32 = Style {
+            get: |e| e.flow.gust_frequency,
+            set: |e, v| e.flow.gust_frequency = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Base gust frequency in Hz",
+            },
+        },
+        flow_burst: f32 = Style {
+            get: |e| e.flow.burst,
+            set: |e, v| e.flow.burst = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Burst (whip) velocity amplitude in base radii per second, one burst every ten gust periods; 0 = none",
+            },
+        },
+        flow_damping: f32 = Style {
+            get: |e| e.flow.damping,
+            set: |e, v| e.flow.damping = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Restoring rate of the markers toward the rest column per second: how long the column remembers the flow",
+            },
+        },
+        flow_damping_slope: f32 = Style {
+            get: |e| e.flow.damping_slope,
+            set: |e, v| e.flow.damping_slope = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Linear reduction of the damping with height: damping at the tip = damping * (1 - damping_slope); 0 = uniform (legacy)",
+            },
+        },
+        flow_transport_speed: f32 = Style {
+            get: |e| e.flow.transport_speed,
+            set: |e, v| e.flow.transport_speed = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Upstream transport speed of the marker column in height units per second; 0 = off (bit-match)",
+            },
+        },
+        flow_transport_accel: f32 = Style {
+            get: |e| e.flow.transport_accel,
+            set: |e, v| e.flow.transport_accel = v,
+            ui {
+                min: -5.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Transport speed increase with height (multiplied by y/aspect); 0 = uniform transport",
+            },
+        },
+        flow_inject_height: f32 = Style {
+            get: |e| e.flow.inject_height,
+            set: |e, v| e.flow.inject_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Height01 up to which the gust injects lateral displacement at the root (1 at the foot, 0 at this height); 0 = tip-weighted y/aspect (legacy)",
+            },
+        },
+        lobe_gain: f32 = Style {
+            get: |e| e.lobe.gain,
+            set: |e, v| e.lobe.gain = v,
+            ui {
+                min: 0.0,
+                max: 3.0,
+                format: "%.2f",
+                tooltip: "Lobe train: peak one-sided bulge of one lobe in base radii (needs flow_gain > 0); 0 = off",
+            },
+        },
+        lobe_transport: f32 = Style {
+            get: |e| e.lobe.transport,
+            set: |e, v| e.lobe.transport = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "1 = inject each lobe once at spawn into the simulated marker column so the flow transport carries it and damping fades it (rise/accel/life unused); 0 = legacy overlay added after the simulation",
+            },
+        },
+        lobe_period: f32 = Style {
+            get: |e| e.lobe.period,
+            set: |e, v| e.lobe.period = v,
+            ui {
+                min: 0.01,
+                max: 5.0,
+                format: "%.3f",
+                tooltip: "Lobe spawn period in seconds",
+            },
+        },
+        lobe_life: f32 = Style {
+            get: |e| e.lobe.life,
+            set: |e, v| e.lobe.life = v,
+            ui {
+                min: 0.01,
+                max: 10.0,
+                format: "%.3f",
+                tooltip: "Lobe lifetime in seconds: swells over the first half, fades over the second",
+            },
+        },
+        lobe_rise: f32 = Style {
+            get: |e| e.lobe.rise,
+            set: |e, v| e.lobe.rise = v,
+            ui {
+                min: 0.0,
+                max: 50.0,
+                format: "%.2f",
+                tooltip: "Lobe rise speed in height units per second",
+            },
+        },
+        lobe_size: f32 = Style {
+            get: |e| e.lobe.size,
+            set: |e, v| e.lobe.size = v,
+            ui {
+                min: 0.01,
+                max: 0.5,
+                format: "%.3f",
+                tooltip: "Vertical half-extent of one lobe in height units",
+            },
+        },
+        lobe_spawn_height: f32 = Style {
+            get: |e| e.lobe.spawn_height,
+            set: |e, v| e.lobe.spawn_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Centre of the lobe spawn height band",
+            },
+        },
+        lobe_spawn_range: f32 = Style {
+            get: |e| e.lobe.spawn_range,
+            set: |e, v| e.lobe.spawn_range = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Width of the uniform lobe spawn band above lobe_spawn_height; 0 = single band",
+            },
+        },
+        lobe_accel: f32 = Style {
+            get: |e| e.lobe.accel,
+            set: |e, v| e.lobe.accel = v,
+            ui {
+                min: 0.0,
+                max: 20.0,
+                format: "%.2f",
+                tooltip: "Exponential lobe rise rate in 1/s: higher lobes rise faster; 0 = constant rise",
+            },
+        },
+        lobe_spread: f32 = Style {
+            get: |e| e.lobe.spread,
+            set: |e, v| e.lobe.spread = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Scatter of lobe spawn time, height and size",
+            },
+        },
+        lobe_shift: f32 = Style {
+            get: |e| e.lobe.shift,
+            set: |e, v| e.lobe.shift = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Centre shift per unit bulge: 1 = one-sided tongue (far side still), 0 = symmetric puff",
+            },
+        },
     },
     runtime {
         time: f32 { get: |e| e.time, set: |e, v| e.time = v },

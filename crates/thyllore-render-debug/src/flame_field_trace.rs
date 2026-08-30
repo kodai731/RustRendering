@@ -626,7 +626,12 @@ impl<'a> UboCtx<'a> {
         } else {
             1.0
         };
-        let mix_noise = smoothstep(mix.lo, mix.hi, carve_sign * carrier_z * mix.inv_carrier_std);
+        let mut mix_noise =
+            smoothstep(mix.lo, mix.hi, carve_sign * carrier_z * mix.inv_carrier_std);
+        if mix.core_radius > 0.0 {
+            let core_squared = mix.core_radius * mix.core_radius;
+            mix_noise *= smoothstep(0.25 * core_squared, core_squared, u_squared);
+        }
         let mix_height = mix.height_gain * h * h;
         let mix_radial = mix.radial_gain * u_squared;
         (mix_noise + mix_height + mix_radial).clamp(0.0, 1.0)
@@ -952,7 +957,8 @@ impl<'a> UboCtx<'a> {
             0.4375 + z
         };
         let mixing = self.mixing_degree(z_mix, hs, u_squared);
-        let mix_density = self.mix_density_factor(mixing);
+        let mix_density = self.mix_density_factor(mixing)
+            * thyllore_effect_core::puff_density_factor(&self.u.puff_field, ps, u_squared.sqrt());
         let temperature = self.mix_temperature(mixing);
         let emissivity = self.wien_emissivity(temperature);
         let lambda = self.tip_carve_lambda(hs);
@@ -1779,7 +1785,7 @@ pub fn trace_flame_field_ubo(ubo: &FlameUBO, view: &WallProbeView) -> Value {
             "erosion_response": vec_json(&[ubo.erosion_response.center, ubo.erosion_response.kappa, ubo.erosion_response.weight1, ubo.erosion_response.weight2]),
             "wave_cf_params": vec_json(&[ubo.wave_cf_params.enabled, ubo.wave_cf_params.shear_layer_count, ubo.wave_cf_params.skipped_power_plain, ubo.wave_cf_params.skipped_power_env]),
             "unified_params": vec_json(&[ubo.unified_params.enabled, ubo.unified_params.sigma_floor]),
-            "mix_params": vec_json(&[ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain]),
+            "mix_params": vec_json(&[ubo.mix_params.lo, ubo.mix_params.hi, ubo.mix_params.inv_carrier_std, ubo.mix_params.height_gain, ubo.mix_params.scale, ubo.mix_params.radial_gain, ubo.mix_params.core_radius]),
             "segment_params": vec_json(&[ubo.segment_params.count]),
             "thermal_params": vec_json(&[ubo.thermal_params.density_exp, ubo.thermal_params.temp_exp, ubo.thermal_params.temp_hot_k, ubo.thermal_params.temp_cold_k, ubo.thermal_params.wien_ck]),
             "spread_params": vec_json(&[ubo.spread_params.gain, ubo.spread_params.edge_outer_sharpen, ubo.spread_params.twist_gain, ubo.spread_params.erosion_noise_gain]),
