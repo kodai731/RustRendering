@@ -24,6 +24,7 @@ _scene_depth = None
 _composite_shader = None
 _draw_failure_reported = False
 _draw_diagnostic_reported = False
+_ZERO_DEPTH_TEX = None
 
 
 def _load_shader():
@@ -72,6 +73,7 @@ class WaterViewportRenderer:
         self.frame_ubo = None
         self.water_ubo = None
         self.color = None
+        self.depth = None
         self.fb_color = None
         self._w = 0
         self._h = 0
@@ -84,11 +86,12 @@ class WaterViewportRenderer:
         import gpu
 
         self.color = gpu.types.GPUTexture((w, h), format="RGBA32F")
-        self.fb_color = gpu.types.GPUFrameBuffer(color_slots=(self.color,))
+        self.depth = gpu.types.GPUTexture((w, h), format="DEPTH_COMPONENT32F")
+        self.fb_color = gpu.types.GPUFrameBuffer(color_slots=(self.color,), depth_slot=self.depth)
 
     def clear_color_for_discarded_fragments(self):
         with self.fb_color.bind():
-            self.fb_color.clear(color=(0.0, 0.0, 0.0, 0.0))
+            self.fb_color.clear(color=(0.0, 0.0, 0.0, 0.0), depth=0.0)
 
     def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h, flip_y=True):
         import gpu
@@ -110,7 +113,7 @@ class WaterViewportRenderer:
 
         scissor = coordinates.project_bounds_to_pixel_rect(fx.water_bounds_corners(params, position, rotation), view, proj, w, h)
         if scissor is None:
-            return self.color
+            return self.color, self.depth
 
         with self.fb_color.bind():
             gpu.state.scissor_test_set(True)
@@ -120,16 +123,20 @@ class WaterViewportRenderer:
                 shader.bind()
                 shader.uniform_block("frame", self.frame_ubo)
                 shader.uniform_block("water", self.water_ubo)
+                gpu.state.depth_test_set("ALWAYS")
+                gpu.state.depth_mask_set(True)
                 from gpu_extras.batch import batch_for_shader
                 batch = batch_for_shader(shader, "TRIS", {"pos": [(-1.0, -1.0), (3.0, -1.0), (-1.0, 3.0)]})
                 batch.draw(shader)
             finally:
+                gpu.state.depth_mask_set(False)
+                gpu.state.depth_test_set("NONE")
                 gpu.state.scissor_test_set(False)
 
-        return self.color
+        return self.color, self.depth
 
     def release(self):
-        for attr in ("frame_ubo", "water_ubo", "color", "fb_color"):
+        for attr in ("frame_ubo", "water_ubo", "color", "depth", "fb_color"):
             setattr(self, attr, None)
 
 
@@ -190,20 +197,22 @@ def draw_water():
         params = water_render_params(obj.thyllore_water)
         position = coordinates.blender_to_engine_point(obj.matrix_world.translation)
         rotation = coordinates.blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
-        last_color = renderer.render(
+        last_color, _depth = renderer.render(
             view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h
         )
 
     report_first_draw(w, h, camera_pos, water_objects, time.perf_counter() - render_started)
 
     if last_color is not None:
-        composite_tonemapped(last_color, w, h)
+        composite_tonemapped(last_color, _renderers[obj.name].depth, w, h, window_matrix)
 
 
-def composite_tonemapped(color_tex, w, h):
-    global _composite_shader
+def composite_tonemapped(color_tex, depth_tex, w, h, window_matrix, scene_depth=None):
+    global _composite_shader, _ZERO_DEPTH_TEX
     import gpu
     from gpu_extras.batch import batch_for_shader
+
+    effective_scene_depth = scene_depth if scene_depth is not None else _scene_depth
 
     if _composite_shader is None:
         _composite_shader = build_tonemap_composite_shader()
@@ -215,13 +224,23 @@ def composite_tonemapped(color_tex, w, h):
     previous_depth_test = gpu.state.depth_test_get()
     try:
         gpu.state.blend_set("ALPHA_PREMULT")
-        gpu.state.depth_test_set("NONE")
+        gpu.state.depth_test_set("LESS_EQUAL")
+        gpu.state.depth_mask_set(True)
         _composite_shader.bind()
         _composite_shader.uniform_float("ModelViewProjectionMatrix", gpu.matrix.get_projection_matrix() @ gpu.matrix.get_model_view_matrix())
         _composite_shader.uniform_float("tonemapParams", (ENGINE_EXPOSURE, DISPLAY_ENCODE_SRGB))
+        _composite_shader.uniform_float("depthParams", (window_matrix[2][2], window_matrix[2][3], VIEWPORT_NEAR))
         _composite_shader.uniform_sampler("image", color_tex)
+        _composite_shader.uniform_sampler("waterDepth", depth_tex)
+        if effective_scene_depth is not None:
+            _composite_shader.uniform_sampler("sceneDepth", effective_scene_depth)
+        else:
+            if _ZERO_DEPTH_TEX is None:
+                _ZERO_DEPTH_TEX = gpu.types.GPUTexture((1, 1), format="R32F", data=gpu.types.Buffer("FLOAT", 1, [0.0]))
+            _composite_shader.uniform_sampler("sceneDepth", _ZERO_DEPTH_TEX)
         batch.draw(_composite_shader)
     finally:
+        gpu.state.depth_mask_set(False)
         gpu.state.depth_test_set(previous_depth_test)
         gpu.state.blend_set(previous_blend)
 

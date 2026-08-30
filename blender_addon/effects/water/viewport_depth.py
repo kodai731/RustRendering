@@ -5,6 +5,32 @@ from .water_shader import build_depth_convert_shader
 _capture_failure_reported = False
 
 
+def window_depth_to_engine_depth(d: float, p22: float, p23: float, near: float) -> float:
+    """Pure Python forward: window depth d -> engine depth.
+
+    Matches the GLSL in depth_convert_fragment_source():
+        zEye = p23 / (2.0 * d - 1.0 + p22)
+        engineDepth = (d >= 1.0 || zEye <= 0.0) ? 0.0 : near / zEye
+    """
+    z_eye = p23 / (2.0 * d - 1.0 + p22)
+    if d >= 1.0 or z_eye <= 0.0:
+        return 0.0
+    return near / z_eye
+
+
+def engine_depth_to_window_depth(engine_depth: float, p22: float, p23: float, near: float) -> float:
+    """Pure Python inverse: engine depth -> window depth d.
+
+    Inverts the forward formula:
+        zEye = near / engine_depth
+        d = (p23 / zEye + 1 - p22) / 2
+    """
+    if engine_depth == 0.0:
+        return 1.0
+    z_eye = near / engine_depth
+    return (p23 / z_eye + 1.0 - p22) / 2.0
+
+
 class ViewportDepthCapture:
 
     def __init__(self):

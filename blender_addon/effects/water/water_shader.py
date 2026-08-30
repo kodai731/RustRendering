@@ -91,10 +91,16 @@ def tonemap_composite_fragment_source() -> str:
         " return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));"
         " }"
         "void main(){"
+        " float wd = texture(waterDepth, fragTexCoord).r;"
+        " if (wd <= 0.0) discard;"
+        " float sd = texture(sceneDepth, fragTexCoord).r;"
+        " if (sd > wd) discard;"
         " vec4 hdr = texture(image, fragTexCoord);"
         " vec3 display = acesFilmic(hdr.rgb * tonemapParams.x);"
         " if (tonemapParams.y > 0.5) { display = encodeSrgb(display); }"
         " outColor = vec4(display, hdr.a);"
+        " float zEye = depthParams.z / wd;"
+        " gl_FragDepth = (depthParams.y / zEye + 1.0 - depthParams.x) * 0.5;"
         " }"
     )
 
@@ -104,8 +110,11 @@ def build_tonemap_composite_shader():
 
     info = gpu.types.GPUShaderCreateInfo()
     info.sampler(0, "FLOAT_2D", "image")
+    info.sampler(1, "FLOAT_2D", "waterDepth")
+    info.sampler(2, "FLOAT_2D", "sceneDepth")
     info.push_constant("MAT4", "ModelViewProjectionMatrix")
     info.push_constant("VEC2", "tonemapParams")
+    info.push_constant("VEC3", "depthParams")
     iface = gpu.types.GPUStageInterfaceInfo("tonemap_composite_iface")
     iface.smooth("VEC2", "fragTexCoord")
     info.vertex_in(0, "VEC2", "pos")
