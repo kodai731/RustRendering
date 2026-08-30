@@ -30,6 +30,7 @@ network = "NETWORK_PERMISSION"
 [build]
 paths_exclude_pattern = [
     "tests/",
+    "effects/",
     "**/__pycache__/",
     "**/*.pyc",
     ".pytest_cache/",

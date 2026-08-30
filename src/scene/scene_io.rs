@@ -443,21 +443,7 @@ fn apply_editor_state(editor: &EditorState, world: &mut World) {
     }
 }
 
-fn ensure_resource<T: Default + 'static>(world: &mut World) {
-    if !world.contains_resource::<T>() {
-        world.insert_resource(T::default());
-    }
-}
-
 fn apply_rendering_params(camera_state: &CameraState, world: &mut World) {
-    ensure_resource::<PhysicalCameraParameters>(world);
-    ensure_resource::<Exposure>(world);
-    ensure_resource::<DepthOfField>(world);
-    ensure_resource::<ToneMapping>(world);
-    ensure_resource::<LensEffects>(world);
-    ensure_resource::<BloomSettings>(world);
-    ensure_resource::<AutoExposure>(world);
-
     if let Some(ref phys) = camera_state.physical_camera {
         if let Some(mut params) = world.get_resource_mut::<PhysicalCameraParameters>() {
             params.focal_length_mm = phys.focal_length_mm;
@@ -573,26 +559,6 @@ mod tests {
     }
 
     #[test]
-    fn test_rendering_params_apply_before_post_processing_resources_exist() {
-        let mut world = World::new();
-        let mut camera_state = CameraState::default();
-        camera_state.bloom = Some(super::super::format::BloomState {
-            enabled: true,
-            intensity: 0.3,
-            threshold: 0.3,
-            knee: 0.5,
-            mip_count: 5,
-        });
-
-        apply_rendering_params(&camera_state, &mut world);
-
-        let bloom = world.get_resource::<BloomSettings>().unwrap();
-        assert!(bloom.enabled);
-        assert_eq!(bloom.intensity, 0.3);
-        assert_eq!(bloom.threshold, 0.3);
-    }
-
-    #[test]
     fn generated_mesh_scene_loads_without_a_model_file() {
         let dir = temp_dir("generated");
         let scene_path = write_scene(&dir, ModelReference::GENERATED_MESH);
@@ -615,23 +581,18 @@ mod tests {
     }
 
     #[test]
-    fn default_scene_asset_parses_with_recovered_flame() {
+    fn default_scene_asset_holds_campfire_flame() {
         let content = fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/default.scene.ron"),
         )
         .expect("default scene asset readable");
         let scene: SceneFile = ron::from_str(&content).expect("default scene asset parses");
 
-        let flame = scene.flame.expect("recovered flame section present");
-        assert_eq!(flame.effect.height, 8.0);
-        assert_eq!(flame.effect.radius, 1.0);
-        assert_eq!(flame.effect.edge.radius_tip_ratio, 1.0);
-        assert_eq!(flame.effect.color.temperature_base_k, 2900.0);
-        assert_eq!(flame.effect.color.temperature_tip_k, 1300.0);
-        assert_eq!(flame.effect.mix.scale, 0.5);
-        assert_eq!(flame.effect.edge.white_boost, 0.0);
-        assert_eq!(flame.effect.noise.scale_mode, 1.0);
-        assert_eq!(flame.effect.meander.amp, 0.0);
+        let flame = scene.flame.expect("flame section present");
+        let mut campfire = thyllore_effect_core::FlameEffect::default();
+        thyllore_effect_core::apply_flame_preset(&mut campfire, "campfire");
+        assert_eq!(flame.effect, campfire);
+        assert!(flame.style.is_none());
     }
 
     #[test]

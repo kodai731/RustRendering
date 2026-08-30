@@ -26,6 +26,65 @@ use crate::ecs::systems::clip_track_systems::query_clip_tracks;
 use crate::ecs::systems::phases::run_event_dispatch_phase;
 use crate::ecs::{DeferredAction, UIEventQueue};
 
+fn save_flame_history_npy_if_requested(app: &mut App) {
+    let batch = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::BatchRun>();
+    if let Some(batch) = batch {
+        let sequence_dir = batch.sequence_dir.clone();
+        let total_count = batch.total_count;
+        let captures_remaining = batch.captures_remaining;
+        if let Some(sink) = app
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameDumpSink>()
+        {
+            let path = sink.path.clone();
+            let npy_path = if let Some(ref sequence_dir) = sequence_dir {
+                let frame_index = total_count - captures_remaining;
+                sequence_dir.join(format!("flame_{:02}.npy", frame_index))
+            } else {
+                crate::ecs::systems::flame_dump_npy_path(&path)
+            };
+            if let Err(e) = unsafe { app.save_flame_history_npy(&npy_path) } {
+                eprintln!("Failed to save flame history npy: {:?}", e);
+            }
+            let ubo_path = {
+                let mut p = npy_path.clone();
+                let stem = p.file_stem().unwrap();
+                p.set_file_name(format!("{}.ubo.bin", stem.to_string_lossy()));
+                p
+            };
+            let flame_entities = app.data.ecs_world.query_flames();
+            if let Some(first) = flame_entities.first() {
+                if let (Some(effect), Some(baked), Some(temporal_accum)) = (
+                    app.data
+                        .ecs_world
+                        .get_component::<crate::ecs::component::FlameEffect>(*first),
+                    app.data
+                        .ecs_world
+                        .get_component::<crate::ecs::component::FlameBaked>(*first),
+                    app.data
+                        .ecs_world
+                        .get_component::<crate::ecs::component::FlameTemporalAccum>(*first),
+                ) {
+                    let ubo = thyllore_effect_core::build_flame_ubo(effect, baked, temporal_accum);
+                    let bytes = unsafe {
+                        std::slice::from_raw_parts(
+                            &ubo as *const thyllore_effect_core::FlameUBO as *const u8,
+                            std::mem::size_of::<thyllore_effect_core::FlameUBO>(),
+                        )
+                    };
+                    if let Err(e) = std::fs::write(&ubo_path, bytes) {
+                        eprintln!("Failed to save flame UBO bin: {:?}", e);
+                    }
+                }
+            }
+        }
+    }
+}
+
 fn update_mouse_input(world: &crate::ecs::World, ui: &imgui::Ui) {
     let io = ui.io();
     let mut mouse = world.resource_mut::<MouseInput>();
@@ -729,6 +788,7 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
                 &app.data.ecs_world,
                 save_result.map_err(|e| format!("{e:?}")),
             );
+            save_flame_history_npy_if_requested(app);
         }
 
         #[cfg(debug_assertions)]
@@ -896,9 +956,9 @@ unsafe fn render_frame(
                         [1680.0, 840.0],
                     );
                 }
+                save_flame_history_npy_if_requested(app);
             }
         }
-
         app.data
             .ecs_world
             .insert_resource(crate::ecs::resource::CpuFrameTimings {

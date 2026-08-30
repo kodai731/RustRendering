@@ -288,10 +288,9 @@ pub fn build_flame_dump_record(
     trail_oldest_age: f32,
 ) -> Value {
     let ubo = build_flame_ubo(effect, baked, temporal_accum);
-    let mut record = build_effect_json(effect, baked, temporal_accum)
-        .as_object()
-        .unwrap()
-        .clone();
+    let effect_json = build_effect_json(effect, baked, temporal_accum);
+    let mut record = effect_json.as_object().unwrap().clone();
+    record.insert("effect_params".to_string(), effect_json);
     for (k, v) in build_ubo_json(&ubo).as_object().unwrap() {
         record.insert(k.clone(), v.clone());
     }

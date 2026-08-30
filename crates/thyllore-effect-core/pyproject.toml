@@ -1,0 +1,34 @@
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "thyllore-effect-core"
+version = "0.0.1"
+description = "Effect layer for ThylloreAnimation Blender addon"
+authors = [{ name = "kodai731" }]
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+classifiers = [
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+]
+dependencies = [
+    "numpy>=1.21,<3.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "numpy>=1.21,<3.0",
+]
+
+[tool.maturin]
+features = ["python"]
+module-name = "thyllore_effect_core"
+strip = true
+bindings = "pyo3"

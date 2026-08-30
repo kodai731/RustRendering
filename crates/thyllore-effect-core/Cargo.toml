@@ -7,8 +7,19 @@ authors = ["kodai731"]
 description = "Concrete effect layer for ThylloreAnimation — effect parameter components, the closed-form analytic core mirrored by the shaders, and offline bake helpers. No ECS, rendering-pipeline or Vulkan dependency, so it can also ship standalone (e.g. as a Blender addon wheel)"
 repository = "https://github.com/kodai731/Thyllore-Animation"
 
+[lib]
+name = "thyllore_effect_core"
+crate-type = ["cdylib", "rlib"]
+
+[features]
+python = ["dep:pyo3", "dep:numpy", "dep:pythonize", "pyo3/extension-module"]
+python-test = ["dep:pyo3", "dep:numpy", "dep:pythonize", "pyo3/auto-initialize"]
+
 [dependencies]
 cgmath = "0.18"
+numpy = { version = "0.29", optional = true }
+pyo3 = { version = "0.29", features = ["abi3-py310"], optional = true }
+pythonize = { version = "0.29", optional = true }
 serde = { version = "1", features = ["derive"] }
 thyllore-color-core = { path = "../thyllore-color-core" }
 thyllore-math-core = { path = "../thyllore-math-core" }

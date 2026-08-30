@@ -278,41 +278,35 @@ void flameWaveCfPsiVectors(
 }
 
 // Chebyshev tables of sin/cos over [-PSI_BOUND, PSI_BOUND], packed in the
-// detail-mode spare slots (wavePhase.z/.w of the first 21 detail modes).
-void flameWaveCfLoadCheb(
-    out float chebSin[FLAME_WAVE_CF_CHEB_COEFFS],
-    out float chebCos[FLAME_WAVE_CF_CHEB_COEFFS]) {
-    int base = FLAME_WAVE_DETAIL_BASE;
-    for (int i = 0; i < FLAME_WAVE_CF_CHEB_COEFFS; ++i) {
-        vec4 wavePhase = flame.waveModes[2 * (base + i) + 1];
-        chebSin[i] = wavePhase.z;
-        chebCos[i] = wavePhase.w;
-    }
+// detail-mode spare slots (wavePhase.z/.w of the first 21 detail modes). Read
+// straight from the UBO: an array parameter is a by-value copy per call.
+float flameWaveCfChebCoefficient(int index, bool sinTable) {
+    vec4 wavePhase = flame.waveModes[2 * (FLAME_WAVE_DETAIL_BASE + index) + 1];
+    return sinTable ? wavePhase.z : wavePhase.w;
 }
 
-float flameWaveCfClenshaw(float coeffs[FLAME_WAVE_CF_CHEB_COEFFS], float x) {
+float flameWaveCfClenshaw(bool sinTable, float x) {
     float t = 2.0 * x;
     float b1 = 0.0;
     float b2 = 0.0;
     for (int k = FLAME_WAVE_CF_CHEB_COEFFS - 1; k >= 1; --k) {
-        float b0 = t * b1 - b2 + coeffs[k];
+        float b0 = t * b1 - b2 + flameWaveCfChebCoefficient(k, sinTable);
         b2 = b1;
         b1 = b0;
     }
-    return x * b1 - b2 + coeffs[0];
+    return x * b1 - b2 + flameWaveCfChebCoefficient(0, sinTable);
 }
 
 // sin(angle + psi) in family T: sinA*T_c(psi) + cosA*T_s(psi), with the
 // per-mode RMS depth cap folded into psi.
 float flameWaveCfCarrier(
-    vec4 waveVector, float depthScale, float angle, vec3 psiVec, float ampDisp,
-    float chebSin[FLAME_WAVE_CF_CHEB_COEFFS], float chebCos[FLAME_WAVE_CF_CHEB_COEFFS]) {
+    vec4 waveVector, float depthScale, float angle, vec3 psiVec, float ampDisp) {
     float depth = ampDisp * depthScale;
     float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
     float x = clamp(
         capScale * dot(waveVector.xyz, psiVec) / FLAME_WAVE_CF_PSI_BOUND, -1.0, 1.0);
-    return sin(angle) * flameWaveCfClenshaw(chebCos, x)
-        + cos(angle) * flameWaveCfClenshaw(chebSin, x);
+    return sin(angle) * flameWaveCfClenshaw(false, x)
+        + cos(angle) * flameWaveCfClenshaw(true, x);
 }
 
 // Turbulence may add density where erosion goes negative. The field is defined as
@@ -825,11 +819,8 @@ FlameWaveModeSumResult flameWaveModeSum(
     vec3 psiVec = vec3(0.0);
     vec3 psiRateVec = vec3(0.0);
     float ampDisp = 0.0;
-    float chebSin[FLAME_WAVE_CF_CHEB_COEFFS];
-    float chebCos[FLAME_WAVE_CF_CHEB_COEFFS];
     if (cf) {
         flameWaveCfPsiVectors(pb, d, h, psiVec, psiRateVec, ampDisp);
-        flameWaveCfLoadCheb(chebSin, chebCos);
     }
     vec3 jitterPsi;
     vec3 jitterPsiRate;
@@ -859,7 +850,7 @@ FlameWaveModeSumResult flameWaveModeSum(
             float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
             betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
             carrier = flameWaveCfCarrier(
-                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
+                waveVector, wavePhase.w, angle, psiVec, ampDisp);
         } else {
             carrier = sin(angle);
         }
@@ -885,7 +876,7 @@ FlameWaveModeSumResult flameWaveModeSum(
             float capScale = depth > FLAME_WAVE_CF_CAP ? FLAME_WAVE_CF_CAP / depth : 1.0;
             betaPhase += capScale * dot(waveVector.xyz, psiRateVec);
             carrier = flameWaveCfCarrier(
-                waveVector, wavePhase.w, angle, psiVec, ampDisp, chebSin, chebCos);
+                waveVector, wavePhase.w, angle, psiVec, ampDisp);
         } else {
             carrier = sin(angle);
         }
