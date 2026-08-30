@@ -769,6 +769,156 @@ pub unsafe fn record_flame_passes(
 
     Ok(())
 }
+
+pub unsafe fn record_water_passes(
+    app: &App,
+    command_buffer: vk::CommandBuffer,
+    image_index: usize,
+) -> Result<()> {
+    let (Some(water_buffer), Some(shading_pipeline), Some(descriptor)) = (
+        app.data.viewport.water_buffer.as_ref(),
+        app.data.raytracing.water_shading_pipeline.as_ref(),
+        app.data.raytracing.water_descriptor.as_ref(),
+    ) else {
+        return Ok(());
+    };
+
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
+
+    let waters: Vec<_> = app.data.ecs_world.query_waters();
+
+    let instance_count = waters
+        .len()
+        .min(thyllore_vulkan_core::resource::MAX_WATER_INSTANCES);
+
+    if instance_count == 0 {
+        return Ok(());
+    }
+
+    for i in 0..instance_count {
+        let water = waters[i];
+        let effect = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::WaterTorusEffect>(water)
+            .ok_or_else(|| anyhow::anyhow!("Missing WaterTorusEffect for instance {}", i))?;
+
+        // Build UBO for this instance
+        let ubo = thyllore_effect_core::build_water_ubo(effect);
+
+        let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {
+            return Ok(());
+        };
+        let ubo_dynamic_offset = water_ubo.slot_offset(i)? as u32;
+        water_ubo.record_update(
+            &ctx.device.device,
+            command_buffer,
+            i,
+            &ubo,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+        )?;
+
+        // Compute per-instance scissor using the model matrix
+        let Some(scissor) = compute_water_scissor(
+            app,
+            water_buffer.extent(),
+            &ubo.model,
+            effect.major_radius,
+            effect.minor_radius,
+        ) else {
+            continue;
+        };
+
+        // Get render settings for push constants
+        let settings = app
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::WaterRenderSettings>()
+            .map(|settings| *settings)
+            .unwrap_or_default();
+        let push_constants = thyllore_vulkan_core::renderer::WaterPushConstants::new(
+            settings.secondary_rays.as_shader_value(),
+            settings.debug_view,
+        );
+
+        // Record shading pass for this instance
+        thyllore_vulkan_core::renderer::record_water_shading_pass(
+            &ctx,
+            water_buffer,
+            shading_pipeline,
+            descriptor,
+            ubo_dynamic_offset,
+            scissor,
+            push_constants,
+            image_index,
+            command_buffer,
+        )?;
+    }
+
+    Ok(())
+}
+
+fn compute_water_scissor(
+    app: &App,
+    extent: vk::Extent2D,
+    model: &cgmath::Matrix4<f32>,
+    major_radius: f32,
+    minor_radius: f32,
+) -> Option<vk::Rect2D> {
+    use crate::ecs::resource::ProjectionData;
+    const SCISSOR_MARGIN_PX: f32 = 2.0;
+
+    let Some(projection) = app.data.ecs_world.get_resource::<ProjectionData>() else {
+        return Some(full_extent_scissor(extent));
+    };
+    let view_proj = projection.proj * projection.view;
+
+    let mut min_x = f32::MAX;
+    let mut min_y = f32::MAX;
+    let mut max_x = f32::MIN;
+    let mut max_y = f32::MIN;
+    for corner in thyllore_effect_core::water_local_bounds_corners(major_radius, minor_radius) {
+        let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
+        if clip.w <= 0.0 {
+            return Some(full_extent_scissor(extent));
+        }
+        let screen_x = (clip.x / clip.w + 1.0) * 0.5 * extent.width as f32;
+        let screen_y = (clip.y / clip.w + 1.0) * 0.5 * extent.height as f32;
+        min_x = min_x.min(screen_x);
+        min_y = min_y.min(screen_y);
+        max_x = max_x.max(screen_x);
+        max_y = max_y.max(screen_y);
+    }
+
+    let min_x = (min_x - SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
+    let min_y = (min_y - SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
+    let max_x = (max_x + SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
+    let max_y = (max_y + SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
+    if max_x - min_x < 1.0 || max_y - min_y < 1.0 {
+        return None;
+    }
+
+    Some(
+        vk::Rect2D::builder()
+            .offset(vk::Offset2D {
+                x: min_x as i32,
+                y: min_y as i32,
+            })
+            .extent(vk::Extent2D {
+                width: (max_x - min_x).ceil() as u32,
+                height: (max_y - min_y).ceil() as u32,
+            })
+            .build(),
+    )
+}
+
+fn full_extent_scissor(extent: vk::Extent2D) -> vk::Rect2D {
+    vk::Rect2D::builder()
+        .offset(vk::Offset2D { x: 0, y: 0 })
+        .extent(extent)
+        .build()
+}
+
 fn compute_flame_scissor(
     app: &App,
     extent: vk::Extent2D,
@@ -829,13 +979,6 @@ fn compute_flame_scissor(
             })
             .build(),
     )
-}
-
-fn full_extent_scissor(extent: vk::Extent2D) -> vk::Rect2D {
-    vk::Rect2D::builder()
-        .offset(vk::Offset2D { x: 0, y: 0 })
-        .extent(extent)
-        .build()
 }
 
 pub unsafe fn record_tonemap_to_offscreen(

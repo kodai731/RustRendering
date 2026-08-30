@@ -671,4 +671,20 @@ mod tests {
             preset.name
         );
     }
+
+    #[test]
+    fn water_probe_scene_asset_loads() {
+        let content = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/water_probe.scene.ron"),
+        )
+        .expect("water probe scene asset readable");
+        let scene: SceneFile = ron::from_str(&content).expect("water probe scene asset parses");
+
+        let water = scene.water.expect("water section present");
+        assert!(
+            (water.effect.major_radius - 1.2).abs() < f32::EPSILON,
+            "expected major_radius == 1.2, got {}",
+            water.effect.major_radius
+        );
+    }
 }

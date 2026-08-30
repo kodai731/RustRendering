@@ -460,7 +460,7 @@ impl App {
         let object_id_view = gbuffer.object_id_image_view;
         self.recreate_gbuffer_framebuffer()?;
         self.attach_gbuffer_depth_to_hdr()?;
-
+        self.recreate_water_on_resize()?;
         self.update_gbuffer_descriptors(
             position_view,
             normal_view,
@@ -487,6 +487,40 @@ impl App {
         if let Some(hdr_buffer) = &mut self.data.viewport.hdr_buffer {
             hdr_buffer.attach_depth(&self.rrdevice, depth_view)?;
         }
+        Ok(())
+    }
+
+    unsafe fn recreate_water_on_resize(&mut self) -> Result<()> {
+        let depth_view = {
+            let rt = self.resource::<RenderTargets>();
+            rt.render.gbuffer_depth_image_view
+        };
+        let hdr_view = match &self.data.viewport.hdr_buffer {
+            Some(hdr) => hdr.color_image_view,
+            None => return Ok(()),
+        };
+        if depth_view == vk::ImageView::null() {
+            return Ok(());
+        }
+
+        let width = self.data.viewport.width;
+        let height = self.data.viewport.height;
+
+        // Destroy old buffer if it exists
+        if let Some(mut old_buffer) = self.data.viewport.water_buffer.take() {
+            old_buffer.destroy(&self.rrdevice.device);
+        }
+
+        // Recreate with new dimensions
+        let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
+            &self.rrdevice,
+            width,
+            height,
+            hdr_view,
+            depth_view,
+        )?;
+        self.data.viewport.water_buffer = Some(water_buffer);
+
         Ok(())
     }
 

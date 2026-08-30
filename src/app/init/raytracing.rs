@@ -90,7 +90,43 @@ impl App {
         Self::create_auto_exposure_pipelines_with_resources(rrdevice, data)?;
         Self::create_onion_skin_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
         Self::create_flame_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
+        Self::create_water_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
 
+        Ok(())
+    }
+
+    pub(crate) unsafe fn create_water_pipeline_with_resources(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        data: &mut AppData,
+        rrrender: &RRRender,
+    ) -> Result<()> {
+        let hdr_view = match data.viewport.hdr_buffer {
+            Some(ref hdr) => hdr.color_image_view,
+            None => {
+                log!("HDR buffer not available, skipping water pipeline");
+                return Ok(());
+            }
+        };
+
+        let depth_view = rrrender.gbuffer_depth_image_view;
+        let w = data.viewport.width;
+        let h = data.viewport.height;
+
+        let water_buffer =
+            thyllore_vulkan_core::resource::WaterBuffer::new(rrdevice, w, h, hdr_view, depth_view)?;
+
+        let water_buffer = data.viewport.water_buffer.insert(water_buffer);
+
+        data.raytracing.create_water_pipeline(
+            instance,
+            rrdevice,
+            rrrender,
+            &data.graphics_resources,
+            water_buffer,
+        )?;
+
+        log!("Water pipeline created successfully");
         Ok(())
     }
 

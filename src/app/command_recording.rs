@@ -133,6 +133,19 @@ impl App {
                     &self.rrdevice.device,
                     command_buffer,
                     image_index,
+                    "water".to_string(),
+                );
+                deferred::record_water_passes(self, command_buffer, image_index)?;
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
+
+                self.gpu_timestamp_profiler.begin_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
                     "flame".to_string(),
                 );
                 deferred::record_flame_passes(self, command_buffer, image_index)?;
