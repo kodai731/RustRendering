@@ -14,11 +14,18 @@ pub struct GpuBlockTarget {
     pub codegen_config: fn() -> GpuBlockCodegenConfig,
 }
 
-pub const GPU_BLOCK_TARGETS: &[GpuBlockTarget] = &[GpuBlockTarget {
-    block_name: "FlameUBO",
-    output_path: "crates/thyllore-effect-core/src/flame/gpu/components/generated.rs",
-    codegen_config: flame_codegen_config,
-}];
+pub const GPU_BLOCK_TARGETS: &[GpuBlockTarget] = &[
+    GpuBlockTarget {
+        block_name: "FlameUBO",
+        output_path: "crates/thyllore-effect-core/src/flame/gpu/components/generated.rs",
+        codegen_config: flame_codegen_config,
+    },
+    GpuBlockTarget {
+        block_name: "WaterUBO",
+        output_path: "crates/thyllore-effect-core/src/water/gpu/components/generated.rs",
+        codegen_config: water_codegen_config,
+    },
+];
 
 pub const REGENERATE_GPU_BLOCKS_COMMAND: &str =
     "cargo run -p thyllore-shader-manifest --bin generate_gpu_blocks";
@@ -54,6 +61,14 @@ fn flame_codegen_config() -> GpuBlockCodegenConfig {
         regenerate_command: REGENERATE_GPU_BLOCKS_COMMAND.into(),
         imports: vec!["cgmath::Matrix4".into()],
         extra_derives,
+    }
+}
+
+fn water_codegen_config() -> GpuBlockCodegenConfig {
+    GpuBlockCodegenConfig {
+        regenerate_command: REGENERATE_GPU_BLOCKS_COMMAND.into(),
+        imports: vec!["cgmath::Matrix4".into()],
+        extra_derives: BTreeMap::new(),
     }
 }
 

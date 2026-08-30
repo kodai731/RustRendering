@@ -1,0 +1,214 @@
+#ifndef WATER_TORUS_INTERSECT_GLSL
+#define WATER_TORUS_INTERSECT_GLSL
+
+// Signed cube root: pow(x, 1.0/3.0) is undefined for x < 0 in GLSL (NaN).
+float cbrtSigned(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }
+
+// Torus implicit function: (|p|^2 + 1 - rHat^2)^2 - 4*(x^2 + z^2) = 0
+float torusImplicit(vec3 p, float rHat) {
+    return pow(dot(p, p) + 1.0 - rHat * rHat, 2.0) - 4.0 * (p.x * p.x + p.z * p.z);
+}
+
+// Gradient of the implicit function
+vec3 torusGradient(vec3 p, float rHat) {
+    float factor = 4.0 * (dot(p, p) + 1.0 - rHat * rHat);
+    return vec3(factor * p.x - 8.0 * p.x, factor * p.y, factor * p.z - 8.0 * p.z);
+}
+
+// Solve quartic c[4]*t^4 + c[3]*t^3 + c[2]*t^2 + c[1]*t + c[0] = 0
+// using Ferrari's method (Graphics Gems Roots3And4).
+// Returns number of real roots written to roots[].
+int solveQuartic(float c[5], out float roots[4]) {
+    float a = c[3] / c[4];
+    float b = c[2] / c[4];
+    float cc = c[1] / c[4];
+    float d = c[0] / c[4];
+    float sq_a = a * a;
+    float p = -(3.0 / 8.0) * sq_a + b;
+    float q = (1.0 / 8.0) * sq_a * a - (1.0 / 2.0) * a * b + cc;
+    float r = -(3.0 / 256.0) * sq_a * sq_a + (1.0 / 16.0) * sq_a * b - (1.0 / 4.0) * a * cc + d;
+
+    int count = 0;
+    const float EPS = 1e-9;
+
+    if (abs(r) < EPS) {
+        // r ≈ 0: roots are 0 and the cubic q*t^3 + p*t^2 + t = 0
+        // Solve cubic [q, p, 0, 1]
+        float ca = p / q;
+        float cb = 0.0 / q;
+        float cc_c = 1.0 / q;
+        float sq_ca = ca * ca;
+        float pc = (1.0 / 3.0) * (-(1.0 / 3.0) * sq_ca + cb);
+        float qc = (1.0 / 2.0) * ((2.0 / 27.0) * ca * sq_ca - (1.0 / 3.0) * ca * cb + cc_c);
+        float cb_p = pc * pc * pc;
+        float cubic_d = qc * qc + cb_p;
+
+        if (abs(cubic_d) < EPS) {
+            if (abs(qc) < EPS) {
+                roots[count++] = 0.0 - ca / 3.0;
+            } else {
+                float u = cbrtSigned(-qc);
+                roots[count++] = 2.0 * u - ca / 3.0;
+                roots[count++] = -u - ca / 3.0;
+            }
+        } else if (cubic_d < 0.0) {
+            float phi = acos(-qc / sqrt(-cb_p)) / 3.0;
+            float t = 2.0 * sqrt(-pc);
+            roots[count++] = t * cos(phi) - ca / 3.0;
+            roots[count++] = -t * cos(phi + 3.141592653589793 / 3.0) - ca / 3.0;
+            roots[count++] = -t * cos(phi - 3.141592653589793 / 3.0) - ca / 3.0;
+        } else {
+            float sqrt_disc = sqrt(cubic_d);
+            float u = cbrtSigned(sqrt_disc - qc);
+            float v = -cbrtSigned(sqrt_disc + qc);
+            roots[count++] = u + v - ca / 3.0;
+        }
+    } else if (abs(q) < EPS) {
+        // q ≈ 0: biquadratic t^4 + p*t^2 + r = 0
+        float disc = p * p - 4.0 * r;
+        if (disc >= 0.0) {
+            float sqrt_disc = sqrt(disc);
+            float sq1 = (-p - sqrt_disc) * 0.5;
+            float sq2 = (-p + sqrt_disc) * 0.5;
+            if (sq1 >= 0.0) {
+                float root = sqrt(sq1);
+                roots[count++] = -root;
+                roots[count++] = root;
+            }
+            if (sq2 >= 0.0 && sq2 > EPS) {
+                float root = sqrt(sq2);
+                roots[count++] = -root;
+                roots[count++] = root;
+            }
+        }
+    } else {
+        // General case: resolvent cubic z^3 + (-p/2)*z^2 + (-r)*z + (r*p/2 - q^2/8) = 0
+        // Coefficients for solve_cubic: [r*p/2 - q^2/8, -r, -p/2, 1]
+        float ca = (-p / 2.0) / 1.0;
+        float cb = (-r) / 1.0;
+        float cc_c = (r * p / 2.0 - q * q / 8.0) / 1.0;
+        float sq_ca = ca * ca;
+        float pc = (1.0 / 3.0) * (-(1.0 / 3.0) * sq_ca + cb);
+        float qc = (1.0 / 2.0) * ((2.0 / 27.0) * ca * sq_ca - (1.0 / 3.0) * ca * cb + cc_c);
+        float cb_p = pc * pc * pc;
+        float cubic_d = qc * qc + cb_p;
+
+        float z;
+        if (abs(cubic_d) < EPS) {
+            if (abs(qc) < EPS) {
+                z = -ca / 3.0;
+            } else {
+                float u = cbrtSigned(-qc);
+                z = 2.0 * u - ca / 3.0;
+            }
+        } else if (cubic_d < 0.0) {
+            float phi = acos(-qc / sqrt(-cb_p)) / 3.0;
+            float t = 2.0 * sqrt(-pc);
+            z = t * cos(phi) - ca / 3.0;
+        } else {
+            float sqrt_disc = sqrt(cubic_d);
+            float u = cbrtSigned(sqrt_disc - qc);
+            float v = -cbrtSigned(sqrt_disc + qc);
+            z = u + v - ca / 3.0;
+        }
+
+        // Ferrari decomposition: need sqrt(z^2 - r) and sqrt(2*z - p)
+        float z2r = z * z - r;
+        float twozp = 2.0 * z - p;
+        if (z2r < -EPS || twozp < -EPS) {
+            return 0;
+        }
+        float u = sqrt(max(z2r, 0.0));
+        float v = sqrt(max(twozp, 0.0));
+
+        // Two quadratics: t^2 + sign*t + (z - u) = 0 and t^2 - sign*t + (z + u) = 0
+        float sign = (q < 0.0) ? -v : v;
+
+        // First quadratic
+        float disc1 = sign * sign - 4.0 * (z - u);
+        if (disc1 >= 0.0) {
+            float sqrt_disc1 = sqrt(disc1);
+            roots[count++] = (-sign - sqrt_disc1) * 0.5;
+            roots[count++] = (-sign + sqrt_disc1) * 0.5;
+        }
+
+        // Second quadratic
+        float sign2 = (q < 0.0) ? v : -v;
+        float disc2 = sign2 * sign2 - 4.0 * (z + u);
+        if (disc2 >= 0.0) {
+            float sqrt_disc2 = sqrt(disc2);
+            roots[count++] = (-sign2 - sqrt_disc2) * 0.5;
+            roots[count++] = (-sign2 + sqrt_disc2) * 0.5;
+        }
+    }
+
+    // Shift back: t -= a/4
+    for (int i = 0; i < count; ++i) {
+        roots[i] -= a / 4.0;
+    }
+
+    return count;
+}
+
+// Intersect ray with torus. o is origin normalized by major radius, d is unit direction.
+// Returns number of valid (t > 1e-6) ascending roots written to roots[].
+int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
+    // Bounding sphere early-out: sphere of radius (1 + rHat) centered at origin
+    float o_mag_sq = dot(o, o);
+    float bounding_radius = 1.0 + rHat;
+    float oc = dot(o, d);
+    float disc = oc * oc - (o_mag_sq - bounding_radius * bounding_radius);
+    if (disc < 0.0 && o_mag_sq > bounding_radius * bounding_radius) {
+        return 0;
+    }
+
+    // Compute quartic coefficients from ray-torus intersection
+    float coeff_a = d.x * d.x + d.y * d.y + d.z * d.z;
+    float coeff_b = 2.0 * (o.x * d.x + o.y * d.y + o.z * d.z);
+    float coeff_c = o.x * o.x + o.y * o.y + o.z * o.z;
+    float coeff_d = coeff_c + 1.0 - rHat * rHat;
+
+    float a4 = coeff_a * coeff_a;
+    float a3 = 2.0 * coeff_a * coeff_b;
+    float a2 = 2.0 * coeff_a * coeff_d + coeff_b * coeff_b - 4.0 * coeff_a + 4.0 * d.y * d.y;
+    float a1 = 2.0 * coeff_b * coeff_d - 4.0 * coeff_b + 8.0 * o.y * d.y;
+    float a0 = coeff_d * coeff_d - 4.0 * coeff_c + 4.0 * o.y * o.y;
+
+    // Solve quartic: a4*t^4 + a3*t^3 + a2*t^2 + a1*t + a0 = 0
+    float c[5] = float[](a0, a1, a2, a3, a4);
+    int count = solveQuartic(c, roots);
+
+    // Newton-Raphson refinement (2 iterations)
+    for (int iter = 0; iter < 2; ++iter) {
+        for (int i = 0; i < count; ++i) {
+            float t = roots[i];
+            float f = a0 + t * (a1 + t * (a2 + t * (a3 + t * a4)));
+            float df = a1 + t * (2.0 * a2 + t * (3.0 * a3 + t * 4.0 * a4));
+            float correction = f / (df + 1e-30);
+            roots[i] -= correction;
+        }
+    }
+
+    // Filter: keep only t > 1e-6
+    int validCount = 0;
+    for (int i = 0; i < count; ++i) {
+        if (roots[i] > 1e-6) {
+            roots[validCount++] = roots[i];
+        }
+    }
+
+    // Sort ascending (bubble sort, max 4 elements)
+    for (int i = 1; i < validCount; ++i) {
+        int j = i;
+        while (j > 0 && roots[j - 1] > roots[j]) {
+            float tmp = roots[j];
+            roots[j] = roots[j - 1];
+            roots[j - 1] = tmp;
+            --j;
+        }
+    }
+
+    return validCount;
+}
+
+#endif

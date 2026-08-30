@@ -12,7 +12,7 @@ declare_scene_format! {
         snapshot: water_parameter_snapshot,
         scalars: WATER_SCALAR_PARAMS,
         ui: WATER_UI_PARAMS,
-        overwrite: overwrite_persisted_fields,
+        overwrite: overwrite_water_persisted_fields,
     },
     persisted {
         position: [f32; 3] = Frame {
@@ -264,7 +264,7 @@ mod tests {
         target.time = 2.5;
         target.time_scale = 3.0;
 
-        overwrite_persisted_fields(&mut target, &loaded);
+        overwrite_water_persisted_fields(&mut target, &loaded);
         assert_eq!(target.major_radius, 5.0);
         assert_eq!(target.time, 2.5);
         assert_eq!(target.time_scale, 3.0);

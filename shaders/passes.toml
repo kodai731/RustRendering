@@ -30,6 +30,10 @@ sets = { 0 = "frame", 1 = "material", 2 = "object" }
 stages = ["tonemapVertex.vert", "onionSkinCompositeFragment.frag"]
 sets = { 0 = "local" }
 
+[pass.water_resolve]
+stages = ["tonemapVertex.vert", "waterResolveFragment.frag"]
+sets = { 0 = "frame", 1 = "local" }
+
 [pass.flame_resolve]
 stages = ["tonemapVertex.vert", "flameResolveFragment.frag"]
 sets = { 0 = "frame", 1 = "local" }
