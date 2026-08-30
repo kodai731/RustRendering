@@ -1,8 +1,12 @@
 use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
 
 use super::pick::pick_torus;
-use super::project::{project_to_torus, water_surface_point};
+use super::project::{project_to_torus, water_surface_normal, water_surface_point};
 use super::torus_intersect::{intersect_torus, torus_implicit};
+use super::wave::{
+    generate_water_wave_modes, water_height_and_gradient, water_perturbed_normal, WaterWaveMode,
+    WATER_WAVE_MODE_COUNT,
+};
 
 fn random_in_unit_sphere() -> Vector3<f32> {
     let mut x: f32 = 0.0;
@@ -250,6 +254,124 @@ fn test_water_surface_normal_is_normalized() {
             (n.magnitude() - 1.0).abs() < 1e-6,
             "normal magnitude={:.8}",
             n.magnitude()
+        );
+    }
+}
+
+#[test]
+fn test_wave_modes_determinism() {
+    let wave_amplitude = 0.02;
+    let wave_frequency = 6.0;
+    let wave_speed = 1.0;
+
+    // Determinism: same args -> same modes
+    let modes_a = generate_water_wave_modes(wave_amplitude, wave_frequency, wave_speed);
+    let modes_b = generate_water_wave_modes(wave_amplitude, wave_frequency, wave_speed);
+    assert_eq!(modes_a, modes_b, "modes should be deterministic");
+
+    // (m, n) != (0, 0) for all modes
+    for (i, mode) in modes_a.iter().enumerate() {
+        assert!(mode.m != 0 || mode.n != 0, "mode[{}] has (m,n)=(0,0)", i);
+    }
+
+    // Σ amplitude ≈ wave_amplitude
+    let sum: f32 = modes_a.iter().map(|m| m.amplitude).sum();
+    assert!(
+        (sum - wave_amplitude).abs() < 1e-4,
+        "sum of amplitudes={:.6}, expected={:.6}",
+        sum,
+        wave_amplitude
+    );
+}
+
+#[test]
+fn test_wave_numerical_gradient() {
+    let modes = generate_water_wave_modes(0.02, 6.0, 1.0);
+    let flow = (0.2, 0.0);
+    let u = 0.5;
+    let v = 0.3;
+    let time = 1.0;
+
+    let (h, h_u, h_v) = water_height_and_gradient(u, v, time, flow, &modes);
+
+    let delta = 1e-3;
+    let (h_u_num, _, _) = water_height_and_gradient(u + delta, v, time, flow, &modes);
+    let (h_u_ref, _, _) = water_height_and_gradient(u - delta, v, time, flow, &modes);
+    let h_u_central = (h_u_num - h_u_ref) / (2.0 * delta);
+
+    let (h_v_num, ..) = water_height_and_gradient(u, v + delta, time, flow, &modes);
+    let (h_v_ref, ..) = water_height_and_gradient(u, v - delta, time, flow, &modes);
+    let h_v_central = (h_v_num - h_v_ref) / (2.0 * delta);
+
+    assert!(
+        (h_u - h_u_central).abs() < 1e-3,
+        "h_u={:.6}, central={:.6}",
+        h_u,
+        h_u_central
+    );
+    assert!(
+        (h_v - h_v_central).abs() < 1e-3,
+        "h_v={:.6}, central={:.6}",
+        h_v,
+        h_v_central
+    );
+}
+
+#[test]
+fn test_wave_periodicity() {
+    let modes = generate_water_wave_modes(0.02, 6.0, 1.0);
+    let flow = (0.2, 0.0);
+    let time = 1.0;
+
+    for _ in 0..100 {
+        let u: f32 = fastrand::f32() * 10.0;
+        let v: f32 = fastrand::f32() * 10.0;
+
+        let (h, _, _) = water_height_and_gradient(u, v, time, flow, &modes);
+        let (h_shifted, _, _) = water_height_and_gradient(
+            u + 2.0 * std::f32::consts::PI,
+            v + 2.0 * std::f32::consts::PI,
+            time,
+            flow,
+            &modes,
+        );
+
+        assert!(
+            (h - h_shifted).abs() < 1e-4,
+            "h={:.6}, h_shifted={:.6}, diff={:.8}",
+            h,
+            h_shifted,
+            (h - h_shifted).abs()
+        );
+    }
+}
+
+#[test]
+fn test_perturbed_normal_identity() {
+    let major_radius = 5.0;
+    let minor_radius = 1.0;
+
+    for _ in 0..100 {
+        let u: f32 = fastrand::f32() * 2.0 * std::f32::consts::PI;
+        let v: f32 = fastrand::f32() * 2.0 * std::f32::consts::PI;
+
+        // When h = h_u = h_v = 0, perturbed normal should match water_surface_normal
+        let n_perturbed = water_perturbed_normal(u, v, 0.0, 0.0, 0.0, major_radius, minor_radius);
+        let n_expected = water_surface_normal(u, v);
+
+        let diff = (n_perturbed - n_expected).magnitude();
+        assert!(
+            diff < 1e-6,
+            "perturbed normal differs from surface normal by {:.8}",
+            diff
+        );
+
+        // Should be unit length
+        let mag = n_perturbed.magnitude();
+        assert!(
+            (mag - 1.0).abs() < 1e-6,
+            "perturbed normal magnitude={:.8}",
+            mag
         );
     }
 }

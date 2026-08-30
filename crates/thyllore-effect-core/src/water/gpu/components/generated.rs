@@ -13,5 +13,6 @@ declare_gpu_block! {
         pub composite: [f32; 4],
         pub tint: [f32; 4],
         pub temporal: [f32; 4],
+        pub wave_modes: [[f32; 4]; 16],
     }
 }
