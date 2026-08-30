@@ -7,15 +7,15 @@ if ! docker image inspect thyllore-blender-xvfb:local >/dev/null 2>&1; then
     docker build -f blender/docker/Dockerfile.xvfb -t thyllore-blender-xvfb:local blender/docker
 fi
 
-python3 scripts/export_flame_glsl.py --repo-root "$REPO_ROOT" --out "$REPO_ROOT/blender_flame_addon/shaders"
+python3 scripts/blender/flame/export_glsl.py --repo-root "$REPO_ROOT" --out "$REPO_ROOT/blender_addon/effects/flame/shaders"
 
-if ! ls blender_flame_addon/wheels/thyllore_effect_core-*.whl >/dev/null 2>&1; then
-    (cd crates/thyllore-effect-core && uvx maturin build --release --features python --out "$REPO_ROOT/blender_flame_addon/wheels")
+if ! ls blender_addon/effects/flame/wheels/thyllore_effect_core-*.whl >/dev/null 2>&1; then
+    (cd crates/thyllore-effect-core && uvx maturin build --release --features python --out "$REPO_ROOT/blender_addon/effects/flame/wheels")
 fi
 
 mkdir -p log/blender_flame_probe
 LOG="$REPO_ROOT/log/blender_flame_probe/render_probe.log"
-docker run --rm --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all -v "$REPO_ROOT:$REPO_ROOT" -w "$REPO_ROOT" thyllore-blender-xvfb:local sh -c "xvfb-run -a -s '-screen 0 1280x720x24' blender --gpu-backend vulkan -noaudio --python-exit-code 1 --python '$REPO_ROOT/blender_flame_addon/tests/render_probe.py' -- --out '$REPO_ROOT/log/blender_flame_probe/campfire.exr' $* > '$LOG' 2>&1" || true
+docker run --rm --gpus all -e NVIDIA_DRIVER_CAPABILITIES=all -v "$REPO_ROOT:$REPO_ROOT" -w "$REPO_ROOT" thyllore-blender-xvfb:local sh -c "xvfb-run -a -s '-screen 0 1280x720x24' blender --gpu-backend vulkan -noaudio --python-exit-code 1 --python '$REPO_ROOT/blender_addon/effects/flame/tests/render_probe.py' -- --out '$REPO_ROOT/log/blender_flame_probe/campfire.exr' $* > '$LOG' 2>&1" || true
 
 grep -v '^\s*|' "$LOG" | grep -v gpu.debug | tail -20
 

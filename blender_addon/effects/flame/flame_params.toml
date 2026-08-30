@@ -1,0 +1,7 @@
+# Parameters bundled into the Thyllore Flame extension UI.
+# Every other flame parameter stays at its preset value.
+# Names follow crates/thyllore-effect-core flame UI params (flame_ui_params()).
+
+[exposed]
+names = ["height", "radius", "optical_depth"]
+prefixes = ["noise_"]

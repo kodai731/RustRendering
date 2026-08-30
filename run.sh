@@ -26,10 +26,10 @@ Commands:
       .config/curve_copilot_full.env for THYLLORE_FEEDBACK_TEST_ENDPOINT /
       THYLLORE_INGEST_TOKEN (dev builds always bake the test endpoint).
         ./run.sh blender --mode full
-  blender --flame [--skip-build] [--software-gl] [scene.blend]
+  blender --flame [--skip-build] [--release] [--overlap] [--software-gl] [scene.blend]
       Build the flame addon ZIP, install it into a pristine Docker Blender on
       the NVIDIA GPU and open blender/test.blend with a campfire flame already
-      added (scripts/run_blender_flame.sh). Fresh-install checks use blender-verify:
+      added (scripts/blender/flame/launch.sh). Fresh-install checks use blender-verify:
         ./run.sh blender --flame
         ./run.sh blender-verify --zip dist/thyllore_flame-0.0.1-linux_x86_64.zip
   blend [--scene PATH.blend] [--software-gl] [args...]
@@ -62,7 +62,7 @@ case "$command" in
     blender)
         if [[ "${1:-}" == "--flame" ]]; then
             shift
-            exec bash "$REPO_ROOT/scripts/run_blender_flame.sh" "$@"
+            exec bash "$REPO_ROOT/scripts/blender/flame/launch.sh" "$@"
         fi
         exec bash "$REPO_ROOT/scripts/run_blender_debug.sh" "$@"
         ;;
