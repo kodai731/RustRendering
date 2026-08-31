@@ -84,6 +84,19 @@ fn main() -> Result<()> {
             .resource_mut::<FlameRenderSettings>()
             .debug_view = debug_view;
     }
+    if let Some(debug_view) = overrides.water_debug_view {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
+            .debug_view = debug_view;
+    }
+    if overrides.water_probe_path.is_some() {
+        let debug_view = overrides.water_debug_view.unwrap_or(3);
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
+            .debug_view = debug_view;
+    }
     if let Some(pose) = overrides.camera_pose {
         let mut camera = app.data.ecs_world.resource_mut::<Camera>();
         camera.yaw = pose.yaw_degrees.to_radians();

@@ -815,7 +815,17 @@ pub unsafe fn record_water_passes(
             .ok_or_else(|| anyhow::anyhow!("Missing WaterTorusEffect for instance {}", i))?;
 
         // Build UBO for this instance
-        let ubo = thyllore_effect_core::build_water_ubo(effect);
+        let mut ubo = thyllore_effect_core::build_water_ubo(effect);
+
+        // Overwrite inv_view_proj with f64-precision calculation for probe consistency
+        let projection = app
+            .data
+            .ecs_world
+            .resource::<crate::ecs::resource::ProjectionData>();
+        ubo.inv_view_proj = crate::ecs::systems::water::probe::inverse_view_proj_f64(
+            projection.proj,
+            projection.view,
+        );
 
         let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {
             return Ok(());

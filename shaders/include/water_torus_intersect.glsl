@@ -168,7 +168,9 @@ bool torusSphereTraceFallback(vec3 o, vec3 d, float rHat, out float t) {
 
 // Intersect ray with torus. o is origin normalized by major radius, d is unit direction.
 // Returns number of valid (t > 1e-6) ascending roots written to roots[].
-int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
+// fallbackUsed is true if SDF sphere-tracing fallback was used instead of quartic roots.
+int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fallbackUsed) {
+    fallbackUsed = false;
     // Bounding sphere early-out: sphere of radius (1 + rHat) centered at origin
     float o_mag_sq = dot(o, o);
     float bounding_radius = 1.0 + rHat;
@@ -178,31 +180,58 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
         return 0;
     }
 
-    // Compute quartic coefficients from ray-torus intersection
+    // Origin re-basing: compute bounding sphere entry point tEnter and shift origin to o' = o + tEnter*d
+    // This keeps |o'| <= 1 + rHat, so quartic coefficients are O(1) instead of O(|o|^4).
+    float tEnter;
+    if (o_mag_sq <= bounding_radius * bounding_radius) {
+        // Camera inside sphere: tEnter = 0
+        tEnter = 0.0;
+    } else {
+        // Camera outside sphere: use the near intersection
+        tEnter = -oc - sqrt(disc);
+    }
+    vec3 oPrime = o + tEnter * d;
+
+    // Compute quartic coefficients from ray-torus intersection using re-based origin o'
     float coeff_a = d.x * d.x + d.y * d.y + d.z * d.z;
-    float coeff_b = 2.0 * (o.x * d.x + o.y * d.y + o.z * d.z);
-    float coeff_c = o.x * o.x + o.y * o.y + o.z * o.z;
+    float coeff_b = 2.0 * (oPrime.x * d.x + oPrime.y * d.y + oPrime.z * d.z);
+    float coeff_c = oPrime.x * oPrime.x + oPrime.y * oPrime.y + oPrime.z * oPrime.z;
     float coeff_d = coeff_c + 1.0 - rHat * rHat;
 
     float a4 = coeff_a * coeff_a;
     float a3 = 2.0 * coeff_a * coeff_b;
     float a2 = 2.0 * coeff_a * coeff_d + coeff_b * coeff_b - 4.0 * coeff_a + 4.0 * d.y * d.y;
-    float a1 = 2.0 * coeff_b * coeff_d - 4.0 * coeff_b + 8.0 * o.y * d.y;
-    float a0 = coeff_d * coeff_d - 4.0 * coeff_c + 4.0 * o.y * o.y;
+    float a1 = 2.0 * coeff_b * coeff_d - 4.0 * coeff_b + 8.0 * oPrime.y * d.y;
+    float a0 = coeff_d * coeff_d - 4.0 * coeff_c + 4.0 * oPrime.y * oPrime.y;
 
     // Solve quartic: a4*t^4 + a3*t^3 + a2*t^2 + a1*t + a0 = 0
     float c[5] = float[](a0, a1, a2, a3, a4);
     int count = solveQuartic(c, roots);
 
-    // Newton-Raphson refinement (2 iterations)
-    for (int iter = 0; iter < 2; ++iter) {
+    // Newton-Raphson refinement using implicit function (3 iterations)
+    // g(t) = (|p|^2 + 1 - rHat^2)^2 - 4*(p.x^2 + p.z^2), p = o' + t*d
+    // g'(t) = grad(g)(p) . d
+    for (int iter = 0; iter < 3; ++iter) {
         for (int i = 0; i < count; ++i) {
             float t = roots[i];
-            float f = a0 + t * (a1 + t * (a2 + t * (a3 + t * a4)));
-            float df = a1 + t * (2.0 * a2 + t * (3.0 * a3 + t * 4.0 * a4));
-            float correction = f / (df + 1e-30);
+            vec3 p = oPrime + d * t;
+            float magSq = dot(p, p);
+            float rHat2 = rHat * rHat;
+            float gVal = (magSq + 1.0 - rHat2) * (magSq + 1.0 - rHat2) - 4.0 * (p.x * p.x + p.z * p.z);
+            float factor = 4.0 * (magSq + 1.0 - rHat2);
+            float gx = factor * p.x - 8.0 * p.x;
+            float gy = factor * p.y;
+            float gz = factor * p.z - 8.0 * p.z;
+            float gPrime = gx * d.x + gy * d.y + gz * d.z;
+            if (abs(gPrime) < 1e-12) continue;
+            float correction = gVal / gPrime;
             roots[i] -= correction;
         }
+    }
+
+    // Add tEnter back to all roots
+    for (int i = 0; i < count; ++i) {
+        roots[i] += tEnter;
     }
 
     // Filter: keep only t > 1e-6
@@ -220,7 +249,8 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
         if (torusSphereTraceFallback(o, d, rHat, t_out)) {
             roots[0] = t_out;
             validCount = 1;
-        }
+            fallbackUsed = true;
+       }
     }
 
     // Sort ascending (bubble sort, max 4 elements)

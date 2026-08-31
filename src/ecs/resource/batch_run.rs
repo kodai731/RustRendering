@@ -20,6 +20,7 @@ pub struct BatchRun {
     pub total_count: u32,
     pub flame_trace_path: Option<PathBuf>,
     pub wall_probe_path: Option<PathBuf>,
+    pub water_probe_path: Option<PathBuf>,
 }
 
 impl BatchRun {
@@ -37,6 +38,7 @@ impl BatchRun {
             total_count: 0,
             flame_trace_path: None,
             wall_probe_path: None,
+            water_probe_path: None,
         }
     }
 

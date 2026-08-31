@@ -22,7 +22,7 @@ pub fn create_camera(position: Vector3<f32>, target: Vector3<f32>) -> Camera {
     }
 }
 
-fn compute_camera_backward(camera: &Camera) -> Vector3<f32> {
+pub fn compute_camera_backward(camera: &Camera) -> Vector3<f32> {
     Vector3::new(
         camera.pitch.cos() * camera.yaw.sin(),
         camera.pitch.sin(),

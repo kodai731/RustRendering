@@ -59,7 +59,7 @@ mod text_to_mesh_systems;
 mod timeline_systems;
 pub mod transform_gizmo_systems;
 mod ui_event_systems;
-mod water;
+pub mod water;
 mod weight_heatmap_systems;
 
 pub use animation::*;

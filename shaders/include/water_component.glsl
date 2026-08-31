@@ -11,6 +11,7 @@ layout(set = 1, binding = 0) uniform WaterUBO {
     vec4 tint;
     vec4 temporal;
     vec4 waveModes[16];
+    mat4 invViewProj;
 } water;
 
 #endif

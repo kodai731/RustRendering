@@ -23,6 +23,7 @@ const BATCH_SCREENSHOT_SEQUENCE_FLAG: &str = "--batch-screenshot-sequence";
 const BATCH_FRAMES_FLAG: &str = "--batch-frames";
 const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const BATCH_FLAME_DEBUG_VIEW_FLAG: &str = "--batch-flame-debug-view";
+const BATCH_WATER_DEBUG_VIEW_FLAG: &str = "--batch-water-debug-view";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
@@ -45,6 +46,7 @@ const BATCH_ANIM_EDIT_FLAG: &str = "--batch-anim-edit";
 const BATCH_ANIM_DUMP_FLAG: &str = "--batch-anim-dump";
 const BATCH_FLAME_TRACE_FLAG: &str = "--batch-flame-trace";
 const BATCH_WALL_PROBE_FLAG: &str = "--batch-wall-probe";
+const BATCH_WATER_PROBE_FLAG: &str = "--batch-water-probe";
 const BATCH_DEBUG_ACTION_FLAG: &str = "--batch-debug-action";
 pub const BATCH_LIST_DEBUG_ACTIONS_FLAG: &str = "--batch-list-debug-actions";
 const DEFAULT_SCREENSHOT_FRAME: u64 = 120;
@@ -60,6 +62,7 @@ pub struct EngineCliOverrides {
     pub batch_run: Option<BatchRun>,
     pub flame_mode: Option<FlameShadingMode>,
     pub flame_debug_view: Option<thyllore_effect_core::FlameDebugView>,
+    pub water_debug_view: Option<i32>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
     pub flame_dump_path: Option<String>,
@@ -83,8 +86,8 @@ pub struct EngineCliOverrides {
     pub anim_edits: Vec<BatchAnimEdit>,
     pub anim_dump_path: Option<String>,
     pub debug_actions: Vec<BatchDebugAction>,
-    pub flame_trace_path: Option<String>,
     pub wall_probe_path: Option<String>,
+    pub water_probe_path: Option<String>,
 }
 #[derive(Clone, Debug, PartialEq)]
 pub enum BatchAnimEdit {
@@ -136,6 +139,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         batch_run: batch_run_resolve_from_args(args)?,
         flame_mode: flame_mode_resolve_from_args(args)?,
         flame_debug_view: flame_debug_view_resolve_from_args(args)?,
+        water_debug_view: water_debug_view_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
         camera_pose: camera_pose_resolve_from_args(args)?,
         flame_dump_path: flame_dump_path_resolve_from_args(args)?,
@@ -159,8 +163,8 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         anim_edits: anim_edits_resolve_from_args(args)?,
         anim_dump_path: flag_value_resolve_from_args(args, BATCH_ANIM_DUMP_FLAG)?,
         debug_actions: debug_actions_resolve_from_args(args)?,
-        flame_trace_path: flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?,
         wall_probe_path: flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?,
+        water_probe_path: flag_value_resolve_from_args(args, BATCH_WATER_PROBE_FLAG)?,
     })
 }
 
@@ -264,6 +268,8 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
             flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
         batch.wall_probe_path =
             flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?.map(PathBuf::from);
+        batch.water_probe_path =
+            flag_value_resolve_from_args(args, BATCH_WATER_PROBE_FLAG)?.map(PathBuf::from);
         Ok(Some(batch))
     } else {
         // Single-shot mode (existing behavior)
@@ -305,6 +311,8 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
             flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
         batch.wall_probe_path =
             flag_value_resolve_from_args(args, BATCH_WALL_PROBE_FLAG)?.map(PathBuf::from);
+        batch.water_probe_path =
+            flag_value_resolve_from_args(args, BATCH_WATER_PROBE_FLAG)?.map(PathBuf::from);
         Ok(Some(batch))
     }
 }
@@ -341,6 +349,22 @@ pub fn flame_debug_view_resolve_from_args(
             "invalid flame debug view '{value}': expected off|shaped|erosion|argument|density|sigma|emission|jitter|wcoord|grid|strain|stretch"
         )
     })?;
+    Ok(Some(view))
+}
+
+pub fn water_debug_view_resolve_from_args(args: &[String]) -> Result<Option<i32>> {
+    let Some(position) = args
+        .iter()
+        .position(|arg| arg == BATCH_WATER_DEBUG_VIEW_FLAG)
+    else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WATER_DEBUG_VIEW_FLAG} requires a value (integer debug view index)");
+    };
+    let view: i32 = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid water debug view '{value}': expected integer"))?;
     Ok(Some(view))
 }
 

@@ -62,14 +62,6 @@ fn quartic_coefficients(origin: Vector3<f64>, dir: Vector3<f64>, r_hat: f64) -> 
     [a4, a3, a2, a1, a0]
 }
 
-fn eval_quartic(coeffs: &[f64; 5], t: f64) -> f64 {
-    coeffs[4] + t * (coeffs[3] + t * (coeffs[2] + t * (coeffs[1] + t * coeffs[0])))
-}
-
-fn eval_quartic_derivative(coeffs: &[f64; 5], t: f64) -> f64 {
-    coeffs[3] + t * (2.0 * coeffs[2] + t * (3.0 * coeffs[1] + t * 4.0 * coeffs[0]))
-}
-
 const EQUATION_EPSILON: f64 = 1e-9;
 
 fn solve_quadratic(c: [f64; 3]) -> Vec<f64> {
@@ -213,18 +205,6 @@ fn solve_quartic_ferrari(coefficients_high_to_low: [f64; 5]) -> ([f64; 4], usize
     (out, count)
 }
 
-fn newton_refine(root: &mut f64, coeffs: &[f64; 5], iterations: usize) {
-    for _ in 0..iterations {
-        let f = eval_quartic(coeffs, *root);
-        let df = eval_quartic_derivative(coeffs, *root);
-        let correction = f / (df + 1e-30);
-        if correction.abs() < 1e-14 {
-            break;
-        }
-        *root -= correction;
-    }
-}
-
 fn sphere_tracing(origin: Vector3<f64>, dir: Vector3<f64>, r_hat: f64) -> Option<f64> {
     let mut t = 0.0f64;
     for _ in 0..128 {
@@ -272,11 +252,48 @@ pub fn intersect_torus(
         };
     }
 
-    let coeffs = quartic_coefficients(o_norm, d_norm, r_hat as f64);
+    // Origin re-basing: compute bounding sphere entry point tEnter and shift origin to o' = o + tEnter*d
+    // This keeps |o'| <= 1 + rHat, so quartic coefficients are O(1) instead of O(|o|^4).
+    let t_enter = if o_mag_sq <= bounding_radius * bounding_radius {
+        // Camera inside sphere: tEnter = 0
+        0.0f64
+    } else {
+        // Camera outside sphere: use the near intersection
+        -oc - disc.sqrt()
+    };
+    let o_prime = o_norm + d_norm * t_enter;
+
+    let coeffs = quartic_coefficients(o_prime, d_norm, r_hat as f64);
     let (mut roots, count) = solve_quartic_ferrari(coeffs);
 
+    // Newton-Raphson refinement using implicit function (3 iterations)
+    // g(t) = (|p|^2 + 1 - rHat^2)^2 - 4*(p.x^2 + p.z^2), p = o' + t*d
+    // g'(t) = grad(g)(p) . d
+    let r_hat_f64 = r_hat as f64;
     for i in 0..count {
-        newton_refine(&mut roots[i], &coeffs, 2);
+        for _ in 0..3 {
+            let t = roots[i];
+            let p = o_prime + d_norm * t;
+            let mag_sq = p.dot(p);
+            let r_hat2 = r_hat_f64 * r_hat_f64;
+            let g_val =
+                (mag_sq + 1.0 - r_hat2) * (mag_sq + 1.0 - r_hat2) - 4.0 * (p.x * p.x + p.z * p.z);
+            let factor = 4.0 * (mag_sq + 1.0 - r_hat2);
+            let gx = factor * p.x - 8.0 * p.x;
+            let gy = factor * p.y;
+            let gz = factor * p.z - 8.0 * p.z;
+            let g_prime = gx * d_norm.x + gy * d_norm.y + gz * d_norm.z;
+            if g_prime.abs() < 1e-12 {
+                break;
+            }
+            let correction = g_val / g_prime;
+            roots[i] -= correction;
+        }
+    }
+
+    // Add tEnter back to all roots
+    for i in 0..count {
+        roots[i] += t_enter;
     }
 
     let mut valid_count: usize = 0;

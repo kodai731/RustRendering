@@ -27,7 +27,7 @@ layout(push_constant) uniform WaterPush {
 } push;
 
 void main() {
-    mat4 invViewProj = inverse(frame.proj * frame.view);
+   mat4 invViewProj = water.invViewProj;
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
 
     // Transform to local space: origin w=1, dir w=0
@@ -38,7 +38,8 @@ void main() {
 
     // Intersect ray with torus
     float roots[4];
-    int hitCount = intersectTorus(pLocalOrigin, dLocal, water.radii.y / water.radii.x, roots);
+    bool fallbackUsed;
+    int hitCount = intersectTorus(pLocalOrigin, dLocal, water.radii.y / water.radii.x, roots, fallbackUsed);
 
     if (hitCount == 0) {
         discard;
@@ -59,6 +60,17 @@ void main() {
     // First hit time in world units
     float t1 = roots[0] * water.radii.x;
     vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
+
+    // Debug view: torus intersection probe (nearest root, high-precision encoding)
+    if (push.debugView == 3 || push.debugView == 4) {
+        float t = (push.debugView == 3) ? roots[0] * water.radii.x : roots[1] * water.radii.x;
+        float hi = floor(t);
+        float mid = floor(fract(t) * 1024.0);
+        float lo = fract(t * 1024.0);
+        float marker = -(float(hitCount) + (fallbackUsed ? 10.0 : 0.0));
+        outColor = vec4(hi, mid, lo, marker);
+        return;
+    }
 
     float waterDepth = worldToClipDepth(p1, frame.view, frame.proj);
 
@@ -120,7 +132,8 @@ void main() {
     }
 
     float exitRoots[4];
-    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots);
+    bool exitFallback;
+    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots, exitFallback);
     vec3 pExitLocal;
     if (exitCount > 0) {
         pExitLocal = pLocal1 + dRefr * (1e-3 + exitRoots[0]);
@@ -134,7 +147,8 @@ void main() {
     if (length(dExit) < 1e-4) {
         dRefr = reflect(dRefr, nExit);
         float reRoots[4];
-        int reCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, reRoots);
+        bool reFallback;
+        int reCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, reRoots, reFallback);
         if (reCount > 0) {
             pExitLocal = pLocal1 + dRefr * (1e-3 + reRoots[0]);
         }
