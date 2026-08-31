@@ -531,6 +531,24 @@ impl App {
             descriptor.update_scene_color(&self.rrdevice, scene_color_view, scene_color_sampler)?;
         }
 
+        if let Some(trace_descriptor) = &self.data.raytracing.water_trace_descriptor {
+            if let Some(tlas) = self
+                .data
+                .raytracing
+                .acceleration_structure
+                .as_ref()
+                .and_then(|a| a.tlas.acceleration_structure)
+            {
+                if let Some(water_buffer) = self.data.viewport.water_buffer.as_ref() {
+                    trace_descriptor.write_all(
+                        &self.rrdevice,
+                        tlas,
+                        water_buffer.trace_image_view,
+                    )?;
+                }
+            }
+        }
+
         Ok(())
     }
 

@@ -1,6 +1,7 @@
 use anyhow::Result;
 use cgmath::{SquareMatrix, Vector3};
 use vulkanalia::prelude::v1_0::*;
+use vulkanalia::vk::KhrRayTracingPipelineExtension;
 
 use crate::app::App;
 use crate::ecs::resource::HierarchyState;
@@ -825,7 +826,91 @@ pub unsafe fn record_water_passes(
                 tlas,
                 hit_table,
             )?;
+
+            if let Some(trace_descriptor) = app.data.raytracing.water_trace_descriptor.as_ref() {
+                trace_descriptor.write_all(ctx.device, tlas, water_buffer.trace_image_view)?;
+            }
+
             app.data.raytracing.water_descriptor_tlas.set(tlas);
+        }
+    }
+
+    let settings = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::WaterRenderSettings>()
+        .map(|s| *s)
+        .unwrap_or_default();
+    if settings.secondary_rays == thyllore_effect_core::WaterSecondaryRays::RayTracingPipeline {
+        if let (Some(trace_pipeline), Some(trace_descriptor)) = (
+            app.data.raytracing.water_trace_pipeline.as_ref(),
+            app.data.raytracing.water_trace_descriptor.as_ref(),
+        ) {
+            if let Some(effect) = app
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::component::WaterTorusEffect>(waters[0])
+            {
+                let device = &ctx.device.device;
+                device.cmd_bind_pipeline(
+                    command_buffer,
+                    vk::PipelineBindPoint::RAY_TRACING_KHR,
+                    trace_pipeline.pipeline,
+                );
+                device.cmd_bind_descriptor_sets(
+                    command_buffer,
+                    vk::PipelineBindPoint::RAY_TRACING_KHR,
+                    trace_pipeline.pipeline_layout,
+                    0,
+                    &[trace_descriptor.descriptor_set],
+                    &[],
+                );
+                let radii = [effect.major_radius, effect.minor_radius];
+                let radii_bytes = std::slice::from_raw_parts(radii.as_ptr() as *const u8, 8);
+                device.cmd_push_constants(
+                    command_buffer,
+                    trace_pipeline.pipeline_layout,
+                    vk::ShaderStageFlags::INTERSECTION_KHR,
+                    0,
+                    radii_bytes,
+                );
+                let extent = water_buffer.extent();
+                device.cmd_trace_rays_khr(
+                    command_buffer,
+                    &trace_pipeline.raygen_region,
+                    &trace_pipeline.miss_region,
+                    &trace_pipeline.hit_region,
+                    &trace_pipeline.callable_region,
+                    extent.width,
+                    extent.height,
+                    1,
+                );
+                let barrier = vk::ImageMemoryBarrier::builder()
+                    .old_layout(vk::ImageLayout::GENERAL)
+                    .new_layout(vk::ImageLayout::GENERAL)
+                    .src_access_mask(vk::AccessFlags::SHADER_WRITE)
+                    .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                    .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                    .image(water_buffer.trace_image)
+                    .subresource_range(vk::ImageSubresourceRange {
+                        aspect_mask: vk::ImageAspectFlags::COLOR,
+                        base_mip_level: 0,
+                        level_count: 1,
+                        base_array_layer: 0,
+                        layer_count: 1,
+                    })
+                    .build();
+                device.cmd_pipeline_barrier(
+                    command_buffer,
+                    vk::PipelineStageFlags::RAY_TRACING_SHADER_KHR,
+                    vk::PipelineStageFlags::FRAGMENT_SHADER,
+                    vk::DependencyFlags::empty(),
+                    &[] as &[vk::MemoryBarrier],
+                    &[] as &[vk::BufferMemoryBarrier],
+                    &[barrier],
+                );
+            }
         }
     }
 
