@@ -376,12 +376,14 @@ impl App {
         }
 
         let command_pool = self.resource::<CommandState>().pool.clone();
+        let waters = crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
         crate::app::model_loader::rebuild_acceleration_structures(
             &self.instance,
             &self.rrdevice,
             &command_pool,
             &self.data.graphics_resources,
             &mut self.data.raytracing,
+            &waters,
         )?;
 
         log!("Deleted {} entities with GPU cleanup", entities.len());

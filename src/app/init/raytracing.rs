@@ -45,7 +45,7 @@ impl App {
         data: &mut AppData,
         rrcommand_pool: &Rc<RRCommandPool>,
     ) -> Result<()> {
-        let water_transforms: Vec<(cgmath::Matrix4<f32>, f32, f32)> = vec![];
+        let water_transforms = crate::app::model_loader::collect_water_instances(&data.ecs_world);
         data.raytracing.build_acceleration_structures(
             instance,
             rrdevice,

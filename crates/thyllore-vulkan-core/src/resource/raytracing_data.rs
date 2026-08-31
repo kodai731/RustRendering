@@ -192,8 +192,9 @@ impl RayTracingData {
         )?;
         acceleration_structure.tlas = tlas;
         log!(
-            "Created TLAS with {} instances",
-            acceleration_structure.blas_list.len()
+            "Created TLAS with {} mesh + {} water instances",
+            acceleration_structure.blas_list.len(),
+            waters.len()
         );
 
         acceleration_structure.fill_hit_shading_table(

@@ -176,7 +176,15 @@ unsafe fn apply_model_to_resources(
         assets,
         load_result,
     )?;
-    rebuild_acceleration_structures(instance, device, command_pool, graphics, raytracing)?;
+    let waters = collect_water_instances(world);
+    rebuild_acceleration_structures(
+        instance,
+        device,
+        command_pool,
+        graphics,
+        raytracing,
+        &waters,
+    )?;
     update_ray_query_descriptor(device, raytracing)?;
 
     {
@@ -710,12 +718,25 @@ unsafe fn upload_mesh_vertices(
     Ok(())
 }
 
+pub fn collect_water_instances(world: &World) -> Vec<(cgmath::Matrix4<f32>, f32, f32)> {
+    world
+        .query_waters()
+        .iter()
+        .filter_map(|&entity| {
+            let effect = world.get_component::<crate::ecs::component::WaterTorusEffect>(entity)?;
+            let ubo = thyllore_effect_core::build_water_ubo(effect);
+            Some((ubo.model, effect.major_radius, effect.minor_radius))
+        })
+        .collect()
+}
+
 pub unsafe fn rebuild_acceleration_structures(
     instance: &Instance,
     device: &RRDevice,
     command_pool: &Rc<RRCommandPool>,
     graphics: &GraphicsResources,
     raytracing: &mut RayTracingData,
+    waters: &[(cgmath::Matrix4<f32>, f32, f32)],
 ) -> Result<()> {
     log!("Rebuilding acceleration structures...");
 
@@ -766,11 +787,12 @@ pub unsafe fn rebuild_acceleration_structures(
     )?;
     acceleration_structure.tlas = tlas;
     log!(
-        "Created TLAS with {} instances",
-        acceleration_structure.blas_list.len()
+        "Created TLAS with {} mesh + {} water instances",
+        acceleration_structure.blas_list.len(),
+        waters.len()
     );
 
-    acceleration_structure.fill_hit_shading_table(instance, device, &vertex_buffers, &[])?;
+    acceleration_structure.fill_hit_shading_table(instance, device, &vertex_buffers, waters)?;
 
     raytracing.acceleration_structure = Some(acceleration_structure);
     log!("Acceleration structures rebuilt successfully");
@@ -783,12 +805,14 @@ pub unsafe fn rebuild_acceleration_structures_from_data(
     data: &mut AppData,
     rrcommand_pool: &Rc<RRCommandPool>,
 ) -> Result<()> {
+    let waters = collect_water_instances(&data.ecs_world);
     rebuild_acceleration_structures(
         instance,
         rrdevice,
         rrcommand_pool,
         &data.graphics_resources,
         &mut data.raytracing,
+        &waters,
     )
 }
 
@@ -1353,7 +1377,15 @@ unsafe fn append_model_to_scene(
         graphics.mesh_material_ids.push(material_id);
     }
 
-    rebuild_acceleration_structures(instance, device, command_pool, graphics, raytracing)?;
+    let waters = collect_water_instances(world);
+    rebuild_acceleration_structures(
+        instance,
+        device,
+        command_pool,
+        graphics,
+        raytracing,
+        &waters,
+    )?;
     update_ray_query_descriptor(device, raytracing)?;
 
     {
