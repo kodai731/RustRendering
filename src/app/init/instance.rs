@@ -1193,6 +1193,7 @@ impl App {
             );
         }
         Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::WaterTemporalState>(data);
     }
 
     #[cfg(feature = "ml")]

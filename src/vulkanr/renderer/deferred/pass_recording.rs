@@ -862,6 +862,15 @@ pub unsafe fn record_water_passes(
             projection.view,
         );
 
+        // Overwrite temporal with accumulation state from the water temporal component
+        let accum = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::WaterTemporalAccum>(water)
+            .cloned()
+            .unwrap_or_default();
+        ubo.temporal = [accum.weight, accum.frame_index as f32, 0.0, 0.0];
+
         let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {
             return Ok(());
         };

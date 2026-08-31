@@ -126,9 +126,16 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     }
 
     let t = Instant::now();
-    crate::ecs::systems::flame_temporal_accumulate(ctx);
+    crate::ecs::systems::flame_temporal_accumulate(&mut ctx.world);
     sub.insert(
         "flame_temporal".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    );
+
+    let t = Instant::now();
+    crate::ecs::systems::water_temporal_accumulate(&mut ctx.world);
+    sub.insert(
+        "water_temporal".to_string(),
         t.elapsed().as_secs_f32() * 1000.0,
     );
 

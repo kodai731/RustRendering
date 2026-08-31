@@ -321,3 +321,76 @@ fn inverse_view_proj_f64_is_inverse_of_proj_times_view() {
         }
     }
 }
+
+#[test]
+fn water_temporal_same_snapshot_twice_weight_0_85() {
+    use crate::ecs::component::{WaterTemporalAccum, WaterTorusEffect};
+    use crate::ecs::resource::{WaterRenderSettings, WaterTemporalState};
+    use cgmath::{Matrix4, SquareMatrix};
+
+    let mut world = World::new();
+    world.insert_resource(thyllore_render_core::ProjectionData {
+        view: Matrix4::identity(),
+        proj: Matrix4::identity(),
+        screen_size: cgmath::Vector2::new(800.0, 600.0),
+        aspect: 800.0 / 600.0,
+    });
+    world.insert_resource(WaterRenderSettings::default());
+    world.insert_resource(WaterTemporalState::default());
+
+    let entity = spawn_default_water(&mut world, "Water");
+
+    // First call: no previous snapshot, so weight should be 0.0
+    crate::ecs::systems::water_temporal_accumulate(&mut world);
+
+    let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
+    assert_eq!(temporal.weight, 0.0, "first frame weight should be 0");
+    assert_eq!(temporal.frame_index, 1, "first frame index should be 1");
+
+    // Second call: same snapshot (nothing changed), so weight should be 0.85
+    crate::ecs::systems::water_temporal_accumulate(&mut world);
+
+    let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
+    assert_eq!(temporal.weight, 0.85, "second frame weight should be 0.85");
+    assert_eq!(temporal.frame_index, 2, "second frame index should be 2");
+}
+
+#[test]
+fn water_temporal_view_change_weight_0() {
+    use crate::ecs::component::{WaterTemporalAccum, WaterTorusEffect};
+    use crate::ecs::resource::{WaterRenderSettings, WaterTemporalState};
+    use cgmath::{Matrix4, SquareMatrix};
+
+    let mut world = World::new();
+    world.insert_resource(thyllore_render_core::ProjectionData {
+        view: Matrix4::identity(),
+        proj: Matrix4::identity(),
+        screen_size: cgmath::Vector2::new(800.0, 600.0),
+        aspect: 800.0 / 600.0,
+    });
+    world.insert_resource(WaterRenderSettings::default());
+    world.insert_resource(WaterTemporalState::default());
+
+    let entity = spawn_default_water(&mut world, "Water");
+
+    // First call: no previous snapshot, weight 0
+    crate::ecs::systems::water_temporal_accumulate(&mut world);
+
+    let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
+    assert_eq!(temporal.weight, 0.0, "first frame weight should be 0");
+
+    // Change the view matrix
+    let mut proj = world.resource_mut::<thyllore_render_core::ProjectionData>();
+    proj.view = Matrix4::from_translation(cgmath::Vector3::new(1.0, 0.0, 0.0));
+    drop(proj);
+
+    // Second call: view changed, so weight should be 0.0
+    crate::ecs::systems::water_temporal_accumulate(&mut world);
+
+    let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
+    assert_eq!(temporal.weight, 0.0, "view change should reset weight to 0");
+    assert_eq!(
+        temporal.frame_index, 2,
+        "frame index should still increment"
+    );
+}

@@ -70,6 +70,7 @@ mod transform_gizmo_state;
 mod update_phase_timings;
 mod view_mode;
 mod water_render;
+mod water_temporal;
 mod weight_heatmap;
 
 pub use billboard::*;
@@ -145,4 +146,5 @@ pub use transform_gizmo_state::*;
 pub use update_phase_timings::*;
 pub use view_mode::*;
 pub use water_render::*;
+pub use water_temporal::*;
 pub use weight_heatmap::*;
