@@ -1,5 +1,9 @@
 #version 450
 
+#extension GL_EXT_ray_query : require
+#extension GL_EXT_buffer_reference : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
 #include "include/flame_ray.glsl"
 
 layout(set = 0, binding = 0) uniform FrameUBO {
@@ -17,6 +21,11 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 
 
 layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
+
+layout(set = 1, binding = 2) uniform accelerationStructureEXT sceneTlas;
+
+struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 model; mat4 normalMatrix; vec4 baseColor; };
+layout(set = 1, binding = 3, std430) readonly buffer HitShadingTable { HitShadingRecord records[]; } hitTable;
 
 layout(location = 0) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
@@ -166,7 +175,8 @@ void main() {
 
     vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
 
-    // Composite output
+   // Composite output
     outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
+
     gl_FragDepth = waterDepth;
 }

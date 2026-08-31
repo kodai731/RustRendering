@@ -1,5 +1,6 @@
 use crate::command::*;
 use crate::core::device::*;
+use crate::resource::{HitShadingRecord, HitShadingTable};
 use crate::vulkan::*;
 use anyhow::Result;
 use vulkanalia::vk::KhrAccelerationStructureExtension;
@@ -41,6 +42,7 @@ impl DeviceBuffer {
 pub struct RRAccelerationStructure {
     pub blas_list: Vec<RRBLAS>,
     pub tlas: RRTLAS,
+    pub hit_shading_table: Option<HitShadingTable>,
 }
 
 unsafe fn allocate_device_buffer(
@@ -241,6 +243,7 @@ impl RRAccelerationStructure {
         Self {
             blas_list: Vec::new(),
             tlas: RRTLAS::default(),
+            hit_shading_table: None,
         }
     }
 
@@ -640,6 +643,10 @@ impl RRAccelerationStructure {
                 destroy_device_buffer(device, scratch);
             }
         }
+        if let Some(table) = self.hit_shading_table.take() {
+            device.destroy_buffer(table.buffer, None);
+            device.free_memory(table.memory, None);
+        }
         self.blas_list.clear();
     }
 
@@ -650,6 +657,8 @@ impl RRAccelerationStructure {
         rrcommand_pool: &RRCommandPool,
         vertex_buffers: &[(&vk::Buffer, u32, u32, &vk::Buffer, u32)],
     ) -> Result<()> {
+        let mut records: Vec<HitShadingRecord> = Vec::with_capacity(vertex_buffers.len());
+
         for (i, (vertex_buffer, vertex_count, vertex_stride, index_buffer, index_count)) in
             vertex_buffers.iter().enumerate()
         {
@@ -666,6 +675,31 @@ impl RRAccelerationStructure {
                     *index_count,
                 )?;
             }
+
+            let vertex_address = rrdevice.device.get_buffer_device_address(
+                &vk::BufferDeviceAddressInfo::builder().buffer(**vertex_buffer),
+            );
+            let index_address = rrdevice.device.get_buffer_device_address(
+                &vk::BufferDeviceAddressInfo::builder().buffer(**index_buffer),
+            );
+
+            records.push(HitShadingRecord {
+                vertex_address,
+                index_address,
+                model: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+                normal_matrix: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                    [0.0, 0.0, 0.0, 1.0],
+                ],
+                base_color: [1.0, 1.0, 1.0, 1.0],
+            });
         }
 
         Self::update_tlas(
@@ -675,6 +709,20 @@ impl RRAccelerationStructure {
             &mut self.tlas,
             &self.blas_list,
         )?;
+
+        if !records.is_empty() {
+            let table = match &mut self.hit_shading_table {
+                Some(table) if table.capacity >= records.len() => table,
+                _ => {
+                    let new_table = HitShadingTable::new(instance, rrdevice, records.len())?;
+                    if let Some(old_table) = self.hit_shading_table.take() {
+                        old_table.destroy(rrdevice);
+                    }
+                    self.hit_shading_table.insert(new_table)
+                }
+            };
+            table.upload(rrdevice, &records)?;
+        }
 
         Ok(())
     }

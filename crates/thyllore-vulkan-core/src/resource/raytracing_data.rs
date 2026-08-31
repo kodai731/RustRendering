@@ -1,4 +1,5 @@
 use anyhow::Result;
+use std::cell::Cell;
 use std::rc::Rc;
 use vulkanalia::prelude::v1_0::*;
 
@@ -80,6 +81,8 @@ pub struct RayTracingData {
 
     pub scene_uniform_buffer: Option<vk::Buffer>,
     pub scene_uniform_buffer_memory: Option<vk::DeviceMemory>,
+
+    pub water_descriptor_tlas: Cell<vk::AccelerationStructureKHR>,
 }
 
 impl RayTracingData {
@@ -518,9 +521,23 @@ impl RayTracingData {
         )?;
         water_ubo.write_slot(rrdevice, 0, &WaterUBO::default())?;
 
-        let water_descriptor = RRWaterDescriptorSet::new(rrdevice)?;
+        let mut water_descriptor = RRWaterDescriptorSet::new(rrdevice)?;
         let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
-        water_descriptor.write_all(rrdevice, &water_ubo, scene_color_view, scene_color_sampler)?;
+        if let Some(accel_struct) = self.acceleration_structure.as_ref() {
+            if let (Some(tlas), Some(hit_table)) = (
+                accel_struct.tlas.acceleration_structure,
+                accel_struct.hit_shading_table.as_ref(),
+            ) {
+                water_descriptor.write_all(
+                    rrdevice,
+                    &water_ubo,
+                    scene_color_view,
+                    scene_color_sampler,
+                    tlas,
+                    hit_table.buffer,
+                )?;
+            }
+        }
 
         let water_shading_pipeline = PipelineBuilder::from_pass(&WATER_RESOLVE)
             .vertex_input(VertexInputConfig::Custom {

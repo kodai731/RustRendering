@@ -783,9 +783,18 @@ pub unsafe fn record_water_passes(
         return Ok(());
     };
 
-    let Some(hdr_buffer) = app.data.viewport.hdr_buffer.as_ref() else {
+    if !app.data.raytracing.has_valid_tlas()
+        || app
+            .data
+            .raytracing
+            .acceleration_structure
+            .as_ref()
+            .map(|a| a.hit_shading_table.is_some())
+            .unwrap_or(false)
+            == false
+    {
         return Ok(());
-    };
+    }
 
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
@@ -798,6 +807,32 @@ pub unsafe fn record_water_passes(
     if instance_count == 0 {
         return Ok(());
     }
+    // Re-write descriptor with current TLAS and hit table (only if TLAS handle changed)
+    {
+        let accel = app.data.raytracing.acceleration_structure.as_ref().unwrap();
+        let tlas = accel.tlas.acceleration_structure.unwrap();
+        if tlas != app.data.raytracing.water_descriptor_tlas.get() {
+            let hit_table = accel.hit_shading_table.as_ref().unwrap().buffer;
+            let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
+            let water_ubo = app.data.raytracing.water_ubo.as_ref().unwrap();
+            descriptor.write_all(
+                ctx.device,
+                water_ubo,
+                scene_color_view,
+                scene_color_sampler,
+                tlas,
+                hit_table,
+            )?;
+            app.data.raytracing.water_descriptor_tlas.set(tlas);
+        }
+    }
+
+    let hdr_buffer = app
+        .data
+        .viewport
+        .hdr_buffer
+        .as_ref()
+        .ok_or_else(|| anyhow::anyhow!("HDR buffer not initialized"))?;
 
     thyllore_vulkan_core::renderer::record_water_scene_color_copy(
         &ctx,

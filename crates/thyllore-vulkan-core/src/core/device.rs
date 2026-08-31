@@ -279,7 +279,8 @@ unsafe fn create_device_common(
         .sample_rate_shading(true)
         .fill_mode_non_solid(true)
         .independent_blend(true)
-        .geometry_shader(true);
+        .geometry_shader(true)
+        .shader_int64(true);
 
     let mut accel_features =
         vk::PhysicalDeviceAccelerationStructureFeaturesKHR::builder().acceleration_structure(true);

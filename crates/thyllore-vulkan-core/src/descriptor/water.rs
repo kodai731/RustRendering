@@ -36,6 +36,8 @@ impl RRWaterDescriptorSet {
         water_ubo: &UniformBuffer<WaterUBO>,
         scene_color_view: vk::ImageView,
         scene_color_sampler: vk::Sampler,
+        tlas: vk::AccelerationStructureKHR,
+        hit_table: vk::Buffer,
     ) -> Result<()> {
         self.layout
             .writer(self.descriptor_set)
@@ -45,6 +47,13 @@ impl RRWaterDescriptorSet {
                 scene_color_view,
                 scene_color_sampler,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .acceleration_structure(water_resolve::SCENE_TLAS, tlas)?
+            .buffer(
+                water_resolve::HIT_TABLE,
+                hit_table,
+                0,
+                vk::WHOLE_SIZE as u64,
             )?
             .apply(rrdevice);
         Ok(())
