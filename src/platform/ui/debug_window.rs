@@ -61,6 +61,20 @@ fn build_camera_debug_panel(ui: &imgui::Ui, ui_events: &mut UIEventQueue) {
     if ui.button("To Model") {
         ui_events.send(UIEvent::MoveCameraToModel);
     }
+
+    ui.separator();
+    ui.text("Debug Primitives:");
+    if ui.button("Spawn Cube") {
+        ui_events.send(UIEvent::SpawnDebugPrimitive {
+            kind: crate::ecs::events::DebugPrimitiveKind::Cube,
+        });
+    }
+    ui.same_line();
+    if ui.button("Spawn Sphere") {
+        ui_events.send(UIEvent::SpawnDebugPrimitive {
+            kind: crate::ecs::events::DebugPrimitiveKind::Sphere,
+        });
+    }
 }
 
 fn build_debug_view_mode_panel(ui: &imgui::Ui, state: &mut DebugWindowState) {

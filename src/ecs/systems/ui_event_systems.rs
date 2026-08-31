@@ -31,6 +31,9 @@ pub enum DeferredAction {
     LoadModelAdditive {
         path: String,
     },
+    SpawnDebugPrimitive {
+        kind: crate::ecs::events::DebugPrimitiveKind,
+    },
     DeleteEntities {
         entities: Vec<u64>,
     },

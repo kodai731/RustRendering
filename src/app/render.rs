@@ -378,6 +378,58 @@ impl App {
         Ok(())
     }
 
+    pub unsafe fn spawn_debug_primitive(
+        &mut self,
+        kind: crate::ecs::events::DebugPrimitiveKind,
+    ) -> Result<()> {
+        log!("Spawning debug primitive: {:?}", kind);
+        self.rrdevice.device.device_wait_idle()?;
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let swapchain = self.resource::<SwapchainState>().swapchain.clone();
+
+        let (load_result, part_name, position) = match kind {
+            crate::ecs::events::DebugPrimitiveKind::Cube => (
+                thyllore_importer_core::primitive::build_cube_model(1.0),
+                "Cube",
+                cgmath::Vector3::new(3.0, 0.5, 0.0),
+            ),
+            crate::ecs::events::DebugPrimitiveKind::Sphere => (
+                thyllore_importer_core::primitive::build_uv_sphere_model(0.6, 32, 16),
+                "Sphere",
+                cgmath::Vector3::new(-3.0, 0.6, 0.0),
+            ),
+        };
+        let parent_entity = crate::app::model_loader::append_model_to_scene(
+            &load_result,
+            part_name,
+            &self.instance,
+            &self.rrdevice,
+            &command_pool,
+            &swapchain,
+            &mut self.data.graphics_resources,
+            &mut self.data.raytracing,
+            &mut self.data.ecs_world,
+            &mut self.data.ecs_assets,
+        )?;
+
+        let mut transform = self
+            .data
+            .ecs_world
+            .get_component_mut::<crate::ecs::world::Transform>(parent_entity)
+            .unwrap();
+        transform.translation = position;
+
+        msg_info!(
+            "Debug primitive spawned: {:?} at ({:.1}, {:.1}, {:.1})",
+            kind,
+            position.x,
+            position.y,
+            position.z
+        );
+        Ok(())
+    }
+
     pub unsafe fn delete_entities(&mut self, entities: &[u64]) -> Result<()> {
         self.rrdevice.device.device_wait_idle()?;
 

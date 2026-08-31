@@ -1349,7 +1349,7 @@ pub unsafe fn load_model_additive(
     Ok(())
 }
 
-unsafe fn append_model_to_scene(
+pub(crate) unsafe fn append_model_to_scene(
     load_result: &ModelLoadResult,
     part_name: &str,
     instance: &Instance,

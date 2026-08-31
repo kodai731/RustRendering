@@ -929,6 +929,12 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
             }
         }
 
+        DeferredAction::SpawnDebugPrimitive { kind } => {
+            if let Err(e) = app.spawn_debug_primitive(kind) {
+                log_error!("Failed to spawn debug primitive: {:?}", e);
+            }
+        }
+
         DeferredAction::DeleteEntities { entities } => {
             if let Err(e) = app.delete_entities(&entities) {
                 log_error!("Failed to delete entities: {:?}", e);

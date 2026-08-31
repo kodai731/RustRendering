@@ -28,6 +28,12 @@ pub enum ModelLoadSource {
     TextToMeshOutput,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DebugPrimitiveKind {
+    Cube,
+    Sphere,
+}
+
 #[derive(Clone, Debug)]
 pub enum UIEvent {
     LoadModel {
@@ -35,6 +41,9 @@ pub enum UIEvent {
     },
     LoadModelAdditive {
         path: String,
+    },
+    SpawnDebugPrimitive {
+        kind: DebugPrimitiveKind,
     },
 
     ResetCamera,

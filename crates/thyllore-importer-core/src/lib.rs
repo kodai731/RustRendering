@@ -4,6 +4,7 @@ extern crate thyllore_log_core;
 pub mod fbx;
 pub mod gltf;
 mod model_result;
+pub mod primitive;
 mod texture;
 
 pub use fbx::{

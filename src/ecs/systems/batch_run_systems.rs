@@ -11,7 +11,7 @@ use crate::ecs::component::{
     scalar_channel_domains, scalar_channel_for_cli_name, scalar_channel_for_property,
     scalar_cli_names_joined, ClipSchedule, FlameEffect,
 };
-use crate::ecs::events::{UIEvent, UIEventQueue};
+use crate::ecs::events::{DebugPrimitiveKind, UIEvent, UIEventQueue};
 use crate::ecs::resource::{
     BatchRun, BatchRunState, ClipLibrary, DebugViewMode, DebugViewState, FlameShadingMode,
     TimelineState,
@@ -133,6 +133,9 @@ pub enum BatchDebugAction {
         path: String,
         blend: f32,
         profile: bool,
+    },
+    SpawnDebugPrimitive {
+        kind: DebugPrimitiveKind,
     },
 }
 
@@ -1525,6 +1528,8 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "dump_wall_probe (write camera pose + wall-regime ray diagnostics to log/flame/)",
     "apply_texture_fit:<path>,<blend>,<profile|statistics> (clone FlameEffect, apply texture fit from path, send UpdateFlameEffect)",
     "apply_texture_fit_roundtrip:<path>,<blend>,<profile|statistics> (same as apply_texture_fit, then restore original FlameEffect)",
+    "spawn_cube (spawn the debug cube primitive, same as the debug window Spawn Cube button)",
+    "spawn_sphere (spawn the debug sphere primitive, same as the debug window Spawn Sphere button)",
 ];
 
 fn debug_view_mode_parse(name: &str) -> Option<DebugViewMode> {
@@ -1602,6 +1607,12 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
         "add_flame" => Ok(BatchDebugAction::AddFlame),
         "open_flame_curves" => Ok(BatchDebugAction::OpenFlameCurves),
         "dump_wall_probe" => Ok(BatchDebugAction::WallProbeDump),
+        "spawn_cube" => Ok(BatchDebugAction::SpawnDebugPrimitive {
+            kind: DebugPrimitiveKind::Cube,
+        }),
+        "spawn_sphere" => Ok(BatchDebugAction::SpawnDebugPrimitive {
+            kind: DebugPrimitiveKind::Sphere,
+        }),
         _ => bail!(
             "unknown debug action '{name}'. Valid actions: {}",
             DEBUG_ACTION_NAMES.join(", ")
@@ -1775,6 +1786,11 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
                         .resource_mut::<UIEventQueue>()
                         .send(UIEvent::UpdateFlameBaked(Box::new(original_baked)));
                 }
+            }
+            BatchDebugAction::SpawnDebugPrimitive { kind } => {
+                world
+                    .resource_mut::<UIEventQueue>()
+                    .send(UIEvent::SpawnDebugPrimitive { kind: *kind });
             }
         }
     }
