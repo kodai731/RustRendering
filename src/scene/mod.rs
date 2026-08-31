@@ -8,9 +8,10 @@ mod transform_format;
 pub use clip_io::{load_animation_clip, save_animation_clip};
 pub use error::{SceneError, SceneResult};
 pub use format::{
-    AnimationClipFile, AnimationClipRef, CameraState as SavedCameraState, EditorState,
-    ModelReference, SceneFile, SceneMetadata, TimelineConfig, ANIMATION_FORMAT_VERSION,
-    SCENE_FORMAT_VERSION,
+    apply_flame_state_to_world, apply_water_state_to_world, build_flame_scene_data,
+    build_water_scene_data, AnimationClipFile, AnimationClipRef, CameraState as SavedCameraState,
+    EditorState, ModelReference, SceneFile, SceneMetadata, TimelineConfig,
+    ANIMATION_FORMAT_VERSION, SCENE_FORMAT_VERSION,
 };
 pub use motion_path_format::{
     motion_path_parameter_snapshot, overwrite_motion_path_persisted_fields,

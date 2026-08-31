@@ -13,8 +13,9 @@ float waterJitter(vec2 fragCoord, float frameIndex) {
 // Hybrid: if the hit point projects to screen space within [0,1], returns the
 // scene color from sceneColorSampler; otherwise returns hit lighting.
 layout(buffer_reference, scalar) buffer VertexBuffer { vec4 v[]; };
+layout(buffer_reference, scalar) buffer IndexBuffer { uint i[]; };
 
-bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color) {
+bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color, out float tHit) {
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, sceneTlas, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-3, d, tMax);
 
@@ -23,6 +24,7 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color) {
     }
 
     if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
+        tHit = tMax;
         return false;
     }
 
@@ -31,27 +33,33 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color) {
 
     // If vertexAddress is 0, this is an inactive instance (e.g. empty TLAS placeholder) — return miss
     if (rec.vertexAddress == 0) {
+        tHit = tMax;
         return false;
     }
+
+    tHit = rayQueryGetIntersectionTEXT(rq, true);
 
   // Decode vertex buffer address from uint64_t
     VertexBuffer vb;
     vb = VertexBuffer(rec.vertexAddress);
 
-    uint primIdx = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
-    int indices[3] = int[](int(primIdx * 3), int(primIdx * 3 + 1), int(primIdx * 3 + 2));
+   uint primIdx = rayQueryGetIntersectionPrimitiveIndexEXT(rq, true);
+    int vi0, vi1, vi2;
+    if (rec.indexAddress != 0u) {
+        IndexBuffer ib = IndexBuffer(rec.indexAddress);
+        uint i0 = ib.i[primIdx * 3u];
+        uint i1 = ib.i[primIdx * 3u + 1u];
+        uint i2 = ib.i[primIdx * 3u + 2u];
+        vi0 = int(i0) * 3;
+        vi1 = int(i1) * 3;
+        vi2 = int(i2) * 3;
+    } else {
+        vi0 = int(primIdx) * 9;
+        vi1 = vi0 + 3;
+        vi2 = vi0 + 6;
+    }
 
     // Read 3 vertices from buffer_reference (packed: pos@0, color@12, tex@28, normal@36)
-    vec4 v0 = vb.v[indices[0]];
-    vec4 v1 = vb.v[indices[1]];
-    vec4 v2 = vb.v[indices[2]];
-
-    // Extract position (xyz), color (w of first vec4 is unused, color is next vec4)
-    // Packed format: vec3 pos @0, vec4 color @12, vec2 tex @28, vec3 normal @36
-    // Each vertex = 48 bytes = 12 floats = 3 vec4s
-    int vi0 = indices[0] * 3;
-    int vi1 = indices[1] * 3;
-    int vi2 = indices[2] * 3;
 
     vec3 p0 = vb.v[vi0].xyz;
     vec3 c0 = vb.v[vi0 + 1].rgb;

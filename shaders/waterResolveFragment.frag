@@ -174,7 +174,8 @@ void main() {
         float tTorusNext = (reflCount > 0) ? reflRoots[0] * water.radii.x : 1e30;
 
         vec3 rayColor;
-        if (traceScene(p1, reflDir, tTorusNext, rayColor)) {
+        float tScene;
+        if (traceScene(p1, reflDir, tTorusNext, rayColor, tScene)) {
             reflection = rayColor;
         } else if (tTorusNext < 1e30) {
             // Depth-2: reflection ray re-entered the torus — Fresnel probabilistic selection
@@ -200,7 +201,8 @@ void main() {
                 if (length(d2) < 1e-4) d2 = reflect(reflDir, n2);
             }
             vec3 c;
-            if (traceScene(p2, d2, 1e30, c)) {
+            float tScene;
+            if (traceScene(p2, d2, 1e30, c, tScene)) {
                 reflection = c;
             } else {
                 vec3 lightDir = normalize(frame.light_pos.xyz - p2);
@@ -252,11 +254,12 @@ void main() {
 
   vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
     vec3 background;
+    float tBackground = 1e30;
 #ifdef WATER_RAY_QUERY
     if (push.secondaryRays == 0) {
         // RayQuery path: traceScene at exit point
         vec3 rayColor;
-        if (traceScene(pExitWorld.xyz, dExit, 1e30, rayColor)) {
+        if (traceScene(pExitWorld.xyz, dExit, 1e30, rayColor, tBackground)) {
             background = rayColor;
         } else {
             // Depth-2: check if exit ray re-enters the torus
@@ -290,7 +293,8 @@ void main() {
                     if (length(dRe) < 1e-4) dRe = reflect(dExit, nRe);
                 }
                 vec3 c;
-                if (traceScene(pReEntryWorld, dRe, 1e30, c)) {
+                float tScene;
+                if (traceScene(pReEntryWorld, dRe, 1e30, c, tScene)) {
                     background = c;
                 } else {
                     vec4 clip = frame.proj * frame.view * vec4(pReEntryWorld, 1.0);
@@ -326,6 +330,22 @@ void main() {
             background = texture(sceneColorSampler, fragTexCoord).rgb;
         }
     }
+
+#ifdef WATER_RAY_QUERY
+    if (push.secondaryRays == 0 && water.radii.z > 0.0 && tBackground < 1e29) {
+        float R = water.radii.x;
+        float cosV = clamp((length(pExitLocal.xz) - 1.0) / rHat, -1.0, 1.0);
+        float kappa1 = 1.0 / (rHat * R);
+        float kappa2 = cosV / ((1.0 + rHat * cosV) * R);
+        float eta2 = water.absorption.w;
+        float k1t = eta2 * kappa1;
+        float k2t = eta2 * kappa2;
+        float d = tBackground;
+        float focus = 1.0 / (abs((1.0 - d * k1t) * (1.0 - d * k2t)) + 0.05);
+        float caustic = mix(1.0, clamp(focus, 0.0, 4.0), clamp(water.radii.z, 0.0, 2.0) * 0.5);
+        background *= caustic;
+    }
+#endif
 
     vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
 

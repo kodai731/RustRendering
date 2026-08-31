@@ -9,6 +9,7 @@
 struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 model; mat4 normalMatrix; vec4 baseColor; vec4 params; };
 layout(set = 0, binding = 3, std430) readonly buffer HitShadingTable { HitShadingRecord records[]; } hitTable;
 layout(buffer_reference, scalar) buffer VertexBuffer { vec4 v[]; };
+layout(buffer_reference, scalar) buffer IndexBuffer { uint i[]; };
 layout(push_constant) uniform WaterTraceLight {
     layout(offset = 96) vec4 lightPos;
     layout(offset = 112) vec4 lightColor;
@@ -19,11 +20,25 @@ hitAttributeEXT vec2 attribs;
 void main() {
     HitShadingRecord rec = hitTable.records[gl_InstanceCustomIndexEXT];
     if (rec.vertexAddress == 0) { payload.color = vec4(0.0); payload.exitOrigin = vec4(0.0); return; }
-    VertexBuffer vb = VertexBuffer(rec.vertexAddress);
-    int vi0 = int(gl_PrimitiveID) * 9;
+   VertexBuffer vb = VertexBuffer(rec.vertexAddress);
+    uint primIdx = gl_PrimitiveID;
+    int vi0, vi1, vi2;
+    if (rec.indexAddress != 0u) {
+        IndexBuffer ib = IndexBuffer(rec.indexAddress);
+        uint i0 = ib.i[primIdx * 3u];
+        uint i1 = ib.i[primIdx * 3u + 1u];
+        uint i2 = ib.i[primIdx * 3u + 2u];
+        vi0 = int(i0) * 3;
+        vi1 = int(i1) * 3;
+        vi2 = int(i2) * 3;
+    } else {
+        vi0 = int(primIdx) * 9;
+        vi1 = vi0 + 3;
+        vi2 = vi0 + 6;
+    }
     vec3 p0 = vb.v[vi0].xyz;    vec3 c0 = vb.v[vi0 + 1].rgb; vec3 n0 = vb.v[vi0 + 2].xyz;
-    vec3 p1 = vb.v[vi0 + 3].xyz; vec3 c1 = vb.v[vi0 + 4].rgb; vec3 n1 = vb.v[vi0 + 5].xyz;
-    vec3 p2 = vb.v[vi0 + 6].xyz; vec3 c2 = vb.v[vi0 + 7].rgb; vec3 n2 = vb.v[vi0 + 8].xyz;
+    vec3 p1 = vb.v[vi1].xyz;    vec3 c1 = vb.v[vi1 + 1].rgb; vec3 n1 = vb.v[vi1 + 2].xyz;
+    vec3 p2 = vb.v[vi2].xyz;    vec3 c2 = vb.v[vi2 + 1].rgb; vec3 n2 = vb.v[vi2 + 2].xyz;
     float u = attribs.x;
     float v = attribs.y;
     float w = 1.0 - u - v;

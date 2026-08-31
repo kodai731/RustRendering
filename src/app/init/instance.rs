@@ -1325,7 +1325,11 @@ impl App {
                 if scene_path.exists() {
                     match load_scene(&scene_path) {
                         Ok(loaded) => {
-                            let model_path = loaded.scene.model.path.clone();
+                            let model_path = loaded
+                                .model_path
+                                .as_ref()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_default();
                             let clips = loaded.clips.clone();
                             log!("Loaded batch scene from: {}", scene_path.display());
                             return (model_path, Some((scene_path, loaded, clips)));
@@ -1345,9 +1349,13 @@ impl App {
         if let Some(scene_path) = find_default_scene() {
             match load_scene(&scene_path) {
                 Ok(loaded) => {
-                    // The scene's own reference, not the resolved file: a generated mesh has no
-                    // file and must round-trip its sentinel back out on the next save.
-                    let model_path = loaded.scene.model.path.clone();
+                    // Loading uses the resolved assets path from LoadedScene.model_path (None for
+                    // a generated mesh with no file). Saving still uses loaded.scene.model.path.
+                    let model_path = loaded
+                        .model_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
                     let clips = loaded.clips.clone();
                     log!("Loaded default scene from: {}", scene_path.display());
                     return (model_path, Some((scene_path, loaded, clips)));

@@ -205,6 +205,9 @@ impl App {
         log!("Loading new model from: {}", path);
         self.rrdevice.device.device_wait_idle()?;
 
+        let water_state = crate::scene::build_water_scene_data(&self.data.ecs_world);
+        let flame_state = crate::scene::build_flame_scene_data(&self.data.ecs_world);
+
         let command_pool = self.resource::<CommandState>().pool.clone();
         let swapchain = self.resource::<SwapchainState>().swapchain.clone();
         match Self::load_model_from_path_with_resources(
@@ -236,6 +239,34 @@ impl App {
                     let mut scene_state =
                         self.data.ecs_world.resource_mut::<crate::ecs::SceneState>();
                     scene_state.clear();
+                }
+
+                if let Some(ref water) = water_state {
+                    crate::scene::apply_water_state_to_world(
+                        &mut self.data.ecs_world,
+                        &mut self.data.ecs_assets,
+                        water,
+                    );
+                }
+                if let Some(ref flame) = flame_state {
+                    crate::scene::apply_flame_state_to_world(
+                        &mut self.data.ecs_world,
+                        &mut self.data.ecs_assets,
+                        flame,
+                    );
+                }
+                if water_state.is_some() {
+                    let command_pool = self.resource::<CommandState>().pool.clone();
+                    let waters =
+                        crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+                    crate::app::model_loader::rebuild_acceleration_structures(
+                        &self.instance,
+                        &self.rrdevice,
+                        &command_pool,
+                        &self.data.graphics_resources,
+                        &mut self.data.raytracing,
+                        &waters,
+                    )?;
                 }
 
                 msg_info!("Model loaded: {}", path);
