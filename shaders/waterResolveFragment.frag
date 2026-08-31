@@ -28,8 +28,11 @@ layout(set = 1, binding = 2) uniform accelerationStructureEXT sceneTlas;
 struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 model; mat4 normalMatrix; vec4 baseColor; };
 layout(set = 1, binding = 3, std430) readonly buffer HitShadingTable { HitShadingRecord records[]; } hitTable;
 
+layout(set = 1, binding = 4) uniform sampler2D waterHistorySampler;
+
 layout(location = 0) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
+layout(location = 1) out vec4 outHistory;
 
 layout(push_constant) uniform WaterPush {
     int secondaryRays;
@@ -66,6 +69,7 @@ void main() {
         } else {
             outColor = vec4(1.0, 0.0, 0.0, 1.0);
         }
+        outHistory = outColor;
         return;
     }
 
@@ -73,7 +77,7 @@ void main() {
     float t1 = roots[0] * water.radii.x;
     vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
 
-    // Debug view: torus intersection probe (nearest root, high-precision encoding)
+  // Debug view: torus intersection probe (nearest root, high-precision encoding)
     if (push.debugView == 3 || push.debugView == 4) {
         float t = (push.debugView == 3) ? roots[0] * water.radii.x : roots[1] * water.radii.x;
         float hi = floor(t);
@@ -81,6 +85,7 @@ void main() {
         float lo = fract(t * 1024.0);
         float marker = -(float(hitCount) + (fallbackUsed ? 10.0 : 0.0));
         outColor = vec4(hi, mid, lo, marker);
+        outHistory = outColor;
         return;
     }
 
@@ -116,8 +121,9 @@ void main() {
     vec3 n = normalize(mat3(water.model) * nLocal);
 
     // Debug view: normal visualization
-    if (push.debugView == 2) {
+   if (push.debugView == 2) {
         outColor = vec4(n * 0.5 + 0.5, 1.0);
+        outHistory = outColor;
         return;
     }
 
@@ -217,8 +223,12 @@ void main() {
 
     vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
 
-   // Composite output
+  // Composite output
     outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
+
+    vec4 blended = mix(outColor, texture(waterHistorySampler, fragTexCoord), water.temporal.x);
+    outColor = blended;
+    outHistory = blended;
 
     gl_FragDepth = waterDepth;
 }

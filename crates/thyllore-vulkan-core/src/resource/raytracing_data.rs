@@ -544,6 +544,8 @@ impl RayTracingData {
                     &water_ubo,
                     scene_color_view,
                     scene_color_sampler,
+                    water_buffer.history_image_views,
+                    water_buffer.history_sampler,
                     tlas,
                     hit_table.buffer,
                 )?;
@@ -563,7 +565,7 @@ impl RayTracingData {
             })
             .custom_render_pass(water_buffer.render_pass)
             .msaa_samples(vk::SampleCountFlags::_1)
-            .mrt_attachments(1)
+            .mrt_attachments(2)
             .blend(BlendConfig {
                 enable: false,
                 src_color_factor: vk::BlendFactor::ONE,

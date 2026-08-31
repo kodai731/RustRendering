@@ -820,6 +820,8 @@ pub unsafe fn record_water_passes(
                 water_ubo,
                 scene_color_view,
                 scene_color_sampler,
+                water_buffer.history_image_views,
+                water_buffer.history_sampler,
                 tlas,
                 hit_table,
             )?;
@@ -840,6 +842,17 @@ pub unsafe fn record_water_passes(
         water_buffer,
         command_buffer,
     );
+
+    // Compute history_index from the first water's temporal accumulation state (default 0)
+    let history_index = if let Some(first_water) = waters.first() {
+        app.data
+            .ecs_world
+            .get_component::<crate::ecs::component::WaterTemporalAccum>(*first_water)
+            .map(|accum| (accum.frame_index & 1) as usize)
+            .unwrap_or(0)
+    } else {
+        0
+    };
 
     for i in 0..instance_count {
         let water = waters[i];
@@ -916,6 +929,7 @@ pub unsafe fn record_water_passes(
             scissor,
             push_constants,
             image_index,
+            history_index,
             command_buffer,
         )?;
     }

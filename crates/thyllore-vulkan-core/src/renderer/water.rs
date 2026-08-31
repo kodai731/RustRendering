@@ -133,6 +133,7 @@ pub unsafe fn record_water_shading_pass(
     scissor: vk::Rect2D,
     push_constants: WaterPushConstants,
     image_index: usize,
+    history_index: usize,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
     let device = &ctx.device.device;
@@ -143,7 +144,7 @@ pub unsafe fn record_water_shading_pass(
 
     let render_pass_info = vk::RenderPassBeginInfo::builder()
         .render_pass(water_buffer.render_pass)
-        .framebuffer(water_buffer.framebuffer)
+        .framebuffer(water_buffer.framebuffers[history_index])
         .render_area(render_area)
         .clear_values(&clear_values);
 
@@ -167,7 +168,7 @@ pub unsafe fn record_water_shading_pass(
         vk::PipelineBindPoint::GRAPHICS,
         pipeline.pipeline_layout,
         0,
-        &[frame_set, descriptor.descriptor_set],
+        &[frame_set, descriptor.descriptor_sets[history_index]],
         &[ubo_dynamic_offset],
     );
 
