@@ -1,6 +1,13 @@
 #ifndef WATER_SECONDARY_GLSL
 #define WATER_SECONDARY_GLSL
 
+#include "flame_noise.glsl"
+
+// waterJitter: interleaved gradient noise for depth-2 probabilistic sampling.
+float waterJitter(vec2 fragCoord, float frameIndex) {
+    return interleavedGradientNoise(fragCoord + vec2(frameIndex * 5.588238));
+}
+
 // traceScene: cast a ray against the scene TLAS and shade the hit point.
 // Returns true if a triangle intersection was found, false on miss.
 // Hybrid: if the hit point projects to screen space within [0,1], returns the

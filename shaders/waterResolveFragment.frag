@@ -165,6 +165,37 @@ void main() {
         vec3 rayColor;
         if (traceScene(p1, reflDir, tTorusNext, rayColor)) {
             reflection = rayColor;
+        } else if (tTorusNext < 1e30) {
+            // Depth-2: reflection ray re-entered the torus — Fresnel probabilistic selection
+            vec3 p2 = p1 + reflDir * tTorusNext;
+            vec3 pLocal2 = (water.inverseModel * vec4(p2, 1.0)).xyz / water.radii.x;
+            vec2 uv2 = torusUV(pLocal2);
+            float h2, hu2, hv2, var2;
+            waterHeightAndGradient(uv2, water.flow.z, water.flow.xy, int(water.composite.z), footprint, h2, hu2, hv2, var2);
+            vec3 nLocal2 = waterPerturbedNormal(uv2.x, uv2.y, h2, hu2, hv2, rHat);
+            vec3 n2 = normalize(mat3(water.model) * nLocal2);
+            float cosThetaI2 = -dot(reflDir, n2);
+            float sinThetaT2_2 = (1.0 - cosThetaI2 * cosThetaI2) / (eta * eta);
+            float cosThetaT2 = sqrt(max(1.0 - sinThetaT2_2, 0.0));
+            float rPar2 = (eta * cosThetaI2 - cosThetaT2) / (eta * cosThetaI2 + cosThetaT2);
+            float rPerp2 = (cosThetaI2 - eta * cosThetaT2) / (cosThetaI2 + eta * cosThetaT2);
+            float F2 = (rPar2 * rPar2 + rPerp2 * rPerp2) * 0.5;
+            float u = waterJitter(gl_FragCoord.xy, water.temporal.y);
+            vec3 d2;
+            if (u < F2) {
+                d2 = reflect(reflDir, n2);
+            } else {
+                d2 = refract(reflDir, n2, 1.0 / eta);
+                if (length(d2) < 1e-4) d2 = reflect(reflDir, n2);
+            }
+            vec3 c;
+            if (traceScene(p2, d2, 1e30, c)) {
+                reflection = c;
+            } else {
+                vec3 lightDir = normalize(frame.light_pos.xyz - p2);
+                float spec = pow(max(dot(d2, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var2));
+                reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+            }
         } else {
             vec3 lightDir = normalize(frame.light_pos.xyz - p1);
             float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
@@ -217,12 +248,57 @@ void main() {
         if (traceScene(pExitWorld.xyz, dExit, 1e30, rayColor)) {
             background = rayColor;
         } else {
-            vec4 clip = frame.proj * frame.view * pExitWorld;
-            if (clip.w > 0) {
-                vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
-                background = texture(sceneColorSampler, uvExit).rgb;
+            // Depth-2: check if exit ray re-enters the torus
+            vec3 dExitLocal = normalize((water.inverseModel * vec4(dExit, 0.0)).xyz);
+            vec3 pExitLocalCheck = pExitLocal + dExitLocal * 1e-3;
+            float reRoots[4];
+            bool reFallback;
+            int reCount = intersectTorus(pExitLocalCheck, dExitLocal, rHat, reRoots, reFallback);
+            if (reCount > 0) {
+                // Re-entry into torus — Fresnel probabilistic selection at re-entry point
+                float reT = reRoots[0] * water.radii.x;
+                vec3 pReEntryWorld = pExitWorld.xyz + dExit * reT;
+                vec3 pLocalRe = (water.inverseModel * vec4(pReEntryWorld, 1.0)).xyz / water.radii.x;
+                vec2 uvRe = torusUV(pLocalRe);
+                float hRe, huRe, hvRe, varRe;
+                waterHeightAndGradient(uvRe, water.flow.z, water.flow.xy, int(water.composite.z), footprint, hRe, huRe, hvRe, varRe);
+                vec3 nLocalRe = waterPerturbedNormal(uvRe.x, uvRe.y, hRe, huRe, hvRe, rHat);
+                vec3 nRe = normalize(mat3(water.model) * nLocalRe);
+                float cosThetaIRe = -dot(dExit, nRe);
+                float sinThetaT2Re = (1.0 - cosThetaIRe * cosThetaIRe) / (eta * eta);
+                float cosThetaTRe = sqrt(max(1.0 - sinThetaT2Re, 0.0));
+                float rParRe = (eta * cosThetaIRe - cosThetaTRe) / (eta * cosThetaIRe + cosThetaTRe);
+                float rPerpRe = (cosThetaIRe - eta * cosThetaTRe) / (cosThetaIRe + eta * cosThetaTRe);
+                float FRe = (rParRe * rParRe + rPerpRe * rPerpRe) * 0.5;
+                float u = waterJitter(gl_FragCoord.xy, water.temporal.y);
+                vec3 dRe;
+                if (u < FRe) {
+                    dRe = reflect(dExit, nRe);
+                } else {
+                    dRe = refract(dExit, nRe, 1.0 / eta);
+                    if (length(dRe) < 1e-4) dRe = reflect(dExit, nRe);
+                }
+                vec3 c;
+                if (traceScene(pReEntryWorld, dRe, 1e30, c)) {
+                    background = c;
+                } else {
+                    vec4 clip = frame.proj * frame.view * vec4(pReEntryWorld, 1.0);
+                    if (clip.w > 0) {
+                        vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
+                        background = texture(sceneColorSampler, uvExit).rgb;
+                    } else {
+                        background = texture(sceneColorSampler, fragTexCoord).rgb;
+                    }
+                }
             } else {
-                background = texture(sceneColorSampler, fragTexCoord).rgb;
+                // No re-entry — screen-space fallback
+                vec4 clip = frame.proj * frame.view * pExitWorld;
+                if (clip.w > 0) {
+                    vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
+                    background = texture(sceneColorSampler, uvExit).rgb;
+                } else {
+                    background = texture(sceneColorSampler, fragTexCoord).rgb;
+                }
             }
         }
     } else
