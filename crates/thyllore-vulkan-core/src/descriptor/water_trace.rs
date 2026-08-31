@@ -33,6 +33,7 @@ impl RRWaterTraceDescriptorSet {
         tlas: vk::AccelerationStructureKHR,
         trace_image_view: vk::ImageView,
         water_ubo: &UniformBuffer<WaterUBO>,
+        hit_table: vk::Buffer,
     ) -> Result<()> {
         self.layout
             .writer(self.descriptor_set)
@@ -44,6 +45,7 @@ impl RRWaterTraceDescriptorSet {
                 vk::ImageLayout::GENERAL,
             )?
             .uniform(water_trace::WATER, water_ubo, 0)?
+            .buffer(water_trace::HIT_TABLE, hit_table, 0, vk::WHOLE_SIZE as u64)?
             .apply(rrdevice);
         Ok(())
     }

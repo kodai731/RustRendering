@@ -27,7 +27,7 @@ layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
 #ifdef WATER_RAY_QUERY
 layout(set = 1, binding = 2) uniform accelerationStructureEXT sceneTlas;
 
-struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 model; mat4 normalMatrix; vec4 baseColor; };
+struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 model; mat4 normalMatrix; vec4 baseColor; vec4 params; };
 layout(set = 1, binding = 3, std430) readonly buffer HitShadingTable { HitShadingRecord records[]; } hitTable;
 
 layout(set = 1, binding = 4) uniform sampler2D waterHistorySampler;

@@ -836,6 +836,7 @@ pub unsafe fn record_water_passes(
                         tlas,
                         water_buffer.trace_image_view,
                         water_ubo,
+                        hit_table,
                     )?;
                 }
             }
@@ -909,6 +910,28 @@ pub unsafe fn record_water_passes(
                     vk::ShaderStageFlags::RAYGEN_KHR,
                     16,
                     frame_bytes,
+                );
+                let light_position = app
+                    .data
+                    .ecs_world
+                    .resource::<crate::ecs::resource::LightState>()
+                    .light_position;
+                let mut light_data = [0.0f32; 8];
+                light_data[0] = light_position.x;
+                light_data[1] = light_position.y;
+                light_data[2] = light_position.z;
+                light_data[3] = 1.0;
+                light_data[4] = 1.0;
+                light_data[5] = 1.0;
+                light_data[6] = 1.0;
+                light_data[7] = 1.0;
+                let light_bytes = std::slice::from_raw_parts(light_data.as_ptr() as *const u8, 32);
+                device.cmd_push_constants(
+                    command_buffer,
+                    trace_pipeline.pipeline_layout,
+                    vk::ShaderStageFlags::CLOSEST_HIT_KHR,
+                    96,
+                    light_bytes,
                 );
                 let extent = water_buffer.extent();
                 device.cmd_trace_rays_khr(

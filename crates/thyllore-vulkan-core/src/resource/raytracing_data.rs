@@ -630,12 +630,16 @@ impl RayTracingData {
 
         let water_trace_descriptor = RRWaterTraceDescriptorSet::new(rrdevice)?;
         if let Some(accel_struct) = self.acceleration_structure.as_ref() {
-            if let Some(tlas) = accel_struct.tlas.acceleration_structure {
+            if let (Some(tlas), Some(hit_table)) = (
+                accel_struct.tlas.acceleration_structure,
+                accel_struct.hit_shading_table.as_ref(),
+            ) {
                 water_trace_descriptor.write_all(
                     rrdevice,
                     tlas,
                     water_buffer.trace_image_view,
                     &water_ubo,
+                    hit_table.buffer,
                 )?;
             }
         }
@@ -651,12 +655,17 @@ impl RayTracingData {
             .offset(16)
             .size(80)
             .build();
+        let closest_hit_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::CLOSEST_HIT_KHR)
+            .offset(96)
+            .size(32)
+            .build();
         let water_trace_pipeline = RRRayTracingPipeline::new(
             instance,
             rrdevice,
             &WATER_TRACE,
             &[water_trace_descriptor.layout.handle],
-            &[intersection_range, raygen_range],
+            &[intersection_range, raygen_range, closest_hit_range],
         )?;
 
         self.water_trace_descriptor = Some(water_trace_descriptor);
