@@ -35,3 +35,4 @@ pub use reflected_layout::*;
 pub use reflection::*;
 pub use tonemap::*;
 pub use water::RRWaterDescriptorSet;
+pub use water_trace::*;

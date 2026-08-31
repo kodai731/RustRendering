@@ -114,6 +114,15 @@ impl App {
             log!("Destroyed water uniform buffer");
         }
 
+        if let Some(mut water_trace_descriptor) = self.data.raytracing.water_trace_descriptor.take()
+        {
+            water_trace_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(water_trace_pipeline) = self.data.raytracing.water_trace_pipeline.take() {
+            water_trace_pipeline.destroy(&self.rrdevice.device);
+        }
+
         if let (Some(buffer), Some(memory)) = (
             self.data.raytracing.scene_uniform_buffer,
             self.data.raytracing.scene_uniform_buffer_memory,

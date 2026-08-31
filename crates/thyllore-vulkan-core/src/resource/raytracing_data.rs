@@ -12,13 +12,14 @@ use crate::descriptor::{
     CompositeGBufferViews, FlameImageBindings, RRAutoExposureAverageDescriptorSet,
     RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
     RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
-    RRToneMapDescriptorSet, RRWaterDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM,
-    BLOOM_DOWNSAMPLE, BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE, GBUFFER, ONION_SKIN_COMPOSITE,
-    ONION_SKIN_GHOST, RAY_QUERY_SHADOW, TONEMAP, WATER_RESOLVE,
+    RRToneMapDescriptorSet, RRWaterDescriptorSet, RRWaterTraceDescriptorSet, AUTO_EXPOSURE_AVERAGE,
+    AUTO_EXPOSURE_HISTOGRAM, BLOOM_DOWNSAMPLE, BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE,
+    GBUFFER, ONION_SKIN_COMPOSITE, ONION_SKIN_GHOST, RAY_QUERY_SHADOW, TONEMAP, WATER_RESOLVE,
+    WATER_TRACE,
 };
 use crate::pipeline::{
     BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
-    VertexInputConfig,
+    RRRayTracingPipeline, VertexInputConfig,
 };
 use crate::raytracing::RRAccelerationStructure;
 use crate::render::RRRender;
@@ -75,6 +76,9 @@ pub struct RayTracingData {
     pub water_shading_pipeline: Option<RRPipeline>,
     pub water_descriptor: Option<RRWaterDescriptorSet>,
     pub water_ubo: Option<UniformBuffer<WaterUBO>>,
+
+    pub water_trace_pipeline: Option<RRRayTracingPipeline>,
+    pub water_trace_descriptor: Option<RRWaterTraceDescriptorSet>,
 
     pub flame_sdf_image: vk::Image,
     pub flame_sdf_image_memory: vk::DeviceMemory,
@@ -611,7 +615,30 @@ impl RayTracingData {
         self.water_descriptor = Some(water_descriptor);
         self.water_ubo = Some(water_ubo);
 
-        log!("Created water pipelines");
+        let water_trace_descriptor = RRWaterTraceDescriptorSet::new(rrdevice)?;
+        if let Some(accel_struct) = self.acceleration_structure.as_ref() {
+            if let Some(tlas) = accel_struct.tlas.acceleration_structure {
+                water_trace_descriptor.write_all(rrdevice, tlas, water_buffer.trace_image_view)?;
+            }
+        }
+
+        let push_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::INTERSECTION_KHR)
+            .offset(0)
+            .size(8)
+            .build();
+        let water_trace_pipeline = RRRayTracingPipeline::new(
+            instance,
+            rrdevice,
+            &WATER_TRACE,
+            &[water_trace_descriptor.layout.handle],
+            &[push_range],
+        )?;
+
+        self.water_trace_descriptor = Some(water_trace_descriptor);
+        self.water_trace_pipeline = Some(water_trace_pipeline);
+
+        log!("Created water trace pipeline");
         Ok(())
     }
 

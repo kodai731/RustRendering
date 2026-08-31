@@ -85,13 +85,20 @@ impl RRRayTracingPipeline {
             vk::RayTracingShaderGroupCreateInfoKHR::builder()
                 .type_(vk::RayTracingShaderGroupTypeKHR::GENERAL)
                 .general_shader(0)
+                .closest_hit_shader(vk::SHADER_UNUSED_KHR)
+                .any_hit_shader(vk::SHADER_UNUSED_KHR)
+                .intersection_shader(vk::SHADER_UNUSED_KHR)
                 .build(),
             vk::RayTracingShaderGroupCreateInfoKHR::builder()
                 .type_(vk::RayTracingShaderGroupTypeKHR::GENERAL)
                 .general_shader(1)
+                .closest_hit_shader(vk::SHADER_UNUSED_KHR)
+                .any_hit_shader(vk::SHADER_UNUSED_KHR)
+                .intersection_shader(vk::SHADER_UNUSED_KHR)
                 .build(),
             vk::RayTracingShaderGroupCreateInfoKHR::builder()
                 .type_(vk::RayTracingShaderGroupTypeKHR::PROCEDURAL_HIT_GROUP)
+                .general_shader(vk::SHADER_UNUSED_KHR)
                 .intersection_shader(2)
                 .closest_hit_shader(3)
                 .any_hit_shader(vk::SHADER_UNUSED_KHR)
@@ -129,14 +136,18 @@ impl RRRayTracingPipeline {
         device.destroy_shader_module(closest_hit_module, None);
 
         // Fetch physical device ray tracing properties
-        let mut props2 = vk::PhysicalDeviceProperties2::builder();
         let mut rt_props = vk::PhysicalDeviceRayTracingPipelinePropertiesKHR::default();
-        props2.push_next(&mut rt_props);
+        let mut props2 = vk::PhysicalDeviceProperties2::builder().push_next(&mut rt_props);
         instance.get_physical_device_properties2(rrdevice.physical_device, &mut props2);
 
         let handle_size: u64 = rt_props.shader_group_handle_size as u64;
         let handle_alignment: u64 = rt_props.shader_group_handle_alignment as u64;
         let base_alignment: u64 = rt_props.shader_group_base_alignment as u64;
+
+        anyhow::ensure!(
+            handle_size > 0 && handle_alignment > 0 && base_alignment > 0,
+            "ray tracing pipeline properties not available"
+        );
 
         let handle_stride = align_up(handle_size, handle_alignment);
         let region_size = align_up(handle_stride, base_alignment);
