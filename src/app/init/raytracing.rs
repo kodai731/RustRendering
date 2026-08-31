@@ -45,6 +45,7 @@ impl App {
         data: &mut AppData,
         rrcommand_pool: &Rc<RRCommandPool>,
     ) -> Result<()> {
+        data.raytracing.command_pool = rrcommand_pool.command_pool;
         let water_transforms = crate::app::model_loader::collect_water_instances(&data.ecs_world);
         data.raytracing.build_acceleration_structures(
             instance,
@@ -116,7 +117,13 @@ impl App {
         let h = data.viewport.height;
 
         let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
-            instance, rrdevice, w, h, hdr_view, depth_view,
+            instance,
+            rrdevice,
+            data.raytracing.command_pool,
+            w,
+            h,
+            hdr_view,
+            depth_view,
         )?;
 
         let water_buffer = data.viewport.water_buffer.insert(water_buffer);

@@ -16,6 +16,7 @@ pub mod reflection;
 pub mod shader_bindings;
 pub mod tonemap;
 pub mod water;
+pub mod water_trace;
 
 pub use auto_exposure::*;
 pub use billboard::*;

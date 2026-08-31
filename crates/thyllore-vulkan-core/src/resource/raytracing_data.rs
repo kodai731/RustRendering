@@ -36,6 +36,8 @@ pub const MAX_WATER_INSTANCES: usize = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
+    pub command_pool: vk::CommandPool,
+
     pub gbuffer: Option<RRGBuffer>,
     pub gbuffer_pipeline: Option<RRPipeline>,
     pub gbuffer_sampler: Option<vk::Sampler>,

@@ -514,9 +514,11 @@ impl App {
         }
 
         // Recreate with new dimensions
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
         let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
             &self.instance,
             &self.rrdevice,
+            command_pool,
             width,
             height,
             hdr_view,

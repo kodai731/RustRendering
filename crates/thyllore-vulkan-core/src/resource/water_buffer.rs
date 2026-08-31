@@ -1,6 +1,7 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
+use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
 use crate::resource::image::{create_image, create_image_view};
@@ -20,12 +21,16 @@ pub struct WaterBuffer {
     pub history_image_memories: [vk::DeviceMemory; 2],
     pub history_image_views: [vk::ImageView; 2],
     pub history_sampler: vk::Sampler,
+    pub trace_image: vk::Image,
+    pub trace_memory: vk::DeviceMemory,
+    pub trace_image_view: vk::ImageView,
 }
 
 impl WaterBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
+        command_pool: vk::CommandPool,
         width: u32,
         height: u32,
         hdr_image_view: vk::ImageView,
@@ -98,6 +103,57 @@ impl WaterBuffer {
 
         let scene_color_sampler = Self::create_scene_color_sampler(rrdevice)?;
 
+        // Create trace image (rgba16f, STORAGE | SAMPLED)
+        let (trace_image, trace_memory) = create_image(
+            instance,
+            rrdevice,
+            width,
+            height,
+            1,
+            vk::SampleCountFlags::_1,
+            vk::Format::R16G16B16A16_SFLOAT,
+            vk::ImageTiling::OPTIMAL,
+            vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        let trace_image_view = create_image_view(
+            rrdevice,
+            trace_image,
+            vk::Format::R16G16B16A16_SFLOAT,
+            vk::ImageAspectFlags::COLOR,
+            1,
+        )?;
+
+        // Transition trace image to GENERAL layout
+        let cmd = begin_single_time_commands(rrdevice, command_pool)?;
+        let barrier = vk::ImageMemoryBarrier::builder()
+            .image(trace_image)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .src_access_mask(vk::AccessFlags::empty())
+            .dst_access_mask(vk::AccessFlags::SHADER_WRITE | vk::AccessFlags::SHADER_READ)
+            .old_layout(vk::ImageLayout::UNDEFINED)
+            .new_layout(vk::ImageLayout::GENERAL)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .build();
+        rrdevice.device.cmd_pipeline_barrier(
+            cmd,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::PipelineStageFlags::RAY_TRACING_SHADER_KHR,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &[] as &[vk::BufferMemoryBarrier],
+            &[barrier],
+        );
+        end_single_time_commands(rrdevice, rrdevice.graphics_queue, command_pool, cmd)?;
+
         log!("Created water buffer: {}x{}", width, height);
 
         Ok(Self {
@@ -114,6 +170,9 @@ impl WaterBuffer {
             history_image_memories,
             history_image_views,
             history_sampler: Self::create_scene_color_sampler(rrdevice)?,
+            trace_image,
+            trace_memory,
+            trace_image_view,
         })
     }
 
@@ -248,6 +307,7 @@ impl WaterBuffer {
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
+        command_pool: vk::CommandPool,
         new_width: u32,
         new_height: u32,
         hdr_image_view: vk::ImageView,
@@ -257,6 +317,7 @@ impl WaterBuffer {
         *self = Self::new(
             instance,
             rrdevice,
+            command_pool,
             new_width,
             new_height,
             hdr_image_view,
@@ -318,6 +379,21 @@ impl WaterBuffer {
                 device.free_memory(self.history_image_memories[i], None);
                 self.history_image_memories[i] = vk::DeviceMemory::null();
             }
+        }
+
+        // Destroy trace image resources
+        // Destroy trace image resources
+        if self.trace_image_view != vk::ImageView::null() {
+            device.destroy_image_view(self.trace_image_view, None);
+            self.trace_image_view = vk::ImageView::null();
+        }
+        if self.trace_image != vk::Image::null() {
+            device.destroy_image(self.trace_image, None);
+            self.trace_image = vk::Image::null();
+        }
+        if self.trace_memory != vk::DeviceMemory::null() {
+            device.free_memory(self.trace_memory, None);
+            self.trace_memory = vk::DeviceMemory::null();
         }
 
         log!("Destroyed water buffer");
