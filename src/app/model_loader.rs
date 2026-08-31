@@ -721,6 +721,22 @@ pub unsafe fn rebuild_acceleration_structures(
 
     let mut acceleration_structure = RRAccelerationStructure::new();
 
+    // Collect vertex_buffers in the same order as BLAS creation
+    let vertex_buffers: Vec<_> = graphics
+        .meshes
+        .iter()
+        .filter(|mesh| mesh.render_to_gbuffer)
+        .map(|mesh| {
+            (
+                &mesh.vertex_buffer.buffer,
+                mesh.vertex_data.vertices.len() as u32,
+                std::mem::size_of::<vulkan_data::Vertex>() as u32,
+                &mesh.index_buffer.buffer,
+                mesh.vertex_data.indices.len() as u32,
+            )
+        })
+        .collect();
+
     for mesh in &graphics.meshes {
         if !mesh.render_to_gbuffer {
             continue;
@@ -741,25 +757,21 @@ pub unsafe fn rebuild_acceleration_structures(
         log!("Created BLAS for mesh");
     }
 
-    if !acceleration_structure.blas_list.is_empty() {
-        let tlas = RRAccelerationStructure::create_tlas(
-            instance,
-            device,
-            command_pool.as_ref(),
-            &acceleration_structure.blas_list,
-        )?;
-        acceleration_structure.tlas = tlas;
-        log!(
-            "Created TLAS with {} instances",
-            acceleration_structure.blas_list.len()
-        );
-    }
+    let tlas = RRAccelerationStructure::create_tlas(
+        instance,
+        device,
+        command_pool.as_ref(),
+        &acceleration_structure.blas_list,
+    )?;
+    acceleration_structure.tlas = tlas;
+    log!(
+        "Created TLAS with {} instances",
+        acceleration_structure.blas_list.len()
+    );
 
-    if acceleration_structure.blas_list.is_empty() {
-        raytracing.acceleration_structure = None;
-    } else {
-        raytracing.acceleration_structure = Some(acceleration_structure);
-    }
+    acceleration_structure.fill_hit_shading_table(instance, device, &vertex_buffers)?;
+
+    raytracing.acceleration_structure = Some(acceleration_structure);
     log!("Acceleration structures rebuilt successfully");
     Ok(())
 }

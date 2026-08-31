@@ -147,6 +147,21 @@ impl RayTracingData {
 
         let mut acceleration_structure = RRAccelerationStructure::new();
 
+        // Collect vertex_buffers in the same order as BLAS creation
+        let vertex_buffers: Vec<_> = meshes
+            .iter()
+            .filter(|mesh| mesh.render_to_gbuffer)
+            .map(|mesh| {
+                (
+                    &mesh.vertex_buffer.buffer,
+                    mesh.vertex_data.vertices.len() as u32,
+                    std::mem::size_of::<vulkan_data::Vertex>() as u32,
+                    &mesh.index_buffer.buffer,
+                    mesh.vertex_data.indices.len() as u32,
+                )
+            })
+            .collect();
+
         for mesh in meshes {
             if !mesh.render_to_gbuffer {
                 continue;
@@ -167,25 +182,21 @@ impl RayTracingData {
             log!("Created BLAS for mesh");
         }
 
-        if !acceleration_structure.blas_list.is_empty() {
-            let tlas = RRAccelerationStructure::create_tlas(
-                instance,
-                rrdevice,
-                rrcommand_pool,
-                &acceleration_structure.blas_list,
-            )?;
-            acceleration_structure.tlas = tlas;
-            log!(
-                "Created TLAS with {} instances",
-                acceleration_structure.blas_list.len()
-            );
-        }
+        let tlas = RRAccelerationStructure::create_tlas(
+            instance,
+            rrdevice,
+            rrcommand_pool,
+            &acceleration_structure.blas_list,
+        )?;
+        acceleration_structure.tlas = tlas;
+        log!(
+            "Created TLAS with {} instances",
+            acceleration_structure.blas_list.len()
+        );
 
-        if acceleration_structure.blas_list.is_empty() {
-            self.acceleration_structure = None;
-        } else {
-            self.acceleration_structure = Some(acceleration_structure);
-        }
+        acceleration_structure.fill_hit_shading_table(instance, rrdevice, &vertex_buffers)?;
+
+        self.acceleration_structure = Some(acceleration_structure);
         log!("Acceleration structures built successfully");
         Ok(())
     }

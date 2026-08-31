@@ -230,6 +230,14 @@ impl App {
         // exist before it is applied. Registration is idempotent and runs again below.
         Self::register_editor_resources(&mut data);
         Self::apply_loaded_scene(&mut data, loaded_scene);
+        if let Err(e) = Self::build_acceleration_structures_with_resources(
+            &instance,
+            &rrdevice,
+            &mut data,
+            &rrcommand_pool,
+        ) {
+            log_warn!("Failed to build acceleration structures: {:?}", e);
+        }
 
         if let Err(e) = Self::create_ray_tracing_pipelines_with_resources(
             &instance,

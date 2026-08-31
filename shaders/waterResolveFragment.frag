@@ -1,10 +1,16 @@
-#version 450
+#version 460
 
+#extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_ray_query : require
 #extension GL_EXT_buffer_reference : require
+#extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
 #include "include/flame_ray.glsl"
+#include "include/water_component.glsl"
+#include "include/water_torus_intersect.glsl"
+#include "include/water_flow.glsl"
+#include "include/water_surface.glsl"
 
 layout(set = 0, binding = 0) uniform FrameUBO {
     mat4 view;
@@ -13,11 +19,6 @@ layout(set = 0, binding = 0) uniform FrameUBO {
     vec4 light_pos;
     vec4 light_color;
 } frame;
-
-#include "include/water_component.glsl"
-#include "include/water_torus_intersect.glsl"
-#include "include/water_flow.glsl"
-#include "include/water_surface.glsl"
 
 
 layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
@@ -34,6 +35,8 @@ layout(push_constant) uniform WaterPush {
     int secondaryRays;
     int debugView;
 } push;
+
+#include "include/water_secondary.glsl"
 
 void main() {
    mat4 invViewProj = water.invViewProj;
@@ -128,11 +131,33 @@ void main() {
     float rPerp = (cosThetaI - eta * cosThetaT) / (cosThetaI + eta * cosThetaT);
     float F = (rPar * rPar + rPerp * rPerp) * 0.5;
 
-    // Reflection: constant environment + specular highlight
+   // Reflection
     vec3 reflDir = reflect(rayDir, n);
-    vec3 lightDir = normalize(frame.light_pos.xyz - p1);
-    float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
-    vec3 reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+    vec3 reflection;
+    if (push.secondaryRays == 0) {
+        // RayQuery path: compute tTorusNext (next torus intersection along reflection ray)
+        vec3 reflDirLocal = normalize((water.inverseModel * vec4(reflDir, 0.0)).xyz);
+        vec3 reflOriginLocal = pLocal1 + reflDirLocal * 1e-3;
+
+        float reflRoots[4];
+        bool reflFallback;
+        int reflCount = intersectTorus(reflOriginLocal, reflDirLocal, rHat, reflRoots, reflFallback);
+        float tTorusNext = (reflCount > 0) ? reflRoots[0] * water.radii.x : 1e30;
+
+        vec3 rayColor;
+        if (traceScene(p1, reflDir, tTorusNext, rayColor)) {
+            reflection = rayColor;
+        } else {
+            vec3 lightDir = normalize(frame.light_pos.xyz - p1);
+            float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
+            reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+        }
+   } else {
+        // ScreenSpace path: constant environment + specular highlight
+        vec3 lightDir = normalize(frame.light_pos.xyz - p1);
+        float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
+        reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+    }
 
     // Transmission: exit-point refraction
     vec3 dRefr = refract(dLocal, nLocal, 1.0 / eta);
@@ -164,13 +189,30 @@ void main() {
     }
 
     vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
-    vec4 clip = frame.proj * frame.view * pExitWorld;
     vec3 background;
-    if (clip.w > 0) {
-        vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
-        background = texture(sceneColorSampler, uvExit).rgb;
+    if (push.secondaryRays == 0) {
+        // RayQuery path: traceScene at exit point
+        vec3 rayColor;
+        if (traceScene(pExitWorld.xyz, dExit, 1e30, rayColor)) {
+            background = rayColor;
+        } else {
+            vec4 clip = frame.proj * frame.view * pExitWorld;
+            if (clip.w > 0) {
+                vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
+                background = texture(sceneColorSampler, uvExit).rgb;
+            } else {
+                background = texture(sceneColorSampler, fragTexCoord).rgb;
+            }
+        }
     } else {
-        background = texture(sceneColorSampler, fragTexCoord).rgb;
+        // ScreenSpace path: project exit point to screen space
+        vec4 clip = frame.proj * frame.view * pExitWorld;
+        if (clip.w > 0) {
+            vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
+            background = texture(sceneColorSampler, uvExit).rgb;
+        } else {
+            background = texture(sceneColorSampler, fragTexCoord).rgb;
+        }
     }
 
     vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);

@@ -335,11 +335,35 @@ impl RRAccelerationStructure {
     ) -> Result<RRTLAS> {
         let device = &rrdevice.device;
 
-        if blas_list.is_empty() {
-            return Ok(RRTLAS::default());
-        }
+        let instances_buf = if blas_list.is_empty() {
+            // Empty case: allocate buffer with 1 zero-initialized instance (mask=0, accelerationStructureReference=0)
+            // This is an "inactive instance" per spec — the TLAS has 1 primitive but no hits.
+            let instances_size =
+                std::mem::size_of::<vk::AccelerationStructureInstanceKHR>() as vk::DeviceSize;
 
-        let instances_buf = upload_instances_buffer(instance, rrdevice, blas_list)?;
+            let buf = allocate_device_buffer(
+                instance,
+                rrdevice,
+                instances_size,
+                vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                    | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            )?;
+
+            // Zero-initialize: write a single zeroed instance
+            let ptr = rrdevice.device.map_memory(
+                buf.memory,
+                0,
+                instances_size,
+                vk::MemoryMapFlags::empty(),
+            )? as *mut vk::AccelerationStructureInstanceKHR;
+            std::ptr::write(ptr, vk::AccelerationStructureInstanceKHR::default());
+            rrdevice.device.unmap_memory(buf.memory);
+
+            buf
+        } else {
+            upload_instances_buffer(instance, rrdevice, blas_list)?
+        };
 
         let instances_data = vk::AccelerationStructureGeometryInstancesDataKHR::builder()
             .array_of_pointers(false)
@@ -354,7 +378,11 @@ impl RRAccelerationStructure {
             })
             .flags(vk::GeometryFlagsKHR::OPAQUE);
 
-        let primitive_count = blas_list.len() as u32;
+        let primitive_count = if blas_list.is_empty() {
+            1
+        } else {
+            blas_list.len() as u32
+        };
 
         let build_info = vk::AccelerationStructureBuildGeometryInfoKHR::builder()
             .type_(vk::AccelerationStructureTypeKHR::TOP_LEVEL)
@@ -657,8 +685,6 @@ impl RRAccelerationStructure {
         rrcommand_pool: &RRCommandPool,
         vertex_buffers: &[(&vk::Buffer, u32, u32, &vk::Buffer, u32)],
     ) -> Result<()> {
-        let mut records: Vec<HitShadingRecord> = Vec::with_capacity(vertex_buffers.len());
-
         for (i, (vertex_buffer, vertex_count, vertex_stride, index_buffer, index_count)) in
             vertex_buffers.iter().enumerate()
         {
@@ -675,7 +701,30 @@ impl RRAccelerationStructure {
                     *index_count,
                 )?;
             }
+        }
 
+        Self::update_tlas(
+            instance,
+            rrdevice,
+            rrcommand_pool,
+            &mut self.tlas,
+            &self.blas_list,
+        )?;
+
+        self.fill_hit_shading_table(instance, rrdevice, vertex_buffers)?;
+
+        Ok(())
+    }
+
+    pub unsafe fn fill_hit_shading_table(
+        &mut self,
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        vertex_buffers: &[(&vk::Buffer, u32, u32, &vk::Buffer, u32)],
+    ) -> Result<()> {
+        let mut records: Vec<HitShadingRecord> = Vec::with_capacity(vertex_buffers.len());
+
+        for (vertex_buffer, _, _, index_buffer, _) in vertex_buffers.iter() {
             let vertex_address = rrdevice.device.get_buffer_device_address(
                 &vk::BufferDeviceAddressInfo::builder().buffer(**vertex_buffer),
             );
@@ -702,13 +751,9 @@ impl RRAccelerationStructure {
             });
         }
 
-        Self::update_tlas(
-            instance,
-            rrdevice,
-            rrcommand_pool,
-            &mut self.tlas,
-            &self.blas_list,
-        )?;
+        if records.is_empty() {
+            records.push(HitShadingRecord::default_record());
+        }
 
         if !records.is_empty() {
             let table = match &mut self.hit_shading_table {
