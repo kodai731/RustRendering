@@ -24,6 +24,7 @@ const BATCH_FRAMES_FLAG: &str = "--batch-frames";
 const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const BATCH_FLAME_DEBUG_VIEW_FLAG: &str = "--batch-flame-debug-view";
 const BATCH_WATER_DEBUG_VIEW_FLAG: &str = "--batch-water-debug-view";
+const BATCH_WATER_SECONDARY_FLAG: &str = "--batch-water-secondary";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
@@ -63,6 +64,7 @@ pub struct EngineCliOverrides {
     pub flame_mode: Option<FlameShadingMode>,
     pub flame_debug_view: Option<thyllore_effect_core::FlameDebugView>,
     pub water_debug_view: Option<i32>,
+    pub water_secondary: Option<thyllore_effect_core::WaterSecondaryRays>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
     pub flame_dump_path: Option<String>,
@@ -140,6 +142,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         flame_mode: flame_mode_resolve_from_args(args)?,
         flame_debug_view: flame_debug_view_resolve_from_args(args)?,
         water_debug_view: water_debug_view_resolve_from_args(args)?,
+        water_secondary: water_secondary_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
         camera_pose: camera_pose_resolve_from_args(args)?,
         flame_dump_path: flame_dump_path_resolve_from_args(args)?,
@@ -366,6 +369,26 @@ pub fn water_debug_view_resolve_from_args(args: &[String]) -> Result<Option<i32>
         .parse()
         .map_err(|_| anyhow::anyhow!("invalid water debug view '{value}': expected integer"))?;
     Ok(Some(view))
+}
+
+pub fn water_secondary_resolve_from_args(
+    args: &[String],
+) -> Result<Option<thyllore_effect_core::WaterSecondaryRays>> {
+    let Some(position) = args
+        .iter()
+        .position(|arg| arg == BATCH_WATER_SECONDARY_FLAG)
+    else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WATER_SECONDARY_FLAG} requires a value (rayquery|screenspace|raytracing)");
+    };
+    let secondary = thyllore_effect_core::WaterSecondaryRays::parse(value).ok_or_else(|| {
+        anyhow::anyhow!(
+            "{BATCH_WATER_SECONDARY_FLAG} requires a value (rayquery|screenspace|raytracing)"
+        )
+    })?;
+    Ok(Some(secondary))
 }
 
 pub fn flame_steps_resolve_from_args(args: &[String]) -> Result<Option<u32>> {

@@ -90,6 +90,12 @@ fn main() -> Result<()> {
             .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
             .debug_view = debug_view;
     }
+    if let Some(secondary) = overrides.water_secondary {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
+            .secondary_rays = secondary;
+    }
     if overrides.water_probe_path.is_some() {
         let debug_view = overrides.water_debug_view.unwrap_or(3);
         app.data
