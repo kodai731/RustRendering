@@ -874,6 +874,33 @@ pub unsafe fn record_water_passes(
                     0,
                     radii_bytes,
                 );
+                let projection = app
+                    .data
+                    .ecs_world
+                    .resource::<crate::ecs::resource::ProjectionData>();
+                let inv_view_proj = crate::ecs::systems::water::probe::inverse_view_proj_f64(
+                    projection.proj,
+                    projection.view,
+                );
+                let view_inverse = projection
+                    .view
+                    .invert()
+                    .unwrap_or_else(cgmath::Matrix4::identity);
+                let m: &[f32; 16] = inv_view_proj.as_ref();
+                let mut frame_data = [0.0f32; 20];
+                frame_data[..16].copy_from_slice(m);
+                frame_data[16] = view_inverse[3][0];
+                frame_data[17] = view_inverse[3][1];
+                frame_data[18] = view_inverse[3][2];
+                frame_data[19] = 1.0;
+                let frame_bytes = std::slice::from_raw_parts(frame_data.as_ptr() as *const u8, 80);
+                device.cmd_push_constants(
+                    command_buffer,
+                    trace_pipeline.pipeline_layout,
+                    vk::ShaderStageFlags::RAYGEN_KHR,
+                    16,
+                    frame_bytes,
+                );
                 let extent = water_buffer.extent();
                 device.cmd_trace_rays_khr(
                     command_buffer,

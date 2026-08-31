@@ -622,17 +622,22 @@ impl RayTracingData {
             }
         }
 
-        let push_range = vk::PushConstantRange::builder()
+        let intersection_range = vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::INTERSECTION_KHR)
             .offset(0)
             .size(8)
+            .build();
+        let raygen_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::RAYGEN_KHR)
+            .offset(16)
+            .size(80)
             .build();
         let water_trace_pipeline = RRRayTracingPipeline::new(
             instance,
             rrdevice,
             &WATER_TRACE,
             &[water_trace_descriptor.layout.handle],
-            &[push_range],
+            &[intersection_range, raygen_range],
         )?;
 
         self.water_trace_descriptor = Some(water_trace_descriptor);
