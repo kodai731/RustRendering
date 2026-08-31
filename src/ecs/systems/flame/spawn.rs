@@ -42,6 +42,13 @@ pub fn spawn_flame_with_clip(
     entity
 }
 
+/// Removes every flame entity so a scene without a flame section loads into a flame-free world.
+pub fn despawn_flames(world: &mut World) {
+    for entity in world.query_flames() {
+        world.despawn(entity);
+    }
+}
+
 /// The flame the UI and the flame events act on: the selected entity when it is a flame,
 /// otherwise the first one. Keeping this in one place is what lets the hierarchy selection
 /// stay the single source of truth.

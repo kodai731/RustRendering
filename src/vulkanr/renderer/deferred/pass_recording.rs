@@ -929,7 +929,7 @@ pub unsafe fn record_water_passes(
                 device.cmd_push_constants(
                     command_buffer,
                     trace_pipeline.pipeline_layout,
-                    vk::ShaderStageFlags::CLOSEST_HIT_KHR,
+                    vk::ShaderStageFlags::RAYGEN_KHR | vk::ShaderStageFlags::CLOSEST_HIT_KHR,
                     96,
                     light_bytes,
                 );

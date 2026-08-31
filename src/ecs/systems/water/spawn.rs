@@ -42,6 +42,13 @@ pub fn spawn_water_with_clip(
     entity
 }
 
+/// Removes every water entity so a scene without a water section loads into a water-free world.
+pub fn despawn_waters(world: &mut World) {
+    for entity in world.query_waters() {
+        world.despawn(entity);
+    }
+}
+
 /// The water the UI and the water events act on: the selected entity when it is a water,
 /// otherwise the first one. Keeping this in one place is what lets the hierarchy selection
 /// stay the single source of truth.

@@ -383,11 +383,13 @@ pub fn apply_loaded_scene_to_world(
     apply_editor_state(&loaded.scene.editor, world);
     apply_rendering_params(&loaded.scene.camera, world);
     apply_panel_layout(loaded.scene.panel_layout.as_ref(), world);
-    if let Some(ref flame) = loaded.scene.flame {
-        apply_flame_state_to_world(world, assets, flame);
+    match loaded.scene.flame {
+        Some(ref flame) => apply_flame_state_to_world(world, assets, flame),
+        None => crate::ecs::systems::despawn_flames(world),
     }
-    if let Some(ref water) = loaded.scene.water {
-        apply_water_state_to_world(world, assets, water);
+    match loaded.scene.water {
+        Some(ref water) => apply_water_state_to_world(world, assets, water),
+        None => crate::ecs::systems::despawn_waters(world),
     }
 }
 
@@ -586,18 +588,18 @@ mod tests {
     }
 
     #[test]
-    fn default_scene_asset_holds_campfire_flame() {
+    fn default_scene_asset_holds_water_torus_and_no_flame() {
         let content = fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/default.scene.ron"),
         )
         .expect("default scene asset readable");
         let scene: SceneFile = ron::from_str(&content).expect("default scene asset parses");
 
-        let flame = scene.flame.expect("flame section present");
-        let mut campfire = thyllore_effect_core::FlameEffect::default();
-        thyllore_effect_core::apply_flame_preset(&mut campfire, "campfire");
-        assert_eq!(flame.effect, campfire);
-        assert!(flame.style.is_none());
+        assert!(scene.flame.is_none());
+        let water = scene.water.expect("water section present");
+        assert!(water.effect.major_radius > 0.0);
+        assert!(water.effect.minor_radius > 0.0);
+        assert!(water.preset.is_none());
     }
 
     #[test]

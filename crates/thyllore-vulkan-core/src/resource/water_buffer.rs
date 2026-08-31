@@ -52,7 +52,9 @@ impl WaterBuffer {
                 vk::SampleCountFlags::_1,
                 HDR_FORMAT,
                 vk::ImageTiling::OPTIMAL,
-                vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
+                vk::ImageUsageFlags::COLOR_ATTACHMENT
+                    | vk::ImageUsageFlags::SAMPLED
+                    | vk::ImageUsageFlags::TRANSFER_DST,
                 vk::MemoryPropertyFlags::DEVICE_LOCAL,
             )?;
             history_images[i] = img;
@@ -125,8 +127,69 @@ impl WaterBuffer {
             1,
         )?;
 
-        // Transition trace image to GENERAL layout
+        // Clear both history images so the first frame samples zero in SHADER_READ_ONLY layout
         let cmd = begin_single_time_commands(rrdevice, command_pool)?;
+        let color_range = vk::ImageSubresourceRange {
+            aspect_mask: vk::ImageAspectFlags::COLOR,
+            base_mip_level: 0,
+            level_count: 1,
+            base_array_layer: 0,
+            layer_count: 1,
+        };
+        for &image in &history_images {
+            let to_transfer = vk::ImageMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::empty())
+                .dst_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .image(image)
+                .old_layout(vk::ImageLayout::UNDEFINED)
+                .new_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .subresource_range(color_range)
+                .build();
+            rrdevice.device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::TOP_OF_PIPE,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::DependencyFlags::empty(),
+                &[] as &[vk::MemoryBarrier],
+                &[] as &[vk::BufferMemoryBarrier],
+                &[to_transfer],
+            );
+
+            let clear_value = vk::ClearColorValue {
+                float32: [0.0f32; 4],
+            };
+            rrdevice.device.cmd_clear_color_image(
+                cmd,
+                image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                &clear_value,
+                &[color_range],
+            );
+
+            let to_sampled = vk::ImageMemoryBarrier::builder()
+                .src_access_mask(vk::AccessFlags::TRANSFER_WRITE)
+                .dst_access_mask(vk::AccessFlags::SHADER_READ)
+                .image(image)
+                .old_layout(vk::ImageLayout::TRANSFER_DST_OPTIMAL)
+                .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
+                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+                .subresource_range(color_range)
+                .build();
+            rrdevice.device.cmd_pipeline_barrier(
+                cmd,
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::FRAGMENT_SHADER,
+                vk::DependencyFlags::empty(),
+                &[] as &[vk::MemoryBarrier],
+                &[] as &[vk::BufferMemoryBarrier],
+                &[to_sampled],
+            );
+        }
+
+        // Transition trace image to GENERAL layout
         let barrier = vk::ImageMemoryBarrier::builder()
             .image(trace_image)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)

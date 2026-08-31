@@ -653,10 +653,10 @@ impl RayTracingData {
         let raygen_range = vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::RAYGEN_KHR)
             .offset(16)
-            .size(80)
+            .size(112)
             .build();
         let closest_hit_range = vk::PushConstantRange::builder()
-            .stage_flags(vk::ShaderStageFlags::CLOSEST_HIT_KHR | vk::ShaderStageFlags::RAYGEN_KHR)
+            .stage_flags(vk::ShaderStageFlags::CLOSEST_HIT_KHR)
             .offset(96)
             .size(32)
             .build();

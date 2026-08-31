@@ -918,6 +918,13 @@ impl App {
             }
 
             scene_state.set_from_loaded(scene_path, scene.scene.metadata.clone());
+        } else {
+            crate::ecs::systems::spawn_flame_with_clip(
+                &mut data.ecs_world,
+                &mut data.ecs_assets,
+                crate::ecs::systems::DEFAULT_FLAME_NAME,
+                crate::ecs::component::FlameEffect::default(),
+            );
         }
         data.ecs_world.insert_resource(scene_state);
     }
@@ -1185,14 +1192,6 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::WaterRenderSettings>(data);
-        if data.ecs_world.query_flames().is_empty() {
-            crate::ecs::systems::spawn_flame_with_clip(
-                &mut data.ecs_world,
-                &mut data.ecs_assets,
-                crate::ecs::systems::DEFAULT_FLAME_NAME,
-                crate::ecs::component::FlameEffect::default(),
-            );
-        }
         Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::WaterTemporalState>(data);
     }
