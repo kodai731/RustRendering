@@ -142,6 +142,7 @@ impl RayTracingData {
         rrdevice: &RRDevice,
         rrcommand_pool: &Rc<RRCommandPool>,
         meshes: &[MeshBuffer],
+        waters: &[(cgmath::Matrix4<f32>, f32, f32)],
     ) -> Result<()> {
         log!("Building acceleration structures...");
 
@@ -187,6 +188,7 @@ impl RayTracingData {
             rrdevice,
             rrcommand_pool,
             &acceleration_structure.blas_list,
+            &acceleration_structure.water_blas,
         )?;
         acceleration_structure.tlas = tlas;
         log!(
@@ -194,7 +196,12 @@ impl RayTracingData {
             acceleration_structure.blas_list.len()
         );
 
-        acceleration_structure.fill_hit_shading_table(instance, rrdevice, &vertex_buffers)?;
+        acceleration_structure.fill_hit_shading_table(
+            instance,
+            rrdevice,
+            &vertex_buffers,
+            waters,
+        )?;
 
         self.acceleration_structure = Some(acceleration_structure);
         log!("Acceleration structures built successfully");

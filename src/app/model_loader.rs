@@ -762,6 +762,7 @@ pub unsafe fn rebuild_acceleration_structures(
         device,
         command_pool.as_ref(),
         &acceleration_structure.blas_list,
+        &acceleration_structure.water_blas,
     )?;
     acceleration_structure.tlas = tlas;
     log!(
@@ -769,7 +770,7 @@ pub unsafe fn rebuild_acceleration_structures(
         acceleration_structure.blas_list.len()
     );
 
-    acceleration_structure.fill_hit_shading_table(instance, device, &vertex_buffers)?;
+    acceleration_structure.fill_hit_shading_table(instance, device, &vertex_buffers, &[])?;
 
     raytracing.acceleration_structure = Some(acceleration_structure);
     log!("Acceleration structures rebuilt successfully");

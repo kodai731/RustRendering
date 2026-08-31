@@ -45,11 +45,13 @@ impl App {
         data: &mut AppData,
         rrcommand_pool: &Rc<RRCommandPool>,
     ) -> Result<()> {
+        let water_transforms: Vec<(cgmath::Matrix4<f32>, f32, f32)> = vec![];
         data.raytracing.build_acceleration_structures(
             instance,
             rrdevice,
             rrcommand_pool,
             &data.graphics_resources.meshes,
+            &water_transforms,
         )
     }
 

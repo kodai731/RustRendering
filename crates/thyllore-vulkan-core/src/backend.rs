@@ -120,6 +120,7 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
             self.command_pool.as_ref(),
             tlas,
             &accel_struct.blas_list,
+            &accel_struct.water_blas,
         )?;
 
         Ok(())

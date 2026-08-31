@@ -12,7 +12,8 @@ use crate::vulkan::*;
 ///   model: [[f32;4];4]   (offset 16,  64 bytes)
 ///   normal_matrix: [[f32;4];4] (offset 80, 64 bytes)
 ///   base_color: [f32;4]  (offset 144, 16 bytes)
-/// Total: 160 bytes per record.
+///   params: [f32;4]      (offset 160, 16 bytes)
+/// Total: 176 bytes per record.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct HitShadingRecord {
@@ -21,6 +22,7 @@ pub struct HitShadingRecord {
     pub model: [[f32; 4]; 4],
     pub normal_matrix: [[f32; 4]; 4],
     pub base_color: [f32; 4],
+    pub params: [f32; 4],
 }
 
 impl HitShadingRecord {
@@ -31,6 +33,7 @@ impl HitShadingRecord {
             model: [[0.0; 4]; 4],
             normal_matrix: [[0.0; 4]; 4],
             base_color: [1.0, 1.0, 1.0, 1.0],
+            params: [0.0; 4],
         }
     }
 }
