@@ -122,6 +122,15 @@ declare_scene_format! {
                 format: "%.2f",
             },
         },
+        wave_dispersion: f32 = Frame {
+            get: |e| e.wave_dispersion,
+            set: |e, v| e.wave_dispersion = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+            },
+        },
         reflect_strength: f32 = Frame {
             get: |e| e.reflect_strength,
             set: |e, v| e.reflect_strength = v,

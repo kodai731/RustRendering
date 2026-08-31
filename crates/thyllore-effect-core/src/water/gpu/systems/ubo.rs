@@ -14,7 +14,7 @@ pub fn inverse_view_proj_f64(proj: Matrix4<f32>, view: Matrix4<f32>) -> Matrix4<
     inv.cast().unwrap()
 }
 
-pub fn build_water_ubo(effect: &WaterTorusEffect) -> WaterUBO {
+pub fn build_water_ubo(effect: &WaterTorusEffect, frame_index: u32) -> WaterUBO {
     let model = build_water_model_matrix(effect);
     let inverse_model = model.invert().unwrap_or(Matrix4::identity());
 
@@ -22,6 +22,8 @@ pub fn build_water_ubo(effect: &WaterTorusEffect) -> WaterUBO {
         effect.wave_amplitude,
         effect.wave_frequency,
         effect.wave_speed,
+        effect.wave_dispersion,
+        frame_index,
     );
 
     let mut wave_modes: [[f32; 4]; 16] = [[0.0; 4]; 16];
@@ -75,6 +77,6 @@ pub fn build_water_ubo(effect: &WaterTorusEffect) -> WaterUBO {
 
 impl Default for WaterUBO {
     fn default() -> Self {
-        build_water_ubo(&WaterTorusEffect::default())
+        build_water_ubo(&WaterTorusEffect::default(), 0)
     }
 }

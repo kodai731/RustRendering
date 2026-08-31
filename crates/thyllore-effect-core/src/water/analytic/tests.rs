@@ -262,8 +262,8 @@ fn test_wave_modes_determinism() {
     let wave_speed = 1.0;
 
     // Determinism: same args -> same modes
-    let modes_a = generate_water_wave_modes(wave_amplitude, wave_frequency, wave_speed);
-    let modes_b = generate_water_wave_modes(wave_amplitude, wave_frequency, wave_speed);
+    let modes_a = generate_water_wave_modes(wave_amplitude, wave_frequency, wave_speed, 0.0, 0);
+    let modes_b = generate_water_wave_modes(wave_amplitude, wave_frequency, wave_speed, 0.0, 0);
     assert_eq!(modes_a, modes_b, "modes should be deterministic");
 
     // (m, n) != (0, 0) for all modes
@@ -283,7 +283,7 @@ fn test_wave_modes_determinism() {
 
 #[test]
 fn test_wave_numerical_gradient() {
-    let modes = generate_water_wave_modes(0.02, 6.0, 1.0);
+    let modes = generate_water_wave_modes(0.02, 6.0, 1.0, 0.0, 0);
     let flow = (0.2, 0.0);
     let u = 0.5;
     let v = 0.3;
@@ -316,7 +316,7 @@ fn test_wave_numerical_gradient() {
 
 #[test]
 fn test_wave_periodicity() {
-    let modes = generate_water_wave_modes(0.02, 6.0, 1.0);
+    let modes = generate_water_wave_modes(0.02, 6.0, 1.0, 0.0, 0);
     let flow = (0.2, 0.0);
     let time = 1.0;
 

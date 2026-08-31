@@ -350,6 +350,7 @@ fn build_water_effect_from_params(
 }
 
 #[pyfunction]
+#[pyo3(signature = (params, time, position, rotation, view, proj, frame_index=0))]
 fn pack_water_ubo(
     py: Python<'_>,
     params: &Bound<'_, PyDict>,
@@ -358,9 +359,10 @@ fn pack_water_ubo(
     rotation: [f32; 4],
     view: [f32; 16],
     proj: [f32; 16],
+    frame_index: u32,
 ) -> PyResult<Vec<u8>> {
     let effect = build_water_effect_from_params(py, params, time, position, rotation)?;
-    let mut ubo = build_water_ubo(&effect);
+    let mut ubo = build_water_ubo(&effect, frame_index);
 
     // Compute inv_view_proj from view and proj matrices (column-major, same as pack_frame_ubo)
     let view_mat: Matrix4<f32> = Matrix4::new(

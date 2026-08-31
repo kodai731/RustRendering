@@ -724,7 +724,7 @@ pub fn collect_water_instances(world: &World) -> Vec<(cgmath::Matrix4<f32>, f32,
         .iter()
         .filter_map(|&entity| {
             let effect = world.get_component::<crate::ecs::component::WaterTorusEffect>(entity)?;
-            let ubo = thyllore_effect_core::build_water_ubo(effect);
+            let ubo = thyllore_effect_core::build_water_ubo(effect, 0);
             Some((ubo.model, effect.major_radius, effect.minor_radius))
         })
         .collect()

@@ -1006,8 +1006,15 @@ pub unsafe fn record_water_passes(
             .get_component::<crate::ecs::component::WaterTorusEffect>(water)
             .ok_or_else(|| anyhow::anyhow!("Missing WaterTorusEffect for instance {}", i))?;
 
+        let accum = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::WaterTemporalAccum>(water)
+            .cloned()
+            .unwrap_or_default();
+
         // Build UBO for this instance
-        let mut ubo = thyllore_effect_core::build_water_ubo(effect);
+        let mut ubo = thyllore_effect_core::build_water_ubo(effect, accum.frame_index as u32);
 
         // Overwrite inv_view_proj with f64-precision calculation for probe consistency
         let projection = app
@@ -1019,13 +1026,6 @@ pub unsafe fn record_water_passes(
             projection.view,
         );
 
-        // Overwrite temporal with accumulation state from the water temporal component
-        let accum = app
-            .data
-            .ecs_world
-            .get_component::<crate::ecs::component::WaterTemporalAccum>(water)
-            .cloned()
-            .unwrap_or_default();
         ubo.temporal = [accum.weight, accum.frame_index as f32, 0.0, 0.0];
 
         let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {

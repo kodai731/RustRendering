@@ -4,7 +4,12 @@ pub const WATER_OPTICS_PARAMS: &[&str] = &["ior", "absorption_r", "absorption_g"
 
 pub const WATER_FLOW_PARAMS: &[&str] = &["flow_longitudinal", "flow_meridional"];
 
-pub const WATER_WAVE_PARAMS: &[&str] = &["wave_amplitude", "wave_frequency", "wave_speed"];
+pub const WATER_WAVE_PARAMS: &[&str] = &[
+    "wave_amplitude",
+    "wave_frequency",
+    "wave_speed",
+    "wave_dispersion",
+];
 
 pub const WATER_LOOK_PARAMS: &[&str] = &[
     "reflect_strength",
