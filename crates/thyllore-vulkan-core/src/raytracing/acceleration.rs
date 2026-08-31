@@ -13,6 +13,7 @@ pub struct RRBLAS {
     pub buffer_memory: Option<vk::DeviceMemory>,
     pub device_address: vk::DeviceAddress,
     pub update_scratch: Option<DeviceBuffer>,
+    pub transform: vk::TransformMatrixKHR,
 }
 
 #[derive(Clone, Debug, Default)]
@@ -211,13 +212,7 @@ unsafe fn fill_instances_buffer(
 
     for (j, blas) in water_blas.iter().enumerate() {
         instances.push(vk::AccelerationStructureInstanceKHR {
-            transform: vk::TransformMatrixKHR {
-                matrix: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                ],
-            },
+            transform: blas.transform,
             instance_custom_index_and_mask: vk::Bitfield24_8::new((mesh_count + j) as u32, 0xFF),
             instance_shader_binding_table_record_offset_and_flags: vk::Bitfield24_8::new(0, 0),
             acceleration_structure_reference: blas.device_address,
@@ -347,6 +342,13 @@ impl RRAccelerationStructure {
             buffer_memory: Some(as_buffer_memory),
             device_address,
             update_scratch: None,
+            transform: vk::TransformMatrixKHR {
+                matrix: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                ],
+            },
         })
     }
 
@@ -437,7 +439,58 @@ impl RRAccelerationStructure {
             buffer_memory: Some(as_buffer_memory),
             device_address,
             update_scratch: None,
+            transform: vk::TransformMatrixKHR {
+                matrix: [
+                    [1.0, 0.0, 0.0, 0.0],
+                    [0.0, 1.0, 0.0, 0.0],
+                    [0.0, 0.0, 1.0, 0.0],
+                ],
+            },
         })
+    }
+
+    pub unsafe fn create_water_blas(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        rrcommand_pool: &RRCommandPool,
+        model: &Matrix4<f32>,
+        major_radius: f32,
+        minor_radius: f32,
+    ) -> Result<RRBLAS> {
+        let extent = major_radius + minor_radius;
+        let aabb = vk::AabbPositionsKHR {
+            min_x: -extent,
+            min_y: -minor_radius,
+            min_z: -extent,
+            max_x: extent,
+            max_y: minor_radius,
+            max_z: extent,
+        };
+        let size = std::mem::size_of::<vk::AabbPositionsKHR>() as vk::DeviceSize;
+        let buf = allocate_device_buffer(
+            instance,
+            rrdevice,
+            size,
+            vk::BufferUsageFlags::ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_KHR
+                | vk::BufferUsageFlags::SHADER_DEVICE_ADDRESS,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        let ptr = rrdevice
+            .device
+            .map_memory(buf.memory, 0, size, vk::MemoryMapFlags::empty())?
+            as *mut vk::AabbPositionsKHR;
+        ptr.write(aabb);
+        rrdevice.device.unmap_memory(buf.memory);
+        let mut blas = Self::create_aabb_blas(instance, rrdevice, rrcommand_pool, &buf.buffer, 1)?;
+        destroy_device_buffer(&rrdevice.device, &buf);
+        blas.transform = vk::TransformMatrixKHR {
+            matrix: [
+                [model[0][0], model[1][0], model[2][0], model[3][0]],
+                [model[0][1], model[1][1], model[2][1], model[3][1]],
+                [model[0][2], model[1][2], model[2][2], model[3][2]],
+            ],
+        };
+        Ok(blas)
     }
 
     pub unsafe fn create_tlas(

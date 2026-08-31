@@ -823,6 +823,8 @@ pub unsafe fn record_water_passes(
                 scene_color_sampler,
                 water_buffer.history_image_views,
                 water_buffer.history_sampler,
+                water_buffer.trace_image_view,
+                water_buffer.history_sampler,
                 tlas,
                 hit_table,
             )?;

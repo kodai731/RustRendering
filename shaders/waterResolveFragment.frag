@@ -31,6 +31,7 @@ struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 mo
 layout(set = 1, binding = 3, std430) readonly buffer HitShadingTable { HitShadingRecord records[]; } hitTable;
 
 layout(set = 1, binding = 4) uniform sampler2D waterHistorySampler;
+layout(set = 1, binding = 5) uniform sampler2D waterTraceSampler;
 #endif
 
 layout(location = 0) in vec2 fragTexCoord;
@@ -78,9 +79,19 @@ void main() {
         outHistory = outColor;
 #endif
         return;
-    }
+   }
 
-    // First hit time in world units
+#ifdef WATER_RAY_QUERY
+    if (push.debugView == 5) {
+        outColor = vec4(texture(waterTraceSampler, fragTexCoord).rgb, 1.0);
+#ifdef WATER_RAY_QUERY
+        outHistory = outColor;
+#endif
+        return;
+    }
+#endif
+
+   // First hit time in world units
     float t1 = roots[0] * water.radii.x;
     vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
 
@@ -301,6 +312,8 @@ void main() {
                 }
             }
         }
+    } else if (push.secondaryRays == 2) {
+        background = texture(waterTraceSampler, fragTexCoord).rgb;
     } else
 #endif
     {

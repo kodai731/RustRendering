@@ -40,6 +40,8 @@ impl RRWaterDescriptorSet {
         scene_color_sampler: vk::Sampler,
         history_image_views: [vk::ImageView; 2],
         history_sampler: vk::Sampler,
+        trace_image_view: vk::ImageView,
+        trace_sampler: vk::Sampler,
         tlas: vk::AccelerationStructureKHR,
         hit_table: vk::Buffer,
     ) -> Result<()> {
@@ -60,6 +62,12 @@ impl RRWaterDescriptorSet {
                     history_sampler,
                     vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 )?
+                .image(
+                    water_resolve::WATER_TRACE_SAMPLER,
+                    trace_image_view,
+                    trace_sampler,
+                    vk::ImageLayout::GENERAL,
+                )?
                 .acceleration_structure(water_resolve::SCENE_TLAS, tlas)?
                 .buffer(
                     water_resolve::HIT_TABLE,
@@ -70,6 +78,10 @@ impl RRWaterDescriptorSet {
                 .apply(rrdevice);
         }
         Ok(())
+    }
+
+    pub fn descriptor_sets(&self) -> [vk::DescriptorSet; 2] {
+        self.descriptor_sets
     }
 
     pub unsafe fn update_scene_color(

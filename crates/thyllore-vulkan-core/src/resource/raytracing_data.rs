@@ -189,6 +189,18 @@ impl RayTracingData {
             log!("Created BLAS for mesh");
         }
 
+        for (model, major, minor) in waters {
+            let blas = RRAccelerationStructure::create_water_blas(
+                instance,
+                rrdevice,
+                rrcommand_pool,
+                model,
+                *major,
+                *minor,
+            )?;
+            acceleration_structure.water_blas.push(blas);
+        }
+
         let tlas = RRAccelerationStructure::create_tlas(
             instance,
             rrdevice,
@@ -200,7 +212,7 @@ impl RayTracingData {
         log!(
             "Created TLAS with {} mesh + {} water instances",
             acceleration_structure.blas_list.len(),
-            waters.len()
+            acceleration_structure.water_blas.len()
         );
 
         acceleration_structure.fill_hit_shading_table(
@@ -569,6 +581,8 @@ impl RayTracingData {
                     scene_color_view,
                     scene_color_sampler,
                     water_buffer.history_image_views,
+                    water_buffer.history_sampler,
+                    water_buffer.trace_image_view,
                     water_buffer.history_sampler,
                     tlas,
                     hit_table.buffer,
