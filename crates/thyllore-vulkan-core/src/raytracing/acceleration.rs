@@ -214,7 +214,7 @@ unsafe fn fill_instances_buffer(
         instances.push(vk::AccelerationStructureInstanceKHR {
             transform: blas.transform,
             instance_custom_index_and_mask: vk::Bitfield24_8::new((mesh_count + j) as u32, 0xFF),
-            instance_shader_binding_table_record_offset_and_flags: vk::Bitfield24_8::new(0, 0),
+            instance_shader_binding_table_record_offset_and_flags: vk::Bitfield24_8::new(1, 0),
             acceleration_structure_reference: blas.device_address,
         });
     }
