@@ -20,13 +20,14 @@ pub enum WaterParam {
     WaveSpeed,
     ReflectStrength,
     RefractStrength,
+    CausticStrength,
     TintR,
     TintG,
     TintB,
 }
 
 impl WaterParam {
-    pub const ALL: [WaterParam; 16] = [
+    pub const ALL: [WaterParam; 17] = [
         WaterParam::MajorRadius,
         WaterParam::MinorRadius,
         WaterParam::Ior,
@@ -40,11 +41,11 @@ impl WaterParam {
         WaterParam::WaveSpeed,
         WaterParam::ReflectStrength,
         WaterParam::RefractStrength,
+        WaterParam::CausticStrength,
         WaterParam::TintR,
         WaterParam::TintG,
         WaterParam::TintB,
     ];
-
     pub const fn code(self) -> u16 {
         match self {
             WaterParam::MajorRadius => 256,
@@ -60,6 +61,7 @@ impl WaterParam {
             WaterParam::WaveSpeed => 266,
             WaterParam::ReflectStrength => 267,
             WaterParam::RefractStrength => 268,
+            WaterParam::CausticStrength => 272,
             WaterParam::TintR => 269,
             WaterParam::TintG => 270,
             WaterParam::TintB => 271,
@@ -96,6 +98,7 @@ impl WaterParam {
             WaterParam::WaveSpeed => "Wave Speed",
             WaterParam::ReflectStrength => "Reflect Strength",
             WaterParam::RefractStrength => "Refract Strength",
+            WaterParam::CausticStrength => "Caustic Strength",
             WaterParam::TintR => "Tint R",
             WaterParam::TintG => "Tint G",
             WaterParam::TintB => "Tint B",
@@ -115,8 +118,9 @@ impl WaterParam {
             WaterParam::WaveAmplitude => "wave_amplitude",
             WaterParam::WaveFrequency => "wave_frequency",
             WaterParam::WaveSpeed => "wave_speed",
-            WaterParam::ReflectStrength => "reflect_strength",
             WaterParam::RefractStrength => "refract_strength",
+            WaterParam::ReflectStrength => "reflect_strength",
+            WaterParam::CausticStrength => "caustic_strength",
             WaterParam::TintR => "tint_r",
             WaterParam::TintG => "tint_g",
             WaterParam::TintB => "tint_b",
@@ -142,9 +146,10 @@ impl WaterParam {
             WaterParam::FlowMeridional => "FlowMeridional",
             WaterParam::WaveAmplitude => "WaveAmplitude",
             WaterParam::WaveFrequency => "WaveFrequency",
-            WaterParam::WaveSpeed => "WaveSpeed",
-            WaterParam::ReflectStrength => "ReflectStrength",
             WaterParam::RefractStrength => "RefractStrength",
+            WaterParam::ReflectStrength => "ReflectStrength",
+            WaterParam::CausticStrength => "CausticStrength",
+            WaterParam::WaveSpeed => "WaveSpeed",
             WaterParam::TintR => "TintR",
             WaterParam::TintG => "TintG",
             WaterParam::TintB => "TintB",
@@ -166,6 +171,7 @@ impl WaterParam {
             WaterParam::WaveSpeed => (0.0, 5.0),
             WaterParam::ReflectStrength => (0.0, 1.0),
             WaterParam::RefractStrength => (0.0, 1.0),
+            WaterParam::CausticStrength => (0.0, 2.0),
             WaterParam::TintR => (0.0, 1.0),
             WaterParam::TintG => (0.0, 1.0),
             WaterParam::TintB => (0.0, 1.0),

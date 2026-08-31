@@ -20,6 +20,7 @@ fn test_default_water_effect_values() {
     assert_eq!(effect.wave_speed, 1.0);
     assert_eq!(effect.reflect_strength, 1.0);
     assert_eq!(effect.refract_strength, 1.0);
+    assert_eq!(effect.caustic_strength, 0.6);
     assert_eq!(effect.tint, [0.05, 0.25, 0.35]);
 }
 

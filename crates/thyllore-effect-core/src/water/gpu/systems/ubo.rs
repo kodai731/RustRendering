@@ -42,7 +42,12 @@ pub fn build_water_ubo(effect: &WaterTorusEffect) -> WaterUBO {
     WaterUBO {
         model,
         inverse_model,
-        radii: [effect.major_radius, effect.minor_radius, 0.0, 0.0],
+        radii: [
+            effect.major_radius,
+            effect.minor_radius,
+            effect.caustic_strength,
+            0.0,
+        ],
         absorption: [
             effect.absorption[0],
             effect.absorption[1],

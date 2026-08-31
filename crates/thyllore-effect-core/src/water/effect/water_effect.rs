@@ -18,6 +18,7 @@ pub struct WaterTorusEffect {
     pub wave_speed: f32,
     pub reflect_strength: f32,
     pub refract_strength: f32,
+    pub caustic_strength: f32,
     pub tint: [f32; 3],
 }
 
@@ -40,6 +41,7 @@ impl Default for WaterTorusEffect {
             wave_speed: 1.0,
             reflect_strength: 1.0,
             refract_strength: 1.0,
+            caustic_strength: 0.6,
             tint: [0.05, 0.25, 0.35],
         }
     }

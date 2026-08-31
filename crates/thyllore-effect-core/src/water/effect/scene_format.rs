@@ -140,6 +140,15 @@ declare_scene_format! {
                 format: "%.2f",
             },
         },
+        caustic_strength: f32 = Frame {
+            get: |e| e.caustic_strength,
+            set: |e, v| e.caustic_strength = v,
+            ui {
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+            },
+        },
         tint_r: f32 = Frame {
             get: |e| e.tint[0],
             set: |e, v| e.tint[0] = v,

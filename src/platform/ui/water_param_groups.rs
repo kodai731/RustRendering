@@ -9,11 +9,11 @@ pub const WATER_WAVE_PARAMS: &[&str] = &["wave_amplitude", "wave_frequency", "wa
 pub const WATER_LOOK_PARAMS: &[&str] = &[
     "reflect_strength",
     "refract_strength",
+    "caustic_strength",
     "tint_r",
     "tint_g",
     "tint_b",
 ];
-
 pub const WATER_PARAM_GROUPS: &[&[&str]] = &[
     WATER_SHAPE_PARAMS,
     WATER_OPTICS_PARAMS,

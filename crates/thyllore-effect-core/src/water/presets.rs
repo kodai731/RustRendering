@@ -55,8 +55,8 @@ pub fn apply_water_preset(effect: &mut WaterTorusEffect, name: &str) -> bool {
     effect.wave_speed = preset.wave_speed;
     effect.reflect_strength = preset.reflect_strength;
     effect.refract_strength = preset.refract_strength;
+    effect.caustic_strength = preset.caustic_strength;
     effect.tint = preset.tint;
-
     apply_runtime_state(effect, state);
     true
 }
@@ -117,6 +117,7 @@ mod tests {
         assert_eq!(effect.wave_speed, default_effect.wave_speed);
         assert_eq!(effect.reflect_strength, default_effect.reflect_strength);
         assert_eq!(effect.refract_strength, default_effect.refract_strength);
+        assert_eq!(effect.caustic_strength, default_effect.caustic_strength);
         assert_eq!(effect.tint, default_effect.tint);
     }
 
