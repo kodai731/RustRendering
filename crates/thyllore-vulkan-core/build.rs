@@ -73,6 +73,10 @@ fn glslc_command(source_path: &Path) -> Command {
     if let Ok(rotation) = std::env::var("THYLLORE_FLAME_NOISE_ROT_DEG") {
         cmd.arg(format!("-DFLAME_NOISE_ROT_DEG_OVERRIDE={}", rotation));
     }
+    let ext = source_path.extension().and_then(|e| e.to_str());
+    if matches!(ext, Some("rgen" | "rint" | "rahit" | "rchit" | "rmiss")) {
+        cmd.arg("--target-env=vulkan1.2");
+    }
     cmd
 }
 

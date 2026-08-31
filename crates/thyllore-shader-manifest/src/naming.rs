@@ -1,4 +1,6 @@
-const SHADER_EXTENSIONS: [&str; 4] = ["vert", "frag", "geom", "comp"];
+const SHADER_EXTENSIONS: [&str; 9] = [
+    "vert", "frag", "geom", "comp", "rgen", "rint", "rahit", "rchit", "rmiss",
+];
 
 pub fn is_shader_source(file_name: &str) -> bool {
     file_extension(file_name).is_some_and(|extension| SHADER_EXTENSIONS.contains(&extension))
@@ -16,13 +18,28 @@ pub fn spirv_output_name(source_file_name: &str) -> Option<String> {
         .trim_end_matches("Geometry")
         .trim_end_matches("geometry")
         .trim_end_matches("Compute")
-        .trim_end_matches("compute");
+        .trim_end_matches("compute")
+        .trim_end_matches("RayGen")
+        .trim_end_matches("raygen")
+        .trim_end_matches("Intersection")
+        .trim_end_matches("intersection")
+        .trim_end_matches("AnyHit")
+        .trim_end_matches("anyhit")
+        .trim_end_matches("ClosestHit")
+        .trim_end_matches("closesthit")
+        .trim_end_matches("Miss")
+        .trim_end_matches("miss");
 
     let stage_suffix = match extension {
         "vert" => "Vert",
         "frag" => "Frag",
         "geom" => "Geom",
         "comp" => "Comp",
+        "rgen" => "Rgen",
+        "rint" => "Rint",
+        "rahit" => "Rahit",
+        "rchit" => "Rchit",
+        "rmiss" => "Rmiss",
         _ => return None,
     };
 
@@ -67,6 +84,26 @@ mod tests {
         assert_eq!(
             spirv_output_name("histogramCompute.comp").as_deref(),
             Some("histogramComp.spv")
+        );
+    }
+
+    #[test]
+    fn rt_strips_stage_word_and_appends_stage_suffix() {
+        assert_eq!(
+            spirv_output_name("waterTraceRayGen.rgen").as_deref(),
+            Some("waterTraceRgen.spv")
+        );
+        assert_eq!(
+            spirv_output_name("waterTorusIntersection.rint").as_deref(),
+            Some("waterTorusRint.spv")
+        );
+        assert_eq!(
+            spirv_output_name("waterTorusClosestHit.rchit").as_deref(),
+            Some("waterTorusRchit.spv")
+        );
+        assert_eq!(
+            spirv_output_name("waterTraceMiss.rmiss").as_deref(),
+            Some("waterTraceRmiss.spv")
         );
     }
 

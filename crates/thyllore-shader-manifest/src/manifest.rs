@@ -12,6 +12,11 @@ pub enum StageKind {
     Fragment,
     Geometry,
     Compute,
+    RayGeneration,
+    Intersection,
+    AnyHit,
+    ClosestHit,
+    Miss,
 }
 
 impl StageKind {
@@ -22,6 +27,11 @@ impl StageKind {
             "frag" => Some(Self::Fragment),
             "geom" => Some(Self::Geometry),
             "comp" => Some(Self::Compute),
+            "rgen" => Some(Self::RayGeneration),
+            "rint" => Some(Self::Intersection),
+            "rahit" => Some(Self::AnyHit),
+            "rchit" => Some(Self::ClosestHit),
+            "rmiss" => Some(Self::Miss),
             _ => None,
         }
     }
@@ -32,6 +42,11 @@ impl StageKind {
             Self::Fragment => "Fragment",
             Self::Geometry => "Geometry",
             Self::Compute => "Compute",
+            Self::RayGeneration => "RayGeneration",
+            Self::Intersection => "Intersection",
+            Self::AnyHit => "AnyHit",
+            Self::ClosestHit => "ClosestHit",
+            Self::Miss => "Miss",
         }
     }
 }
@@ -102,7 +117,7 @@ pub enum ManifestError {
     Shape(String),
     #[error("pass `{0}` is not a valid pass name (use [a-z][a-z0-9_]*)")]
     InvalidPassName(String),
-    #[error("pass `{pass}`: `{file}` has no shader extension (.vert/.frag/.geom/.comp)")]
+    #[error("pass `{pass}`: `{file}` has no shader extension (.vert/.frag/.geom/.comp/.rgen/.rint/.rahit/.rchit/.rmiss)")]
     UnknownStageExtension { pass: String, file: String },
     #[error("pass `{pass}`: {reason}")]
     StageComposition { pass: String, reason: String },
@@ -263,6 +278,18 @@ fn validate_stage_composition(name: &str, stages: &[StageSource]) -> Result<(), 
     if is_graphics || is_compute {
         return Ok(());
     }
+
+    // RT pipeline: must have at least one RT stage (rgen/rint/rahit/rchit/rmiss) and no graphics/compute stages
+    let rt_count = count(StageKind::RayGeneration)
+        + count(StageKind::Intersection)
+        + count(StageKind::AnyHit)
+        + count(StageKind::ClosestHit)
+        + count(StageKind::Miss);
+    let is_rt = rt_count > 0 && vertex == 0 && fragment == 0 && geometry == 0 && compute == 0;
+    if is_rt {
+        return Ok(());
+    }
+
     Err(ManifestError::StageComposition {
         pass: name.to_string(),
         reason: format!(

@@ -77,3 +77,7 @@ sets = { 0 = "local" }
 [pass.imgui]
 stages = ["imguiVertex.vert", "imguiFragment.frag"]
 sets = { 0 = "local" }
+
+[pass.water_trace]
+stages = ["waterTraceRayGen.rgen", "waterTraceMiss.rmiss", "waterTorusIntersection.rint", "waterTorusClosestHit.rchit"]
+sets = { 0 = "local" }
