@@ -32,6 +32,7 @@ impl RRRayQueryDescriptorSet {
         shadow_mask_image_view: vk::ImageView,
         tlas: vk::AccelerationStructureKHR,
         scene_uniform_buffer: vk::Buffer,
+        hit_shading_table_buffer: vk::Buffer,
     ) -> Result<()> {
         self.descriptor_set = self.layout.allocate_set(rrdevice)?;
 
@@ -49,6 +50,12 @@ impl RRRayQueryDescriptorSet {
                 scene_uniform_buffer,
                 0,
                 std::mem::size_of::<crate::data::SceneUniformData>() as u64,
+            )?
+            .buffer(
+                ray_query_shadow::HIT_TABLE,
+                hit_shading_table_buffer,
+                0,
+                vk::WHOLE_SIZE as u64,
             )?
             .apply(rrdevice);
         Ok(())

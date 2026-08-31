@@ -18,7 +18,9 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color) {
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, sceneTlas, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-3, d, tMax);
 
-    while (rayQueryProceedEXT(rq)) {}
+    while (rayQueryProceedEXT(rq)) {
+        // Ignore AABB candidates — water torus self-re-entry is handled by tTorusNext
+    }
 
     if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
         return false;

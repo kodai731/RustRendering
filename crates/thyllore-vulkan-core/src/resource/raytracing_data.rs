@@ -288,6 +288,15 @@ impl RayTracingData {
         ) else {
             return Ok(());
         };
+        let hit_shading_table_buffer = self
+            .acceleration_structure
+            .as_ref()
+            .and_then(|a| a.hit_shading_table.as_ref())
+            .map(|t| t.buffer)
+            .unwrap_or_else(|| {
+                log!("bind_ray_query_tlas: hit_shading_table not available, using null buffer");
+                vk::Buffer::null()
+            });
 
         if descriptor.descriptor_set == vk::DescriptorSet::null() {
             descriptor.allocate_and_update(
@@ -297,6 +306,7 @@ impl RayTracingData {
                 gbuffer.shadow_mask_image_view,
                 tlas,
                 scene_buffer,
+                hit_shading_table_buffer,
             )
         } else {
             descriptor.update_tlas(rrdevice, tlas)
@@ -867,6 +877,11 @@ unsafe fn build_ray_query_pipeline(
 
     if let (Some(gbuffer), Some(accel_struct)) = (gbuffer, acceleration_structure) {
         if let Some(tlas) = accel_struct.tlas.acceleration_structure {
+            let hit_shading_table_buffer = accel_struct
+                .hit_shading_table
+                .as_ref()
+                .map(|t| t.buffer)
+                .unwrap_or(vk::Buffer::null());
             descriptor.allocate_and_update(
                 rrdevice,
                 gbuffer.position_image_view,
@@ -874,6 +889,7 @@ unsafe fn build_ray_query_pipeline(
                 gbuffer.shadow_mask_image_view,
                 tlas,
                 scene_buffer,
+                hit_shading_table_buffer,
             )?;
         }
     }
