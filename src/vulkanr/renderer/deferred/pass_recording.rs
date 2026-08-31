@@ -830,7 +830,14 @@ pub unsafe fn record_water_passes(
             )?;
 
             if let Some(trace_descriptor) = app.data.raytracing.water_trace_descriptor.as_ref() {
-                trace_descriptor.write_all(ctx.device, tlas, water_buffer.trace_image_view)?;
+                if let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() {
+                    trace_descriptor.write_all(
+                        ctx.device,
+                        tlas,
+                        water_buffer.trace_image_view,
+                        water_ubo,
+                    )?;
+                }
             }
 
             app.data.raytracing.water_descriptor_tlas.set(tlas);

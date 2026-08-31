@@ -627,15 +627,20 @@ impl RayTracingData {
 
         self.water_shading_pipeline = Some(water_shading_pipeline);
         self.water_descriptor = Some(water_descriptor);
-        self.water_ubo = Some(water_ubo);
 
         let water_trace_descriptor = RRWaterTraceDescriptorSet::new(rrdevice)?;
         if let Some(accel_struct) = self.acceleration_structure.as_ref() {
             if let Some(tlas) = accel_struct.tlas.acceleration_structure {
-                water_trace_descriptor.write_all(rrdevice, tlas, water_buffer.trace_image_view)?;
+                water_trace_descriptor.write_all(
+                    rrdevice,
+                    tlas,
+                    water_buffer.trace_image_view,
+                    &water_ubo,
+                )?;
             }
         }
 
+        self.water_ubo = Some(water_ubo);
         let intersection_range = vk::PushConstantRange::builder()
             .stage_flags(vk::ShaderStageFlags::INTERSECTION_KHR)
             .offset(0)

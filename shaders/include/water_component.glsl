@@ -1,7 +1,12 @@
 #ifndef WATER_COMPONENT_GLSL
 #define WATER_COMPONENT_GLSL
 
-layout(set = 1, binding = 0) uniform WaterUBO {
+#ifndef WATER_UBO_SET
+#define WATER_UBO_SET 1
+#define WATER_UBO_BINDING 0
+#endif
+
+layout(set = WATER_UBO_SET, binding = WATER_UBO_BINDING) uniform WaterUBO {
     mat4 model;
     mat4 inverseModel;
     vec4 radii;

@@ -540,11 +540,14 @@ impl App {
                 .and_then(|a| a.tlas.acceleration_structure)
             {
                 if let Some(water_buffer) = self.data.viewport.water_buffer.as_ref() {
-                    trace_descriptor.write_all(
-                        &self.rrdevice,
-                        tlas,
-                        water_buffer.trace_image_view,
-                    )?;
+                    if let Some(water_ubo) = self.data.raytracing.water_ubo.as_ref() {
+                        trace_descriptor.write_all(
+                            &self.rrdevice,
+                            tlas,
+                            water_buffer.trace_image_view,
+                            water_ubo,
+                        )?;
+                    }
                 }
             }
         }

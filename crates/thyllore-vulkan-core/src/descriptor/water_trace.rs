@@ -2,7 +2,9 @@ use crate::core::device::*;
 use crate::descriptor::pass_manifest::WATER_TRACE;
 use crate::descriptor::reflected_layout::{ReflectedLayoutSpec, ReflectedSetLayout};
 use crate::descriptor::shader_bindings::water_trace;
+use crate::resource::uniform_buffer::UniformBuffer;
 use crate::vulkan::*;
+use thyllore_effect_core::WaterUBO;
 
 #[derive(Clone, Debug, Default)]
 pub struct RRWaterTraceDescriptorSet {
@@ -30,6 +32,7 @@ impl RRWaterTraceDescriptorSet {
         rrdevice: &RRDevice,
         tlas: vk::AccelerationStructureKHR,
         trace_image_view: vk::ImageView,
+        water_ubo: &UniformBuffer<WaterUBO>,
     ) -> Result<()> {
         self.layout
             .writer(self.descriptor_set)
@@ -40,6 +43,7 @@ impl RRWaterTraceDescriptorSet {
                 vk::Sampler::null(),
                 vk::ImageLayout::GENERAL,
             )?
+            .uniform(water_trace::WATER, water_ubo, 0)?
             .apply(rrdevice);
         Ok(())
     }
