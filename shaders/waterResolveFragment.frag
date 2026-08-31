@@ -330,7 +330,13 @@ void main() {
     vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
 
   // Composite output
-    outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
+   outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
+
+#ifdef WATER_RAY_QUERY
+    if (push.secondaryRays == 2) {
+        outColor = vec4(texture(waterTraceSampler, fragTexCoord).rgb, 1.0);
+    }
+#endif
 
 #ifdef WATER_RAY_QUERY
     vec4 blended = mix(outColor, texture(waterHistorySampler, fragTexCoord), water.temporal.x);
