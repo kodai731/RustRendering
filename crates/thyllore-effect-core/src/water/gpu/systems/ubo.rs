@@ -3,6 +3,17 @@ use crate::water::effect::WaterTorusEffect;
 use crate::water::*;
 use cgmath::{Matrix4, SquareMatrix};
 
+/// Compute inverse(proj * view) using f64 precision to minimize fp32 rounding error.
+/// Returns the result as Matrix4<f32>.
+pub fn inverse_view_proj_f64(proj: Matrix4<f32>, view: Matrix4<f32>) -> Matrix4<f32> {
+    let p: Matrix4<f64> = proj.cast().unwrap();
+    let v: Matrix4<f64> = view.cast().unwrap();
+    let inv = (p * v)
+        .invert()
+        .expect("view-proj matrix must be invertible");
+    inv.cast().unwrap()
+}
+
 pub fn build_water_ubo(effect: &WaterTorusEffect) -> WaterUBO {
     let model = build_water_model_matrix(effect);
     let inverse_model = model.invert().unwrap_or(Matrix4::identity());

@@ -17,6 +17,9 @@ def expand_includes(source_path: str, repo_root: str) -> list[str]:
             m = re.match(r'^\s*#\s*include\s+"([^"]+)"', line)
             if m:
                 included = m.group(1)
+                # Skip water_secondary.glsl — it contains ray-query code (traceScene, VertexBuffer)
+                if included == "include/water_secondary.glsl":
+                    continue
                 base_dir = os.path.dirname(path)
                 inc_path = os.path.normpath(os.path.join(base_dir, included))
                 inc_full = os.path.join(repo_root, "shaders", inc_path)
@@ -33,8 +36,12 @@ def expand_includes(source_path: str, repo_root: str) -> list[str]:
 
 
 def strip_include_guards(lines: list[str]) -> list[str]:
+    """Strip #ifndef/#define _GLSL guards and #ifdef WATER_RAY_QUERY blocks.
+
+    Returns (output_lines, has_endif) where has_endif is True if any #endif was consumed
+    by a stripped block (used to detect unbalanced guards)."""
     result: list[str] = []
-    stack: list[bool] = []
+    stack: list[str] = []  # "guard" for _GLSL guards, "water_ray_query" for WATER_RAY_QUERY blocks
     i = 0
     while i < len(lines):
         line = lines[i]
@@ -44,7 +51,7 @@ def strip_include_guards(lines: list[str]) -> list[str]:
         if m_ifndef:
             macro = m_ifndef.group(1)
             is_guard = macro.endswith("_GLSL")
-            stack.append(is_guard)
+            stack.append("guard" if is_guard else "other")
             i += 1
             if not is_guard:
                 result.append(line)
@@ -55,23 +62,46 @@ def strip_include_guards(lines: list[str]) -> list[str]:
                     i += 1
             continue
 
-        m_ifdef = re.match(r'^#\s*ifdef\s+\S+', stripped)
+        m_ifdef = re.match(r'^#\s*ifdef\s+(\S+)', stripped)
+        if m_ifdef:
+            macro = m_ifdef.group(1)
+            if macro == "WATER_RAY_QUERY":
+                # Skip this block entirely — WATER_RAY_QUERY is not defined for Blender
+                stack.append("water_ray_query")
+                i += 1
+                continue
+            else:
+                stack.append("other")
+                result.append(line)
+                i += 1
+                continue
+
         m_if = re.match(r'^#\s*if\b', stripped)
-        if m_ifdef or m_if:
-            stack.append(False)
+        if m_if:
+            stack.append("other")
             result.append(line)
             i += 1
             continue
 
         m_endif = re.match(r'^#\s*endif\b', stripped)
         if m_endif:
-            if stack and stack[-1]:
+            if stack and stack[-1] == "water_ray_query":
+                # Consume this endif — it closes a WATER_RAY_QUERY block we're skipping
+                stack.pop()
+                i += 1
+                continue
+            elif stack and stack[-1] == "guard":
                 stack.pop()
                 i += 1
                 continue
             elif stack:
                 stack.pop()
             result.append(line)
+            i += 1
+            continue
+
+        # Skip lines inside a water_ray_query block
+        if stack and stack[-1] == "water_ray_query":
             i += 1
             continue
 

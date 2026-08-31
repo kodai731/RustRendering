@@ -114,7 +114,7 @@ class TestByteIdentical:
         repo_root = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
         expanded = _expanded_lines(repo_root)
         stripped = []
-        stack: list[bool] = []
+        stack: list[str] = []
         i = 0
         while i < len(expanded):
             line = expanded[i]
@@ -122,7 +122,7 @@ class TestByteIdentical:
             if m_ifndef:
                 macro = m_ifndef.group(1)
                 is_guard = macro.endswith("_GLSL")
-                stack.append(is_guard)
+                stack.append("guard" if is_guard else "other")
                 i += 1
                 if is_guard and i < len(expanded):
                     ns = expanded[i].strip()
@@ -131,22 +131,40 @@ class TestByteIdentical:
                 if not is_guard:
                     stripped.append(line)
                 continue
-            m_ifdef = re.match(r'^#\s*ifdef\s+\S+', line.strip())
+            m_ifdef = re.match(r'^#\s*ifdef\s+(\S+)', line.strip())
+            if m_ifdef:
+                macro = m_ifdef.group(1)
+                if macro == "WATER_RAY_QUERY":
+                    stack.append("water_ray_query")
+                    i += 1
+                    continue
+                else:
+                    stack.append("other")
+                    stripped.append(line)
+                    i += 1
+                    continue
             m_if = re.match(r'^#\s*if\b', line.strip())
-            if m_ifdef or m_if:
-                stack.append(False)
+            if m_if:
+                stack.append("other")
                 stripped.append(line)
                 i += 1
                 continue
             m_endif = re.match(r'^#\s*endif\b', line.strip())
             if m_endif:
-                if stack and stack[-1]:
+                if stack and stack[-1] == "water_ray_query":
+                    stack.pop()
+                    i += 1
+                    continue
+                elif stack and stack[-1] == "guard":
                     stack.pop()
                     i += 1
                     continue
                 elif stack:
                     stack.pop()
                 stripped.append(line)
+                i += 1
+                continue
+            if stack and stack[-1] == "water_ray_query":
                 i += 1
                 continue
             stripped.append(line)

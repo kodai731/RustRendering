@@ -6,11 +6,11 @@ use crate::flame::{
     MIN_FLAME_EXTENT, TEXTURE_FIT_COLOR_PARAMETERS,
 };
 use crate::water::{
-    apply_water_preset, build_water_model_matrix, build_water_ubo,
+    apply_water_preset, build_water_model_matrix, build_water_ubo, inverse_view_proj_f64,
     overwrite_water_persisted_fields, water_local_bounds_corners, WaterTorusEffect, WaterUBO,
     WATER_PRESET_NAMES, WATER_SCALAR_PARAMS, WATER_UI_PARAMS,
 };
-use cgmath::{Quaternion, Vector3, Vector4};
+use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 
@@ -356,9 +356,22 @@ fn pack_water_ubo(
     time: f32,
     position: [f32; 3],
     rotation: [f32; 4],
+    view: [f32; 16],
+    proj: [f32; 16],
 ) -> PyResult<Vec<u8>> {
     let effect = build_water_effect_from_params(py, params, time, position, rotation)?;
-    let ubo = build_water_ubo(&effect);
+    let mut ubo = build_water_ubo(&effect);
+
+    // Compute inv_view_proj from view and proj matrices (column-major, same as pack_frame_ubo)
+    let view_mat: Matrix4<f32> = Matrix4::new(
+        view[0], view[1], view[2], view[3], view[4], view[5], view[6], view[7], view[8], view[9],
+        view[10], view[11], view[12], view[13], view[14], view[15],
+    );
+    let proj_mat: Matrix4<f32> = Matrix4::new(
+        proj[0], proj[1], proj[2], proj[3], proj[4], proj[5], proj[6], proj[7], proj[8], proj[9],
+        proj[10], proj[11], proj[12], proj[13], proj[14], proj[15],
+    );
+    ubo.inv_view_proj = inverse_view_proj_f64(proj_mat, view_mat);
 
     let bytes = unsafe {
         std::slice::from_raw_parts(

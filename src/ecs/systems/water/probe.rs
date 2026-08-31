@@ -1,16 +1,7 @@
 use cgmath::{InnerSpace, Matrix, Matrix4, SquareMatrix, Vector3};
 use serde::Serialize;
 
-/// Compute inverse(proj * view) using f64 precision to minimize fp32 rounding error.
-/// Returns the result as Matrix4<f32>.
-pub fn inverse_view_proj_f64(proj: Matrix4<f32>, view: Matrix4<f32>) -> Matrix4<f32> {
-    let p: Matrix4<f64> = proj.cast().unwrap();
-    let v: Matrix4<f64> = view.cast().unwrap();
-    let inv = (p * v)
-        .invert()
-        .expect("view-proj matrix must be invertible");
-    inv.cast().unwrap()
-}
+pub use thyllore_effect_core::inverse_view_proj_f64;
 
 /// Which root to compare: nearest (roots[0]) or exit (roots[1]).
 #[derive(Debug, Clone, Copy)]

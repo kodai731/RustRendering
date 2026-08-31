@@ -6,6 +6,15 @@ from ._common import _import_shared
 shader_info = _import_shared("shader_info")
 
 
+def matrix_column_major(m) -> list[float]:
+    """Flatten a 4x4 matrix into a 16-element list in column-major order."""
+    out: list[float] = []
+    for col in range(4):
+        for row in range(4):
+            out.append(m[row][col])
+    return out
+
+
 def pack_frame_ubo(
     view: list[list[float]],
     proj: list[list[float]],
@@ -13,15 +22,7 @@ def pack_frame_ubo(
     light_pos: tuple[float, float, float, float],
     light_color: tuple[float, float, float, float],
 ) -> bytes:
-    view_col = []
-    for col in range(4):
-        for row in range(4):
-            view_col.append(view[row][col])
-    proj_col = []
-    for col in range(4):
-        for row in range(4):
-            proj_col.append(proj[row][col])
-    values = view_col + proj_col + list(camera_pos) + list(light_pos) + list(light_color)
+    values = matrix_column_major(view) + matrix_column_major(proj) + list(camera_pos) + list(light_pos) + list(light_color)
     assert len(values) == 16 * 2 + 4 * 3, f"expected 44 floats, got {len(values)}"
     return struct.pack("44f", *values)
 

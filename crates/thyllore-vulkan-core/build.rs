@@ -69,6 +69,7 @@ fn read_manifest(manifest_path: &Path, shader_dir: &Path) -> PassManifest {
 fn glslc_command(source_path: &Path) -> Command {
     let mut cmd = Command::new("glslc");
     cmd.arg(source_path.to_str().unwrap());
+    cmd.arg("-DWATER_RAY_QUERY");
     if let Ok(rotation) = std::env::var("THYLLORE_FLAME_NOISE_ROT_DEG") {
         cmd.arg(format!("-DFLAME_NOISE_ROT_DEG_OVERRIDE={}", rotation));
     }

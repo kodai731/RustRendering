@@ -3,7 +3,7 @@ import time
 import traceback
 
 from ._common import coordinates
-from .water_shader import build_tonemap_composite_shader, build_water_shader, pack_frame_ubo
+from .water_shader import build_tonemap_composite_shader, build_water_shader, matrix_column_major, pack_frame_ubo
 from .viewport_depth import ViewportDepthCapture
 
 VIEWPORT_NEAR = 0.1
@@ -105,7 +105,7 @@ class WaterViewportRenderer:
             self.frame_ubo = gpu.types.GPUUniformBuf(frame_bytes)
         else:
             self.frame_ubo.update(frame_bytes)
-        water_bytes = fx.pack_water_ubo(params, time, position, rotation)
+        water_bytes = fx.pack_water_ubo(params, time, position, rotation, matrix_column_major(view), matrix_column_major(proj))
         if self.water_ubo is None:
             self.water_ubo = gpu.types.GPUUniformBuf(water_bytes)
         else:

@@ -1,4 +1,5 @@
 import math
+import struct
 
 from blender_addon.common.coordinates import (
     blender_to_engine_point,
@@ -10,6 +11,7 @@ from blender_addon.effects.water.draw_handler import (
     blender_window_to_engine_projection,
     flip_projection_y,
 )
+from blender_addon.effects.water.water_shader import matrix_column_major, pack_frame_ubo
 
 
 def _almost_equal(a, b, tol=1e-6):
@@ -79,3 +81,24 @@ def test_flip_projection_y():
     for i in (0, 2, 3):
         for j in range(4):
             assert _almost_equal(flipped[i][j], proj[i][j])
+
+
+def test_matrix_column_major_matches_pack_frame_ubo():
+    view = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    proj = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    ubo = pack_frame_ubo(view, proj, (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0), (1.0, 1.0, 1.0, 1.0))
+    first_16 = struct.unpack("16f", ubo[:64])
+    expected = matrix_column_major(view)
+    assert len(first_16) == 16
+    for i in range(16):
+        assert _almost_equal(first_16[i], expected[i])

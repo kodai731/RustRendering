@@ -1,4 +1,6 @@
 
+#extension GL_GOOGLE_include_directive : require
+
 // flame_ray.glsl - ray reconstruction and emission segment integration for flame passes
 
 
@@ -63,7 +65,6 @@ float evaluateHeightAlongRay(float t, float hOrigin, float hDir) {
 }
 
 
-
 struct FrameUBO {
     mat4 view;
     mat4 proj;
@@ -83,6 +84,7 @@ struct WaterUBO {
     vec4 tint;
     vec4 temporal;
     vec4 waveModes[16];
+    mat4 invViewProj;
 };
 
 
@@ -254,7 +256,9 @@ bool torusSphereTraceFallback(vec3 o, vec3 d, float rHat, out float t) {
 
 // Intersect ray with torus. o is origin normalized by major radius, d is unit direction.
 // Returns number of valid (t > 1e-6) ascending roots written to roots[].
-int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
+// fallbackUsed is true if SDF sphere-tracing fallback was used instead of quartic roots.
+int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fallbackUsed) {
+    fallbackUsed = false;
     // Bounding sphere early-out: sphere of radius (1 + rHat) centered at origin
     float o_mag_sq = dot(o, o);
     float bounding_radius = 1.0 + rHat;
@@ -264,31 +268,58 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
         return 0;
     }
 
-    // Compute quartic coefficients from ray-torus intersection
+    // Origin re-basing: compute bounding sphere entry point tEnter and shift origin to o' = o + tEnter*d
+    // This keeps |o'| <= 1 + rHat, so quartic coefficients are O(1) instead of O(|o|^4).
+    float tEnter;
+    if (o_mag_sq <= bounding_radius * bounding_radius) {
+        // Camera inside sphere: tEnter = 0
+        tEnter = 0.0;
+    } else {
+        // Camera outside sphere: use the near intersection
+        tEnter = -oc - sqrt(disc);
+    }
+    vec3 oPrime = o + tEnter * d;
+
+    // Compute quartic coefficients from ray-torus intersection using re-based origin o'
     float coeff_a = d.x * d.x + d.y * d.y + d.z * d.z;
-    float coeff_b = 2.0 * (o.x * d.x + o.y * d.y + o.z * d.z);
-    float coeff_c = o.x * o.x + o.y * o.y + o.z * o.z;
+    float coeff_b = 2.0 * (oPrime.x * d.x + oPrime.y * d.y + oPrime.z * d.z);
+    float coeff_c = oPrime.x * oPrime.x + oPrime.y * oPrime.y + oPrime.z * oPrime.z;
     float coeff_d = coeff_c + 1.0 - rHat * rHat;
 
     float a4 = coeff_a * coeff_a;
     float a3 = 2.0 * coeff_a * coeff_b;
     float a2 = 2.0 * coeff_a * coeff_d + coeff_b * coeff_b - 4.0 * coeff_a + 4.0 * d.y * d.y;
-    float a1 = 2.0 * coeff_b * coeff_d - 4.0 * coeff_b + 8.0 * o.y * d.y;
-    float a0 = coeff_d * coeff_d - 4.0 * coeff_c + 4.0 * o.y * o.y;
+    float a1 = 2.0 * coeff_b * coeff_d - 4.0 * coeff_b + 8.0 * oPrime.y * d.y;
+    float a0 = coeff_d * coeff_d - 4.0 * coeff_c + 4.0 * oPrime.y * oPrime.y;
 
     // Solve quartic: a4*t^4 + a3*t^3 + a2*t^2 + a1*t + a0 = 0
     float c[5] = float[](a0, a1, a2, a3, a4);
     int count = solveQuartic(c, roots);
 
-    // Newton-Raphson refinement (2 iterations)
-    for (int iter = 0; iter < 2; ++iter) {
+    // Newton-Raphson refinement using implicit function (3 iterations)
+    // g(t) = (|p|^2 + 1 - rHat^2)^2 - 4*(p.x^2 + p.z^2), p = o' + t*d
+    // g'(t) = grad(g)(p) . d
+    for (int iter = 0; iter < 3; ++iter) {
         for (int i = 0; i < count; ++i) {
             float t = roots[i];
-            float f = a0 + t * (a1 + t * (a2 + t * (a3 + t * a4)));
-            float df = a1 + t * (2.0 * a2 + t * (3.0 * a3 + t * 4.0 * a4));
-            float correction = f / (df + 1e-30);
+            vec3 p = oPrime + d * t;
+            float magSq = dot(p, p);
+            float rHat2 = rHat * rHat;
+            float gVal = (magSq + 1.0 - rHat2) * (magSq + 1.0 - rHat2) - 4.0 * (p.x * p.x + p.z * p.z);
+            float factor = 4.0 * (magSq + 1.0 - rHat2);
+            float gx = factor * p.x - 8.0 * p.x;
+            float gy = factor * p.y;
+            float gz = factor * p.z - 8.0 * p.z;
+            float gPrime = gx * d.x + gy * d.y + gz * d.z;
+            if (abs(gPrime) < 1e-12) continue;
+            float correction = gVal / gPrime;
             roots[i] -= correction;
         }
+    }
+
+    // Add tEnter back to all roots
+    for (int i = 0; i < count; ++i) {
+        roots[i] += tEnter;
     }
 
     // Filter: keep only t > 1e-6
@@ -306,7 +337,8 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4]) {
         if (torusSphereTraceFallback(o, d, rHat, t_out)) {
             roots[0] = t_out;
             validCount = 1;
-        }
+            fallbackUsed = true;
+       }
     }
 
     // Sort ascending (bubble sort, max 4 elements)
@@ -409,9 +441,8 @@ vec3 waterPerturbedNormal(float u, float v, float h, float hu, float hv, float r
 
 
 
-
 void main() {
-    mat4 invViewProj = inverse(frame.proj * frame.view);
+   mat4 invViewProj = water.invViewProj;
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
 
     // Transform to local space: origin w=1, dir w=0
@@ -422,7 +453,8 @@ void main() {
 
     // Intersect ray with torus
     float roots[4];
-    int hitCount = intersectTorus(pLocalOrigin, dLocal, water.radii.y / water.radii.x, roots);
+    bool fallbackUsed;
+    int hitCount = intersectTorus(pLocalOrigin, dLocal, water.radii.y / water.radii.x, roots, fallbackUsed);
 
     if (hitCount == 0) {
         discard;
@@ -443,6 +475,17 @@ void main() {
     // First hit time in world units
     float t1 = roots[0] * water.radii.x;
     vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
+
+   // Debug view: torus intersection probe (nearest root, high-precision encoding)
+    if (push.debugView == 3 || push.debugView == 4) {
+        float t = (push.debugView == 3) ? roots[0] * water.radii.x : roots[1] * water.radii.x;
+        float hi = floor(t);
+        float mid = floor(fract(t) * 1024.0);
+        float lo = fract(t * 1024.0);
+        float marker = -(float(hitCount) + (fallbackUsed ? 10.0 : 0.0));
+        outColor = vec4(hi, mid, lo, marker);
+        return;
+    }
 
     float waterDepth = worldToClipDepth(p1, frame.view, frame.proj);
 
@@ -476,7 +519,7 @@ void main() {
     vec3 n = normalize(mat3(water.model) * nLocal);
 
     // Debug view: normal visualization
-    if (push.debugView == 2) {
+   if (push.debugView == 2) {
         outColor = vec4(n * 0.5 + 0.5, 1.0);
         return;
     }
@@ -491,11 +534,15 @@ void main() {
     float rPerp = (cosThetaI - eta * cosThetaT) / (cosThetaI + eta * cosThetaT);
     float F = (rPar * rPar + rPerp * rPerp) * 0.5;
 
-    // Reflection: constant environment + specular highlight
+  // Reflection
     vec3 reflDir = reflect(rayDir, n);
-    vec3 lightDir = normalize(frame.light_pos.xyz - p1);
-    float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
-    vec3 reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+    vec3 reflection;
+    {
+        // ScreenSpace path: constant environment + specular highlight
+        vec3 lightDir = normalize(frame.light_pos.xyz - p1);
+        float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
+        reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+    }
 
     // Transmission: exit-point refraction
     vec3 dRefr = refract(dLocal, nLocal, 1.0 / eta);
@@ -504,7 +551,8 @@ void main() {
     }
 
     float exitRoots[4];
-    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots);
+    bool exitFallback;
+    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots, exitFallback);
     vec3 pExitLocal;
     if (exitCount > 0) {
         pExitLocal = pLocal1 + dRefr * (1e-3 + exitRoots[0]);
@@ -518,26 +566,32 @@ void main() {
     if (length(dExit) < 1e-4) {
         dRefr = reflect(dRefr, nExit);
         float reRoots[4];
-        int reCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, reRoots);
+        bool reFallback;
+        int reCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, reRoots, reFallback);
         if (reCount > 0) {
             pExitLocal = pLocal1 + dRefr * (1e-3 + reRoots[0]);
         }
     }
 
-    vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
-    vec4 clip = frame.proj * frame.view * pExitWorld;
+  vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
     vec3 background;
-    if (clip.w > 0) {
-        vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
-        background = water.tint.rgb;
-    } else {
-        background = water.tint.rgb;
+    {
+        // ScreenSpace path: project exit point to screen space
+        vec4 clip = frame.proj * frame.view * pExitWorld;
+        if (clip.w > 0) {
+            vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
+            background = water.tint.rgb;
+        } else {
+            background = water.tint.rgb;
+        }
     }
 
     vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
 
-    // Composite output
+  // Composite output
     outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
+
+
     gl_FragDepth = waterDepth;
 }
 

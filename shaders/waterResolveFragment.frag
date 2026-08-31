@@ -1,17 +1,14 @@
 #version 460
 
 #extension GL_GOOGLE_include_directive : require
+#ifdef WATER_RAY_QUERY
 #extension GL_EXT_ray_query : require
 #extension GL_EXT_buffer_reference : require
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+#endif
 
 #include "include/flame_ray.glsl"
-#include "include/water_component.glsl"
-#include "include/water_torus_intersect.glsl"
-#include "include/water_flow.glsl"
-#include "include/water_surface.glsl"
-
 layout(set = 0, binding = 0) uniform FrameUBO {
     mat4 view;
     mat4 proj;
@@ -20,27 +17,35 @@ layout(set = 0, binding = 0) uniform FrameUBO {
     vec4 light_color;
 } frame;
 
+#include "include/water_component.glsl"
+#include "include/water_torus_intersect.glsl"
+#include "include/water_flow.glsl"
+#include "include/water_surface.glsl"
 
 layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
 
+#ifdef WATER_RAY_QUERY
 layout(set = 1, binding = 2) uniform accelerationStructureEXT sceneTlas;
 
 struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 model; mat4 normalMatrix; vec4 baseColor; };
 layout(set = 1, binding = 3, std430) readonly buffer HitShadingTable { HitShadingRecord records[]; } hitTable;
 
 layout(set = 1, binding = 4) uniform sampler2D waterHistorySampler;
+#endif
 
 layout(location = 0) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
+#ifdef WATER_RAY_QUERY
 layout(location = 1) out vec4 outHistory;
+#endif
 
 layout(push_constant) uniform WaterPush {
     int secondaryRays;
     int debugView;
 } push;
-
+#ifdef WATER_RAY_QUERY
 #include "include/water_secondary.glsl"
-
+#endif
 void main() {
    mat4 invViewProj = water.invViewProj;
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
@@ -69,7 +74,9 @@ void main() {
         } else {
             outColor = vec4(1.0, 0.0, 0.0, 1.0);
         }
+#ifdef WATER_RAY_QUERY
         outHistory = outColor;
+#endif
         return;
     }
 
@@ -77,7 +84,7 @@ void main() {
     float t1 = roots[0] * water.radii.x;
     vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
 
-  // Debug view: torus intersection probe (nearest root, high-precision encoding)
+   // Debug view: torus intersection probe (nearest root, high-precision encoding)
     if (push.debugView == 3 || push.debugView == 4) {
         float t = (push.debugView == 3) ? roots[0] * water.radii.x : roots[1] * water.radii.x;
         float hi = floor(t);
@@ -85,7 +92,9 @@ void main() {
         float lo = fract(t * 1024.0);
         float marker = -(float(hitCount) + (fallbackUsed ? 10.0 : 0.0));
         outColor = vec4(hi, mid, lo, marker);
+#ifdef WATER_RAY_QUERY
         outHistory = outColor;
+#endif
         return;
     }
 
@@ -123,7 +132,9 @@ void main() {
     // Debug view: normal visualization
    if (push.debugView == 2) {
         outColor = vec4(n * 0.5 + 0.5, 1.0);
+#ifdef WATER_RAY_QUERY
         outHistory = outColor;
+#endif
         return;
     }
 
@@ -137,9 +148,10 @@ void main() {
     float rPerp = (cosThetaI - eta * cosThetaT) / (cosThetaI + eta * cosThetaT);
     float F = (rPar * rPar + rPerp * rPerp) * 0.5;
 
-   // Reflection
+  // Reflection
     vec3 reflDir = reflect(rayDir, n);
     vec3 reflection;
+#ifdef WATER_RAY_QUERY
     if (push.secondaryRays == 0) {
         // RayQuery path: compute tTorusNext (next torus intersection along reflection ray)
         vec3 reflDirLocal = normalize((water.inverseModel * vec4(reflDir, 0.0)).xyz);
@@ -158,7 +170,9 @@ void main() {
             float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
             reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
         }
-   } else {
+   } else
+#endif
+    {
         // ScreenSpace path: constant environment + specular highlight
         vec3 lightDir = normalize(frame.light_pos.xyz - p1);
         float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
@@ -194,8 +208,9 @@ void main() {
         }
     }
 
-    vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
+  vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
     vec3 background;
+#ifdef WATER_RAY_QUERY
     if (push.secondaryRays == 0) {
         // RayQuery path: traceScene at exit point
         vec3 rayColor;
@@ -210,7 +225,9 @@ void main() {
                 background = texture(sceneColorSampler, fragTexCoord).rgb;
             }
         }
-    } else {
+    } else
+#endif
+    {
         // ScreenSpace path: project exit point to screen space
         vec4 clip = frame.proj * frame.view * pExitWorld;
         if (clip.w > 0) {
@@ -226,9 +243,13 @@ void main() {
   // Composite output
     outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
 
+#ifdef WATER_RAY_QUERY
     vec4 blended = mix(outColor, texture(waterHistorySampler, fragTexCoord), water.temporal.x);
     outColor = blended;
     outHistory = blended;
+#else
+    // No history in Blender: output directly
+#endif
 
     gl_FragDepth = waterDepth;
 }
