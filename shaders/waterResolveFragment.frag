@@ -21,6 +21,7 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 #include "include/water_torus_intersect.glsl"
 #include "include/water_flow.glsl"
 #include "include/water_surface.glsl"
+#include "include/water_lb.glsl"
 
 layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
 
@@ -136,7 +137,7 @@ void main() {
 
     float h, hu, hv, var;
     waterHeightAndGradient(uv, water.flow.z, water.flow.xy, int(water.composite.z), footprint, h, hu, hv, var);
-
+    waterLbHeightAndGradient(uv, water.flow.z, water.flow.xy, h, hu, hv);
     vec3 nLocal = waterPerturbedNormal(uv.x, uv.y, h, hu, hv, rHat);
     vec3 n = normalize(mat3(water.model) * nLocal);
 
@@ -184,6 +185,7 @@ void main() {
             vec2 uv2 = torusUV(pLocal2);
             float h2, hu2, hv2, var2;
             waterHeightAndGradient(uv2, water.flow.z, water.flow.xy, int(water.composite.z), footprint, h2, hu2, hv2, var2);
+            waterLbHeightAndGradient(uv2, water.flow.z, water.flow.xy, h2, hu2, hv2);
             vec3 nLocal2 = waterPerturbedNormal(uv2.x, uv2.y, h2, hu2, hv2, rHat);
             vec3 n2 = normalize(mat3(water.model) * nLocal2);
             float cosThetaI2 = -dot(reflDir, n2);
@@ -276,6 +278,7 @@ void main() {
                 vec2 uvRe = torusUV(pLocalRe);
                 float hRe, huRe, hvRe, varRe;
                 waterHeightAndGradient(uvRe, water.flow.z, water.flow.xy, int(water.composite.z), footprint, hRe, huRe, hvRe, varRe);
+                waterLbHeightAndGradient(uvRe, water.flow.z, water.flow.xy, hRe, huRe, hvRe);
                 vec3 nLocalRe = waterPerturbedNormal(uvRe.x, uvRe.y, hRe, huRe, hvRe, rHat);
                 vec3 nRe = normalize(mat3(water.model) * nLocalRe);
                 float cosThetaIRe = -dot(dExit, nRe);

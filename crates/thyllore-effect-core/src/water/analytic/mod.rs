@@ -1,3 +1,4 @@
+pub mod lb_basis;
 mod pick;
 mod project;
 #[cfg(test)]

@@ -9,6 +9,7 @@
 #include "include/water_torus_intersect.glsl"
 #include "include/water_flow.glsl"
 #include "include/water_surface.glsl"
+#include "include/water_lb.glsl"
 
 layout(local_size_x = 16, local_size_y = 16) in;
 
@@ -50,6 +51,7 @@ vec3 waveNormalAt(vec3 pLocal, float rHat) {
     vec2 uv = torusUV(pLocal);
     float h, hu, hv, slopeVariance;
     waterHeightAndGradient(uv, water.flow.z, water.flow.xy, WAVE_MODE_COUNT, WAVE_FOOTPRINT, h, hu, hv, slopeVariance);
+    waterLbHeightAndGradient(uv, water.flow.z, water.flow.xy, h, hu, hv);
     return waterPerturbedNormal(uv.x, uv.y, h, hu, hv, rHat);
 }
 

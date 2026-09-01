@@ -54,6 +54,7 @@ pub fn apply_water_preset(effect: &mut WaterTorusEffect, name: &str) -> bool {
     effect.wave_frequency = preset.wave_frequency;
     effect.wave_speed = preset.wave_speed;
     effect.wave_dispersion = preset.wave_dispersion;
+    effect.wave_lb_blend = preset.wave_lb_blend;
     effect.reflect_strength = preset.reflect_strength;
     effect.refract_strength = preset.refract_strength;
     effect.caustic_strength = preset.caustic_strength;

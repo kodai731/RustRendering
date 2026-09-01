@@ -7,6 +7,7 @@
 #include "include/water_component.glsl"
 #include "include/water_flow.glsl"
 #include "include/water_surface.glsl"
+#include "include/water_lb.glsl"
 #include "include/water_torus_intersect.glsl"
 #include "include/water_trace_payload.glsl"
 
@@ -27,6 +28,7 @@ void main() {
     vec2 uv = torusUV(pLocal1);
     float h, hu, hv, slopeVariance;
     waterHeightAndGradient(uv, water.flow.z, water.flow.xy, int(water.composite.z), vec2(0.002), h, hu, hv, slopeVariance);
+    waterLbHeightAndGradient(uv, water.flow.z, water.flow.xy, h, hu, hv);
     vec3 nLocal = waterPerturbedNormal(uv.x, uv.y, h, hu, hv, rHat);
     float eta = water.absorption.w;
     vec3 rayDirWorld = normalize(mat3(water.model) * dLocal);

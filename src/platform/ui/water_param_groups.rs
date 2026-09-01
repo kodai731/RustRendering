@@ -9,6 +9,7 @@ pub const WATER_WAVE_PARAMS: &[&str] = &[
     "wave_frequency",
     "wave_speed",
     "wave_dispersion",
+    "wave_lb_blend",
 ];
 
 pub const WATER_LOOK_PARAMS: &[&str] = &[

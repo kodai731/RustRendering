@@ -12,7 +12,7 @@ pub struct WaterWaveMode {
 }
 
 /// Deterministic LCG (Linear Congruential Generator) with fixed seed.
-fn lcg_next(state: &mut u64) -> u64 {
+pub(crate) fn lcg_next(state: &mut u64) -> u64 {
     *state = (*state)
         .wrapping_mul(6364136223846793005)
         .wrapping_add(1442695040888963407);
@@ -25,7 +25,7 @@ const G: [f32; WATER_WAVE_MODE_COUNT] = [1.5, 0.5, 2.0, 1.0, 1.7, 1.1, 0.6, 1.9]
 
 const DETERMINISTIC_MODE_COUNT: usize = 4;
 
-fn next_unit_f64(state: &mut u64) -> f64 {
+pub(crate) fn next_unit_f64(state: &mut u64) -> f64 {
     lcg_next(state) as f64 / (1u64 << 63) as f64
 }
 

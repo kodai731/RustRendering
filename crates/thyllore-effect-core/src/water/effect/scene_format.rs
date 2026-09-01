@@ -131,6 +131,15 @@ declare_scene_format! {
                 format: "%.2f",
             },
         },
+        wave_lb_blend: f32 = Frame {
+            get: |e| e.wave_lb_blend,
+            set: |e, v| e.wave_lb_blend = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+            },
+        },
         reflect_strength: f32 = Frame {
             get: |e| e.reflect_strength,
             set: |e, v| e.reflect_strength = v,

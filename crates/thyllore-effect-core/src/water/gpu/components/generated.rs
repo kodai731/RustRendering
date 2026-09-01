@@ -15,5 +15,6 @@ declare_gpu_block! {
         pub temporal: [f32; 4],
         pub wave_modes: [[f32; 4]; 16],
         pub inv_view_proj: Matrix4<f32>,
+        pub lb_modes: [[f32; 4]; 20],
     }
 }
