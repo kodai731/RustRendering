@@ -1,3 +1,4 @@
+mod debug_dump;
 mod pick;
 mod preset;
 pub mod probe;
@@ -7,6 +8,7 @@ mod temporal;
 mod tests;
 mod time;
 
+pub use debug_dump::*;
 pub use pick::*;
 pub use preset::*;
 pub use probe::*;

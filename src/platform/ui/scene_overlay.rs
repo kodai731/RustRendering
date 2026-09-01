@@ -537,6 +537,15 @@ fn build_water_section(
         if ui.button("Add Water") {
             ui_events.send(UIEvent::AddWater);
         }
+        ui.same_line();
+        if ui.button("Dump Debug") {
+            ui_events.send(UIEvent::DumpWaterDebug);
+        }
+        if ui.is_item_hovered() {
+            ui.tooltip_text(
+                "Write water parameters, UBO, camera, render settings and a screenshot to log/water/",
+            );
+        }
 
         // Instance selector
         let waters = ecs_world.query_waters();

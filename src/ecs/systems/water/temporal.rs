@@ -80,7 +80,7 @@ pub fn water_temporal_accumulate(world: &mut World) {
             } else {
                 old_temporal.frame_index.wrapping_add(1)
             },
-            weight: if matches_previous_frame && !has_batch_run {
+            weight: if matches_previous_frame {
                 STABLE_FRAME_HISTORY_WEIGHT
             } else {
                 0.0

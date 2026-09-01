@@ -394,3 +394,38 @@ fn water_temporal_view_change_weight_0() {
         "frame index should still increment"
     );
 }
+
+#[test]
+fn water_debug_record_lists_every_instance_with_its_wave_modes() {
+    let mut world = World::new();
+    world.insert_resource(crate::ecs::resource::WaterRenderSettings::default());
+    let mut effect = WaterTorusEffect::default();
+    effect.wave_lb_blend = 0.5;
+    spawn_water(&mut world, "Water A", effect);
+    spawn_default_water(&mut world, "Water B");
+
+    let render_info = WaterDebugRenderInfo {
+        gpu_name: "test-gpu".to_string(),
+        ..WaterDebugRenderInfo::default()
+    };
+    let record = build_water_debug_record(&world, &render_info, 42);
+
+    assert_eq!(record["unix_time"], 42);
+    assert_eq!(record["render"]["gpu_name"], "test-gpu");
+    assert_eq!(
+        record["water_render_settings"]["secondary_rays"],
+        "Ray Query"
+    );
+
+    let instances = record["water_instances"].as_array().unwrap();
+    assert_eq!(instances.len(), 2);
+    assert_eq!(instances[0]["name"], "Water A");
+    assert_eq!(instances[0]["wave_modes"].as_array().unwrap().len(), 8);
+    assert_eq!(instances[0]["lb_modes"].as_array().unwrap().len(), 4);
+    assert!(instances[1]["lb_modes"].as_array().unwrap().is_empty());
+    assert_eq!(instances[1]["effect"]["major_radius"], 1.0);
+    assert_eq!(
+        instances[1]["ubo"]["wave_modes"].as_array().unwrap().len(),
+        16
+    );
+}

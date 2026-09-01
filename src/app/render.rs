@@ -1104,6 +1104,18 @@ impl App {
         Ok(())
     }
     pub unsafe fn save_screenshot(&self, image_index: usize) -> Result<String> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+            .as_secs();
+        let path = std::path::PathBuf::from(format!("log/screenshot_{}.png", timestamp));
+        self.save_screenshot_to(image_index, &path)
+    }
+
+    pub unsafe fn save_screenshot_to(
+        &self,
+        image_index: usize,
+        path: &std::path::Path,
+    ) -> Result<String> {
         let device = &self.rrdevice.device;
         let swapchain = &self.resource::<SwapchainState>().swapchain;
         let swapchain_image = swapchain.swapchain_images[image_index];
@@ -1122,13 +1134,14 @@ impl App {
             vk::ImageLayout::PRESENT_SRC_KHR,
         )?;
 
-        let path = Self::encode_and_save_png(device, buffer_memory, image_size, width, height)?;
+        let saved_path =
+            Self::encode_and_save_png(device, buffer_memory, image_size, width, height, path)?;
 
         device.free_command_buffers(command_pool, &[command_buffer]);
         device.free_memory(buffer_memory, None);
         device.destroy_buffer(buffer, None);
 
-        Ok(path)
+        Ok(saved_path)
     }
 
     pub unsafe fn save_flame_history_npy(&self, path: &std::path::Path) -> Result<()> {
@@ -1273,10 +1286,10 @@ impl App {
         image_size: vk::DeviceSize,
         width: u32,
         height: u32,
+        path: &std::path::Path,
     ) -> Result<String> {
         use std::fs::File;
         use std::io::BufWriter;
-        use std::time::SystemTime;
 
         let data = device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
         let slice = std::slice::from_raw_parts(data as *const u8, image_size as usize);
@@ -1291,13 +1304,11 @@ impl App {
 
         device.unmap_memory(buffer_memory);
 
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_secs();
-        let filename = format!("log/screenshot_{}.png", timestamp);
-        std::fs::create_dir_all("log")?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
-        let file = File::create(&filename)?;
+        let file = File::create(path)?;
         let writer = BufWriter::new(file);
         let mut encoder = png::Encoder::new(writer, width, height);
         encoder.set_color(png::ColorType::Rgba);
@@ -1305,8 +1316,7 @@ impl App {
         let mut png_writer = encoder.write_header()?;
         png_writer.write_image_data(&rgba_data)?;
 
-        let absolute_path = std::fs::canonicalize(&filename)
-            .unwrap_or_else(|_| std::path::PathBuf::from(&filename));
+        let absolute_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let path_str = absolute_path.to_string_lossy().to_string();
 
         log!("Screenshot saved to: {}", path_str);

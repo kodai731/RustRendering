@@ -65,6 +65,7 @@ pub enum UIEvent {
     DumpFlameWallProbe {
         viewport_size: [f32; 2],
     },
+    DumpWaterDebug,
 
     SelectEntity(Entity),
     DeselectAll,

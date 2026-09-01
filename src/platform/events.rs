@@ -978,6 +978,10 @@ unsafe fn execute_deferred_action(app: &mut App, action: DeferredAction) {
             app.dump_debug_info();
         }
 
+        DeferredAction::DumpWaterDebug => {
+            app.dump_water_debug();
+        }
+
         DeferredAction::DumpAnimationDebug => {
             let clip_library = app.data.ecs_world.resource::<ClipLibrary>();
             if let Err(e) = crate::ecs::systems::animation_debug_dump::dump_animation_debug(

@@ -11,6 +11,7 @@ pub mod scene_model;
 pub mod update;
 pub mod util;
 pub mod viewport;
+pub mod water_debug_dump;
 
 pub use frame_context::FrameContext;
 pub use render_context::RenderContext;

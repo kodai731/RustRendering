@@ -124,6 +124,7 @@ pub enum BatchDebugAction {
     },
     TimelineSelectFlameClip,
     WallProbeDump,
+    WaterDebugDump,
     ApplyTextureFit {
         path: String,
         blend: f32,
@@ -1526,6 +1527,7 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "flame_clip_preview=<end_seconds> (draw the first flame's clip block as a mid-drag TrimEnd preview, without committing)",
     "timeline_select_flame_clip (enqueue TimelineSelectClip for the flame clip — the double-click path — to check it leaves the flame schedule's trim intact)",
     "dump_wall_probe (write camera pose + wall-regime ray diagnostics to log/flame/)",
+    "dump_water_debug (write water parameters, UBO, camera and a screenshot to log/water/)",
     "apply_texture_fit:<path>,<blend>,<profile|statistics> (clone FlameEffect, apply texture fit from path, send UpdateFlameEffect)",
     "apply_texture_fit_roundtrip:<path>,<blend>,<profile|statistics> (same as apply_texture_fit, then restore original FlameEffect)",
     "spawn_cube (spawn the debug cube primitive, same as the debug window Spawn Cube button)",
@@ -1607,6 +1609,7 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
         "add_flame" => Ok(BatchDebugAction::AddFlame),
         "open_flame_curves" => Ok(BatchDebugAction::OpenFlameCurves),
         "dump_wall_probe" => Ok(BatchDebugAction::WallProbeDump),
+        "dump_water_debug" => Ok(BatchDebugAction::WaterDebugDump),
         "spawn_cube" => Ok(BatchDebugAction::SpawnDebugPrimitive {
             kind: DebugPrimitiveKind::Cube,
         }),
@@ -1706,6 +1709,11 @@ pub fn batch_apply_debug_actions(world: &World, actions: &[BatchDebugAction]) {
             BatchDebugAction::WallProbeDump => {
                 // Wall probe dump is now handled synchronously in the render path
                 // via batch.dump_wall_probe, so this is a no-op.
+            }
+            BatchDebugAction::WaterDebugDump => {
+                world
+                    .resource_mut::<UIEventQueue>()
+                    .send(UIEvent::DumpWaterDebug);
             }
             BatchDebugAction::TimelineSelectFlameClip => {
                 let clip_id = world.query_flames().first().and_then(|&flame| {

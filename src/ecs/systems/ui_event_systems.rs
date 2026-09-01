@@ -12,6 +12,7 @@ pub enum DeferredAction {
     DebugBillboardDepth,
     DumpDebugInfo,
     DumpAnimationDebug,
+    DumpWaterDebug,
     LoadClipFromFile {
         path: PathBuf,
     },
