@@ -24,6 +24,9 @@ pub struct WaterBuffer {
     pub trace_image: vk::Image,
     pub trace_memory: vk::DeviceMemory,
     pub trace_image_view: vk::ImageView,
+    pub caustic_accum_image: vk::Image,
+    pub caustic_accum_memory: vk::DeviceMemory,
+    pub caustic_accum_view: vk::ImageView,
 }
 
 impl WaterBuffer {
@@ -127,6 +130,28 @@ impl WaterBuffer {
             1,
         )?;
 
+        // Create caustic accum image (r32uint, STORAGE | TRANSFER_DST)
+        let (caustic_accum_image, caustic_accum_memory) = create_image(
+            instance,
+            rrdevice,
+            width,
+            height,
+            1,
+            vk::SampleCountFlags::_1,
+            vk::Format::R32_UINT,
+            vk::ImageTiling::OPTIMAL,
+            vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        )?;
+
+        let caustic_accum_view = create_image_view(
+            rrdevice,
+            caustic_accum_image,
+            vk::Format::R32_UINT,
+            vk::ImageAspectFlags::COLOR,
+            1,
+        )?;
+
         // Clear both history images so the first frame samples zero in SHADER_READ_ONLY layout
         let cmd = begin_single_time_commands(rrdevice, command_pool)?;
         let color_range = vk::ImageSubresourceRange {
@@ -215,6 +240,33 @@ impl WaterBuffer {
             &[] as &[vk::BufferMemoryBarrier],
             &[barrier],
         );
+
+        // Transition caustic accum image to GENERAL layout
+        let barrier = vk::ImageMemoryBarrier::builder()
+            .image(caustic_accum_image)
+            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+            .src_access_mask(vk::AccessFlags::empty())
+            .dst_access_mask(vk::AccessFlags::SHADER_WRITE | vk::AccessFlags::SHADER_READ)
+            .old_layout(vk::ImageLayout::UNDEFINED)
+            .new_layout(vk::ImageLayout::GENERAL)
+            .subresource_range(vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            })
+            .build();
+        rrdevice.device.cmd_pipeline_barrier(
+            cmd,
+            vk::PipelineStageFlags::TOP_OF_PIPE,
+            vk::PipelineStageFlags::COMPUTE_SHADER,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &[] as &[vk::BufferMemoryBarrier],
+            &[barrier],
+        );
         end_single_time_commands(rrdevice, rrdevice.graphics_queue, command_pool, cmd)?;
 
         log!("Created water buffer: {}x{}", width, height);
@@ -236,6 +288,9 @@ impl WaterBuffer {
             trace_image,
             trace_memory,
             trace_image_view,
+            caustic_accum_image,
+            caustic_accum_memory,
+            caustic_accum_view,
         })
     }
 
@@ -457,6 +512,20 @@ impl WaterBuffer {
         if self.trace_memory != vk::DeviceMemory::null() {
             device.free_memory(self.trace_memory, None);
             self.trace_memory = vk::DeviceMemory::null();
+        }
+
+        // Destroy caustic accum image resources
+        if self.caustic_accum_view != vk::ImageView::null() {
+            device.destroy_image_view(self.caustic_accum_view, None);
+            self.caustic_accum_view = vk::ImageView::null();
+        }
+        if self.caustic_accum_image != vk::Image::null() {
+            device.destroy_image(self.caustic_accum_image, None);
+            self.caustic_accum_image = vk::Image::null();
+        }
+        if self.caustic_accum_memory != vk::DeviceMemory::null() {
+            device.free_memory(self.caustic_accum_memory, None);
+            self.caustic_accum_memory = vk::DeviceMemory::null();
         }
 
         log!("Destroyed water buffer");

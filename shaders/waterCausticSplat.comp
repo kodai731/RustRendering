@@ -1,0 +1,203 @@
+#version 460
+#extension GL_EXT_ray_query : require
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+#define WATER_UBO_SET 0
+#define WATER_UBO_BINDING 4
+#include "include/water_component.glsl"
+#include "include/water_torus_intersect.glsl"
+#include "include/water_flow.glsl"
+#include "include/water_surface.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(binding = 0, r32ui) uniform uimage2D causticAccumImage;
+layout(binding = 1, rgba32f) uniform image2D positionImage;
+layout(binding = 2) uniform accelerationStructureEXT topLevelAS;
+
+layout(binding = 3) uniform SceneData {
+    vec4 lightPosition;
+    vec4 lightColor;
+    mat4 view;
+    mat4 proj;
+    int debugMode;
+    float shadowStrength;
+    int enableDistanceAttenuation;
+    float exposureValue;
+} sceneData;
+
+const int CAUSTIC_GRID_SIZE = 256;
+const int WAVE_MODE_COUNT = 8;
+const vec2 WAVE_FOOTPRINT = vec2(0.002);
+const int CAUSTIC_DEBUG_OFF = 0;
+const int CAUSTIC_DEBUG_SPLAT_MARKERS = 1;
+const int CAUSTIC_DEBUG_SKIP_DEPTH_MATCH = 2;
+const int CAUSTIC_DEBUG_FACTOR_PROBE = 3;
+const int CAUSTIC_DEBUG_DEPTH_PROBE = 4;
+const int CAUSTIC_DEBUG = CAUSTIC_DEBUG_OFF;
+
+// Aqoole reflectance P/S average, etaRel = n_transmitted / n_incident
+float fresnelAverage(float cosThetaI, float etaRel) {
+    float sinThetaT2 = (1.0 - cosThetaI * cosThetaI) / (etaRel * etaRel);
+    float cosThetaT = sqrt(max(1.0 - sinThetaT2, 0.0));
+    float rPar = (etaRel * cosThetaI - cosThetaT) / (etaRel * cosThetaI + cosThetaT);
+    float rPerp = (cosThetaI - etaRel * cosThetaT) / (cosThetaI + etaRel * cosThetaT);
+    return (rPar * rPar + rPerp * rPerp) * 0.5;
+}
+
+vec3 waveNormalAt(vec3 pLocal, float rHat) {
+    vec2 uv = torusUV(pLocal);
+    float h, hu, hv, slopeVariance;
+    waterHeightAndGradient(uv, water.flow.z, water.flow.xy, WAVE_MODE_COUNT, WAVE_FOOTPRINT, h, hu, hv, slopeVariance);
+    return waterPerturbedNormal(uv.x, uv.y, h, hu, hv, rHat);
+}
+
+void main() {
+    ivec2 gridCoord = ivec2(gl_GlobalInvocationID.xy);
+    if (gridCoord.x >= CAUSTIC_GRID_SIZE || gridCoord.y >= CAUSTIC_GRID_SIZE) {
+        return;
+    }
+
+    vec3 center = water.model[3].xyz;
+    float gridRadius = water.radii.x + water.radii.y * 2.0;
+
+    vec3 axis = normalize(center - sceneData.lightPosition.xyz);
+    vec3 up = abs(axis.y) < 0.9999 ? vec3(0.0, 1.0, 0.0) : vec3(1.0, 0.0, 0.0);
+    vec3 basisU = normalize(cross(axis, up));
+    vec3 basisV = cross(axis, basisU);
+
+    float offsetU = (float(gridCoord.x) / float(CAUSTIC_GRID_SIZE - 1) - 0.5) * 2.0 * gridRadius;
+    float offsetV = (float(gridCoord.y) / float(CAUSTIC_GRID_SIZE - 1) - 0.5) * 2.0 * gridRadius;
+    vec3 gridPoint = center + offsetU * basisU + offsetV * basisV;
+
+    vec3 origin = sceneData.lightPosition.xyz;
+    vec3 dir = normalize(gridPoint - origin);
+
+    vec3 localOrigin = (water.inverseModel * vec4(origin, 1.0)).xyz / water.radii.x;
+    vec3 localDir = normalize((water.inverseModel * vec4(dir, 0.0)).xyz);
+    float rHat = water.radii.y / water.radii.x;
+
+    float entryRoots[4];
+    bool entryFallback;
+    if (intersectTorus(localOrigin, localDir, rHat, entryRoots, entryFallback) <= 0) {
+        return;
+    }
+    vec3 entryLocal = localOrigin + entryRoots[0] * localDir;
+
+    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_SPLAT_MARKERS) {
+        vec3 entryWorld = (water.model * vec4(entryLocal * water.radii.x, 1.0)).xyz;
+        vec4 entryClip = sceneData.proj * sceneData.view * vec4(entryWorld, 1.0);
+        if (entryClip.w > 0.0) {
+            vec2 entryUV = (entryClip.xy / entryClip.w) * 0.5 + 0.5;
+            if (all(greaterThanEqual(entryUV, vec2(0.0))) && all(lessThan(entryUV, vec2(1.0)))) {
+                imageAtomicAdd(causticAccumImage, ivec2(entryUV * vec2(imageSize(positionImage))), 512u);
+            }
+        }
+    }
+
+    float ior = water.absorption.w;
+    vec3 entryNormal = waveNormalAt(entryLocal, rHat);
+    vec3 insideDir = refract(localDir, entryNormal, 1.0 / ior);
+    if (length(insideDir) < 1e-4) {
+        return;
+    }
+    float fresnelIn = fresnelAverage(-dot(localDir, entryNormal), ior);
+
+    float exitRoots[4];
+    bool exitFallback;
+    if (intersectTorus(entryLocal + insideDir * 1e-3, insideDir, rHat, exitRoots, exitFallback) <= 0) {
+        return;
+    }
+    vec3 exitLocal = entryLocal + insideDir * (1e-3 + exitRoots[0]);
+    float chord = (1e-3 + exitRoots[0]) * water.radii.x;
+
+    vec3 exitNormal = waveNormalAt(exitLocal, rHat);
+    vec3 exitDir = refract(insideDir, -exitNormal, ior);
+    if (length(exitDir) < 1e-4) {
+        return;
+    }
+    float fresnelOut = fresnelAverage(-dot(insideDir, -exitNormal), 1.0 / ior);
+
+    vec3 worldExitPos = (water.model * vec4(exitLocal * water.radii.x, 1.0)).xyz;
+    vec3 worldExitDir = normalize(mat3(water.model) * exitDir);
+
+    rayQueryEXT rayQuery;
+    rayQueryInitializeEXT(
+        rayQuery,
+        topLevelAS,
+        gl_RayFlagsOpaqueEXT | gl_RayFlagsSkipClosestHitShaderEXT,
+        0xFF,
+        worldExitPos,
+        0.01,
+        worldExitDir,
+        1e30
+    );
+
+    // AABB candidates are the water itself: never generate, so only triangles commit
+    while (rayQueryProceedEXT(rayQuery)) {
+    }
+
+    if (rayQueryGetIntersectionTypeEXT(rayQuery, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
+        return;
+    }
+
+    float hitDistance = rayQueryGetIntersectionTEXT(rayQuery, true);
+    vec3 hitPosition = worldExitPos + hitDistance * worldExitDir;
+
+    vec4 clip = sceneData.proj * sceneData.view * vec4(hitPosition, 1.0);
+    if (clip.w <= 0.0) {
+        return;
+    }
+    vec2 screenUV = (clip.xy / clip.w) * 0.5 + 0.5;
+    if (any(lessThan(screenUV, vec2(0.0))) || any(greaterThan(screenUV, vec2(1.0)))) {
+        return;
+    }
+
+    ivec2 pixel = ivec2(screenUV * vec2(imageSize(positionImage)));
+
+    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_DEPTH_PROBE) {
+        vec3 gbufferPosition = imageLoad(positionImage, pixel).xyz;
+        float mismatch = length(hitPosition - gbufferPosition) / (0.05 * water.radii.x);
+        ivec2 maxPixel = imageSize(positionImage) - ivec2(1);
+        imageAtomicAdd(causticAccumImage, pixel, uint(clamp(mismatch, 0.0, 8.0) * 256.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(60, 0), ivec2(0), maxPixel), uint(clamp(length(gbufferPosition), 0.0, 8.0) * 256.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(120, 0), ivec2(0), maxPixel), 2048u);
+        return;
+    }
+
+    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_SPLAT_MARKERS) {
+        imageAtomicAdd(causticAccumImage, pixel, 2048u);
+        return;
+    }
+
+    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_OFF) {
+        vec3 gbufferPosition = imageLoad(positionImage, pixel).xyz;
+        if (length(hitPosition - gbufferPosition) > 1.0 * water.radii.x) {
+            return;
+        }
+    }
+
+    float absorptionMean = dot(water.absorption.rgb, vec3(1.0 / 3.0));
+    float transmittance = exp(-absorptionMean * chord);
+
+    float majorRadius = water.radii.x;
+    float cosV = clamp((length(exitLocal.xz) - 1.0) / rHat, -1.0, 1.0);
+    float kappa1 = 1.0 / (rHat * majorRadius);
+    float kappa2 = cosV / ((1.0 + rHat * cosV) * majorRadius);
+    float k1t = ior * kappa1;
+    float k2t = ior * kappa2;
+    float focus = 1.0 / (abs((1.0 - hitDistance * k1t) * (1.0 - hitDistance * k2t)) + 0.05);
+
+    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_FACTOR_PROBE) {
+        ivec2 maxPixel = imageSize(positionImage) - ivec2(1);
+        imageAtomicAdd(causticAccumImage, clamp(pixel, ivec2(0), maxPixel), uint(clamp(transmittance, 0.0, 1.0) * 2048.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(60, 0), ivec2(0), maxPixel), uint(clamp(1.0 - fresnelIn, 0.0, 1.0) * 2048.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(120, 0), ivec2(0), maxPixel), uint(clamp(1.0 - fresnelOut, 0.0, 1.0) * 2048.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(180, 0), ivec2(0), maxPixel), uint(clamp(focus, 0.0, 1.0) * 2048.0));
+        return;
+    }
+
+    float weight = (1.0 - fresnelIn) * (1.0 - fresnelOut) * transmittance * focus;
+    imageAtomicAdd(causticAccumImage, pixel, uint(clamp(weight, 0.0, 16.0) * 256.0));
+}

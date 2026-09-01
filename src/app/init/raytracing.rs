@@ -126,7 +126,15 @@ impl App {
             depth_view,
         )?;
 
-        let water_buffer = data.viewport.water_buffer.insert(water_buffer);
+        data.viewport.water_buffer = Some(water_buffer);
+
+        let (Some(water_buffer), Some(hdr_buffer)) = (
+            data.viewport.water_buffer.as_ref(),
+            data.viewport.hdr_buffer.as_ref(),
+        ) else {
+            log!("Water buffer not available, skipping water pipeline");
+            return Ok(());
+        };
 
         data.raytracing.create_water_pipeline(
             instance,
@@ -134,6 +142,7 @@ impl App {
             rrrender,
             &data.graphics_resources,
             water_buffer,
+            hdr_buffer,
         )?;
 
         log!("Water pipeline created successfully");

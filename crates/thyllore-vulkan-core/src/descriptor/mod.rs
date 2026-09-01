@@ -16,6 +16,7 @@ pub mod reflection;
 pub mod shader_bindings;
 pub mod tonemap;
 pub mod water;
+pub mod water_caustic;
 pub mod water_trace;
 
 pub use auto_exposure::*;
@@ -35,4 +36,5 @@ pub use reflected_layout::*;
 pub use reflection::*;
 pub use tonemap::*;
 pub use water::RRWaterDescriptorSet;
+pub use water_caustic::*;
 pub use water_trace::*;

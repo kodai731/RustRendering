@@ -12,9 +12,10 @@ use crate::descriptor::{
     CompositeGBufferViews, FlameImageBindings, RRAutoExposureAverageDescriptorSet,
     RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
     RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
-    RRToneMapDescriptorSet, RRWaterDescriptorSet, RRWaterTraceDescriptorSet, AUTO_EXPOSURE_AVERAGE,
-    AUTO_EXPOSURE_HISTOGRAM, BLOOM_DOWNSAMPLE, BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE,
-    GBUFFER, ONION_SKIN_COMPOSITE, ONION_SKIN_GHOST, RAY_QUERY_SHADOW, TONEMAP, WATER_RESOLVE,
+    RRToneMapDescriptorSet, RRWaterCausticDescriptorSet, RRWaterDescriptorSet,
+    RRWaterTraceDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM, BLOOM_DOWNSAMPLE,
+    BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE, GBUFFER, ONION_SKIN_COMPOSITE, ONION_SKIN_GHOST,
+    RAY_QUERY_SHADOW, TONEMAP, WATER_CAUSTIC_APPLY, WATER_CAUSTIC_SPLAT, WATER_RESOLVE,
     WATER_TRACE,
 };
 use crate::pipeline::{
@@ -29,7 +30,9 @@ use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::uniform_buffer::{Placement, UniformBuffer};
-use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer};
+use crate::resource::{
+    BloomChain, FlameBuffer, HdrBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer,
+};
 use thyllore_effect_core::{FlameUBO, WaterUBO};
 
 pub const MAX_FLAME_INSTANCES: usize = 4;
@@ -79,6 +82,10 @@ pub struct RayTracingData {
 
     pub water_trace_pipeline: Option<RRRayTracingPipeline>,
     pub water_trace_descriptor: Option<RRWaterTraceDescriptorSet>,
+
+    pub water_caustic_splat_pipeline: Option<RRPipeline>,
+    pub water_caustic_apply_pipeline: Option<RRPipeline>,
+    pub water_caustic_descriptor: Option<RRWaterCausticDescriptorSet>,
 
     pub flame_sdf_image: vk::Image,
     pub flame_sdf_image_memory: vk::DeviceMemory,
@@ -325,10 +332,16 @@ impl RayTracingData {
                 tlas,
                 scene_buffer,
                 hit_shading_table_buffer,
-            )
+            )?;
         } else {
-            descriptor.update_tlas(rrdevice, tlas)
+            descriptor.update_tlas(rrdevice, tlas)?;
         }
+
+        if let Some(caustic_descriptor) = self.water_caustic_descriptor.as_mut() {
+            caustic_descriptor.update_tlas(rrdevice, tlas)?;
+        }
+
+        Ok(())
     }
 
     unsafe fn init_scene_uniform_buffer(
@@ -559,6 +572,7 @@ impl RayTracingData {
         rrrender: &RRRender,
         graphics_resources: &GraphicsResources,
         water_buffer: &WaterBuffer,
+        hdr_buffer: &HdrBuffer,
     ) -> Result<()> {
         let water_ubo = UniformBuffer::new(
             instance,
@@ -671,7 +685,54 @@ impl RayTracingData {
         self.water_trace_descriptor = Some(water_trace_descriptor);
         self.water_trace_pipeline = Some(water_trace_pipeline);
 
+        self.create_water_caustic_pipelines(rrdevice, water_buffer, hdr_buffer)?;
+
         log!("Created water trace pipeline");
+        Ok(())
+    }
+    /// Caustic splat/apply need the water UBO and the water buffer, so they are built
+    /// once the water pipeline has produced them; the TLAS is bound later if missing.
+    unsafe fn create_water_caustic_pipelines(
+        &mut self,
+        rrdevice: &RRDevice,
+        water_buffer: &WaterBuffer,
+        hdr_buffer: &HdrBuffer,
+    ) -> Result<()> {
+        let (Some(gbuffer), Some(scene_buffer), Some(water_ubo)) = (
+            self.gbuffer.as_ref(),
+            self.scene_uniform_buffer,
+            self.water_ubo.as_ref(),
+        ) else {
+            log!("Water caustic inputs are not ready, skipping caustic pipelines");
+            return Ok(());
+        };
+        let tlas = self
+            .acceleration_structure
+            .as_ref()
+            .and_then(|accel| accel.tlas.acceleration_structure);
+
+        let mut descriptor = RRWaterCausticDescriptorSet::new(rrdevice)?;
+
+        descriptor.allocate_and_update(
+            rrdevice,
+            water_buffer.caustic_accum_view,
+            gbuffer.position_image_view,
+            tlas,
+            scene_buffer,
+            water_ubo.handle(),
+            hdr_buffer.color_image_view,
+        )?;
+
+        let splat_pipeline =
+            RRPipeline::new_compute(rrdevice, &WATER_CAUSTIC_SPLAT, &[&descriptor.splat_layout])?;
+        let apply_pipeline =
+            RRPipeline::new_compute(rrdevice, &WATER_CAUSTIC_APPLY, &[&descriptor.apply_layout])?;
+
+        self.water_caustic_splat_pipeline = Some(splat_pipeline);
+        self.water_caustic_apply_pipeline = Some(apply_pipeline);
+        self.water_caustic_descriptor = Some(descriptor);
+
+        log!("Created water caustic pipelines");
         Ok(())
     }
 

@@ -123,6 +123,20 @@ impl App {
             water_trace_pipeline.destroy(&self.rrdevice.device);
         }
 
+        if let Some(mut water_caustic_descriptor) =
+            self.data.raytracing.water_caustic_descriptor.take()
+        {
+            water_caustic_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(pipeline) = self.data.raytracing.water_caustic_splat_pipeline.take() {
+            pipeline.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(pipeline) = self.data.raytracing.water_caustic_apply_pipeline.take() {
+            pipeline.destroy(&self.rrdevice.device);
+        }
+
         if let (Some(buffer), Some(memory)) = (
             self.data.raytracing.scene_uniform_buffer,
             self.data.raytracing.scene_uniform_buffer_memory,

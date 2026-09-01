@@ -66,6 +66,14 @@ sets = { 0 = "local" }
 stages = ["rayQueryShadow.comp"]
 sets = { 0 = "local" }
 
+[pass.water_caustic_splat]
+stages = ["waterCausticSplat.comp"]
+sets = { 0 = "local" }
+
+[pass.water_caustic_apply]
+stages = ["waterCausticApply.comp"]
+sets = { 0 = "local" }
+
 [pass.composite]
 stages = ["compositeVertex.vert", "compositeFragment.frag"]
 sets = { 0 = "local" }

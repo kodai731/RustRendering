@@ -634,7 +634,59 @@ impl App {
             }
         }
 
+        self.update_water_caustic_descriptor()?;
+
         Ok(())
+    }
+
+    /// The caustic descriptor binds the accumulation, G-buffer position and HDR views
+    /// directly, so every resize that recreates them leaves it stale.
+    unsafe fn update_water_caustic_descriptor(&mut self) -> Result<()> {
+        let (Some(caustic_accum_view), Some(hdr_color_view)) = (
+            self.data
+                .viewport
+                .water_buffer
+                .as_ref()
+                .map(|water_buffer| water_buffer.caustic_accum_view),
+            self.data
+                .viewport
+                .hdr_buffer
+                .as_ref()
+                .map(|hdr_buffer| hdr_buffer.color_image_view),
+        ) else {
+            return Ok(());
+        };
+
+        let rrdevice = &self.rrdevice;
+        let raytracing = &mut self.data.raytracing;
+        let tlas = raytracing
+            .acceleration_structure
+            .as_ref()
+            .and_then(|accel| accel.tlas.acceleration_structure);
+        let (Some(position_image_view), Some(scene_buffer), Some(water_ubo)) = (
+            raytracing
+                .gbuffer
+                .as_ref()
+                .map(|gbuffer| gbuffer.position_image_view),
+            raytracing.scene_uniform_buffer,
+            raytracing.water_ubo.as_ref().map(|ubo| ubo.handle()),
+        ) else {
+            return Ok(());
+        };
+
+        let Some(descriptor) = raytracing.water_caustic_descriptor.as_mut() else {
+            return Ok(());
+        };
+
+        descriptor.allocate_and_update(
+            rrdevice,
+            caustic_accum_view,
+            position_image_view,
+            tlas,
+            scene_buffer,
+            water_ubo,
+            hdr_color_view,
+        )
     }
 
     unsafe fn recreate_flame_on_resize(&mut self) -> Result<()> {
@@ -747,6 +799,8 @@ impl App {
                 shadow_mask_view,
             )?;
         }
+
+        self.update_water_caustic_descriptor()?;
 
         {
             let swapchain = self.resource::<SwapchainState>().swapchain.clone();

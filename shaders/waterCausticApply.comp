@@ -1,0 +1,50 @@
+#version 460
+#extension GL_GOOGLE_include_directive : enable
+
+#define WATER_UBO_SET 0
+#define WATER_UBO_BINDING 3
+#include "include/water_component.glsl"
+
+layout(local_size_x = 16, local_size_y = 16) in;
+
+layout(set = 0, binding = 0, r32ui) uniform readonly uimage2D causticAccumImage;
+layout(set = 0, binding = 1, rgba16f) uniform image2D hdrColorImage;
+
+layout(set = 0, binding = 2) uniform SceneData {
+    vec4 lightPosition;
+    vec4 lightColor;
+    mat4 view;
+    mat4 proj;
+    int debugMode;
+    float shadowStrength;
+    int enableDistanceAttenuation;
+    float exposureValue;
+} sceneData;
+
+const uint TENT_WEIGHTS[9] = uint[9](1u, 2u, 1u, 2u, 4u, 2u, 1u, 2u, 1u);
+
+uint sampleTentFiltered(ivec2 pixel, ivec2 size) {
+    uint weightedSum = 0u;
+    for (int dy = -1; dy <= 1; ++dy) {
+        for (int dx = -1; dx <= 1; ++dx) {
+            ivec2 tap = clamp(pixel + ivec2(dx, dy), ivec2(0), size - ivec2(1));
+            weightedSum += imageLoad(causticAccumImage, tap).r * TENT_WEIGHTS[(dy + 1) * 3 + (dx + 1)];
+        }
+    }
+    return weightedSum;
+}
+
+void main() {
+    ivec2 pixel = ivec2(gl_GlobalInvocationID.xy);
+    ivec2 size = imageSize(hdrColorImage);
+    if (any(greaterThanEqual(pixel, size))) {
+        return;
+    }
+
+    float caustic = min(float(sampleTentFiltered(pixel, size)) / (16.0 * 256.0), 1.5);
+    vec3 addition = caustic * clamp(sceneData.lightColor.rgb, vec3(0.0), vec3(1.0))
+        * clamp(water.radii.z, 0.0, 2.0) * 3.0;
+
+    vec4 current = imageLoad(hdrColorImage, pixel);
+    imageStore(hdrColorImage, pixel, vec4(current.rgb + addition, current.a));
+}

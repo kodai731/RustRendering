@@ -980,6 +980,8 @@ pub unsafe fn record_water_passes(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("HDR buffer not initialized"))?;
 
+    record_water_caustic_pass(app, water_buffer, hdr_buffer, waters[0], command_buffer);
+
     thyllore_vulkan_core::renderer::record_water_scene_color_copy(
         &ctx,
         hdr_buffer.color_image,
@@ -1079,6 +1081,193 @@ pub unsafe fn record_water_passes(
     }
 
     Ok(())
+}
+
+/// Must match CAUSTIC_GRID_SIZE and local_size in waterCausticSplat.comp
+const CAUSTIC_GRID_SIZE: u32 = 256;
+const CAUSTIC_WORKGROUP_SIZE: u32 = 16;
+
+const COLOR_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresourceRange {
+    aspect_mask: vk::ImageAspectFlags::COLOR,
+    base_mip_level: 0,
+    level_count: 1,
+    base_array_layer: 0,
+    layer_count: 1,
+};
+
+fn build_color_image_barrier(
+    image: vk::Image,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+    src_access: vk::AccessFlags,
+    dst_access: vk::AccessFlags,
+) -> vk::ImageMemoryBarrier {
+    vk::ImageMemoryBarrier::builder()
+        .image(image)
+        .old_layout(old_layout)
+        .new_layout(new_layout)
+        .src_access_mask(src_access)
+        .dst_access_mask(dst_access)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .subresource_range(COLOR_SUBRESOURCE_RANGE)
+        .build()
+}
+
+/// Splats refracted light into the accumulation image and adds it to the HDR color.
+/// The G-buffer position image stays in GENERAL from the ray query pass.
+unsafe fn record_water_caustic_pass(
+    app: &App,
+    water_buffer: &thyllore_vulkan_core::resource::WaterBuffer,
+    hdr_buffer: &thyllore_vulkan_core::resource::HdrBuffer,
+    water: crate::ecs::world::Entity,
+    command_buffer: vk::CommandBuffer,
+) {
+    let caustic_strength = app
+        .data
+        .ecs_world
+        .get_component::<crate::ecs::component::WaterTorusEffect>(water)
+        .map(|effect| effect.caustic_strength)
+        .unwrap_or(0.0);
+    if caustic_strength <= 0.0 {
+        return;
+    }
+
+    let (Some(splat_pipeline), Some(apply_pipeline), Some(descriptor)) = (
+        app.data.raytracing.water_caustic_splat_pipeline.as_ref(),
+        app.data.raytracing.water_caustic_apply_pipeline.as_ref(),
+        app.data.raytracing.water_caustic_descriptor.as_ref(),
+    ) else {
+        return;
+    };
+
+    if !app.data.raytracing.has_valid_tlas()
+        || descriptor.splat_descriptor_set == vk::DescriptorSet::null()
+    {
+        return;
+    }
+
+    let device = &app.rrdevice.device;
+    let accum_image = water_buffer.caustic_accum_image;
+    let hdr_image = hdr_buffer.color_image;
+
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::PipelineStageFlags::TRANSFER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &[build_color_image_barrier(
+            accum_image,
+            vk::ImageLayout::UNDEFINED,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::AccessFlags::SHADER_READ,
+            vk::AccessFlags::TRANSFER_WRITE,
+        )],
+    );
+
+    device.cmd_clear_color_image(
+        command_buffer,
+        accum_image,
+        vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+        &vk::ClearColorValue { uint32: [0; 4] },
+        &[COLOR_SUBRESOURCE_RANGE],
+    );
+
+    let pre_splat_barriers = [
+        build_color_image_barrier(
+            accum_image,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            vk::ImageLayout::GENERAL,
+            vk::AccessFlags::TRANSFER_WRITE,
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+        ),
+        build_color_image_barrier(
+            hdr_image,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::ImageLayout::GENERAL,
+            vk::AccessFlags::SHADER_READ,
+            vk::AccessFlags::SHADER_READ | vk::AccessFlags::SHADER_WRITE,
+        ),
+    ];
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::TRANSFER | vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &pre_splat_barriers,
+    );
+
+    device.cmd_bind_pipeline(
+        command_buffer,
+        vk::PipelineBindPoint::COMPUTE,
+        splat_pipeline.pipeline,
+    );
+    device.cmd_bind_descriptor_sets(
+        command_buffer,
+        vk::PipelineBindPoint::COMPUTE,
+        splat_pipeline.pipeline_layout,
+        0,
+        &[descriptor.splat_descriptor_set],
+        &[],
+    );
+    let splat_group_count = CAUSTIC_GRID_SIZE / CAUSTIC_WORKGROUP_SIZE;
+    device.cmd_dispatch(command_buffer, splat_group_count, splat_group_count, 1);
+
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &[build_color_image_barrier(
+            accum_image,
+            vk::ImageLayout::GENERAL,
+            vk::ImageLayout::GENERAL,
+            vk::AccessFlags::SHADER_WRITE,
+            vk::AccessFlags::SHADER_READ,
+        )],
+    );
+
+    device.cmd_bind_pipeline(
+        command_buffer,
+        vk::PipelineBindPoint::COMPUTE,
+        apply_pipeline.pipeline,
+    );
+    device.cmd_bind_descriptor_sets(
+        command_buffer,
+        vk::PipelineBindPoint::COMPUTE,
+        apply_pipeline.pipeline_layout,
+        0,
+        &[descriptor.apply_descriptor_set],
+        &[],
+    );
+    device.cmd_dispatch(
+        command_buffer,
+        hdr_buffer.width.div_ceil(CAUSTIC_WORKGROUP_SIZE),
+        hdr_buffer.height.div_ceil(CAUSTIC_WORKGROUP_SIZE),
+        1,
+    );
+
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::COMPUTE_SHADER,
+        vk::PipelineStageFlags::TRANSFER | vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &[build_color_image_barrier(
+            hdr_image,
+            vk::ImageLayout::GENERAL,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            vk::AccessFlags::SHADER_WRITE,
+            vk::AccessFlags::TRANSFER_READ | vk::AccessFlags::SHADER_READ,
+        )],
+    );
 }
 
 fn compute_water_scissor(
