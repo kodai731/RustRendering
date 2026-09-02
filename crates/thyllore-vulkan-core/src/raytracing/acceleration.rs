@@ -197,13 +197,7 @@ unsafe fn fill_instances_buffer(
 
     for (i, blas) in blas_list.iter().enumerate() {
         instances.push(vk::AccelerationStructureInstanceKHR {
-            transform: vk::TransformMatrixKHR {
-                matrix: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                ],
-            },
+            transform: blas.transform,
             instance_custom_index_and_mask: vk::Bitfield24_8::new(i as u32, 0xFF),
             instance_shader_binding_table_record_offset_and_flags: vk::Bitfield24_8::new(0, 0),
             acceleration_structure_reference: blas.device_address,

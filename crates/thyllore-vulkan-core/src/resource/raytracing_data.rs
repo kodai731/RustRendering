@@ -1,4 +1,5 @@
 use anyhow::Result;
+use cgmath::SquareMatrix;
 use std::cell::Cell;
 use std::rc::Rc;
 use vulkanalia::prelude::v1_0::*;
@@ -155,6 +156,7 @@ impl RayTracingData {
         rrdevice: &RRDevice,
         rrcommand_pool: &Rc<RRCommandPool>,
         meshes: &[MeshBuffer],
+        mesh_transforms: &[cgmath::Matrix4<f32>],
         waters: &[(cgmath::Matrix4<f32>, f32, f32)],
     ) -> Result<()> {
         log!("Building acceleration structures...");
@@ -176,12 +178,12 @@ impl RayTracingData {
             })
             .collect();
 
-        for mesh in meshes {
+        for (mesh_index, mesh) in meshes.iter().enumerate() {
             if !mesh.render_to_gbuffer {
                 continue;
             }
 
-            let blas = RRAccelerationStructure::create_blas(
+            let mut blas = RRAccelerationStructure::create_blas(
                 instance,
                 rrdevice,
                 rrcommand_pool,
@@ -191,6 +193,18 @@ impl RayTracingData {
                 &mesh.index_buffer.buffer,
                 mesh.vertex_data.indices.len() as u32,
             )?;
+
+            let model = mesh_transforms
+                .get(mesh_index)
+                .copied()
+                .unwrap_or_else(cgmath::Matrix4::identity);
+            blas.transform = vk::TransformMatrixKHR {
+                matrix: [
+                    [model[0][0], model[1][0], model[2][0], model[3][0]],
+                    [model[0][1], model[1][1], model[2][1], model[3][1]],
+                    [model[0][2], model[1][2], model[2][2], model[3][2]],
+                ],
+            };
 
             acceleration_structure.blas_list.push(blas);
             log!("Created BLAS for mesh");
@@ -316,12 +330,9 @@ impl RayTracingData {
         let hit_shading_table_buffer = self
             .acceleration_structure
             .as_ref()
-            .and_then(|a| a.hit_shading_table.as_ref())
-            .map(|t| t.buffer)
-            .unwrap_or_else(|| {
-                log!("bind_ray_query_tlas: hit_shading_table not available, using null buffer");
-                vk::Buffer::null()
-            });
+            .and_then(|accel| accel.hit_shading_table.as_ref())
+            .map(|table| table.buffer)
+            .unwrap_or_else(vk::Buffer::null);
 
         if descriptor.descriptor_set == vk::DescriptorSet::null() {
             descriptor.allocate_and_update(
@@ -334,7 +345,7 @@ impl RayTracingData {
                 hit_shading_table_buffer,
             )?;
         } else {
-            descriptor.update_tlas(rrdevice, tlas)?;
+            descriptor.update_tlas(rrdevice, tlas, hit_shading_table_buffer)?;
         }
 
         if let Some(caustic_descriptor) = self.water_caustic_descriptor.as_mut() {

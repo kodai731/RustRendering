@@ -47,11 +47,14 @@ impl App {
     ) -> Result<()> {
         data.raytracing.command_pool = rrcommand_pool.command_pool;
         let water_transforms = crate::app::model_loader::collect_water_instances(&data.ecs_world);
+        let mesh_transforms =
+            crate::app::model_loader::collect_mesh_transforms(&data.ecs_world, &data.ecs_assets);
         data.raytracing.build_acceleration_structures(
             instance,
             rrdevice,
             rrcommand_pool,
             &data.graphics_resources.meshes,
+            &mesh_transforms,
             &water_transforms,
         )
     }

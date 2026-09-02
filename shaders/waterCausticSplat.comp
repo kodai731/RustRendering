@@ -36,7 +36,10 @@ const int CAUSTIC_DEBUG_SPLAT_MARKERS = 1;
 const int CAUSTIC_DEBUG_SKIP_DEPTH_MATCH = 2;
 const int CAUSTIC_DEBUG_FACTOR_PROBE = 3;
 const int CAUSTIC_DEBUG_DEPTH_PROBE = 4;
-const int CAUSTIC_DEBUG = CAUSTIC_DEBUG_OFF;
+const int CAUSTIC_DEBUG_HIT_PROBE = 5;
+const int CAUSTIC_DEBUG_FACTOR_NAN_PROBE = 6;
+const int CAUSTIC_DEBUG_DEPTH_PACKED = 7;
+const int CAUSTIC_DEBUG_OFFSET_PACKED = 8;
 
 // Aqoole reflectance P/S average, etaRel = n_transmitted / n_incident
 float fresnelAverage(float cosThetaI, float etaRel) {
@@ -87,7 +90,7 @@ void main() {
     }
     vec3 entryLocal = localOrigin + entryRoots[0] * localDir;
 
-    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_SPLAT_MARKERS) {
+    if (int(water.composite.w) == CAUSTIC_DEBUG_SPLAT_MARKERS) {
         vec3 entryWorld = (water.model * vec4(entryLocal * water.radii.x, 1.0)).xyz;
         vec4 entryClip = sceneData.proj * sceneData.view * vec4(entryWorld, 1.0);
         if (entryClip.w > 0.0) {
@@ -158,7 +161,7 @@ void main() {
 
     ivec2 pixel = ivec2(screenUV * vec2(imageSize(positionImage)));
 
-    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_DEPTH_PROBE) {
+    if (int(water.composite.w) == CAUSTIC_DEBUG_DEPTH_PROBE) {
         vec3 gbufferPosition = imageLoad(positionImage, pixel).xyz;
         float mismatch = length(hitPosition - gbufferPosition) / (0.05 * water.radii.x);
         ivec2 maxPixel = imageSize(positionImage) - ivec2(1);
@@ -168,14 +171,44 @@ void main() {
         return;
     }
 
-    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_SPLAT_MARKERS) {
+    if (int(water.composite.w) == CAUSTIC_DEBUG_DEPTH_PACKED) {
+        vec4 gbufferSample = imageLoad(positionImage, pixel);
+        float mismatchR = length(hitPosition - gbufferSample.xyz) / water.radii.x;
+        uint mismatchBits = uint(clamp(mismatchR * 100.0, 0.0, 65535.0));
+        uint gbufferBits = uint(clamp(length(gbufferSample.xyz) * 64.0, 0.0, 4095.0));
+        uint packed = mismatchBits | (gbufferBits << 16) | (1u << 28) | (gbufferSample.w > 0.5 ? (1u << 29) : 0u);
+        imageAtomicExchange(causticAccumImage, clamp(pixel, ivec2(0), imageSize(positionImage) - ivec2(1)), packed);
+        return;
+    }
+
+    if (int(water.composite.w) == CAUSTIC_DEBUG_OFFSET_PACKED) {
+        vec3 delta = hitPosition - imageLoad(positionImage, pixel).xyz;
+        uint dx = uint(clamp(delta.x * 100.0 + 512.0, 0.0, 1023.0));
+        uint dy = uint(clamp(delta.y * 100.0 + 512.0, 0.0, 1023.0));
+        uint dz = uint(clamp(delta.z * 100.0 + 512.0, 0.0, 1023.0));
+        imageAtomicExchange(causticAccumImage, clamp(pixel, ivec2(0), imageSize(positionImage) - ivec2(1)), dx | (dy << 10) | (dz << 20) | (1u << 30));
+        return;
+    }
+
+    if (int(water.composite.w) == CAUSTIC_DEBUG_HIT_PROBE) {
+        ivec2 maxPixel = imageSize(positionImage) - ivec2(1);
+        bool bad = any(isnan(hitPosition)) || any(isinf(hitPosition)) || any(isnan(worldExitDir)) || isnan(hitDistance);
+        imageAtomicAdd(causticAccumImage, clamp(pixel, ivec2(0), maxPixel), uint(clamp(hitPosition.x + 8.0, 0.0, 16.0) * 256.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(60, 0), ivec2(0), maxPixel), uint(clamp(hitPosition.y + 8.0, 0.0, 16.0) * 256.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(120, 0), ivec2(0), maxPixel), uint(clamp(hitPosition.z + 8.0, 0.0, 16.0) * 256.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(180, 0), ivec2(0), maxPixel), uint(clamp(hitDistance, 0.0, 16.0) * 256.0));
+        imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(240, 0), ivec2(0), maxPixel), bad ? 4096u : 2048u);
+        return;
+    }
+
+    if (int(water.composite.w) == CAUSTIC_DEBUG_SPLAT_MARKERS) {
         imageAtomicAdd(causticAccumImage, pixel, 2048u);
         return;
     }
 
-    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_OFF) {
+    if (int(water.composite.w) == CAUSTIC_DEBUG_OFF) {
         vec3 gbufferPosition = imageLoad(positionImage, pixel).xyz;
-        if (length(hitPosition - gbufferPosition) > 1.0 * water.radii.x) {
+        if (length(hitPosition - gbufferPosition) > 0.1 * water.radii.x) {
             return;
         }
     }
@@ -191,7 +224,7 @@ void main() {
     float k2t = ior * kappa2;
     float focus = 1.0 / (abs((1.0 - hitDistance * k1t) * (1.0 - hitDistance * k2t)) + 0.05);
 
-    if (CAUSTIC_DEBUG == CAUSTIC_DEBUG_FACTOR_PROBE) {
+    if (int(water.composite.w) == CAUSTIC_DEBUG_FACTOR_PROBE) {
         ivec2 maxPixel = imageSize(positionImage) - ivec2(1);
         imageAtomicAdd(causticAccumImage, clamp(pixel, ivec2(0), maxPixel), uint(clamp(transmittance, 0.0, 1.0) * 2048.0));
         imageAtomicAdd(causticAccumImage, clamp(pixel + ivec2(60, 0), ivec2(0), maxPixel), uint(clamp(1.0 - fresnelIn, 0.0, 1.0) * 2048.0));
@@ -201,5 +234,22 @@ void main() {
     }
 
     float weight = (1.0 - fresnelIn) * (1.0 - fresnelOut) * transmittance * focus;
+
+    if (int(water.composite.w) == CAUSTIC_DEBUG_FACTOR_NAN_PROBE) {
+        uint bits = 64u;
+        if (isnan(transmittance) || isinf(transmittance)) bits |= 1u;
+        if (isnan(fresnelIn) || isinf(fresnelIn)) bits |= 2u;
+        if (isnan(fresnelOut) || isinf(fresnelOut)) bits |= 4u;
+        if (isnan(focus) || isinf(focus)) bits |= 8u;
+        if (isnan(chord) || isinf(chord)) bits |= 16u;
+        if (!(weight * 256.0 >= 1.0)) bits |= 32u;
+        if (transmittance <= 0.0) bits |= 128u;
+        if (focus <= 0.0) bits |= 256u;
+        if (fresnelIn >= 1.0) bits |= 512u;
+        if (fresnelOut >= 1.0) bits |= 1024u;
+        imageAtomicOr(causticAccumImage, clamp(pixel, ivec2(0), imageSize(positionImage) - ivec2(1)), bits);
+        return;
+    }
+
     imageAtomicAdd(causticAccumImage, pixel, uint(clamp(weight, 0.0, 16.0) * 256.0));
 }

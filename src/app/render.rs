@@ -16,6 +16,13 @@ use crate::vulkanr::vulkan::*;
 
 use anyhow::{anyhow, Result};
 use std::fs::OpenOptions;
+use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WaterCausticAccumStats {
+    pub nonzero_count: u64,
+    pub max_value: u32,
+}
 
 impl App {
     pub unsafe fn begin_frame(&mut self) -> Result<usize> {
@@ -56,6 +63,71 @@ impl App {
         self.resource_mut::<SwapchainState>().images_in_flight[image_index] = current_fence;
 
         Ok(image_index)
+    }
+
+    pub unsafe fn refresh_tlas_mesh_transforms(&mut self) -> Result<()> {
+        if !self.data.raytracing.has_valid_tlas() {
+            return Ok(());
+        }
+
+        let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+            &self.data.ecs_world,
+            &self.data.ecs_assets,
+        );
+        let gbuffer_mesh_indices: Vec<usize> = self
+            .data
+            .graphics_resources
+            .meshes
+            .iter()
+            .enumerate()
+            .filter(|(_, mesh)| mesh.render_to_gbuffer)
+            .map(|(mesh_index, _)| mesh_index)
+            .collect();
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let Some(acceleration_structure) = self.data.raytracing.acceleration_structure.as_mut()
+        else {
+            return Ok(());
+        };
+
+        if acceleration_structure.blas_list.len() != gbuffer_mesh_indices.len() {
+            return Ok(());
+        }
+
+        let mut needs_update = false;
+        for (blas, &mesh_index) in acceleration_structure
+            .blas_list
+            .iter_mut()
+            .zip(gbuffer_mesh_indices.iter())
+        {
+            let model = mesh_transforms
+                .get(mesh_index)
+                .copied()
+                .unwrap_or_else(cgmath::SquareMatrix::identity);
+            let matrix = [
+                [model[0][0], model[1][0], model[2][0], model[3][0]],
+                [model[0][1], model[1][1], model[2][1], model[3][1]],
+                [model[0][2], model[1][2], model[2][2], model[3][2]],
+            ];
+
+            if blas.transform.matrix != matrix {
+                blas.transform.matrix = matrix;
+                needs_update = true;
+            }
+        }
+
+        if !needs_update {
+            return Ok(());
+        }
+
+        RRAccelerationStructure::update_tlas(
+            &self.instance,
+            &self.rrdevice,
+            command_pool.as_ref(),
+            &mut acceleration_structure.tlas,
+            &acceleration_structure.blas_list,
+            &acceleration_structure.water_blas,
+        )
     }
 
     unsafe fn handle_viewport_resize(&mut self) -> Result<()> {
@@ -259,6 +331,10 @@ impl App {
                     let command_pool = self.resource::<CommandState>().pool.clone();
                     let waters =
                         crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+                    let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+                        &self.data.ecs_world,
+                        &self.data.ecs_assets,
+                    );
                     crate::app::model_loader::rebuild_acceleration_structures(
                         &self.instance,
                         &self.rrdevice,
@@ -266,6 +342,7 @@ impl App {
                         &self.data.graphics_resources,
                         &mut self.data.raytracing,
                         &waters,
+                        &mesh_transforms,
                     )?;
                 }
 
@@ -460,6 +537,10 @@ impl App {
 
         let command_pool = self.resource::<CommandState>().pool.clone();
         let waters = crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+        let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+            &self.data.ecs_world,
+            &self.data.ecs_assets,
+        );
         crate::app::model_loader::rebuild_acceleration_structures(
             &self.instance,
             &self.rrdevice,
@@ -467,6 +548,7 @@ impl App {
             &self.data.graphics_resources,
             &mut self.data.raytracing,
             &waters,
+            &mesh_transforms,
         )?;
 
         log!("Deleted {} entities with GPU cleanup", entities.len());
@@ -1041,6 +1123,8 @@ impl App {
     }
 
     pub unsafe fn render(&mut self, image_index: usize, draw_data: &imgui::DrawData) -> Result<()> {
+        self.refresh_tlas_mesh_transforms()?;
+
         let frame_slot = self.resource::<FrameSync>().current_frame;
 
         Self::update_imgui_buffers(
@@ -1209,6 +1293,63 @@ impl App {
         write_npy_f32(path, &[height as usize, width as usize, 4], &f32_data)?;
 
         Ok(())
+    }
+
+    pub unsafe fn save_water_caustic_accum_npy(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<WaterCausticAccumStats> {
+        use crate::app::util::write_npy_u32;
+
+        let device = &self.rrdevice.device;
+        let water_buffer = self
+            .data
+            .viewport
+            .water_buffer
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("water buffer not initialized"))?;
+
+        let caustic_image = water_buffer.caustic_accum_image;
+        let width = water_buffer.width;
+        let height = water_buffer.height;
+        let image_size = (width * height * 4) as vk::DeviceSize;
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
+
+        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
+            caustic_image,
+            width,
+            height,
+            image_size,
+            command_pool,
+            vk::ImageLayout::GENERAL,
+        )?;
+
+        let data_ptr =
+            device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
+        let slice = std::slice::from_raw_parts(data_ptr as *const u8, image_size as usize);
+
+        let mut u32_data: Vec<u32> = Vec::with_capacity((width * height) as usize);
+        let mut stats = WaterCausticAccumStats::default();
+        for chunk in slice.chunks_exact(4) {
+            let value = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            if value != 0 {
+                stats.nonzero_count += 1;
+            }
+            stats.max_value = stats.max_value.max(value);
+            u32_data.push(value);
+        }
+
+        device.unmap_memory(buffer_memory);
+        device.free_command_buffers(command_pool, &[command_buffer]);
+        device.free_memory(buffer_memory, None);
+        device.destroy_buffer(buffer, None);
+
+        if let Some(directory) = path.parent() {
+            std::fs::create_dir_all(directory)?;
+        }
+        write_npy_u32(path, &[height as usize, width as usize], &u32_data)?;
+
+        Ok(stats)
     }
 
     pub unsafe fn copy_image_to_buffer(

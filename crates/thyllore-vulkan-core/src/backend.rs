@@ -53,6 +53,25 @@ impl<'a> VulkanBackend<'a> {
     }
 }
 
+/// BLAS list holds only gbuffer meshes, so mesh index and BLAS index diverge once a mesh is hidden.
+fn collect_blas_index_of_mesh(graphics: &GraphicsResources) -> Vec<Option<usize>> {
+    let mut next_blas_index = 0;
+
+    graphics
+        .meshes
+        .iter()
+        .map(|mesh| {
+            if !mesh.render_to_gbuffer {
+                return None;
+            }
+
+            let blas_index = next_blas_index;
+            next_blas_index += 1;
+            Some(blas_index)
+        })
+        .collect()
+}
+
 impl<'a> RenderBackend for VulkanBackend<'a> {
     unsafe fn upload_mesh_vertices(&mut self, mesh_id: MeshId) -> Result<()> {
         if mesh_id >= self.graphics.meshes.len() {
@@ -81,16 +100,18 @@ impl<'a> RenderBackend for VulkanBackend<'a> {
             return Ok(());
         };
 
+        let blas_index_of_mesh = collect_blas_index_of_mesh(self.graphics);
+
         for &mesh_id in mesh_ids {
-            if mesh_id >= self.graphics.meshes.len() {
+            let Some(blas_index) = blas_index_of_mesh.get(mesh_id).copied().flatten() else {
                 continue;
-            }
-            if mesh_id >= accel_struct.blas_list.len() {
+            };
+            if blas_index >= accel_struct.blas_list.len() {
                 continue;
             }
 
             let mesh = &self.graphics.meshes[mesh_id];
-            let blas = &mut accel_struct.blas_list[mesh_id];
+            let blas = &mut accel_struct.blas_list[blas_index];
 
             RRAccelerationStructure::update_blas(
                 self.instance,
