@@ -44,20 +44,54 @@ float linearizeDepth(float rawDepth, float nearPlane, float farPlane) {
 
 
 
-vec3 reconstructRayDirection(vec2 uv, mat4 invViewProj, vec3 cameraPos) {
-    vec2 ndc = uv * 2.0 - 1.0;
-    vec4 world = invViewProj * vec4(ndc, DEPTH_NEAR, 1.0);
-    return normalize(world.xyz / world.w - cameraPos);
+// dL/ds = -sigma_t L + sigma_a L_e + sigma_s * integral p(theta) L_in
+// Each effect supplies its own coefficients; this file holds only the equation.
+
+float rteTransmittance(float sigmaT, float distance) {
+    return exp(-sigmaT * distance);
+}
+
+vec3 rteTransmittance(vec3 sigmaT, float distance) {
+    return exp(-sigmaT * distance);
+}
+
+float rteTransmittanceFromOpticalDepth(float opticalDepth) {
+    return exp(-opticalDepth);
+}
+
+float rteOpacity(float sigmaT, float opticalDepth) {
+    return 1.0 - exp(-sigmaT * opticalDepth);
 }
 
 // S * (1 - exp(-sigma*dt)) / sigma with Taylor fallback so sigma -> 0 stays continuous.
 // Mirrored in thyllore-render-core/src/flame.rs (integrate_emission_segment) for tests.
-float integrateEmissionSegment(float source, float sigmaT, float dt) {
+float rteIntegrateEmissionSegment(float source, float sigmaT, float dt) {
     float x = sigmaT * dt;
     if (x < 1e-3) {
         return source * dt * (1.0 - 0.5 * x + x * x * (1.0 / 6.0));
     }
     return source * (1.0 - exp(-x)) / sigmaT;
+}
+
+float rteHenyeyGreenstein(float cosTheta, float g) {
+    float denom = 1.0 + g * g - 2.0 * g * cosTheta;
+    return (1.0 - g * g) / (4.0 * 3.141592653589793 * denom * sqrt(max(denom, 1e-6)));
+}
+
+float rteMidpointDistance(int index, int sampleCount, float pathLength) {
+    return (float(index) + 0.5) * pathLength / float(sampleCount);
+}
+
+vec3 rteSingleScatterSample(vec3 sigmaS, vec3 sigmaT, float phase, float viewDistance, float ds, vec3 lightRadiance) {
+    return sigmaS * phase * rteTransmittance(sigmaT, viewDistance) * lightRadiance * ds;
+}
+
+
+
+vec3 reconstructRayDirection(vec2 uv, mat4 invViewProj, vec3 cameraPos) {
+    vec2 ndc = uv * 2.0 - 1.0;
+    vec4 world = invViewProj * vec4(ndc, DEPTH_NEAR, 1.0);
+    return normalize(world.xyz / world.w - cameraPos);
 }
 
 float evaluateHeightAlongRay(float t, float hOrigin, float hDir) {
@@ -74,6 +108,11 @@ struct FrameUBO {
 };
 
 
+#ifndef WATER_UBO_SET
+#define WATER_UBO_SET 1
+#define WATER_UBO_BINDING 0
+#endif
+
 struct WaterUBO {
     mat4 model;
     mat4 inverseModel;
@@ -82,9 +121,12 @@ struct WaterUBO {
     vec4 flow;
     vec4 composite;
     vec4 tint;
+    vec4 lighting;
+    vec4 scattering;
     vec4 temporal;
     vec4 waveModes[16];
     mat4 invViewProj;
+    vec4 lbModes[20];
 };
 
 
@@ -438,6 +480,160 @@ vec3 waterPerturbedNormal(float u, float v, float h, float hu, float hv, float r
 
 
 
+// chebyshev.glsl - Clenshaw evaluation of Chebyshev series (fully unrolled)
+//
+// Coefficient layout matches thyllore-math-core pack_coefficients_vec4:
+//   c0 = [C0..C3], c1 = [C4..C7], c2 = [C8..C11]
+// Series must be fit over domain [0,1]; x01 is normalized to [-1,1] internally.
+
+
+float evaluateChebyshev8(vec4 c0, vec4 c1, float x01) {
+    float u = 2.0 * x01 - 1.0;
+    float t = 2.0 * u;
+    float b7 = c1.w;
+    float b6 = t * b7 + c1.z;
+    float b5 = t * b6 - b7 + c1.y;
+    float b4 = t * b5 - b6 + c1.x;
+    float b3 = t * b4 - b5 + c0.w;
+    float b2 = t * b3 - b4 + c0.z;
+    float b1 = t * b2 - b3 + c0.y;
+    return u * b1 - b2 + c0.x;
+}
+
+float evaluateChebyshev12(vec4 c0, vec4 c1, vec4 c2, float x01) {
+    float u = 2.0 * x01 - 1.0;
+    float t = 2.0 * u;
+    float b11 = c2.w;
+    float b10 = t * b11 + c2.z;
+    float b9 = t * b10 - b11 + c2.y;
+    float b8 = t * b9 - b10 + c2.x;
+    float b7 = t * b8 - b9 + c1.w;
+    float b6 = t * b7 - b8 + c1.z;
+    float b5 = t * b6 - b7 + c1.y;
+    float b4 = t * b5 - b6 + c1.x;
+    float b3 = t * b4 - b5 + c0.w;
+    float b2 = t * b3 - b4 + c0.z;
+    float b1 = t * b2 - b3 + c0.y;
+    return u * b1 - b2 + c0.x;
+}
+
+
+
+const int LB_MODE_COUNT = 4;
+const int LB_SLOTS_PER_MODE = 5;
+
+float waterLbCheb(vec4 lo, vec4 hi, float t) {
+    return evaluateChebyshev8(lo, hi, 0.5 * t + 0.5);
+}
+
+void waterLbHeightAndGradient(vec2 uv, float time, vec2 flowRate, inout float h, inout float hu, inout float hv) {
+    for (int k = 0; k < LB_MODE_COUNT; ++k) {
+        int slot = LB_SLOTS_PER_MODE * k;
+        vec4 head = water.lbModes[slot];
+        float m = head.x;
+        float omega = head.y;
+        float amplitude = head.z;
+        float phase = head.w;
+
+        if (amplitude <= 0.0) {
+            continue;
+        }
+
+        float phasePrime = m * (uv.x + flowRate.x * time) - omega * time + phase;
+        float vAdvected = mod(uv.y + flowRate.y * time, 6.28318530718);
+        float t = (vAdvected - 3.14159265359) / 3.14159265359;
+
+        float phi = waterLbCheb(water.lbModes[slot + 1], water.lbModes[slot + 2], t);
+        float dphi = waterLbCheb(water.lbModes[slot + 3], water.lbModes[slot + 4], t);
+
+        h += amplitude * cos(phasePrime) * phi;
+        hu += -amplitude * m * sin(phasePrime) * phi;
+        hv += amplitude * cos(phasePrime) * dphi;
+    }
+}
+
+
+
+
+#define WATER_SCATTER_SAMPLES 4
+
+float waterFresnelReflectance(float cosThetaI, float eta) {
+    float sinThetaT2 = (1.0 - cosThetaI * cosThetaI) / (eta * eta);
+    float cosThetaT = sqrt(max(1.0 - sinThetaT2, 0.0));
+    float rPar = (eta * cosThetaI - cosThetaT) / (eta * cosThetaI + cosThetaT);
+    float rPerp = (cosThetaI - eta * cosThetaT) / (cosThetaI + eta * cosThetaT);
+    return (rPar * rPar + rPerp * rPerp) * 0.5;
+}
+
+vec3 waterScatteringCoefficient() {
+    return water.tint.rgb * water.lighting.w;
+}
+
+vec3 waterExtinctionCoefficient() {
+    return water.absorption.rgb + waterScatteringCoefficient();
+}
+
+vec3 waterEnvironmentReflection(vec3 reflDir, vec3 lightDir, vec3 lightColor, float slopeVariance) {
+    float sharpness = water.lighting.y / (1.0 + water.lighting.y * slopeVariance);
+    float spec = pow(max(dot(reflDir, lightDir), 0.0), sharpness);
+    return vec3(0.6, 0.7, 0.8) * water.lighting.z + lightColor * water.lighting.x * spec;
+}
+
+vec3 waterTransmittedHighlight(vec3 exitDir, vec3 lightDir, vec3 lightColor, float chord) {
+    float spec = pow(max(dot(exitDir, lightDir), 0.0), water.lighting.y);
+    return lightColor * water.lighting.x * spec * rteTransmittance(waterExtinctionCoefficient(), chord);
+}
+
+struct WaterScatterSample {
+    vec3 position;
+    float viewDistance;
+    vec3 lightDir;
+    vec3 lightExitPoint;
+    float waterDistance;
+    float surfaceTransmission;
+};
+
+// Light path from an interior point to the light: straight line, first exit through the surface,
+// plus the ring chord if the line re-enters the torus (self-occlusion); Snell bending is ignored.
+WaterScatterSample waterScatterSampleAt(vec3 entry, vec3 exit, int index, vec3 lightPos) {
+    WaterScatterSample smp;
+    float pathLength = length(exit - entry);
+    smp.viewDistance = rteMidpointDistance(index, WATER_SCATTER_SAMPLES, pathLength);
+    smp.position = entry + (exit - entry) * (smp.viewDistance / pathLength);
+    smp.lightDir = normalize(lightPos - smp.position);
+
+    float rHat = water.radii.y / water.radii.x;
+    vec3 originLocal = (water.inverseModel * vec4(smp.position, 1.0)).xyz / water.radii.x;
+    vec3 dirLocal = normalize((water.inverseModel * vec4(smp.lightDir, 0.0)).xyz);
+    float roots[4];
+    bool fallbackUsed;
+    int count = intersectTorus(originLocal, dirLocal, rHat, roots, fallbackUsed);
+
+    float firstExit = (count > 0) ? roots[0] : 0.0;
+    float lastExit = firstExit;
+    float insideDistance = firstExit;
+    if (count >= 3) {
+        insideDistance += roots[2] - roots[1];
+        lastExit = roots[2];
+    }
+    smp.waterDistance = insideDistance * water.radii.x;
+    smp.lightExitPoint = smp.position + smp.lightDir * (lastExit * water.radii.x);
+
+    vec3 nExit = normalize(mat3(water.model) * torusGradient(originLocal + dirLocal * firstExit, rHat));
+    smp.surfaceTransmission = 1.0 - waterFresnelReflectance(max(dot(nExit, smp.lightDir), 0.0), water.absorption.w);
+    return smp;
+}
+
+vec3 waterScatterSampleRadiance(WaterScatterSample smp, vec3 viewDir, vec3 lightColor, float ds) {
+    vec3 sigmaS = waterScatteringCoefficient();
+    vec3 sigmaT = waterExtinctionCoefficient();
+    vec3 lightRadiance = lightColor * water.lighting.x * smp.surfaceTransmission * rteTransmittance(sigmaT, smp.waterDistance);
+    float phase = rteHenyeyGreenstein(dot(smp.lightDir, viewDir), water.scattering.x);
+    return rteSingleScatterSample(sigmaS, sigmaT, phase, smp.viewDistance, ds, lightRadiance);
+}
+
+
+
 
 
 
@@ -460,6 +656,12 @@ void main() {
         discard;
     }
 
+    // First hit time in world units
+    float t1 = roots[0] * water.radii.x;
+    vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
+    float waterDepth = worldToClipDepth(p1, frame.view, frame.proj);
+    gl_FragDepth = waterDepth;
+
     // Debug view: color by root count
     if (push.debugView == 1) {
         if (hitCount == 2) {
@@ -470,11 +672,8 @@ void main() {
             outColor = vec4(1.0, 0.0, 0.0, 1.0);
         }
         return;
-    }
+   }
 
-    // First hit time in world units
-    float t1 = roots[0] * water.radii.x;
-    vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
 
    // Debug view: torus intersection probe (nearest root, high-precision encoding)
     if (push.debugView == 3 || push.debugView == 4) {
@@ -486,8 +685,6 @@ void main() {
         outColor = vec4(hi, mid, lo, marker);
         return;
     }
-
-    float waterDepth = worldToClipDepth(p1, frame.view, frame.proj);
 
     // Compute chord length in world units
     float chord;
@@ -511,10 +708,11 @@ void main() {
     if (abs(du_dx) > 3.0) {
         footprint.x = 0.0;
     }
+    if (any(isnan(footprint)) || any(isinf(footprint))) { footprint = vec2(0.0); }
 
     float h, hu, hv, var;
     waterHeightAndGradient(uv, water.flow.z, water.flow.xy, int(water.composite.z), footprint, h, hu, hv, var);
-
+    waterLbHeightAndGradient(uv, water.flow.z, water.flow.xy, h, hu, hv);
     vec3 nLocal = waterPerturbedNormal(uv.x, uv.y, h, hu, hv, rHat);
     vec3 n = normalize(mat3(water.model) * nLocal);
 
@@ -538,11 +736,10 @@ void main() {
     vec3 reflDir = reflect(rayDir, n);
     vec3 reflection;
     {
-        // ScreenSpace path: constant environment + specular highlight
         vec3 lightDir = normalize(frame.light_pos.xyz - p1);
-        float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
-        reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+        reflection = waterEnvironmentReflection(reflDir, lightDir, frame.light_color.rgb, var);
     }
+
 
     // Transmission: exit-point refraction
     vec3 dRefr = refract(dLocal, nLocal, 1.0 / eta);
@@ -560,10 +757,9 @@ void main() {
         pExitLocal = pLocal1;
     }
 
-    // Secondary TIR check at exit point
     vec3 nExit = normalize(torusGradient(pExitLocal, rHat));
-    vec3 dExit = refract(dRefr, -nExit, eta);
-    if (length(dExit) < 1e-4) {
+    vec3 dExitLocal = refract(dRefr, -nExit, eta);
+    if (length(dExitLocal) < 1e-4) {
         dRefr = reflect(dRefr, nExit);
         float reRoots[4];
         bool reFallback;
@@ -571,10 +767,17 @@ void main() {
         if (reCount > 0) {
             pExitLocal = pLocal1 + dRefr * (1e-3 + reRoots[0]);
         }
+        nExit = normalize(torusGradient(pExitLocal, rHat));
+        dExitLocal = refract(dRefr, -nExit, eta);
+        if (length(dExitLocal) < 1e-4) {
+            dExitLocal = dRefr;
+        }
     }
+    vec3 dExit = normalize(mat3(water.model) * dExitLocal);
 
-  vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
+    vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
     vec3 background;
+    float tBackground = 1e30;
     {
         // ScreenSpace path: project exit point to screen space
         vec4 clip = frame.proj * frame.view * pExitWorld;
@@ -586,12 +789,24 @@ void main() {
         }
     }
 
-    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
+
+    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * rteTransmittance(waterExtinctionCoefficient(), chord);
+    vec3 lightDirExit = normalize(frame.light_pos.xyz - pExitWorld.xyz);
+    transmission += waterTransmittedHighlight(dExit, lightDirExit, frame.light_color.rgb, chord);
+
+    float scatterPath = length(pExitWorld.xyz - p1);
+    if (scatterPath > 1e-6) {
+        vec3 viewDirWater = (pExitWorld.xyz - p1) / scatterPath;
+        float ds = scatterPath / float(WATER_SCATTER_SAMPLES);
+        for (int i = 0; i < WATER_SCATTER_SAMPLES; ++i) {
+            WaterScatterSample smp = waterScatterSampleAt(p1, pExitWorld.xyz, i, frame.light_pos.xyz);
+            transmission += waterScatterSampleRadiance(smp, viewDirWater, frame.light_color.rgb, ds);
+        }
+    }
 
   // Composite output
-    outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
+   outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);
 
 
-    gl_FragDepth = waterDepth;
 }
 

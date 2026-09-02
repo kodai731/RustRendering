@@ -408,7 +408,7 @@ vec4 shadeEmission(FlameRaySegment segment, float emission) {
 
     float tempNorm = clamp(emission * 2.0, 0.0, 1.0) * (1.0 - 0.55 * heightMid);
     vec3 radiance = rampColor * flame.intensity * (1.0 + flame.edgeStyle.whiteBoost * pow(tempNorm, 2.0)) * emission;
-    float alpha = 1.0 - exp(-flame.sigmaT * emission);
+    float alpha = rteOpacity(flame.sigmaT, emission);
     return vec4(radiance, alpha);
 }
 
@@ -642,7 +642,7 @@ void main() {
 
             // Beer-Lambert step
             float sigma = flame.sigmaT * density;
-            float a = 1.0 - exp(-sigma * dt);
+            float a = rteOpacity(sigma, dt);
 
             // Temperature-driven ramp color
             float tempNorm = clamp(dSmooth, 0.0, 1.0) * (1.0 - 0.55 * h);
@@ -669,7 +669,7 @@ void main() {
             }
             if (flame.lightData.selfShadowStrength > 0.0) {
                 vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-                rte.rgb *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
+                rte.rgb *= mix(1.0, rteTransmittanceFromOpticalDepth(computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
             }
             L = rte.rgb;
             trans = 1.0 - rte.a;
@@ -698,7 +698,7 @@ void main() {
             }
             if (flame.lightData.selfShadowStrength > 0.0) {
                 vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-                emission *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
+                emission *= mix(1.0, rteTransmittanceFromOpticalDepth(computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
             }
             vec4 shaded = shadeEmission(segment, emission);
             L = shaded.rgb;
@@ -709,7 +709,7 @@ void main() {
     // Self-shadow midpoint multiply on L (mode 3)
     if (push.mode == 3 && flame.lightData.selfShadowStrength > 0.0) {
         vec3 pMid = segment.localOrigin + 0.5 * (segment.tNear + segment.tFar) * segment.localDir;
-        L *= mix(1.0, exp(-computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
+        L *= mix(1.0, rteTransmittanceFromOpticalDepth(computeSelfShadowTau(pMid, normalize(flame.lightData.direction))), flame.lightData.selfShadowStrength);
     }
 
     vec4 shaded = vec4(L, 1.0 - trans);

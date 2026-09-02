@@ -319,6 +319,8 @@ fn build_ubo_json(ubo: &WaterUBO) -> Value {
         "flow": ubo.flow,
         "composite": ubo.composite,
         "tint": ubo.tint,
+        "lighting": ubo.lighting,
+        "scattering": ubo.scattering,
         "temporal": ubo.temporal,
         "wave_modes": ubo.wave_modes,
         "lb_modes": ubo.lb_modes,

@@ -167,6 +167,51 @@ declare_scene_format! {
                 format: "%.2f",
             },
         },
+        light_intensity: f32 = Frame {
+            get: |e| e.light_intensity,
+            set: |e, v| e.light_intensity = v,
+            ui {
+                min: 0.0,
+                max: 20.0,
+                format: "%.2f",
+            },
+        },
+        highlight_sharpness: f32 = Frame {
+            get: |e| e.highlight_sharpness,
+            set: |e, v| e.highlight_sharpness = v,
+            ui {
+                min: 1.0,
+                max: 1024.0,
+                format: "%.0f",
+            },
+        },
+        sky_brightness: f32 = Frame {
+            get: |e| e.sky_brightness,
+            set: |e, v| e.sky_brightness = v,
+            ui {
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+            },
+        },
+        scatter_strength: f32 = Frame {
+            get: |e| e.scatter_strength,
+            set: |e, v| e.scatter_strength = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.2f",
+            },
+        },
+        scatter_anisotropy: f32 = Frame {
+            get: |e| e.scatter_anisotropy,
+            set: |e, v| e.scatter_anisotropy = v,
+            ui {
+                min: -0.9,
+                max: 0.9,
+                format: "%.2f",
+            },
+        },
         tint_r: f32 = Frame {
             get: |e| e.tint[0],
             set: |e, v| e.tint[0] = v,

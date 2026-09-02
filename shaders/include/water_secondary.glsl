@@ -18,6 +18,16 @@ int waterTraceLastHitKind = 0;
 layout(buffer_reference, scalar) buffer VertexBuffer { vec4 v[]; };
 layout(buffer_reference, scalar) buffer IndexBuffer { uint i[]; };
 
+bool waterLightOccluded(vec3 origin, vec3 lightPos) {
+    vec3 toLight = lightPos - origin;
+    float distance = length(toLight);
+    rayQueryEXT rq;
+    rayQueryInitializeEXT(rq, sceneTlas, gl_RayFlagsOpaqueEXT | gl_RayFlagsTerminateOnFirstHitEXT, 0xFF, origin, 1e-3, toLight / distance, distance);
+    while (rayQueryProceedEXT(rq)) {
+    }
+    return rayQueryGetIntersectionTypeEXT(rq, true) == gl_RayQueryCommittedIntersectionTriangleEXT;
+}
+
 bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color, out float tHit) {
     rayQueryEXT rq;
     rayQueryInitializeEXT(rq, sceneTlas, gl_RayFlagsOpaqueEXT, 0xFF, o, 1e-3, d, tMax);
@@ -92,10 +102,9 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color, out float tHit) {
     // Transform normal to world space
     vec3 N = normalize(rec.normalMatrix[0].xyz * nLocal.x + rec.normalMatrix[1].xyz * nLocal.y + rec.normalMatrix[2].xyz * nLocal.z);
 
-    // Hit lighting: baseColor.rgb * vertexColor.rgb * (0.15 + 0.85 * max(dot(N, L), 0)) * light_color.rgb
     vec3 L = normalize(frame.light_pos.xyz - P);
     float ndotl = max(dot(N, L), 0.0);
-    vec3 hitLighting = rec.baseColor.rgb * vertexColor * (0.15 + 0.85 * ndotl) * frame.light_color.rgb;
+    vec3 hitLighting = rec.baseColor.rgb * vertexColor * (0.15 + 0.85 * ndotl) * frame.light_color.rgb * water.lighting.x;
 
     // Hybrid: project hit point to screen space
     vec4 clip = frame.proj * frame.view * vec4(P, 1.0);

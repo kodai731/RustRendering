@@ -5,6 +5,7 @@
 #define WATER_UBO_SET 0
 #define WATER_UBO_BINDING 2
 #include "include/water_component.glsl"
+#include "include/water_lighting.glsl"
 #include "include/water_trace_payload.glsl"
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
@@ -41,8 +42,7 @@ void main() {
         reflection = payload.color.rgb;
     } else {
         vec3 lightDir = normalize(frame.lightPos.xyz - p1);
-        float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * slopeVariance));
-        reflection = vec3(0.6, 0.7, 0.8) + frame.lightColor.rgb * spec;
+        reflection = waterEnvironmentReflection(reflDir, lightDir, frame.lightColor.rgb, slopeVariance);
     }
 
     traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, exitOrigin + exitDir * 1e-3, 1e-3, exitDir, 1e30, 0);
@@ -50,10 +50,22 @@ void main() {
     if (payload.color.a > 0.5 && payload.exitOrigin.w < 0.5) {
         background = payload.color.rgb;
     } else {
-        background = vec3(0.6, 0.7, 0.8);
+        background = vec3(0.6, 0.7, 0.8) * water.lighting.z;
     }
 
-    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
+    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * rteTransmittance(waterExtinctionCoefficient(), chord);
+    vec3 lightDirExit = normalize(frame.lightPos.xyz - exitOrigin);
+    transmission += waterTransmittedHighlight(exitDir, lightDirExit, frame.lightColor.rgb, chord);
+
+    float scatterPath = length(exitOrigin - p1);
+    if (scatterPath > 1e-6) {
+        vec3 viewDirWater = (exitOrigin - p1) / scatterPath;
+        float ds = scatterPath / float(WATER_SCATTER_SAMPLES);
+        for (int i = 0; i < WATER_SCATTER_SAMPLES; ++i) {
+            WaterScatterSample smp = waterScatterSampleAt(p1, exitOrigin, i, frame.lightPos.xyz);
+            transmission += waterScatterSampleRadiance(smp, viewDirWater, frame.lightColor.rgb, ds);
+        }
+    }
     vec3 composite = F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y;
     imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(composite, 1.0));
 }

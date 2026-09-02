@@ -106,6 +106,13 @@ pub fn build_water_ubo(effect: &WaterTorusEffect, frame_index: u32) -> WaterUBO 
             0.0,
         ],
         tint: [effect.tint[0], effect.tint[1], effect.tint[2], 0.0],
+        lighting: [
+            effect.light_intensity,
+            effect.highlight_sharpness,
+            effect.sky_brightness,
+            effect.scatter_strength,
+        ],
+        scattering: [effect.scatter_anisotropy, 0.0, 0.0, 0.0],
         temporal: [0.0, 0.0, 0.0, 0.0],
         wave_modes,
         inv_view_proj: Matrix4::identity(),

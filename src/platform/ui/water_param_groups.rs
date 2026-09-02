@@ -12,6 +12,14 @@ pub const WATER_WAVE_PARAMS: &[&str] = &[
     "wave_lb_blend",
 ];
 
+pub const WATER_LIGHTING_PARAMS: &[&str] = &[
+    "light_intensity",
+    "highlight_sharpness",
+    "sky_brightness",
+    "scatter_strength",
+    "scatter_anisotropy",
+];
+
 pub const WATER_LOOK_PARAMS: &[&str] = &[
     "reflect_strength",
     "refract_strength",
@@ -25,6 +33,7 @@ pub const WATER_PARAM_GROUPS: &[&[&str]] = &[
     WATER_OPTICS_PARAMS,
     WATER_FLOW_PARAMS,
     WATER_WAVE_PARAMS,
+    WATER_LIGHTING_PARAMS,
     WATER_LOOK_PARAMS,
 ];
 

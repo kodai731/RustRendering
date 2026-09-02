@@ -160,7 +160,7 @@ def convert_to_blender_dialect(lines: list[str]) -> tuple[list[str], dict]:
                 continue
 
             ubo_match = re.match(
-                r'^\s*layout\s*\(\s*set\s*=\s*\d+\s*,\s*binding\s*=\s*\d+\s*\)\s+uniform\s+(\w+)\s*\{',
+                r'^\s*layout\s*\(\s*set\s*=\s*\w+\s*,\s*binding\s*=\s*\w+\s*\)\s+uniform\s+(\w+)\s*\{',
                 line,
             )
             if ubo_match:

@@ -58,6 +58,11 @@ pub fn apply_water_preset(effect: &mut WaterTorusEffect, name: &str) -> bool {
     effect.reflect_strength = preset.reflect_strength;
     effect.refract_strength = preset.refract_strength;
     effect.caustic_strength = preset.caustic_strength;
+    effect.light_intensity = preset.light_intensity;
+    effect.highlight_sharpness = preset.highlight_sharpness;
+    effect.sky_brightness = preset.sky_brightness;
+    effect.scatter_strength = preset.scatter_strength;
+    effect.scatter_anisotropy = preset.scatter_anisotropy;
     effect.tint = preset.tint;
     apply_runtime_state(effect, state);
     true

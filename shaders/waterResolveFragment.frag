@@ -22,6 +22,7 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 #include "include/water_flow.glsl"
 #include "include/water_surface.glsl"
 #include "include/water_lb.glsl"
+#include "include/water_lighting.glsl"
 
 layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
 
@@ -209,21 +210,17 @@ void main() {
                 reflection = c;
             } else {
                 vec3 lightDir = normalize(frame.light_pos.xyz - p2);
-                float spec = pow(max(dot(d2, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var2));
-                reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+                reflection = waterEnvironmentReflection(d2, lightDir, frame.light_color.rgb, var2);
             }
         } else {
             vec3 lightDir = normalize(frame.light_pos.xyz - p1);
-            float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
-            reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+            reflection = waterEnvironmentReflection(reflDir, lightDir, frame.light_color.rgb, var);
         }
    } else
 #endif
     {
-        // ScreenSpace path: constant environment + specular highlight
         vec3 lightDir = normalize(frame.light_pos.xyz - p1);
-        float spec = pow(max(dot(reflDir, lightDir), 0.0), 64.0 / (1.0 + 64.0 * var));
-        reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
+        reflection = waterEnvironmentReflection(reflDir, lightDir, frame.light_color.rgb, var);
     }
 
 #ifdef WATER_RAY_QUERY
@@ -250,10 +247,9 @@ void main() {
         pExitLocal = pLocal1;
     }
 
-    // Secondary TIR check at exit point
     vec3 nExit = normalize(torusGradient(pExitLocal, rHat));
-    vec3 dExit = refract(dRefr, -nExit, eta);
-    if (length(dExit) < 1e-4) {
+    vec3 dExitLocal = refract(dRefr, -nExit, eta);
+    if (length(dExitLocal) < 1e-4) {
         dRefr = reflect(dRefr, nExit);
         float reRoots[4];
         bool reFallback;
@@ -261,9 +257,15 @@ void main() {
         if (reCount > 0) {
             pExitLocal = pLocal1 + dRefr * (1e-3 + reRoots[0]);
         }
+        nExit = normalize(torusGradient(pExitLocal, rHat));
+        dExitLocal = refract(dRefr, -nExit, eta);
+        if (length(dExitLocal) < 1e-4) {
+            dExitLocal = dRefr;
+        }
     }
+    vec3 dExit = normalize(mat3(water.model) * dExitLocal);
 
-  vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
+    vec4 pExitWorld = water.model * vec4(pExitLocal * water.radii.x, 1.0);
     vec3 background;
     float tBackground = 1e30;
 #ifdef WATER_RAY_QUERY
@@ -274,7 +276,6 @@ void main() {
             background = rayColor;
         } else {
             // Depth-2: check if exit ray re-enters the torus
-            vec3 dExitLocal = normalize((water.inverseModel * vec4(dExit, 0.0)).xyz);
             vec3 pExitLocalCheck = pExitLocal + dExitLocal * 1e-3;
             float reRoots[4];
             bool reFallback;
@@ -359,7 +360,24 @@ void main() {
     }
 #endif
 
-    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * exp(-water.absorption.rgb * chord);
+    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * rteTransmittance(waterExtinctionCoefficient(), chord);
+    vec3 lightDirExit = normalize(frame.light_pos.xyz - pExitWorld.xyz);
+    transmission += waterTransmittedHighlight(dExit, lightDirExit, frame.light_color.rgb, chord);
+
+    float scatterPath = length(pExitWorld.xyz - p1);
+    if (scatterPath > 1e-6) {
+        vec3 viewDirWater = (pExitWorld.xyz - p1) / scatterPath;
+        float ds = scatterPath / float(WATER_SCATTER_SAMPLES);
+        for (int i = 0; i < WATER_SCATTER_SAMPLES; ++i) {
+            WaterScatterSample smp = waterScatterSampleAt(p1, pExitWorld.xyz, i, frame.light_pos.xyz);
+#ifdef WATER_RAY_QUERY
+            if (push.secondaryRays == 0 && waterLightOccluded(smp.lightExitPoint, frame.light_pos.xyz)) {
+                continue;
+            }
+#endif
+            transmission += waterScatterSampleRadiance(smp, viewDirWater, frame.light_color.rgb, ds);
+        }
+    }
 
   // Composite output
    outColor = vec4(F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y, 1.0);

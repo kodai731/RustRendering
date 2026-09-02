@@ -12,6 +12,8 @@ declare_gpu_block! {
         pub flow: [f32; 4],
         pub composite: [f32; 4],
         pub tint: [f32; 4],
+        pub lighting: [f32; 4],
+        pub scattering: [f32; 4],
         pub temporal: [f32; 4],
         pub wave_modes: [[f32; 4]; 16],
         pub inv_view_proj: Matrix4<f32>,

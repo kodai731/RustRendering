@@ -21,6 +21,11 @@ fn test_default_water_effect_values() {
     assert_eq!(effect.reflect_strength, 1.0);
     assert_eq!(effect.refract_strength, 1.0);
     assert_eq!(effect.caustic_strength, 0.6);
+    assert_eq!(effect.light_intensity, 1.0);
+    assert_eq!(effect.highlight_sharpness, 64.0);
+    assert_eq!(effect.sky_brightness, 1.0);
+    assert_eq!(effect.scatter_strength, 1.0);
+    assert_eq!(effect.scatter_anisotropy, 0.0);
     assert_eq!(effect.tint, [0.05, 0.25, 0.35]);
 }
 

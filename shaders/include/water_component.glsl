@@ -14,6 +14,8 @@ layout(set = WATER_UBO_SET, binding = WATER_UBO_BINDING) uniform WaterUBO {
     vec4 flow;
     vec4 composite;
     vec4 tint;
+    vec4 lighting;
+    vec4 scattering;
     vec4 temporal;
     vec4 waveModes[16];
     mat4 invViewProj;
