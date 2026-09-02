@@ -49,6 +49,20 @@ layout(push_constant) uniform WaterPush {
 #ifdef WATER_RAY_QUERY
 #include "include/water_secondary.glsl"
 #endif
+
+// Second-bounce misses read the scene color through a wide box filter so thin screen
+// features (grid lines) cannot alias into combs after two refractions.
+vec3 sampleSceneColorBlurred(vec2 uv) {
+    vec2 texel = 2.0 / vec2(textureSize(sceneColorSampler, 0));
+    vec3 sum = vec3(0.0);
+    for (int y = -3; y <= 3; ++y) {
+        for (int x = -3; x <= 3; ++x) {
+            sum += texture(sceneColorSampler, clamp(uv + vec2(x, y) * texel, 0.0, 1.0)).rgb;
+        }
+    }
+    return sum / 49.0;
+}
+
 void main() {
    mat4 invViewProj = water.invViewProj;
     vec3 rayDir = reconstructRayDirection(fragTexCoord, invViewProj, frame.camera_pos.xyz);
@@ -113,12 +127,12 @@ void main() {
         return;
     }
 
-    // Compute chord length in world units
-    float chord;
-    if (hitCount >= 4) {
-        chord = (roots[1] - roots[0]) * water.radii.x + (roots[3] - roots[2]) * water.radii.x;
-    } else {
+    float chord = 0.0;
+    if (hitCount >= 2) {
         chord = (roots[1] - roots[0]) * water.radii.x;
+    }
+    if (hitCount >= 4) {
+        chord += (roots[3] - roots[2]) * water.radii.x;
     }
 
     // Surface normal at first hit via analytic wave gradient
@@ -171,10 +185,8 @@ void main() {
         vec3 reflDirLocal = normalize((water.inverseModel * vec4(reflDir, 0.0)).xyz);
         vec3 reflOriginLocal = pLocal1 + reflDirLocal * 1e-3;
 
-        float reflRoots[4];
-        bool reflFallback;
-        int reflCount = intersectTorus(reflOriginLocal, reflDirLocal, rHat, reflRoots, reflFallback);
-        float tTorusNext = (reflCount > 0) ? reflRoots[0] * water.radii.x : 1e30;
+        float tReflEntry = torusEntryFromOutside(reflOriginLocal, reflDirLocal, rHat);
+        float tTorusNext = (tReflEntry > 0.0) ? (1e-3 + tReflEntry) * water.radii.x : 1e30;
 
         vec3 rayColor;
         float tScene;
@@ -190,7 +202,8 @@ void main() {
             waterLbHeightAndGradient(uv2, water.flow.z, water.flow.xy, h2, hu2, hv2);
             vec3 nLocal2 = waterPerturbedNormal(uv2.x, uv2.y, h2, hu2, hv2, rHat);
             vec3 n2 = normalize(mat3(water.model) * nLocal2);
-            float cosThetaI2 = -dot(reflDir, n2);
+            float cosThetaI2 = max(-dot(reflDir, n2), 0.0);
+            float reentryWeight2 = torusReentryWeight(cosThetaI2);
             float sinThetaT2_2 = (1.0 - cosThetaI2 * cosThetaI2) / (eta * eta);
             float cosThetaT2 = sqrt(max(1.0 - sinThetaT2_2, 0.0));
             float rPar2 = (eta * cosThetaI2 - cosThetaT2) / (eta * cosThetaI2 + cosThetaT2);
@@ -204,14 +217,15 @@ void main() {
                 d2 = refract(reflDir, n2, 1.0 / eta);
                 if (length(d2) < 1e-4) d2 = reflect(reflDir, n2);
             }
-            vec3 c;
+            vec3 depth2;
             float tScene;
-            if (traceScene(p2, d2, 1e30, c, tScene)) {
-                reflection = c;
-            } else {
-                vec3 lightDir = normalize(frame.light_pos.xyz - p2);
-                reflection = waterEnvironmentReflection(d2, lightDir, frame.light_color.rgb, var2);
+            if (!traceScene(p2, d2, 1e30, depth2, tScene)) {
+                vec3 lightDir2 = normalize(frame.light_pos.xyz - p2);
+                depth2 = waterEnvironmentReflection(d2, lightDir2, frame.light_color.rgb, var2);
             }
+            vec3 lightDir = normalize(frame.light_pos.xyz - p1);
+            vec3 direct = waterEnvironmentReflection(reflDir, lightDir, frame.light_color.rgb, var);
+            reflection = mix(direct, depth2, reentryWeight2);
         } else {
             vec3 lightDir = normalize(frame.light_pos.xyz - p1);
             reflection = waterEnvironmentReflection(reflDir, lightDir, frame.light_color.rgb, var);
@@ -237,25 +251,16 @@ void main() {
         dRefr = reflect(dLocal, nLocal);
     }
 
-    float exitRoots[4];
-    bool exitFallback;
-    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots, exitFallback);
-    vec3 pExitLocal;
-    if (exitCount > 0) {
-        pExitLocal = pLocal1 + dRefr * (1e-3 + exitRoots[0]);
-    } else {
-        pExitLocal = pLocal1;
-    }
+    float tExit = torusExitFromInside(pLocal1 + dRefr * 1e-3, dRefr, rHat);
+    vec3 pExitLocal = (tExit > 0.0) ? pLocal1 + dRefr * (1e-3 + tExit) : pLocal1;
 
     vec3 nExit = normalize(torusGradient(pExitLocal, rHat));
     vec3 dExitLocal = refract(dRefr, -nExit, eta);
     if (length(dExitLocal) < 1e-4) {
         dRefr = reflect(dRefr, nExit);
-        float reRoots[4];
-        bool reFallback;
-        int reCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, reRoots, reFallback);
-        if (reCount > 0) {
-            pExitLocal = pLocal1 + dRefr * (1e-3 + reRoots[0]);
+        float tReExit = torusExitFromInside(pExitLocal + dRefr * 1e-3, dRefr, rHat);
+        if (tReExit > 0.0) {
+            pExitLocal = pExitLocal + dRefr * (1e-3 + tReExit);
         }
         nExit = normalize(torusGradient(pExitLocal, rHat));
         dExitLocal = refract(dRefr, -nExit, eta);
@@ -276,13 +281,16 @@ void main() {
             background = rayColor;
         } else {
             // Depth-2: check if exit ray re-enters the torus
-            vec3 pExitLocalCheck = pExitLocal + dExitLocal * 1e-3;
-            float reRoots[4];
-            bool reFallback;
-            int reCount = intersectTorus(pExitLocalCheck, dExitLocal, rHat, reRoots, reFallback);
-            if (reCount > 0) {
-                // Re-entry into torus — Fresnel probabilistic selection at re-entry point
-                float reT = reRoots[0] * water.radii.x;
+            float tReEntry = torusEntryFromOutside(pExitLocal + dExitLocal * 1e-3, dExitLocal, rHat);
+            vec4 clipExit = frame.proj * frame.view * pExitWorld;
+            if (clipExit.w > 0) {
+                vec2 uvExit = clamp((clipExit.xy / clipExit.w) * 0.5 + 0.5, 0.0, 1.0);
+                background = texture(sceneColorSampler, uvExit).rgb;
+            } else {
+                background = texture(sceneColorSampler, fragTexCoord).rgb;
+            }
+            if (tReEntry > 0.0) {
+                float reT = (1e-3 + tReEntry) * water.radii.x;
                 vec3 pReEntryWorld = pExitWorld.xyz + dExit * reT;
                 vec3 pLocalRe = (water.inverseModel * vec4(pReEntryWorld, 1.0)).xyz / water.radii.x;
                 vec2 uvRe = torusUV(pLocalRe);
@@ -291,7 +299,8 @@ void main() {
                 waterLbHeightAndGradient(uvRe, water.flow.z, water.flow.xy, hRe, huRe, hvRe);
                 vec3 nLocalRe = waterPerturbedNormal(uvRe.x, uvRe.y, hRe, huRe, hvRe, rHat);
                 vec3 nRe = normalize(mat3(water.model) * nLocalRe);
-                float cosThetaIRe = -dot(dExit, nRe);
+                float cosThetaIRe = max(-dot(dExit, nRe), 0.0);
+                float reentryWeight = torusReentryWeight(cosThetaIRe);
                 float sinThetaT2Re = (1.0 - cosThetaIRe * cosThetaIRe) / (eta * eta);
                 float cosThetaTRe = sqrt(max(1.0 - sinThetaT2Re, 0.0));
                 float rParRe = (eta * cosThetaIRe - cosThetaTRe) / (eta * cosThetaIRe + cosThetaTRe);
@@ -305,28 +314,14 @@ void main() {
                     dRe = refract(dExit, nRe, 1.0 / eta);
                     if (length(dRe) < 1e-4) dRe = reflect(dExit, nRe);
                 }
-                vec3 c;
+                vec3 reentryColor;
                 float tScene;
-                if (traceScene(pReEntryWorld, dRe, 1e30, c, tScene)) {
-                    background = c;
-                } else {
+                if (!traceScene(pReEntryWorld, dRe, 1e30, reentryColor, tScene)) {
                     vec4 clip = frame.proj * frame.view * vec4(pReEntryWorld, 1.0);
-                    if (clip.w > 0) {
-                        vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
-                        background = texture(sceneColorSampler, uvExit).rgb;
-                    } else {
-                        background = texture(sceneColorSampler, fragTexCoord).rgb;
-                    }
+                    vec2 uvRe2 = (clip.w > 0) ? clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0) : fragTexCoord;
+                    reentryColor = sampleSceneColorBlurred(uvRe2);
                 }
-            } else {
-                // No re-entry — screen-space fallback
-                vec4 clip = frame.proj * frame.view * pExitWorld;
-                if (clip.w > 0) {
-                    vec2 uvExit = clamp((clip.xy / clip.w) * 0.5 + 0.5, 0.0, 1.0);
-                    background = texture(sceneColorSampler, uvExit).rgb;
-                } else {
-                    background = texture(sceneColorSampler, fragTexCoord).rgb;
-                }
+                background = mix(background, reentryColor, reentryWeight);
             }
         }
     } else if (push.secondaryRays == 2) {

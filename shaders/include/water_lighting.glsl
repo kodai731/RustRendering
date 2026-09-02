@@ -54,21 +54,22 @@ WaterScatterSample waterScatterSampleAt(vec3 entry, vec3 exit, int index, vec3 l
     float rHat = water.radii.y / water.radii.x;
     vec3 originLocal = (water.inverseModel * vec4(smp.position, 1.0)).xyz / water.radii.x;
     vec3 dirLocal = normalize((water.inverseModel * vec4(smp.lightDir, 0.0)).xyz);
-    float roots[4];
-    bool fallbackUsed;
-    int count = intersectTorus(originLocal, dirLocal, rHat, roots, fallbackUsed);
-
-    float firstExit = (count > 0) ? roots[0] : 0.0;
+    float firstExit = torusExitFromInside(originLocal, dirLocal, rHat);
+    vec3 exitLocal = originLocal + dirLocal * firstExit;
     float lastExit = firstExit;
     float insideDistance = firstExit;
-    if (count >= 3) {
-        insideDistance += roots[2] - roots[1];
-        lastExit = roots[2];
+
+    float ringEntry = torusEntryFromOutside(exitLocal + dirLocal * 1e-3, dirLocal, rHat);
+    if (ringEntry > 0.0) {
+        float ringStart = firstExit + 1e-3 + ringEntry;
+        float ringChord = torusExitFromInside(originLocal + dirLocal * (ringStart + 1e-3), dirLocal, rHat);
+        insideDistance += ringChord;
+        lastExit = ringStart + 1e-3 + ringChord;
     }
     smp.waterDistance = insideDistance * water.radii.x;
     smp.lightExitPoint = smp.position + smp.lightDir * (lastExit * water.radii.x);
 
-    vec3 nExit = normalize(mat3(water.model) * torusGradient(originLocal + dirLocal * firstExit, rHat));
+    vec3 nExit = normalize(mat3(water.model) * torusGradient(exitLocal, rHat));
     smp.surfaceTransmission = 1.0 - waterFresnelReflectance(max(dot(nExit, smp.lightDir), 0.0), water.absorption.w);
     return smp;
 }

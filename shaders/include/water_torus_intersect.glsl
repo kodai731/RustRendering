@@ -267,4 +267,82 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fall
     return validCount;
 }
 
+// First exit of a ray starting inside the tube: sign change of the implicit function,
+// bracketed at tube-diameter scale and refined by bisection. Independent of the quartic
+// discriminant, so grazing exits stay continuous. Returns 0 when no exit is found.
+float torusExitFromInside(vec3 o, vec3 d, float rHat) {
+    const int BRACKET_STEPS = 16;
+    const int BISECT_STEPS = 12;
+    float tMax = 2.0 * rHat + 1e-3;
+    float tInside = 0.0;
+    bool seenInside = torusImplicit(o, rHat) < 0.0;
+
+    for (int i = 1; i <= BRACKET_STEPS; ++i) {
+        float t = tMax * float(i) / float(BRACKET_STEPS);
+        bool inside = torusImplicit(o + d * t, rHat) < 0.0;
+        if (inside) {
+            tInside = t;
+            seenInside = true;
+            continue;
+        }
+        if (!seenInside) {
+            continue;
+        }
+        float tOutside = t;
+        for (int k = 0; k < BISECT_STEPS; ++k) {
+            float mid = 0.5 * (tInside + tOutside);
+            if (torusImplicit(o + d * mid, rHat) < 0.0) {
+                tInside = mid;
+            } else {
+                tOutside = mid;
+            }
+        }
+        return 0.5 * (tInside + tOutside);
+    }
+    return 0.0;
+}
+
+// First entry of a ray starting outside the tube, by the same bracketing. Thin grazing
+// crossings narrower than a bracket step are skipped on purpose. Returns 0 when none.
+float torusEntryFromOutside(vec3 o, vec3 d, float rHat) {
+    const int BRACKET_STEPS = 32;
+    const int BISECT_STEPS = 12;
+    float oc = dot(o, d);
+    float boundingRadius = 1.0 + rHat;
+    float disc = oc * oc - (dot(o, o) - boundingRadius * boundingRadius);
+    if (disc < 0.0) {
+        return 0.0;
+    }
+    float tStart = max(-oc - sqrt(disc), 0.0);
+    float tEnd = -oc + sqrt(disc);
+    if (tEnd <= tStart) {
+        return 0.0;
+    }
+
+    float tOutside = tStart;
+    for (int i = 1; i <= BRACKET_STEPS; ++i) {
+        float t = mix(tStart, tEnd, float(i) / float(BRACKET_STEPS));
+        if (torusImplicit(o + d * t, rHat) >= 0.0) {
+            tOutside = t;
+            continue;
+        }
+        float tInside = t;
+        for (int k = 0; k < BISECT_STEPS; ++k) {
+            float mid = 0.5 * (tOutside + tInside);
+            if (torusImplicit(o + d * mid, rHat) < 0.0) {
+                tInside = mid;
+            } else {
+                tOutside = mid;
+            }
+        }
+        return 0.5 * (tOutside + tInside);
+    }
+    return 0.0;
+}
+
+// Grazing re-entries fade out instead of switching on the root count.
+float torusReentryWeight(float cosTheta) {
+    return smoothstep(0.0, 0.25, cosTheta);
+}
+
 #endif

@@ -21,9 +21,10 @@ void main() {
     bool fallbackUsed;
     int hitCount = intersectTorus(oLocal, dLocal, rHat, roots, fallbackUsed);
     if (hitCount <= 0) { payload.color = vec4(0.0); payload.exitOrigin = vec4(0.0); return; }
-    float chord = (hitCount >= 4)
-        ? (roots[1] - roots[0]) * water.radii.x + (roots[3] - roots[2]) * water.radii.x
-        : (roots[1] - roots[0]) * water.radii.x;
+    float chord = (hitCount >= 2) ? (roots[1] - roots[0]) * water.radii.x : 0.0;
+    if (hitCount >= 4) {
+        chord += (roots[3] - roots[2]) * water.radii.x;
+    }
     vec3 pLocal1 = oLocal + roots[0] * dLocal;
     vec2 uv = torusUV(pLocal1);
     float h, hu, hv, slopeVariance;
@@ -42,10 +43,8 @@ void main() {
 
     vec3 dRefr = refract(dLocal, nLocal, 1.0 / eta);
     if (length(dRefr) < 1e-4) { dRefr = reflect(dLocal, nLocal); }
-    float exitRoots[4];
-    bool exitFallback;
-    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots, exitFallback);
-    vec3 pExitLocal = (exitCount > 0) ? pLocal1 + dRefr * (1e-3 + exitRoots[0]) : pLocal1;
+    float tExit = torusExitFromInside(pLocal1 + dRefr * 1e-3, dRefr, rHat);
+    vec3 pExitLocal = (tExit > 0.0) ? pLocal1 + dRefr * (1e-3 + tExit) : pLocal1;
     vec3 nExit = normalize(torusGradient(pExitLocal, rHat));
     vec3 dExit = refract(dRefr, -nExit, eta);
     if (length(dExit) < 1e-4) { dExit = reflect(dRefr, nExit); }

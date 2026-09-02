@@ -397,6 +397,84 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fall
     return validCount;
 }
 
+// First exit of a ray starting inside the tube: sign change of the implicit function,
+// bracketed at tube-diameter scale and refined by bisection. Independent of the quartic
+// discriminant, so grazing exits stay continuous. Returns 0 when no exit is found.
+float torusExitFromInside(vec3 o, vec3 d, float rHat) {
+    const int BRACKET_STEPS = 16;
+    const int BISECT_STEPS = 12;
+    float tMax = 2.0 * rHat + 1e-3;
+    float tInside = 0.0;
+    bool seenInside = torusImplicit(o, rHat) < 0.0;
+
+    for (int i = 1; i <= BRACKET_STEPS; ++i) {
+        float t = tMax * float(i) / float(BRACKET_STEPS);
+        bool inside = torusImplicit(o + d * t, rHat) < 0.0;
+        if (inside) {
+            tInside = t;
+            seenInside = true;
+            continue;
+        }
+        if (!seenInside) {
+            continue;
+        }
+        float tOutside = t;
+        for (int k = 0; k < BISECT_STEPS; ++k) {
+            float mid = 0.5 * (tInside + tOutside);
+            if (torusImplicit(o + d * mid, rHat) < 0.0) {
+                tInside = mid;
+            } else {
+                tOutside = mid;
+            }
+        }
+        return 0.5 * (tInside + tOutside);
+    }
+    return 0.0;
+}
+
+// First entry of a ray starting outside the tube, by the same bracketing. Thin grazing
+// crossings narrower than a bracket step are skipped on purpose. Returns 0 when none.
+float torusEntryFromOutside(vec3 o, vec3 d, float rHat) {
+    const int BRACKET_STEPS = 32;
+    const int BISECT_STEPS = 12;
+    float oc = dot(o, d);
+    float boundingRadius = 1.0 + rHat;
+    float disc = oc * oc - (dot(o, o) - boundingRadius * boundingRadius);
+    if (disc < 0.0) {
+        return 0.0;
+    }
+    float tStart = max(-oc - sqrt(disc), 0.0);
+    float tEnd = -oc + sqrt(disc);
+    if (tEnd <= tStart) {
+        return 0.0;
+    }
+
+    float tOutside = tStart;
+    for (int i = 1; i <= BRACKET_STEPS; ++i) {
+        float t = mix(tStart, tEnd, float(i) / float(BRACKET_STEPS));
+        if (torusImplicit(o + d * t, rHat) >= 0.0) {
+            tOutside = t;
+            continue;
+        }
+        float tInside = t;
+        for (int k = 0; k < BISECT_STEPS; ++k) {
+            float mid = 0.5 * (tOutside + tInside);
+            if (torusImplicit(o + d * mid, rHat) < 0.0) {
+                tInside = mid;
+            } else {
+                tOutside = mid;
+            }
+        }
+        return 0.5 * (tOutside + tInside);
+    }
+    return 0.0;
+}
+
+// Grazing re-entries fade out instead of switching on the root count.
+float torusReentryWeight(float cosTheta) {
+    return smoothstep(0.0, 0.25, cosTheta);
+}
+
 
 
 vec2 torusUV(vec3 pLocalNormalized) {
@@ -605,21 +683,22 @@ WaterScatterSample waterScatterSampleAt(vec3 entry, vec3 exit, int index, vec3 l
     float rHat = water.radii.y / water.radii.x;
     vec3 originLocal = (water.inverseModel * vec4(smp.position, 1.0)).xyz / water.radii.x;
     vec3 dirLocal = normalize((water.inverseModel * vec4(smp.lightDir, 0.0)).xyz);
-    float roots[4];
-    bool fallbackUsed;
-    int count = intersectTorus(originLocal, dirLocal, rHat, roots, fallbackUsed);
-
-    float firstExit = (count > 0) ? roots[0] : 0.0;
+    float firstExit = torusExitFromInside(originLocal, dirLocal, rHat);
+    vec3 exitLocal = originLocal + dirLocal * firstExit;
     float lastExit = firstExit;
     float insideDistance = firstExit;
-    if (count >= 3) {
-        insideDistance += roots[2] - roots[1];
-        lastExit = roots[2];
+
+    float ringEntry = torusEntryFromOutside(exitLocal + dirLocal * 1e-3, dirLocal, rHat);
+    if (ringEntry > 0.0) {
+        float ringStart = firstExit + 1e-3 + ringEntry;
+        float ringChord = torusExitFromInside(originLocal + dirLocal * (ringStart + 1e-3), dirLocal, rHat);
+        insideDistance += ringChord;
+        lastExit = ringStart + 1e-3 + ringChord;
     }
     smp.waterDistance = insideDistance * water.radii.x;
     smp.lightExitPoint = smp.position + smp.lightDir * (lastExit * water.radii.x);
 
-    vec3 nExit = normalize(mat3(water.model) * torusGradient(originLocal + dirLocal * firstExit, rHat));
+    vec3 nExit = normalize(mat3(water.model) * torusGradient(exitLocal, rHat));
     smp.surfaceTransmission = 1.0 - waterFresnelReflectance(max(dot(nExit, smp.lightDir), 0.0), water.absorption.w);
     return smp;
 }
@@ -636,6 +715,20 @@ vec3 waterScatterSampleRadiance(WaterScatterSample smp, vec3 viewDir, vec3 light
 
 
 
+
+
+// Second-bounce misses read the scene color through a wide box filter so thin screen
+// features (grid lines) cannot alias into combs after two refractions.
+vec3 sampleSceneColorBlurred(vec2 uv) {
+    vec2 texel = 6.0 / vec2(textureSize(sceneColorSampler, 0));
+    vec3 sum = vec3(0.0);
+    for (int y = -2; y <= 2; ++y) {
+        for (int x = -2; x <= 2; ++x) {
+            sum += water.tint.rgb;
+        }
+    }
+    return sum / 25.0;
+}
 
 void main() {
    mat4 invViewProj = water.invViewProj;
@@ -686,12 +779,12 @@ void main() {
         return;
     }
 
-    // Compute chord length in world units
-    float chord;
-    if (hitCount >= 4) {
-        chord = (roots[1] - roots[0]) * water.radii.x + (roots[3] - roots[2]) * water.radii.x;
-    } else {
+    float chord = 0.0;
+    if (hitCount >= 2) {
         chord = (roots[1] - roots[0]) * water.radii.x;
+    }
+    if (hitCount >= 4) {
+        chord += (roots[3] - roots[2]) * water.radii.x;
     }
 
     // Surface normal at first hit via analytic wave gradient
@@ -747,25 +840,16 @@ void main() {
         dRefr = reflect(dLocal, nLocal);
     }
 
-    float exitRoots[4];
-    bool exitFallback;
-    int exitCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, exitRoots, exitFallback);
-    vec3 pExitLocal;
-    if (exitCount > 0) {
-        pExitLocal = pLocal1 + dRefr * (1e-3 + exitRoots[0]);
-    } else {
-        pExitLocal = pLocal1;
-    }
+    float tExit = torusExitFromInside(pLocal1 + dRefr * 1e-3, dRefr, rHat);
+    vec3 pExitLocal = (tExit > 0.0) ? pLocal1 + dRefr * (1e-3 + tExit) : pLocal1;
 
     vec3 nExit = normalize(torusGradient(pExitLocal, rHat));
     vec3 dExitLocal = refract(dRefr, -nExit, eta);
     if (length(dExitLocal) < 1e-4) {
         dRefr = reflect(dRefr, nExit);
-        float reRoots[4];
-        bool reFallback;
-        int reCount = intersectTorus(pLocal1 + dRefr * 1e-3, dRefr, rHat, reRoots, reFallback);
-        if (reCount > 0) {
-            pExitLocal = pLocal1 + dRefr * (1e-3 + reRoots[0]);
+        float tReExit = torusExitFromInside(pExitLocal + dRefr * 1e-3, dRefr, rHat);
+        if (tReExit > 0.0) {
+            pExitLocal = pExitLocal + dRefr * (1e-3 + tReExit);
         }
         nExit = normalize(torusGradient(pExitLocal, rHat));
         dExitLocal = refract(dRefr, -nExit, eta);
