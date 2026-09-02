@@ -177,6 +177,9 @@ void main() {
     float F = (rPar * rPar + rPerp * rPerp) * 0.5;
 
   // Reflection
+#ifdef WATER_RAY_QUERY
+    bool reentryTouched = false;
+#endif
     vec3 reflDir = reflect(rayDir, n);
     vec3 reflection;
 #ifdef WATER_RAY_QUERY
@@ -204,6 +207,9 @@ void main() {
             vec3 n2 = normalize(mat3(water.model) * nLocal2);
             float cosThetaI2 = max(-dot(reflDir, n2), 0.0);
             float reentryWeight2 = torusReentryWeight(cosThetaI2);
+            if (reentryWeight2 > 0.0) {
+                reentryTouched = true;
+            }
             float sinThetaT2_2 = (1.0 - cosThetaI2 * cosThetaI2) / (eta * eta);
             float cosThetaT2 = sqrt(max(1.0 - sinThetaT2_2, 0.0));
             float rPar2 = (eta * cosThetaI2 - cosThetaT2) / (eta * cosThetaI2 + cosThetaT2);
@@ -238,11 +244,7 @@ void main() {
     }
 
 #ifdef WATER_RAY_QUERY
-    if (push.debugView == 7) {
-        outColor = (waterTraceLastHitKind == 1) ? vec4(0.0, 1.0, 0.0, 1.0) : (waterTraceLastHitKind == 2) ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 1.0, 1.0);
-        outHistory = outColor;
-        return;
-    }
+    int reflectionHitKind = waterTraceLastHitKind;
 #endif
 
     // Transmission: exit-point refraction
@@ -301,6 +303,9 @@ void main() {
                 vec3 nRe = normalize(mat3(water.model) * nLocalRe);
                 float cosThetaIRe = max(-dot(dExit, nRe), 0.0);
                 float reentryWeight = torusReentryWeight(cosThetaIRe);
+                if (reentryWeight > 0.0) {
+                    reentryTouched = true;
+                }
                 float sinThetaT2Re = (1.0 - cosThetaIRe * cosThetaIRe) / (eta * eta);
                 float cosThetaTRe = sqrt(max(1.0 - sinThetaT2Re, 0.0));
                 float rParRe = (eta * cosThetaIRe - cosThetaTRe) / (eta * cosThetaIRe + cosThetaTRe);
@@ -340,6 +345,20 @@ void main() {
     }
 
 #ifdef WATER_RAY_QUERY
+    if (push.debugView == 7) {
+        if (waterTraceLastHitKind == 1 || reflectionHitKind == 1) {
+            outColor = vec4(0.0, 1.0, 0.0, 1.0);
+        } else if (waterTraceLastHitKind == 2 || reflectionHitKind == 2) {
+            outColor = vec4(1.0, 0.0, 0.0, 1.0);
+        } else if (reentryTouched) {
+            outColor = vec4(1.0, 1.0, 0.0, 1.0);
+        } else {
+            outColor = vec4(0.0, 0.0, 1.0, 1.0);
+        }
+        outHistory = outColor;
+        return;
+    }
+
     if (push.secondaryRays == 0 && water.radii.z > 0.0 && tBackground < 1e29) {
         float R = water.radii.x;
         float cosV = clamp((length(pExitLocal.xz) - 1.0) / rHat, -1.0, 1.0);

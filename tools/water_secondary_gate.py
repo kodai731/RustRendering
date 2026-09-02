@@ -1,13 +1,16 @@
 """Verify that ray query and screen-space reflections differ only on reflection hit pixels.
 
 Captures three images for one camera:
-- debug view 7: Green = in-screen hit, Red = out-of-screen hit, Blue = miss.
+- debug view 7: Green = in-screen hit, Red = out-of-screen hit, Blue = miss, Yellow = reentry.
 - --batch-water-secondary rayquery
 - --batch-water-secondary screenspace
 
-Then checks, inside the torus region only (green + red + blue), that the ray query /
-screen-space difference stays on the hit masks (green + red) and leaves the miss mask
+Then checks, inside the torus region only (green + red + blue + yellow), that the ray query /
+screen-space difference stays on the hit masks (green + red + yellow) and leaves the miss mask
 (blue) untouched. Pixels outside the torus (imgui overlay etc.) are reported but ignored.
+
+Single scattering is valid only for rayquery mode, so the gate compares with scatter strength 0
+to isolate the difference.
 
     uv run --with numpy --with pillow python3 tools/water_secondary_gate.py [--dood]
 
@@ -19,6 +22,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -119,8 +123,13 @@ def evaluate(shots: dict[str, Path]) -> dict:
     onscreen_mask = pure_channel_mask(debug_image, 1)
     offscreen_mask = pure_channel_mask(debug_image, 0)
     miss_mask = pure_channel_mask(debug_image, 2)
+    yellow_mask = (
+        (debug_image[:, :, 0] > 150)
+        & (debug_image[:, :, 1] > 150)
+        & (debug_image[:, :, 2] < 20)
+    )
 
-    hits_mask = onscreen_mask | offscreen_mask
+    hits_mask = onscreen_mask | offscreen_mask | yellow_mask
     torus_mask = hits_mask | miss_mask
 
     diff_inside_torus_px = int(np.count_nonzero(diff_mask & torus_mask))
@@ -139,6 +148,7 @@ def evaluate(shots: dict[str, Path]) -> dict:
         ),
         "onscreen": mask_metrics(diff, diff_mask, onscreen_mask),
         "offscreen": mask_metrics(diff, diff_mask, offscreen_mask),
+        "reentry": mask_metrics(diff, diff_mask, yellow_mask),
         "miss": miss,
         "torus_px": int(np.count_nonzero(torus_mask)),
         "diff_outside_torus_px": int(np.count_nonzero(diff_mask & ~torus_mask)),
@@ -149,7 +159,7 @@ def evaluate(shots: dict[str, Path]) -> dict:
 def write_report(result: dict, out_dir: Path) -> None:
     rows = [
         (f"{region}_{metric}", result[region][metric])
-        for region in ("onscreen", "offscreen", "miss")
+        for region in ("onscreen", "offscreen", "reentry", "miss")
         for metric in ("px", "diff_frac", "mean_diff")
     ]
     rows += [
@@ -161,6 +171,30 @@ def write_report(result: dict, out_dir: Path) -> None:
     lines = ["# Water Secondary Gate", "", "| Metric | Value |", "|---|---|"]
     lines += [f"| {name} | {value} |" for name, value in rows]
     (out_dir / "report.md").write_text("\n".join(lines) + "\n")
+
+
+def write_scatter_zero_scene(scene_path: Path) -> Path:
+    """Write a sibling scene whose water effect has scatter_strength 0."""
+    content = scene_path.read_text()
+    water_start = content.find("water: Some((")
+    if water_start < 0:
+        raise SystemExit(f"scene has no water effect block: {scene_path}")
+
+    head, water_block = content[:water_start], content[water_start:]
+    if "scatter_strength:" in water_block:
+        water_block = re.sub(
+            r"scatter_strength:\s*[-\w.+]+", "scatter_strength: 0.0", water_block, count=1)
+    else:
+        water_block = re.sub(
+            r"(?m)^([ \t]*)effect: \(\n",
+            lambda match: f"{match.group(0)}{match.group(1)}    scatter_strength: 0.0,\n",
+            water_block, count=1)
+
+    suffix = ".scene.ron" if scene_path.name.endswith(".scene.ron") else scene_path.suffix
+    stem = scene_path.name[: len(scene_path.name) - len(suffix)]
+    derived_path = scene_path.with_name(f"{stem}_scatter0{suffix}")
+    derived_path.write_text(head + water_block)
+    return derived_path
 
 
 def main() -> None:
@@ -189,8 +223,14 @@ def main() -> None:
         out_dir = repo_root() / out_dir
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    scene_path = Path(args.scene)
+    if not scene_path.is_absolute():
+        scene_path = repo_root() / scene_path
+    derived_scene = write_scatter_zero_scene(scene_path)
+    print(f"[water_secondary_gate] scatter 0 scene {derived_scene}", file=sys.stderr)
+
     actions = [action.strip() for action in args.actions.split(",") if action.strip()]
-    shots = capture_all(args.scene, args.camera, args.frames, out_dir, args.dood,
+    shots = capture_all(str(derived_scene), args.camera, args.frames, out_dir, args.dood,
                         args.water_time, actions)
     result = evaluate(shots)
 
