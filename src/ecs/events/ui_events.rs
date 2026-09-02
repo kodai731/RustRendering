@@ -32,6 +32,7 @@ pub enum ModelLoadSource {
 pub enum DebugPrimitiveKind {
     Cube,
     Sphere,
+    Floor,
 }
 
 #[derive(Clone, Debug)]

@@ -4,15 +4,17 @@ use thyllore_model_core::mesh::{Vertex, VertexData};
 
 use crate::model_result::{LoadedMesh, ModelLoadResult};
 
-/// Build a cube model with face normals (24 vertices, 12 triangles).
-pub fn build_cube_model(size: f32) -> ModelLoadResult {
-    let half = size * 0.5;
+/// Build a box model with face normals (24 vertices, 12 triangles).
+pub fn build_box_model(size_x: f32, size_y: f32, size_z: f32, color: [f32; 4]) -> ModelLoadResult {
+    let hx = size_x * 0.5;
+    let hy = size_y * 0.5;
+    let hz = size_z * 0.5;
 
     // Each face has 4 vertices (2 triangles), 6 faces = 24 vertices, 36 indices.
     let mut vertices: Vec<Vertex> = Vec::with_capacity(24);
     let mut indices: Vec<u32> = Vec::with_capacity(36);
 
-    let color = Vec4::new(0.8, 0.15, 0.15, 1.0);
+    let vertex_color = Vec4::new(color[0], color[1], color[2], color[3]);
 
     // Helper to add a quad (2 triangles) with a given normal direction.
     let mut add_face = |nx: f32,
@@ -34,25 +36,25 @@ pub fn build_cube_model(size: f32) -> ModelLoadResult {
         let normal = Vec3::new(nx, ny, nz);
         vertices.push(Vertex::new_with_normal(
             Vec3::new(ax, ay, az),
-            color,
+            vertex_color,
             Vec2::new(0.0, 0.0),
             normal,
         ));
         vertices.push(Vertex::new_with_normal(
             Vec3::new(bx, by, bz),
-            color,
+            vertex_color,
             Vec2::new(0.0, 0.0),
             normal,
         ));
         vertices.push(Vertex::new_with_normal(
             Vec3::new(cx, cy, cz),
-            color,
+            vertex_color,
             Vec2::new(0.0, 0.0),
             normal,
         ));
         vertices.push(Vertex::new_with_normal(
             Vec3::new(dx, dy, dz),
-            color,
+            vertex_color,
             Vec2::new(0.0, 0.0),
             normal,
         ));
@@ -61,30 +63,27 @@ pub fn build_cube_model(size: f32) -> ModelLoadResult {
 
     // +X face (right)
     add_face(
-        1.0, 0.0, 0.0, half, -half, half, half, half, half, half, half, -half, half, -half, -half,
+        1.0, 0.0, 0.0, hx, -hy, hz, hx, hy, hz, hx, hy, -hz, hx, -hy, -hz,
     );
     // -X face (left)
     add_face(
-        -1.0, 0.0, 0.0, -half, -half, -half, -half, half, -half, -half, half, half, -half, -half,
-        half,
+        -1.0, 0.0, 0.0, -hx, -hy, -hz, -hx, hy, -hz, -hx, hy, hz, -hx, -hy, hz,
     );
     // +Y face (top)
     add_face(
-        0.0, 1.0, 0.0, -half, half, half, half, half, half, half, half, -half, -half, half, -half,
+        0.0, 1.0, 0.0, -hx, hy, hz, hx, hy, hz, hx, hy, -hz, -hx, hy, -hz,
     );
     // -Y face (bottom)
     add_face(
-        0.0, -1.0, 0.0, -half, -half, -half, half, -half, -half, half, -half, half, -half, -half,
-        half,
+        0.0, -1.0, 0.0, -hx, -hy, -hz, hx, -hy, -hz, hx, -hy, hz, -hx, -hy, hz,
     );
     // +Z face (front)
     add_face(
-        0.0, 0.0, 1.0, -half, -half, half, half, -half, half, half, half, half, -half, half, half,
+        0.0, 0.0, 1.0, -hx, -hy, hz, hx, -hy, hz, hx, hy, hz, -hx, hy, hz,
     );
     // -Z face (back)
     add_face(
-        0.0, 0.0, -1.0, half, -half, -half, -half, -half, -half, -half, half, -half, half, half,
-        -half,
+        0.0, 0.0, -1.0, hx, -hy, -hz, -hx, -hy, -hz, -hx, hy, -hz, hx, hy, -hz,
     );
 
     let vertex_data = VertexData { vertices, indices };
@@ -97,7 +96,7 @@ pub fn build_cube_model(size: f32) -> ModelLoadResult {
             node_index: None,
             local_vertices: Vec::new(),
             texture: None,
-            base_color_factor: [0.8, 0.15, 0.15, 1.0],
+            base_color_factor: color,
         }],
         nodes: Vec::new(),
         skeletons: Vec::new(),
@@ -109,6 +108,11 @@ pub fn build_cube_model(size: f32) -> ModelLoadResult {
         constraints: Vec::new(),
         spring_bone_setup: None,
     }
+}
+
+/// Build a cube model with face normals (24 vertices, 12 triangles).
+pub fn build_cube_model(size: f32) -> ModelLoadResult {
+    build_box_model(size, size, size, [0.8, 0.15, 0.15, 1.0])
 }
 
 /// Build a UV sphere model with smooth normals per face.

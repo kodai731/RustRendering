@@ -1,9 +1,12 @@
 use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
 
-use super::pick::pick_torus;
+use super::lb_basis::{compute_lb_modes_cached, LB_MODE_COUNT, LB_SLOTS_PER_MODE};
+use super::pick::{pick_torus, water_total_height_and_gradient};
 use super::project::{project_to_torus, water_surface_normal, water_surface_point};
 use super::torus_intersect::{intersect_torus, torus_implicit};
 use super::wave::{generate_water_wave_modes, water_height_and_gradient, water_perturbed_normal};
+use crate::water::effect::WaterTorusEffect;
+use crate::water::gpu::systems::build_lb_modes;
 
 fn random_in_unit_sphere() -> Vector3<f32> {
     let mut x: f32 = 0.0;
@@ -130,6 +133,102 @@ fn test_project_to_torus_residual_and_identity() {
             proj.v
         );
     }
+}
+
+#[test]
+fn test_lb_blend_zero_matches_flat_wave_only() {
+    let effect = WaterTorusEffect::default();
+    assert_eq!(effect.wave_lb_blend, 0.0);
+
+    let (u, v) = (1.2f32, 0.8f32);
+    let (total_h, total_h_u, total_h_v) = water_total_height_and_gradient(&effect, u, v, 0);
+
+    let modes = generate_water_wave_modes(
+        effect.wave_amplitude,
+        effect.wave_frequency,
+        effect.wave_speed,
+        effect.wave_dispersion,
+        0,
+    );
+    let (flat_h, flat_h_u, flat_h_v) = water_height_and_gradient(
+        u,
+        v,
+        effect.time,
+        (effect.flow_longitudinal, effect.flow_meridional),
+        &modes,
+    );
+
+    assert_eq!(
+        (total_h, total_h_u, total_h_v),
+        (flat_h, flat_h_u, flat_h_v)
+    );
+
+    let lb_modes = build_lb_modes(&effect);
+    assert!(
+        lb_modes.iter().flatten().all(|&value| value == 0.0),
+        "lb_modes should be all zeros when wave_lb_blend=0"
+    );
+}
+
+#[test]
+fn test_lb_gradient_matches_central_difference() {
+    let effect = WaterTorusEffect {
+        wave_lb_blend: 0.5,
+        ..WaterTorusEffect::default()
+    };
+
+    let (u, v) = (1.2f32, 0.8f32);
+    let delta = 1e-3;
+
+    let (_, h_u, h_v) = water_total_height_and_gradient(&effect, u, v, 0);
+
+    let (h_u_ahead, ..) = water_total_height_and_gradient(&effect, u + delta, v, 0);
+    let (h_u_behind, ..) = water_total_height_and_gradient(&effect, u - delta, v, 0);
+    let h_u_central = (h_u_ahead - h_u_behind) / (2.0 * delta);
+
+    let (h_v_ahead, ..) = water_total_height_and_gradient(&effect, u, v + delta, 0);
+    let (h_v_behind, ..) = water_total_height_and_gradient(&effect, u, v - delta, 0);
+    let h_v_central = (h_v_ahead - h_v_behind) / (2.0 * delta);
+
+    let relative_error = |analytic: f32, central: f32| (analytic - central).abs() / central.abs();
+
+    assert!(
+        relative_error(h_u, h_u_central) < 1e-2,
+        "h_u={h_u:.8} central={h_u_central:.8}"
+    );
+    assert!(
+        relative_error(h_v, h_v_central) < 1e-2,
+        "h_v={h_v:.8} central={h_v_central:.8}"
+    );
+}
+
+#[test]
+fn test_build_lb_modes_matches_cached_modes_and_amplitude_sum() {
+    let effect = WaterTorusEffect {
+        wave_lb_blend: 0.5,
+        ..WaterTorusEffect::default()
+    };
+
+    let lb_modes = build_lb_modes(&effect);
+    let cached = compute_lb_modes_cached(effect.major_radius, effect.minor_radius);
+
+    for (k, mode) in cached.iter().enumerate() {
+        let packed_m = lb_modes[LB_SLOTS_PER_MODE * k][0];
+        assert_eq!(
+            packed_m, mode.m as f32,
+            "slot {k}: packed m={packed_m} != cached m={}",
+            mode.m
+        );
+    }
+
+    let amplitude_sum: f32 = (0..LB_MODE_COUNT)
+        .map(|k| lb_modes[LB_SLOTS_PER_MODE * k][2])
+        .sum();
+    let expected_sum = effect.wave_amplitude * effect.wave_lb_blend;
+    assert!(
+        (amplitude_sum - expected_sum).abs() < 1e-6,
+        "lb amplitude sum {amplitude_sum:.8} should be ~{expected_sum:.8}"
+    );
 }
 
 #[test]

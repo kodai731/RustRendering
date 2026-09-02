@@ -476,6 +476,16 @@ impl App {
                 "Sphere",
                 cgmath::Vector3::new(-3.0, 0.6, 0.0),
             ),
+            crate::ecs::events::DebugPrimitiveKind::Floor => (
+                thyllore_importer_core::primitive::build_box_model(
+                    12.0,
+                    0.2,
+                    12.0,
+                    [0.8, 0.8, 0.8, 1.0],
+                ),
+                "Floor",
+                cgmath::Vector3::new(0.0, -1.6, 0.0),
+            ),
         };
         let parent_entity = crate::app::model_loader::append_model_to_scene(
             &load_result,

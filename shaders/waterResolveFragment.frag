@@ -226,6 +226,14 @@ void main() {
         reflection = vec3(0.6, 0.7, 0.8) + frame.light_color.rgb * spec;
     }
 
+#ifdef WATER_RAY_QUERY
+    if (push.debugView == 7) {
+        outColor = (waterTraceLastHitKind == 1) ? vec4(0.0, 1.0, 0.0, 1.0) : (waterTraceLastHitKind == 2) ? vec4(1.0, 0.0, 0.0, 1.0) : vec4(0.0, 0.0, 1.0, 1.0);
+        outHistory = outColor;
+        return;
+    }
+#endif
+
     // Transmission: exit-point refraction
     vec3 dRefr = refract(dLocal, nLocal, 1.0 / eta);
     if (length(dRefr) < 1e-4) {

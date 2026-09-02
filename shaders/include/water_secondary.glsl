@@ -8,6 +8,9 @@ float waterJitter(vec2 fragCoord, float frameIndex) {
     return interleavedGradientNoise(fragCoord + vec2(frameIndex * 5.588238));
 }
 
+// Last hit kind from traceScene: 0 = miss, 1 = in-screen hit, 2 = out-of-screen hit
+int waterTraceLastHitKind = 0;
+
 // traceScene: cast a ray against the scene TLAS and shade the hit point.
 // Returns true if a triangle intersection was found, false on miss.
 // Hybrid: if the hit point projects to screen space within [0,1], returns the
@@ -25,6 +28,7 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color, out float tHit) {
 
     if (rayQueryGetIntersectionTypeEXT(rq, true) != gl_RayQueryCommittedIntersectionTriangleEXT) {
         tHit = tMax;
+        waterTraceLastHitKind = 0;
         return false;
     }
 
@@ -34,6 +38,7 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color, out float tHit) {
     // If vertexAddress is 0, this is an inactive instance (e.g. empty TLAS placeholder) — return miss
     if (rec.vertexAddress == 0) {
         tHit = tMax;
+        waterTraceLastHitKind = 0;
         return false;
     }
 
@@ -98,12 +103,14 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color, out float tHit) {
         vec2 uv = (clip.xy / clip.w) * 0.5 + 0.5;
         if (uv.x >= 0.0 && uv.x <= 1.0 && uv.y >= 0.0 && uv.y <= 1.0) {
             color = texture(sceneColorSampler, uv).rgb;
+            waterTraceLastHitKind = 1;
             return true;
         }
     }
 
     // Screen-space projection failed (outside viewport), use hit lighting
     color = hitLighting;
+    waterTraceLastHitKind = 2;
     return true;
 }
 

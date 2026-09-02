@@ -1587,6 +1587,7 @@ pub const DEBUG_ACTION_NAMES: &[&str] = &[
     "apply_texture_fit_roundtrip:<path>,<blend>,<profile|statistics> (same as apply_texture_fit, then restore original FlameEffect)",
     "spawn_cube (spawn the debug cube primitive, same as the debug window Spawn Cube button)",
     "spawn_sphere (spawn the debug sphere primitive, same as the debug window Spawn Sphere button)",
+    "spawn_floor (spawn the debug floor primitive, same as the debug window Spawn Floor button)",
 ];
 
 fn debug_view_mode_parse(name: &str) -> Option<DebugViewMode> {
@@ -1670,6 +1671,9 @@ fn debug_action_parse(name: &str) -> Result<BatchDebugAction> {
         }),
         "spawn_sphere" => Ok(BatchDebugAction::SpawnDebugPrimitive {
             kind: DebugPrimitiveKind::Sphere,
+        }),
+        "spawn_floor" => Ok(BatchDebugAction::SpawnDebugPrimitive {
+            kind: DebugPrimitiveKind::Floor,
         }),
         _ => bail!(
             "unknown debug action '{name}'. Valid actions: {}",

@@ -1093,7 +1093,7 @@ pub unsafe fn record_water_passes(
 }
 
 /// Must match CAUSTIC_GRID_SIZE and local_size in waterCausticSplat.comp
-const CAUSTIC_GRID_SIZE: u32 = 256;
+const CAUSTIC_GRID_SIZE: u32 = 512;
 const CAUSTIC_WORKGROUP_SIZE: u32 = 16;
 
 const COLOR_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresourceRange {

@@ -28,7 +28,7 @@ layout(binding = 3) uniform SceneData {
     float exposureValue;
 } sceneData;
 
-const int CAUSTIC_GRID_SIZE = 256;
+const int CAUSTIC_GRID_SIZE = 512;
 const int WAVE_MODE_COUNT = 8;
 const vec2 WAVE_FOOTPRINT = vec2(0.002);
 const int CAUSTIC_DEBUG_OFF = 0;

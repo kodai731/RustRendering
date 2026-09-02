@@ -1,6 +1,10 @@
-use cgmath::{InnerSpace, Matrix4, Vector3, Vector4};
+use cgmath::{InnerSpace, Matrix4, Vector2, Vector3, Vector4};
 
+use super::lb_basis::water_lb_height_and_gradient;
 use super::torus_intersect::intersect_torus;
+use super::wave::{generate_water_wave_modes, water_height_and_gradient};
+use crate::water::effect::WaterTorusEffect;
+use crate::water::gpu::systems::build_lb_modes;
 
 pub fn pick_torus(
     ray_origin: Vector3<f32>,
@@ -35,4 +39,34 @@ pub fn pick_torus(
     let hit_world = world_hit.truncate();
     let dist = (hit_world - ray_origin).magnitude();
     Some(dist)
+}
+
+/// Sum of the flat wave modes and the LB modes, matching what the shader evaluates.
+/// Returns (h, h_u, h_v).
+pub fn water_total_height_and_gradient(
+    effect: &WaterTorusEffect,
+    u: f32,
+    v: f32,
+    frame_index: u32,
+) -> (f32, f32, f32) {
+    let flow = (effect.flow_longitudinal, effect.flow_meridional);
+
+    let flat_modes = generate_water_wave_modes(
+        effect.wave_amplitude * (1.0 - effect.wave_lb_blend),
+        effect.wave_frequency,
+        effect.wave_speed,
+        effect.wave_dispersion,
+        frame_index,
+    );
+    let (flat_h, flat_h_u, flat_h_v) =
+        water_height_and_gradient(u, v, effect.time, flow, &flat_modes);
+
+    let (lb_h, lb_h_u, lb_h_v) = water_lb_height_and_gradient(
+        Vector2::new(u, v),
+        effect.time,
+        Vector2::new(flow.0, flow.1),
+        &build_lb_modes(effect),
+    );
+
+    (flat_h + lb_h, flat_h_u + lb_h_u, flat_h_v + lb_h_v)
 }

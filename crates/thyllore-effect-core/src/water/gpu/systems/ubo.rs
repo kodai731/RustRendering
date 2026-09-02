@@ -1,4 +1,4 @@
-use crate::water::analytic::lb_basis::compute_lb_modes_cached;
+use crate::water::analytic::lb_basis::{compute_lb_modes_cached, LB_MODE_COUNT, LB_SLOTS_PER_MODE};
 use crate::water::analytic::{generate_water_wave_modes, next_unit_f64, WATER_WAVE_MODE_COUNT};
 use crate::water::effect::WaterTorusEffect;
 use crate::water::*;
@@ -15,15 +15,13 @@ pub fn inverse_view_proj_f64(proj: Matrix4<f32>, view: Matrix4<f32>) -> Matrix4<
     inv.cast().unwrap()
 }
 
-const LB_MODE_COUNT: usize = 4;
-const LB_SLOTS_PER_MODE: usize = 5;
 const LB_PHASE_SEED: u64 = 999;
 
 fn lb_relative_weight(mode_index: usize) -> f32 {
     (-(mode_index as f32) / 2.0).exp2()
 }
 
-fn build_lb_modes(effect: &WaterTorusEffect) -> [[f32; 4]; 20] {
+pub fn build_lb_modes(effect: &WaterTorusEffect) -> [[f32; 4]; 20] {
     let mut lb_modes = [[0.0f32; 4]; 20];
     if effect.wave_lb_blend <= 0.0 {
         return lb_modes;
