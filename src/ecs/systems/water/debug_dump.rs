@@ -34,6 +34,11 @@ pub struct WaterDebugRenderInfo {
     pub water_blas_count: usize,
     pub hit_shading_table_capacity: Option<usize>,
     pub screenshot_path: Option<String>,
+    pub caustic_accum_path: Option<String>,
+    pub caustic_accum_nonzero: Option<u64>,
+    pub caustic_accum_max: Option<u32>,
+    pub tlas_instances: Option<Value>,
+    pub mesh_vertex_probe: Option<Value>,
 }
 
 pub fn build_water_debug_record(
@@ -74,6 +79,10 @@ pub fn water_debug_screenshot_path(unix_time: u64) -> PathBuf {
     Path::new(WATER_DEBUG_DUMP_DIRECTORY).join(format!("water_debug_{unix_time}.png"))
 }
 
+pub fn water_debug_caustic_accum_path(unix_time: u64) -> PathBuf {
+    Path::new(WATER_DEBUG_DUMP_DIRECTORY).join(format!("water_debug_{unix_time}_caustic.npy"))
+}
+
 fn build_render_info_json(info: &WaterDebugRenderInfo) -> Value {
     json!({
         "gpu_name": info.gpu_name,
@@ -89,6 +98,11 @@ fn build_render_info_json(info: &WaterDebugRenderInfo) -> Value {
             "hit_shading_table_capacity": info.hit_shading_table_capacity,
         },
         "screenshot_path": info.screenshot_path,
+        "caustic_accum_path": info.caustic_accum_path,
+        "caustic_accum_nonzero": info.caustic_accum_nonzero,
+        "caustic_accum_max": info.caustic_accum_max,
+        "tlas_instances": info.tlas_instances,
+        "mesh_vertex_probe": info.mesh_vertex_probe,
     })
 }
 

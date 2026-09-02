@@ -130,7 +130,7 @@ impl WaterBuffer {
             1,
         )?;
 
-        // Create caustic accum image (r32uint, STORAGE | TRANSFER_DST)
+        // Create caustic accum image (r32uint, STORAGE | TRANSFER_DST | TRANSFER_SRC)
         let (caustic_accum_image, caustic_accum_memory) = create_image(
             instance,
             rrdevice,
@@ -140,7 +140,9 @@ impl WaterBuffer {
             vk::SampleCountFlags::_1,
             vk::Format::R32_UINT,
             vk::ImageTiling::OPTIMAL,
-            vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_DST,
+            vk::ImageUsageFlags::STORAGE
+                | vk::ImageUsageFlags::TRANSFER_DST
+                | vk::ImageUsageFlags::TRANSFER_SRC,
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         )?;
 

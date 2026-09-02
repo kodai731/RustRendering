@@ -167,6 +167,19 @@ pub fn f16_to_f32(bits: u16) -> f32 {
 }
 
 pub fn write_npy_f32(path: &std::path::Path, shape: &[usize], data: &[f32]) -> anyhow::Result<()> {
+    write_npy_le4(path, "<f4", shape, data.iter().map(|v| v.to_le_bytes()))
+}
+
+pub fn write_npy_u32(path: &std::path::Path, shape: &[usize], data: &[u32]) -> anyhow::Result<()> {
+    write_npy_le4(path, "<u4", shape, data.iter().map(|v| v.to_le_bytes()))
+}
+
+fn write_npy_le4(
+    path: &std::path::Path,
+    dtype_descriptor: &str,
+    shape: &[usize],
+    elements: impl Iterator<Item = [u8; 4]>,
+) -> anyhow::Result<()> {
     use std::fs::File;
     use std::io::{BufWriter, Write};
 
@@ -179,25 +192,25 @@ pub fn write_npy_f32(path: &std::path::Path, shape: &[usize], data: &[f32]) -> a
 
     let shape_str: Vec<String> = shape.iter().map(|s| s.to_string()).collect();
     let header_content = format!(
-        "{{'descr': '<f4', 'fortran_order': False, 'shape': ({}) }}",
+        "{{'descr': '{}', 'fortran_order': False, 'shape': ({}) }}",
+        dtype_descriptor,
         shape_str.join(", ")
     );
 
-    let content_len = header_content.len();
-    let total_so_far: usize = 10 + content_len;
-    let padding = (64 - (total_so_far % 64)) % 64;
-    // header_len = content_len + padding, where the last byte of padding is \n
-    let header_len = content_len + padding;
+    // NPY v1.0 requires the data to start at a multiple of 64 bytes, header terminated by \n
+    let terminated_len = header_content.len() + 1;
+    let padding = (64 - ((10 + terminated_len) % 64)) % 64;
+    let header_len = terminated_len + padding;
 
     writer.write_all(&(header_len as u16).to_le_bytes())?;
     writer.write_all(header_content.as_bytes())?;
-    for _ in 0..(padding - 1) {
+    for _ in 0..padding {
         writer.write_all(b" ")?;
     }
     writer.write_all(b"\n")?;
 
-    for &val in data {
-        writer.write_all(&val.to_le_bytes())?;
+    for bytes in elements {
+        writer.write_all(&bytes)?;
     }
     writer.flush()?;
     Ok(())
@@ -286,6 +299,43 @@ mod tests {
                 bytes[data_start + i * 4 + 3],
             ]);
             assert_eq!(val, i as f32, "data mismatch at index {}", i);
+        }
+    }
+
+    #[test]
+    fn test_write_npy_u32_preserves_all_bits() {
+        let data: Vec<u32> = vec![0, 1, 0x00FF_FFFF, 0x0100_0001, 0x7FFF_FFFF, u32::MAX];
+        let shape = [2, 3];
+
+        let path = std::env::temp_dir().join("test_npy_u32.npy");
+        write_npy_u32(&path, &shape, &data).unwrap();
+
+        let mut bytes = Vec::new();
+        BufReader::new(File::open(&path).unwrap())
+            .read_to_end(&mut bytes)
+            .unwrap();
+        std::fs::remove_file(&path).ok();
+
+        assert_eq!(&bytes[0..6], b"\x93NUMPY");
+        let header_len = u16::from_le_bytes([bytes[8], bytes[9]]) as usize;
+        assert_eq!((10 + header_len) % 64, 0);
+
+        let header_end = 10 + header_len;
+        let header_text = std::str::from_utf8(&bytes[10..header_end]).unwrap();
+        assert!(header_text.contains("'descr': '<u4'"));
+        assert!(header_text.contains("'shape': (2, 3)"));
+        assert!(header_text.ends_with('\n'));
+
+        assert_eq!(bytes.len(), header_end + data.len() * 4);
+        for (index, &expected) in data.iter().enumerate() {
+            let offset = header_end + index * 4;
+            let val = u32::from_le_bytes([
+                bytes[offset],
+                bytes[offset + 1],
+                bytes[offset + 2],
+                bytes[offset + 3],
+            ]);
+            assert_eq!(val, expected, "data mismatch at index {}", index);
         }
     }
 
