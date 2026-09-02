@@ -63,6 +63,63 @@ fn timeline_state_drives_water_time() {
     assert!((effect.time - 5.5).abs() < 1e-6);
 }
 
+fn timeline_time_sources(current_time: f32, playing: bool, delta_time: f32) -> WaterTimeSources {
+    WaterTimeSources {
+        batch_fixed_time: None,
+        batch_frames_rendered: None,
+        timeline: Some(TimelineSample {
+            current_time,
+            playing,
+        }),
+        delta_time,
+        free_run_when_paused: true,
+    }
+}
+
+#[test]
+fn paused_timeline_advances_water_time_by_delta_when_free_run_is_enabled() {
+    let mut world = World::new();
+    let effect = WaterTorusEffect {
+        time: 3.0,
+        ..WaterTorusEffect::default()
+    };
+    let entity = spawn_water(&mut world, "Water", effect);
+
+    world.insert_resource(TimelineState {
+        current_time: 2.0,
+        playing: false,
+        ..TimelineState::new()
+    });
+
+    let mut effect = world.get_component_mut::<WaterTorusEffect>(entity).unwrap();
+    resolve_water_time(&mut effect, timeline_time_sources(2.0, false, 0.25));
+
+    assert!((effect.time - 3.25).abs() < 1e-6, "got {}", effect.time);
+}
+
+#[test]
+fn playing_timeline_drives_water_time_from_timeline_time() {
+    let mut world = World::new();
+    let effect = WaterTorusEffect {
+        time: 3.0,
+        time_scale: 2.0,
+        time_offset: 1.5,
+        ..WaterTorusEffect::default()
+    };
+    let entity = spawn_water(&mut world, "Water", effect);
+
+    world.insert_resource(TimelineState {
+        current_time: 2.0,
+        playing: true,
+        ..TimelineState::new()
+    });
+
+    let mut effect = world.get_component_mut::<WaterTorusEffect>(entity).unwrap();
+    resolve_water_time(&mut effect, timeline_time_sources(2.0, true, 0.25));
+
+    assert!((effect.time - 5.5).abs() < 1e-6, "got {}", effect.time);
+}
+
 #[test]
 fn pick_ray_hits_water_torus() {
     let mut world = World::new();
@@ -428,4 +485,49 @@ fn water_debug_record_lists_every_instance_with_its_wave_modes() {
         instances[1]["ubo"]["wave_modes"].as_array().unwrap().len(),
         16
     );
+}
+
+#[test]
+fn water_debug_caustic_accum_path_is_a_npy_next_to_the_dump() {
+    let path = water_debug_caustic_accum_path(42);
+
+    assert_eq!(
+        path.file_name().unwrap().to_string_lossy(),
+        "water_debug_42_caustic.npy"
+    );
+}
+
+#[test]
+fn water_debug_record_reports_caustic_accum_stats_when_the_image_was_read_back() {
+    let mut world = World::new();
+    world.insert_resource(crate::ecs::resource::WaterRenderSettings::default());
+    spawn_default_water(&mut world, "Water A");
+
+    let render_info = WaterDebugRenderInfo {
+        caustic_accum_path: Some("log/water/water_debug_42_caustic.npy".to_string()),
+        caustic_accum_nonzero: Some(1234),
+        caustic_accum_max: Some(4096),
+        ..WaterDebugRenderInfo::default()
+    };
+    let record = build_water_debug_record(&world, &render_info, 42);
+
+    assert_eq!(
+        record["render"]["caustic_accum_path"],
+        "log/water/water_debug_42_caustic.npy"
+    );
+    assert_eq!(record["render"]["caustic_accum_nonzero"], 1234);
+    assert_eq!(record["render"]["caustic_accum_max"], 4096);
+}
+
+#[test]
+fn water_debug_record_leaves_caustic_accum_null_without_a_water_buffer() {
+    let mut world = World::new();
+    world.insert_resource(crate::ecs::resource::WaterRenderSettings::default());
+    spawn_default_water(&mut world, "Water A");
+
+    let record = build_water_debug_record(&world, &WaterDebugRenderInfo::default(), 42);
+
+    assert!(record["render"]["caustic_accum_path"].is_null());
+    assert!(record["render"]["caustic_accum_nonzero"].is_null());
+    assert!(record["render"]["caustic_accum_max"].is_null());
 }

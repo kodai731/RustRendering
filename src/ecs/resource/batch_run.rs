@@ -1,5 +1,7 @@
 use std::path::PathBuf;
 
+use crate::animation::editable::SourceClipId;
+
 #[derive(Clone)]
 pub enum BatchRunState {
     WaitingForFrame,
@@ -14,6 +16,7 @@ pub struct BatchRun {
     pub state: BatchRunState,
     pub flame_set: Vec<(String, f32)>,
     pub dump_wall_probe: bool,
+    pub dump_water_debug: bool,
     pub captures_remaining: u32,
     pub stride: u32,
     pub sequence_dir: Option<PathBuf>,
@@ -21,6 +24,8 @@ pub struct BatchRun {
     pub flame_trace_path: Option<PathBuf>,
     pub wall_probe_path: Option<PathBuf>,
     pub water_probe_path: Option<PathBuf>,
+    pub play_requested: bool,
+    pub play_clip_id: Option<SourceClipId>,
 }
 
 impl BatchRun {
@@ -32,6 +37,7 @@ impl BatchRun {
             state: BatchRunState::WaitingForFrame,
             flame_set,
             dump_wall_probe: false,
+            dump_water_debug: false,
             captures_remaining: 0,
             stride: 1,
             sequence_dir: None,
@@ -39,6 +45,8 @@ impl BatchRun {
             flame_trace_path: None,
             wall_probe_path: None,
             water_probe_path: None,
+            play_requested: false,
+            play_clip_id: None,
         }
     }
 

@@ -530,6 +530,11 @@ fn build_water_section(
                 settings_copy.debug_view = debug_view as i32;
             }
 
+            ui.checkbox(
+                "Animate when paused",
+                &mut settings_copy.free_run_when_paused,
+            );
+
             ui_events.send(UIEvent::UpdateWaterRenderSettings(settings_copy));
         }
 

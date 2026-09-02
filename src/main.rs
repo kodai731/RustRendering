@@ -6,6 +6,7 @@
 )]
 
 use thyllore_animation::app::init::instance::cleanup_old_screenshots;
+use thyllore_animation::app::model_loader::find_best_clip;
 use thyllore_animation::app::App;
 use thyllore_animation::ecs::component::{FlameEffect, FlameTrail, HeatPlume};
 use thyllore_animation::ecs::events::{UIEvent, UIEventQueue};
@@ -90,11 +91,29 @@ fn main() -> Result<()> {
             .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
             .debug_view = debug_view;
     }
+    if let Some(caustic_debug) = overrides.water_caustic_debug {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
+            .caustic_debug = caustic_debug;
+    }
     if let Some(secondary) = overrides.water_secondary {
         app.data
             .ecs_world
             .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
             .secondary_rays = secondary;
+    }
+    if let Some(weight) = overrides.water_history_weight {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
+            .batch_history_weight = Some(weight);
+    }
+    if let Some(seconds) = overrides.water_fixed_time {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
+            .batch_fixed_time = Some(seconds);
     }
     if overrides.water_probe_path.is_some() {
         let debug_view = overrides.water_debug_view.unwrap_or(3);
@@ -307,10 +326,17 @@ fn main() -> Result<()> {
         );
     }
     if !overrides.debug_actions.is_empty() {
+        let batch_run_owns_dumps = app.data.ecs_world.contains_resource::<BatchRun>();
         let filtered: Vec<_> = overrides
             .debug_actions
             .iter()
-            .filter(|a| !matches!(a, BatchDebugAction::WallProbeDump))
+            .filter(|a| {
+                !batch_run_owns_dumps
+                    || !matches!(
+                        a,
+                        BatchDebugAction::WallProbeDump | BatchDebugAction::WaterDebugDump
+                    )
+            })
             .cloned()
             .collect();
         batch_apply_debug_actions(&app.data.ecs_world, &filtered);
@@ -320,22 +346,7 @@ fn main() -> Result<()> {
     // Prefer a clip with bone tracks so the (empty) default flame clip never
     // shadows the model animation the batch run wants to play.
     if overrides.batch_play {
-        let first = {
-            let clip_library = app
-                .data
-                .ecs_world
-                .resource::<thyllore_animation::ecs::resource::ClipLibrary>();
-            let mut ids: Vec<_> = clip_library.all_clip_ids().copied().collect();
-            ids.sort_unstable();
-            ids.iter()
-                .copied()
-                .find(|&id| {
-                    clip_library
-                        .get(id)
-                        .is_some_and(|clip| !clip.tracks.is_empty())
-                })
-                .or_else(|| ids.first().copied())
-        };
+        let first = find_best_clip(&app.data.ecs_world);
         let mut ts = app
             .data
             .ecs_world
@@ -345,6 +356,12 @@ fn main() -> Result<()> {
         ts.current_time = 0.0;
         if ts.current_clip_id.is_none() {
             ts.current_clip_id = first;
+        }
+
+        // Store play request on BatchRun so model_loader.rs resets can restore it
+        if let Some(mut batch_run) = app.data.ecs_world.get_resource_mut::<BatchRun>() {
+            batch_run.play_requested = true;
+            batch_run.play_clip_id = first;
         }
     }
 

@@ -25,6 +25,9 @@ const BATCH_FLAME_MODE_FLAG: &str = "--batch-flame-mode";
 const BATCH_FLAME_DEBUG_VIEW_FLAG: &str = "--batch-flame-debug-view";
 const BATCH_WATER_DEBUG_VIEW_FLAG: &str = "--batch-water-debug-view";
 const BATCH_WATER_SECONDARY_FLAG: &str = "--batch-water-secondary";
+const BATCH_WATER_CAUSTIC_DEBUG_FLAG: &str = "--batch-water-caustic-debug";
+const BATCH_WATER_HISTORY_FLAG: &str = "--batch-water-history";
+const BATCH_WATER_TIME_FLAG: &str = "--batch-water-time";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
@@ -65,6 +68,9 @@ pub struct EngineCliOverrides {
     pub flame_debug_view: Option<thyllore_effect_core::FlameDebugView>,
     pub water_debug_view: Option<i32>,
     pub water_secondary: Option<thyllore_effect_core::WaterSecondaryRays>,
+    pub water_caustic_debug: Option<i32>,
+    pub water_history_weight: Option<f32>,
+    pub water_fixed_time: Option<f32>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
     pub flame_dump_path: Option<String>,
@@ -147,6 +153,9 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         flame_debug_view: flame_debug_view_resolve_from_args(args)?,
         water_debug_view: water_debug_view_resolve_from_args(args)?,
         water_secondary: water_secondary_resolve_from_args(args)?,
+        water_caustic_debug: water_caustic_debug_resolve_from_args(args)?,
+        water_history_weight: water_history_weight_resolve_from_args(args)?,
+        water_fixed_time: water_fixed_time_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
         camera_pose: camera_pose_resolve_from_args(args)?,
         flame_dump_path: flame_dump_path_resolve_from_args(args)?,
@@ -264,9 +273,11 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
 
         let flame_set = flame_set_resolve_from_args(args)?;
         let dump_wall_probe = debug_actions_has_wall_probe_dump(args);
+        let dump_water_debug = debug_actions_has_water_debug_dump(args);
 
         let mut batch = BatchRun::new(PathBuf::from(dir), screenshot_frame, flame_set);
         batch.dump_wall_probe = dump_wall_probe;
+        batch.dump_water_debug = dump_water_debug;
         batch.captures_remaining = count;
         batch.stride = stride;
         batch.sequence_dir = Some(PathBuf::from(dir));
@@ -311,9 +322,11 @@ pub fn batch_run_resolve_from_args(args: &[String]) -> Result<Option<BatchRun>> 
         let flame_set = flame_set_resolve_from_args(args)?;
 
         let dump_wall_probe = debug_actions_has_wall_probe_dump(args);
+        let dump_water_debug = debug_actions_has_water_debug_dump(args);
 
         let mut batch = BatchRun::new(output, screenshot_frame, flame_set);
         batch.dump_wall_probe = dump_wall_probe;
+        batch.dump_water_debug = dump_water_debug;
         batch.flame_trace_path =
             flag_value_resolve_from_args(args, BATCH_FLAME_TRACE_FLAG)?.map(PathBuf::from);
         batch.wall_probe_path =
@@ -375,6 +388,22 @@ pub fn water_debug_view_resolve_from_args(args: &[String]) -> Result<Option<i32>
     Ok(Some(view))
 }
 
+pub fn water_caustic_debug_resolve_from_args(args: &[String]) -> Result<Option<i32>> {
+    let Some(position) = args
+        .iter()
+        .position(|arg| arg == BATCH_WATER_CAUSTIC_DEBUG_FLAG)
+    else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WATER_CAUSTIC_DEBUG_FLAG} requires a value (integer caustic debug mode)");
+    };
+    let mode: i32 = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid water caustic debug '{value}': expected integer"))?;
+    Ok(Some(mode))
+}
+
 pub fn water_secondary_resolve_from_args(
     args: &[String],
 ) -> Result<Option<thyllore_effect_core::WaterSecondaryRays>> {
@@ -393,6 +422,32 @@ pub fn water_secondary_resolve_from_args(
         )
     })?;
     Ok(Some(secondary))
+}
+
+pub fn water_history_weight_resolve_from_args(args: &[String]) -> Result<Option<f32>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_WATER_HISTORY_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WATER_HISTORY_FLAG} requires a value (history blend weight)");
+    };
+    let weight: f32 = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid water history weight '{value}': expected float"))?;
+    Ok(Some(weight))
+}
+
+pub fn water_fixed_time_resolve_from_args(args: &[String]) -> Result<Option<f32>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_WATER_TIME_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WATER_TIME_FLAG} requires a value (seconds)");
+    };
+    let seconds: f32 = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid water time '{value}': expected float seconds"))?;
+    Ok(Some(seconds))
 }
 
 pub fn flame_steps_resolve_from_args(args: &[String]) -> Result<Option<u32>> {
@@ -1629,6 +1684,20 @@ fn debug_actions_has_wall_probe_dump(args: &[String]) -> bool {
         if args[i] == BATCH_DEBUG_ACTION_FLAG {
             if let Some(name) = args.get(i + 1).filter(|v| !v.starts_with("--")) {
                 if name == "dump_wall_probe" {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+/// Check if `--batch-debug-action dump_water_debug` is present in the args.
+fn debug_actions_has_water_debug_dump(args: &[String]) -> bool {
+    for i in 0..args.len() {
+        if args[i] == BATCH_DEBUG_ACTION_FLAG {
+            if let Some(name) = args.get(i + 1).filter(|v| !v.starts_with("--")) {
+                if name == "dump_water_debug" {
                     return true;
                 }
             }
@@ -3040,6 +3109,47 @@ mod tests {
         );
         let events: Vec<UIEvent> = world.resource_mut::<UIEventQueue>().drain().collect();
         assert!(matches!(events[0], UIEvent::ResetCamera));
+    }
+
+    #[test]
+    fn water_debug_dump_action_marks_the_batch_run_in_every_capture_mode() {
+        let single = batch_run_resolve_from_args(&args(&[
+            "bin",
+            "--batch-screenshot",
+            "out.png",
+            "--batch-debug-action",
+            "dump_water_debug",
+        ]))
+        .unwrap()
+        .expect("single-shot batch");
+        assert!(single.dump_water_debug);
+
+        let sequence = batch_run_resolve_from_args(&args(&[
+            "bin",
+            "--batch-screenshot-sequence",
+            "out,3,2",
+            "--batch-debug-action",
+            "dump_water_debug",
+        ]))
+        .unwrap()
+        .expect("sequence batch");
+        assert!(sequence.dump_water_debug);
+
+        let without = batch_run_resolve_from_args(&args(&["bin", "--batch-screenshot", "out.png"]))
+            .unwrap()
+            .expect("batch without debug action");
+        assert!(!without.dump_water_debug);
+    }
+
+    #[test]
+    fn water_debug_dump_action_still_queues_its_event_outside_a_batch_run() {
+        let mut world = World::new();
+        world.insert_resource(UIEventQueue::new());
+
+        batch_apply_debug_actions(&world, &[BatchDebugAction::WaterDebugDump]);
+
+        let events: Vec<UIEvent> = world.resource_mut::<UIEventQueue>().drain().collect();
+        assert!(matches!(events[0], UIEvent::DumpWaterDebug));
     }
 
     #[test]

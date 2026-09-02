@@ -1101,17 +1101,20 @@ unsafe fn render_frame(
                 .ecs_world
                 .get_resource::<crate::ecs::resource::BatchRun>()
                 .map(|b| b.state.clone());
-            let dump_wall_probe = app
+            let (dump_wall_probe, dump_water_debug) = app
                 .data
                 .ecs_world
                 .get_resource::<crate::ecs::resource::BatchRun>()
-                .map(|b| b.dump_wall_probe)
-                .unwrap_or(false);
+                .map(|b| (b.dump_wall_probe, b.dump_water_debug))
+                .unwrap_or((false, false));
             if matches!(
                 state,
                 Some(crate::ecs::resource::BatchRunState::ScreenshotRequested)
             ) {
                 app.rrdevice.device.device_wait_idle()?;
+                if dump_water_debug {
+                    app.dump_water_debug_at(image_index);
+                }
                 let save_result = app.save_screenshot(image_index);
                 crate::ecs::systems::batch_run_record_screenshot(
                     &app.data.ecs_world,

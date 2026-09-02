@@ -29,6 +29,7 @@ pub fn water_temporal_accumulate(world: &mut World) {
                 WaterTemporalAccum {
                     weight: 0.0,
                     frame_index: next,
+                    history_invalidated: false,
                 },
             );
         }
@@ -81,10 +82,13 @@ pub fn water_temporal_accumulate(world: &mut World) {
                 old_temporal.frame_index.wrapping_add(1)
             },
             weight: if matches_previous_frame {
-                STABLE_FRAME_HISTORY_WEIGHT
+                settings
+                    .batch_history_weight
+                    .unwrap_or(STABLE_FRAME_HISTORY_WEIGHT)
             } else {
                 0.0
             },
+            history_invalidated: !matches_previous_frame,
         },
     );
 }

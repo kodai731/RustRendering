@@ -43,6 +43,11 @@ impl WaterSecondaryRays {
 pub struct WaterRenderSettings {
     pub secondary_rays: WaterSecondaryRays,
     pub debug_view: i32,
+    pub caustic_debug: i32,
+    pub batch_history_weight: Option<f32>,
+    pub batch_fixed_time: Option<f32>,
+    /// Keep the water surface animating while the timeline is not playing.
+    pub free_run_when_paused: bool,
 }
 
 impl Default for WaterRenderSettings {
@@ -50,6 +55,10 @@ impl Default for WaterRenderSettings {
         Self {
             secondary_rays: WaterSecondaryRays::RayQuery,
             debug_view: 0,
+            caustic_debug: 0,
+            batch_history_weight: None,
+            batch_fixed_time: None,
+            free_run_when_paused: true,
         }
     }
 }

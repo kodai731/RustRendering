@@ -5,4 +5,5 @@
 pub struct WaterTemporalAccum {
     pub weight: f32,
     pub frame_index: u64,
+    pub history_invalidated: bool,
 }

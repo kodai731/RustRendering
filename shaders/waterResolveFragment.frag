@@ -67,6 +67,12 @@ void main() {
         discard;
     }
 
+    // First hit time in world units
+    float t1 = roots[0] * water.radii.x;
+    vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
+    float waterDepth = worldToClipDepth(p1, frame.view, frame.proj);
+    gl_FragDepth = waterDepth;
+
     // Debug view: color by root count
     if (push.debugView == 1) {
         if (hitCount == 2) {
@@ -92,10 +98,6 @@ void main() {
     }
 #endif
 
-   // First hit time in world units
-    float t1 = roots[0] * water.radii.x;
-    vec3 p1 = frame.camera_pos.xyz + t1 * rayDir;
-
    // Debug view: torus intersection probe (nearest root, high-precision encoding)
     if (push.debugView == 3 || push.debugView == 4) {
         float t = (push.debugView == 3) ? roots[0] * water.radii.x : roots[1] * water.radii.x;
@@ -109,8 +111,6 @@ void main() {
 #endif
         return;
     }
-
-    float waterDepth = worldToClipDepth(p1, frame.view, frame.proj);
 
     // Compute chord length in world units
     float chord;
@@ -134,6 +134,7 @@ void main() {
     if (abs(du_dx) > 3.0) {
         footprint.x = 0.0;
     }
+    if (any(isnan(footprint)) || any(isinf(footprint))) { footprint = vec2(0.0); }
 
     float h, hu, hv, var;
     waterHeightAndGradient(uv, water.flow.z, water.flow.xy, int(water.composite.z), footprint, h, hu, hv, var);
@@ -362,12 +363,32 @@ void main() {
 #endif
 
 #ifdef WATER_RAY_QUERY
-    vec4 blended = mix(outColor, texture(waterHistorySampler, fragTexCoord), water.temporal.x);
-    outColor = blended;
-    outHistory = blended;
+    vec4 current = outColor;
+    bool currentNonFinite = any(isnan(outColor)) || any(isinf(outColor));
+    if (currentNonFinite) {
+        current = vec4(0.0, 0.0, 0.0, 1.0);
+    }
+    vec4 blended = current;
+    if (water.temporal.x > 0.0) {
+        vec4 history = texture(waterHistorySampler, fragTexCoord);
+        if (!any(isnan(history)) && !any(isinf(history))) {
+            blended = mix(current, history, water.temporal.x);
+        }
+    }
+    if (push.debugView == 6) {
+        if (currentNonFinite) {
+            outColor = vec4(0.0, 1.0, 0.0, 1.0);
+        } else if (any(isnan(blended)) || any(isinf(blended))) {
+            outColor = vec4(1.0, 0.0, 1.0, 1.0);
+        } else {
+            outColor = vec4(0.0);
+        }
+        outHistory = blended;
+    } else {
+        outColor = blended;
+        outHistory = blended;
+    }
 #else
     // No history in Blender: output directly
 #endif
-
-    gl_FragDepth = waterDepth;
 }

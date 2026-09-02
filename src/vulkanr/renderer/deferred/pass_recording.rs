@@ -989,16 +989,24 @@ pub unsafe fn record_water_passes(
         command_buffer,
     );
 
-    // Compute history_index from the first water's temporal accumulation state (default 0)
-    let history_index = if let Some(first_water) = waters.first() {
+    let first_water_accum = waters.first().and_then(|water| {
         app.data
             .ecs_world
-            .get_component::<crate::ecs::component::WaterTemporalAccum>(*first_water)
-            .map(|accum| (accum.frame_index & 1) as usize)
-            .unwrap_or(0)
-    } else {
-        0
-    };
+            .get_component::<crate::ecs::component::WaterTemporalAccum>(*water)
+            .cloned()
+    });
+
+    let history_index = first_water_accum
+        .as_ref()
+        .map(|accum| (accum.frame_index & 1) as usize)
+        .unwrap_or(0);
+
+    if first_water_accum
+        .as_ref()
+        .is_some_and(|accum| accum.history_invalidated)
+    {
+        clear_water_history_images(&ctx.device.device, water_buffer, command_buffer);
+    }
 
     for i in 0..instance_count {
         let water = waters[i];
@@ -1030,6 +1038,14 @@ pub unsafe fn record_water_passes(
 
         ubo.temporal = [accum.weight, accum.frame_index as f32, 0.0, 0.0];
 
+        let settings = app
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::WaterRenderSettings>()
+            .map(|settings| *settings)
+            .unwrap_or_default();
+        ubo.composite[3] = settings.caustic_debug as f32;
+
         let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {
             return Ok(());
         };
@@ -1053,13 +1069,6 @@ pub unsafe fn record_water_passes(
             continue;
         };
 
-        // Get render settings for push constants
-        let settings = app
-            .data
-            .ecs_world
-            .get_resource::<crate::ecs::resource::WaterRenderSettings>()
-            .map(|settings| *settings)
-            .unwrap_or_default();
         let push_constants = thyllore_vulkan_core::renderer::WaterPushConstants::new(
             settings.secondary_rays.as_shader_value(),
             settings.debug_view,
@@ -1112,6 +1121,59 @@ fn build_color_image_barrier(
         .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
         .subresource_range(COLOR_SUBRESOURCE_RANGE)
         .build()
+}
+
+/// Both history images stay in SHADER_READ_ONLY_OPTIMAL between frames (shading render pass final layout).
+unsafe fn clear_water_history_images(
+    device: &Device,
+    water_buffer: &thyllore_vulkan_core::resource::WaterBuffer,
+    command_buffer: vk::CommandBuffer,
+) {
+    let black = vk::ClearColorValue {
+        float32: [0.0, 0.0, 0.0, 1.0],
+    };
+
+    for &image in &water_buffer.history_images {
+        device.cmd_pipeline_barrier(
+            command_buffer,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &[] as &[vk::BufferMemoryBarrier],
+            &[build_color_image_barrier(
+                image,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::AccessFlags::SHADER_READ,
+                vk::AccessFlags::TRANSFER_WRITE,
+            )],
+        );
+
+        device.cmd_clear_color_image(
+            command_buffer,
+            image,
+            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+            &black,
+            &[COLOR_SUBRESOURCE_RANGE],
+        );
+
+        device.cmd_pipeline_barrier(
+            command_buffer,
+            vk::PipelineStageFlags::TRANSFER,
+            vk::PipelineStageFlags::FRAGMENT_SHADER,
+            vk::DependencyFlags::empty(),
+            &[] as &[vk::MemoryBarrier],
+            &[] as &[vk::BufferMemoryBarrier],
+            &[build_color_image_barrier(
+                image,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                vk::AccessFlags::TRANSFER_WRITE,
+                vk::AccessFlags::SHADER_READ,
+            )],
+        );
+    }
 }
 
 /// Splats refracted light into the accumulation image and adds it to the HDR color.
