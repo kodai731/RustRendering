@@ -7,18 +7,29 @@ flame and water effect shaders to correctly construct Blender GPU shaders."""
 def split_typedef_and_body(glsl_text: str) -> tuple[str, str]:
     """Split GLSL text into typedef (struct definitions) and body (the rest).
 
-    Finds the last '};' closing a struct definition and splits there.
-    Returns (typedef, body) where typedef ends with '};'."""
+    Iterates through all lines: every top-level struct block (from `struct Name {`
+    to its closing `};`) is collected into the typedef string in order of appearance.
+    All other lines go into the body string in their original order.
+    Raises ValueError if no struct definitions are found."""
     lines = glsl_text.split("\n")
-    last_struct_end = -1
-    for i, line in enumerate(lines):
+    typedef_lines: list[str] = []
+    body_lines: list[str] = []
+    in_struct = False
+    for line in lines:
         stripped = line.strip()
-        if stripped == "};":
-            last_struct_end = i
-    if last_struct_end < 0:
-        raise ValueError("No closing '};' found in GLSL text")
-    typedef = "\n".join(lines[: last_struct_end + 1])
-    body = "\n".join(lines[last_struct_end + 1 :])
+        if not in_struct and stripped.startswith("struct"):
+            in_struct = True
+            typedef_lines.append(line)
+        elif in_struct:
+            typedef_lines.append(line)
+            if "}" in stripped:
+                in_struct = False
+        else:
+            body_lines.append(line)
+    if not typedef_lines:
+        raise ValueError("No struct definitions found in GLSL text")
+    typedef = "\n".join(typedef_lines)
+    body = "\n".join(body_lines)
     return typedef, body
 
 
