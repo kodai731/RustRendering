@@ -7,10 +7,13 @@ import tempfile
 
 import pytest
 
+import importlib.util
+
 SCRIPT = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "scripts", "blender", "water", "export_glsl.py")
-SCRIPTS_DIR = os.path.dirname(SCRIPT)
-sys.path.insert(0, SCRIPTS_DIR)
-from export_glsl import expand_includes
+_water_spec = importlib.util.spec_from_file_location("water_export_glsl", SCRIPT)
+_water_module = importlib.util.module_from_spec(_water_spec)
+_water_spec.loader.exec_module(_water_module)
+expand_includes = _water_module.expand_includes
 
 
 def _run_exporter(tmp_path: str) -> tuple[str, dict]:
@@ -20,8 +23,8 @@ def _run_exporter(tmp_path: str) -> tuple[str, dict]:
         capture_output=True, text=True,
     )
     assert result.returncode == 0, f"exporter failed: {result.stderr}"
-    glsl_path = os.path.join(out_dir, "water_resolve.glsl")
-    json_path = os.path.join(out_dir, "water_resolve.bindings.json")
+    glsl_path = os.path.join(out_dir, "water_torus.glsl")
+    json_path = os.path.join(out_dir, "water_torus.bindings.json")
     with open(glsl_path) as f:
         glsl_text = f.read()
     with open(json_path) as f:
@@ -182,12 +185,12 @@ class TestByteIdentical:
                 if re.match(r'^\s*layout\s*\(\s*location\b', line):
                     i += 1
                     continue
-                if re.match(r'^\s*layout\s*\(\s*set\s*=\s*\d+\s*,\s*binding\s*=', line):
+                if re.match(r'^\s*layout\s*\(\s*set\s*=\s*\w+\s*,\s*binding\s*=', line):
                     if "uniform sampler2D" in line:
                         i += 1
                         continue
                     ubo_match = re.match(
-                        r'^\s*layout\s*\(\s*set\s*=\s*\d+\s*,\s*binding\s*=\s*\d+\s*\)\s+uniform\s+(\w+)\s*\{',
+                        r'^\s*layout\s*\(\s*set\s*=\s*\w+\s*,\s*binding\s*=\s*\w+\s*\)\s+uniform\s+(\w+)\s*\{',
                         line,
                     )
                     if ubo_match:
@@ -220,6 +223,7 @@ class TestByteIdentical:
 
         # Apply sceneColorSampler -> water.tint replacement (same as main() post-processing)
         expected_lines = [re.sub(r'texture\s*\(\s*sceneColorSampler\s*,\s*.*?\)\.rgb', 'water.tint.rgb', line) for line in expected_lines]
+        expected_lines = [re.sub(r'textureSize\s*\(\s*sceneColorSampler\s*,\s*\d+\s*\)', 'ivec2(1)', line) for line in expected_lines]
 
         actual_lines = glsl_text.splitlines()
 

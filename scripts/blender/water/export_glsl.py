@@ -5,15 +5,26 @@ import re
 import sys
 
 
+def resolve_layout_macros(line: str, defines: dict[str, str]) -> str:
+    if not re.match(r'^\s*layout\s*\(', line):
+        return line
+    return re.sub(r'\b[A-Za-z_]\w*\b', lambda m: defines.get(m.group(0), m.group(0)), line)
+
+
 def expand_includes(source_path: str, repo_root: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
+    defines: dict[str, str] = {}
 
     def _expand(path: str, text: str) -> None:
         if path in seen:
             return
         seen.add(path)
         for line in text.split("\n"):
+            m_define = re.match(r'^\s*#\s*define\s+(\w+)\s+(\d+)\s*$', line)
+            if m_define:
+                defines[m_define.group(1)] = m_define.group(2)
+
             m = re.match(r'^\s*#\s*include\s+"([^"]+)"', line)
             if m:
                 included = m.group(1)
@@ -26,7 +37,7 @@ def expand_includes(source_path: str, repo_root: str) -> list[str]:
                 with open(inc_full, "r") as f:
                     _expand(inc_path, f.read())
             else:
-                result.append(line)
+                result.append(resolve_layout_macros(line, defines))
 
     entry = "waterResolveFragment.frag"
     full = os.path.join(repo_root, "shaders", entry)
@@ -249,15 +260,16 @@ def main() -> None:
         if "uniform sampler2D sceneColorSampler;" in line:
             continue
         line = re.sub(r'texture\s*\(\s*sceneColorSampler\s*,\s*.*?\)\.rgb', 'water.tint.rgb', line)
+        line = re.sub(r'textureSize\s*\(\s*sceneColorSampler\s*,\s*\d+\s*\)', 'ivec2(1)', line)
         filtered_lines.append(line)
 
     os.makedirs(out_dir, exist_ok=True)
-    glsl_path = os.path.join(out_dir, "water_resolve.glsl")
+    glsl_path = os.path.join(out_dir, "water_torus.glsl")
     with open(glsl_path, "w") as f:
         for line in filtered_lines:
             f.write(line + "\n")
 
-    json_path = os.path.join(out_dir, "water_resolve.bindings.json")
+    json_path = os.path.join(out_dir, "water_torus.bindings.json")
     bindings["samplers"] = [s for s in bindings["samplers"] if s["name"] != "sceneColorSampler"]
     with open(json_path, "w") as f:
         json.dump(bindings, f, indent=2)

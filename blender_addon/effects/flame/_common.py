@@ -11,3 +11,4 @@ def _import_shared(name: str):
 
 
 coordinates = _import_shared("coordinates")
+effect_properties = _import_shared("effect_properties")

@@ -34,8 +34,8 @@ def _load_shader():
     from pathlib import Path
 
     root = Path(__file__).resolve().parent
-    glsl_path = str(root / "shaders" / "water_resolve.glsl")
-    bindings_path = str(root / "shaders" / "water_resolve.bindings.json")
+    glsl_path = str(root / "shaders" / "water_torus.glsl")
+    bindings_path = str(root / "shaders" / "water_torus.bindings.json")
     started = time.perf_counter()
     _shader = build_water_shader(glsl_path, bindings_path)
     print(f"[Thyllore Water] shader built in {time.perf_counter() - started:.2f}s", flush=True)

@@ -48,7 +48,6 @@ layout(push_constant) uniform WaterPush {
 } push;
 #ifdef WATER_RAY_QUERY
 #include "include/water_secondary.glsl"
-#endif
 
 // Second-bounce misses read the scene color through a wide box filter so thin screen
 // features (grid lines) cannot alias into combs after two refractions.
@@ -62,6 +61,7 @@ vec3 sampleSceneColorBlurred(vec2 uv) {
     }
     return sum / 49.0;
 }
+#endif
 
 void main() {
    mat4 invViewProj = water.invViewProj;

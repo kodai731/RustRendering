@@ -116,7 +116,7 @@ stage_sources() {
 }
 stage_sources
 
-for required in shaders/flame_resolve.glsl shaders/flame_resolve.bindings.json common/coordinates.py flame_params.toml blender_manifest.toml; do
+for required in shaders/flame_resolve.glsl shaders/flame_resolve.bindings.json common/coordinates.py common/effect_properties.py flame_params.toml blender_manifest.toml; do
     if [[ ! -f "$STAGE_DIR/$required" ]]; then
         echo "$required missing from stage" >&2
         exit 1
