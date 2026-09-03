@@ -28,27 +28,27 @@ def split_typedef_and_body(glsl_text: str) -> tuple[str, str]:
     in_const = False
     struct_count = 0
 
-    def _ends_with_semicolon(s: str) -> bool:
-        """Check if a line ends with ';' ignoring trailing comments."""
-        code = s.split("//")[0].rstrip()
-        return code.endswith(";")
+    def _code_without_comment(s: str) -> str:
+        """Return the line without its trailing line comment and spaces."""
+        return s.split("//")[0].rstrip()
 
     for line in glsl_text.split("\n"):
         stripped = line.strip()
+        code = _code_without_comment(stripped)
 
         if in_struct:
             typedef_lines.append(line)
-            in_struct = not stripped.endswith("};")
+            in_struct = not code.endswith("};")
         elif in_const:
             typedef_lines.append(line)
-            in_const = not _ends_with_semicolon(stripped)
+            in_const = not code.endswith(";")
         elif struct_start.match(stripped):
             typedef_lines.append(line)
             struct_count += 1
-            in_struct = not stripped.endswith("};")
+            in_struct = not code.endswith("};")
         elif line.startswith("const"):
             typedef_lines.append(line)
-            in_const = not _ends_with_semicolon(stripped)
+            in_const = not code.endswith(";")
         else:
             body_lines.append(line)
 
