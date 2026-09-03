@@ -1,5 +1,8 @@
 """Verify the water wave pixel gate (seam continuity and distance aliasing).
 
+Note: Measurements should be performed on a water-only scene without obstructions
+(the default scene contains debug primitives).
+
 Captures water debug view 2 (normal visualization) and view 1 (torus mask) for
 several cameras, then checks:
 - Seam: >10 deg adjacent-normal jumps at the seam <= opposite * 2 + 50 and p99.9 < 10 deg.
@@ -192,7 +195,9 @@ def write_report(result: dict, out_dir: Path) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Verify the water wave pixel gate (seam continuity and distance aliasing).")
-    parser.add_argument("--scene", default="assets/scenes/default.scene.ron")
+    parser.add_argument("--scene", default="assets/scenes/water_probe.scene.ron",
+                        help="Scene file to use (measurements should be done on a water-only scene "
+                             "without obstructions; default scene contains debug primitives)")
     parser.add_argument("--frames", type=int, default=5)
     parser.add_argument("--out-dir", default="target/tmp_screens/water_wave_gate")
     parser.add_argument("--dood", action="store_true",

@@ -459,22 +459,29 @@ impl App {
         &mut self,
         kind: crate::ecs::events::DebugPrimitiveKind,
     ) -> Result<()> {
+        let position = default_debug_primitive_position(kind);
+        self.spawn_debug_primitive_at(kind, position)
+    }
+
+    pub unsafe fn spawn_debug_primitive_at(
+        &mut self,
+        kind: crate::ecs::events::DebugPrimitiveKind,
+        position: cgmath::Vector3<f32>,
+    ) -> Result<()> {
         log!("Spawning debug primitive: {:?}", kind);
         self.rrdevice.device.device_wait_idle()?;
 
         let command_pool = self.resource::<CommandState>().pool.clone();
         let swapchain = self.resource::<SwapchainState>().swapchain.clone();
 
-        let (load_result, part_name, position) = match kind {
+        let (load_result, part_name) = match kind {
             crate::ecs::events::DebugPrimitiveKind::Cube => (
                 thyllore_importer_core::primitive::build_cube_model(1.0),
                 "Cube",
-                cgmath::Vector3::new(3.0, 0.5, 0.0),
             ),
             crate::ecs::events::DebugPrimitiveKind::Sphere => (
                 thyllore_importer_core::primitive::build_uv_sphere_model(0.6, 32, 16),
                 "Sphere",
-                cgmath::Vector3::new(-3.0, 0.6, 0.0),
             ),
             crate::ecs::events::DebugPrimitiveKind::Floor => (
                 thyllore_importer_core::primitive::build_box_model(
@@ -484,7 +491,6 @@ impl App {
                     [0.8, 0.8, 0.8, 1.0],
                 ),
                 "Floor",
-                cgmath::Vector3::new(0.0, -1.6, 0.0),
             ),
         };
         let parent_entity = crate::app::model_loader::append_model_to_scene(
@@ -499,6 +505,11 @@ impl App {
             &mut self.data.ecs_world,
             &mut self.data.ecs_assets,
         )?;
+
+        self.data.ecs_world.insert_component(
+            parent_entity,
+            crate::ecs::component::DebugPrimitiveTag { kind },
+        );
 
         let mut transform = self
             .data
@@ -515,6 +526,27 @@ impl App {
             position.z
         );
         Ok(())
+    }
+
+    pub unsafe fn spawn_pending_debug_primitives(&mut self) {
+        let requests = match self
+            .data
+            .ecs_world
+            .get_resource_mut::<crate::ecs::resource::PendingDebugPrimitives>()
+        {
+            Some(mut pending) => pending.take_requests(),
+            None => return,
+        };
+
+        for request in requests {
+            if let Err(e) = self.spawn_debug_primitive_at(request.kind, request.position) {
+                log_error!(
+                    "Failed to spawn scene debug primitive {:?}: {:?}",
+                    request.kind,
+                    e
+                );
+            }
+        }
     }
 
     pub unsafe fn delete_entities(&mut self, entities: &[u64]) -> Result<()> {
@@ -2005,6 +2037,16 @@ impl App {
             vertex_offset += draw_list.vtx_buffer().len() as u32;
             index_offset += draw_list.idx_buffer().len() as u32;
         }
+    }
+}
+
+pub fn default_debug_primitive_position(
+    kind: crate::ecs::events::DebugPrimitiveKind,
+) -> cgmath::Vector3<f32> {
+    match kind {
+        crate::ecs::events::DebugPrimitiveKind::Cube => cgmath::Vector3::new(3.0, 0.5, 0.0),
+        crate::ecs::events::DebugPrimitiveKind::Sphere => cgmath::Vector3::new(-3.0, 0.6, 0.0),
+        crate::ecs::events::DebugPrimitiveKind::Floor => cgmath::Vector3::new(0.0, -1.6, 0.0),
     }
 }
 

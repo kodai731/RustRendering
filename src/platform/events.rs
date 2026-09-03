@@ -912,6 +912,8 @@ unsafe fn process_ui_events_and_render_frame(
         execute_deferred_action(app, action);
     }
 
+    app.spawn_pending_debug_primitives();
+
     render_frame(app, window, draw_data, dt_ms, imgui_build_ms);
 }
 

@@ -25,6 +25,31 @@ pub struct SceneFile {
     pub flame: Option<FlameSceneData>,
     #[serde(default)]
     pub water: Option<WaterSceneData>,
+    #[serde(default)]
+    pub debug_primitives: Vec<DebugPrimitiveSceneData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugPrimitiveSceneData {
+    pub kind: String,
+    pub position: [f32; 3],
+}
+
+pub fn debug_primitive_kind_to_str(kind: crate::ecs::events::DebugPrimitiveKind) -> &'static str {
+    match kind {
+        crate::ecs::events::DebugPrimitiveKind::Cube => "cube",
+        crate::ecs::events::DebugPrimitiveKind::Sphere => "sphere",
+        crate::ecs::events::DebugPrimitiveKind::Floor => "floor",
+    }
+}
+
+pub fn debug_primitive_kind_from_str(s: &str) -> Option<crate::ecs::events::DebugPrimitiveKind> {
+    match s {
+        "cube" => Some(crate::ecs::events::DebugPrimitiveKind::Cube),
+        "sphere" => Some(crate::ecs::events::DebugPrimitiveKind::Sphere),
+        "floor" => Some(crate::ecs::events::DebugPrimitiveKind::Floor),
+        _ => None,
+    }
 }
 
 impl SceneFile {
@@ -41,6 +66,7 @@ impl SceneFile {
             panel_layout: None,
             flame: None,
             water: None,
+            debug_primitives: Vec::new(),
         }
     }
 }
@@ -503,6 +529,31 @@ pub fn build_water_scene_data(world: &crate::ecs::world::World) -> Option<WaterS
         clip_min_duration,
         preset,
     })
+}
+
+pub fn build_debug_primitives_scene_data(
+    world: &crate::ecs::world::World,
+) -> Vec<DebugPrimitiveSceneData> {
+    let mut primitives: Vec<_> = world
+        .iter_components::<crate::ecs::component::DebugPrimitiveTag>()
+        .filter_map(|(entity, tag)| {
+            let transform = world.get_component::<crate::ecs::world::Transform>(entity)?;
+            Some((
+                entity,
+                DebugPrimitiveSceneData {
+                    kind: debug_primitive_kind_to_str(tag.kind).to_string(),
+                    position: [
+                        transform.translation.x,
+                        transform.translation.y,
+                        transform.translation.z,
+                    ],
+                },
+            ))
+        })
+        .collect();
+
+    primitives.sort_by_key(|(entity, _)| *entity);
+    primitives.into_iter().map(|(_, data)| data).collect()
 }
 
 /// Apply loaded water state to the first water entity in the world.
