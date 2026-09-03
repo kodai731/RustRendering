@@ -7,12 +7,14 @@ import re
 
 
 def split_typedef_and_body(glsl_text: str) -> tuple[str, str]:
-    """Split GLSL text into typedef (struct definitions) and body (the rest).
+    """Split GLSL text into typedef (struct definitions and top-level const declarations) and body (the rest).
 
     Every struct block, from its `struct Name {` line to the line closing it with
-    `};`, goes to the typedef string in order of appearance; every other line goes
-    to the body string in its original order. GLSL structs never nest, so a single
-    in-struct flag is enough.
+    `};`, goes to the typedef string in order of appearance. Top-level const
+    declarations (lines starting with `const`) are also extracted into the typedef
+    string, including multi-line declarations that span until a terminating `;`.
+    Every other line goes to the body string in its original order. GLSL structs
+    never nest, so a single in-struct flag is enough.
 
     Splitting on a line position instead would be wrong: the typedef is expanded
     before the uniform block instances are declared, so it must never capture a
@@ -23,19 +25,36 @@ def split_typedef_and_body(glsl_text: str) -> tuple[str, str]:
     typedef_lines: list[str] = []
     body_lines: list[str] = []
     in_struct = False
+    in_const = False
+    struct_count = 0
+
+    def _ends_with_semicolon(s: str) -> bool:
+        """Check if a line ends with ';' ignoring trailing comments."""
+        code = s.split("//")[0].rstrip()
+        return code.endswith(";")
 
     for line in glsl_text.split("\n"):
         stripped = line.strip()
-        if not in_struct and not struct_start.match(stripped):
-            body_lines.append(line)
-            continue
 
-        typedef_lines.append(line)
-        in_struct = not stripped.endswith("};")
+        if in_struct:
+            typedef_lines.append(line)
+            in_struct = not stripped.endswith("};")
+        elif in_const:
+            typedef_lines.append(line)
+            in_const = not _ends_with_semicolon(stripped)
+        elif struct_start.match(stripped):
+            typedef_lines.append(line)
+            struct_count += 1
+            in_struct = not stripped.endswith("};")
+        elif line.startswith("const"):
+            typedef_lines.append(line)
+            in_const = not _ends_with_semicolon(stripped)
+        else:
+            body_lines.append(line)
 
     if in_struct:
         raise ValueError("Unclosed struct definition in GLSL text")
-    if not typedef_lines:
+    if struct_count == 0:
         raise ValueError("No struct definitions found in GLSL text")
 
     return "\n".join(typedef_lines), "\n".join(body_lines)
