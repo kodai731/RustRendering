@@ -31,7 +31,7 @@ pub struct WaterDebugRenderInfo {
     pub water_buffer_size: Option<[u32; 2]>,
     pub mesh_count: usize,
     pub mesh_blas_count: usize,
-    pub water_blas_count: usize,
+    pub procedural_blas_count: usize,
     pub hit_shading_table_capacity: Option<usize>,
     pub screenshot_path: Option<String>,
     pub caustic_accum_path: Option<String>,
@@ -94,7 +94,7 @@ fn build_render_info_json(info: &WaterDebugRenderInfo) -> Value {
         "mesh_count": info.mesh_count,
         "tlas": {
             "mesh_blas_count": info.mesh_blas_count,
-            "water_blas_count": info.water_blas_count,
+            "procedural_blas_count": info.procedural_blas_count,
             "hit_shading_table_capacity": info.hit_shading_table_capacity,
         },
         "screenshot_path": info.screenshot_path,

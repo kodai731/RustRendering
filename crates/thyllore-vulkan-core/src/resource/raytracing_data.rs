@@ -25,6 +25,7 @@ use crate::pipeline::{
     RRRayTracingPipeline, VertexInputConfig,
 };
 use crate::raytracing::RRAccelerationStructure;
+use crate::raytracing::{BlasGeometry, GpuPrimitive};
 use crate::render::RRRender;
 use crate::renderer::push_constants::{GBufferPushConstants, OnionSkinPushConstants};
 use crate::renderer::tonemap::ToneMapPushConstants;
@@ -158,7 +159,7 @@ impl RayTracingData {
         rrcommand_pool: &Rc<RRCommandPool>,
         meshes: &[MeshBuffer],
         mesh_transforms: &[cgmath::Matrix4<f32>],
-        waters: &[(cgmath::Matrix4<f32>, f32, f32)],
+        procedurals: &[GpuPrimitive],
     ) -> Result<()> {
         log!("Building acceleration structures...");
 
@@ -207,16 +208,20 @@ impl RayTracingData {
             log!("Created BLAS for mesh");
         }
 
-        for (model, major, minor) in waters {
-            let blas = RRAccelerationStructure::create_water_blas(
-                instance,
-                rrdevice,
-                rrcommand_pool,
-                model,
-                *major,
-                *minor,
-            )?;
-            acceleration_structure.water_blas.push(blas);
+        let mut hit_table_entries: Vec<(cgmath::Matrix4<f32>, [f32; 4])> = Vec::new();
+
+        for primitive in procedurals {
+            if let BlasGeometry::ProceduralAabb { aabb } = &primitive.geometry {
+                let blas = RRAccelerationStructure::create_procedural_blas(
+                    instance,
+                    rrdevice,
+                    rrcommand_pool,
+                    &primitive.model,
+                    *aabb,
+                )?;
+                acceleration_structure.procedural_blas.push(blas);
+            }
+            hit_table_entries.push((primitive.model, primitive.params));
         }
 
         let tlas = RRAccelerationStructure::create_tlas(
@@ -224,20 +229,20 @@ impl RayTracingData {
             rrdevice,
             rrcommand_pool,
             &acceleration_structure.blas_list,
-            &acceleration_structure.water_blas,
+            &acceleration_structure.procedural_blas,
         )?;
         acceleration_structure.tlas = tlas;
         log!(
-            "Created TLAS with {} mesh + {} water instances",
+            "Created TLAS with {} mesh + {} procedural instances",
             acceleration_structure.blas_list.len(),
-            acceleration_structure.water_blas.len()
+            acceleration_structure.procedural_blas.len()
         );
 
         acceleration_structure.fill_hit_shading_table(
             instance,
             rrdevice,
             &vertex_buffers,
-            waters,
+            &hit_table_entries,
         )?;
 
         self.acceleration_structure = Some(acceleration_structure);

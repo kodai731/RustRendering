@@ -33,7 +33,7 @@ use crate::vulkanr::resource::graphics_resource::{
 use crate::vulkanr::swapchain::RRSwapchain;
 use crate::vulkanr::vulkan::Instance;
 use thyllore_math_core::AffineRows3x4;
-use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
+use thyllore_vulkan_core::raytracing::{BlasGeometry, GpuPrimitive, RRAccelerationStructure};
 use thyllore_vulkan_core::resource::image::{
     create_image_view, create_texture_image_pixel, create_texture_sampler,
 };
@@ -177,7 +177,7 @@ unsafe fn apply_model_to_resources(
         assets,
         load_result,
     )?;
-    let waters = collect_water_instances(world);
+    let procedural_primitives = collect_procedural_primitives(world);
     let mesh_transforms = collect_mesh_transforms(world, assets);
     rebuild_acceleration_structures(
         instance,
@@ -185,7 +185,7 @@ unsafe fn apply_model_to_resources(
         command_pool,
         graphics,
         raytracing,
-        &waters,
+        &procedural_primitives,
         &mesh_transforms,
     )?;
     update_ray_query_descriptor(device, raytracing)?;
@@ -783,6 +783,30 @@ pub fn collect_water_instances(world: &World) -> Vec<(cgmath::Matrix4<f32>, f32,
         .collect()
 }
 
+pub fn collect_procedural_primitives(world: &World) -> Vec<GpuPrimitive<'static>> {
+    collect_water_instances(world)
+        .into_iter()
+        .map(|(model, major_radius, minor_radius)| {
+            let extent = major_radius + minor_radius;
+            GpuPrimitive {
+                geometry: BlasGeometry::ProceduralAabb {
+                    aabb: vk::AabbPositionsKHR {
+                        min_x: -extent,
+                        min_y: -minor_radius,
+                        min_z: -extent,
+                        max_x: extent,
+                        max_y: minor_radius,
+                        max_z: extent,
+                    },
+                },
+                model,
+                base_color: [1.0, 1.0, 1.0, 1.0],
+                params: [1.0, major_radius, minor_radius, 0.0],
+            }
+        })
+        .collect()
+}
+
 pub fn collect_mesh_transforms(world: &World, assets: &AssetStorage) -> Vec<cgmath::Matrix4<f32>> {
     let indexed_transforms: Vec<(usize, cgmath::Matrix4<f32>)> = world
         .iter_components::<MeshRef>()
@@ -816,7 +840,7 @@ pub unsafe fn rebuild_acceleration_structures(
     command_pool: &Rc<RRCommandPool>,
     graphics: &GraphicsResources,
     raytracing: &mut RayTracingData,
-    waters: &[(cgmath::Matrix4<f32>, f32, f32)],
+    procedural_primitives: &[GpuPrimitive<'static>],
     mesh_transforms: &[cgmath::Matrix4<f32>],
 ) -> Result<()> {
     log!("Rebuilding acceleration structures...");
@@ -867,16 +891,20 @@ pub unsafe fn rebuild_acceleration_structures(
         log!("Created BLAS for mesh");
     }
 
-    for (model, major, minor) in waters {
-        let blas = RRAccelerationStructure::create_water_blas(
-            instance,
-            device,
-            command_pool.as_ref(),
-            model,
-            *major,
-            *minor,
-        )?;
-        acceleration_structure.water_blas.push(blas);
+    let mut hit_table_entries: Vec<(cgmath::Matrix4<f32>, [f32; 4])> = Vec::new();
+
+    for primitive in procedural_primitives {
+        if let BlasGeometry::ProceduralAabb { aabb } = &primitive.geometry {
+            let blas = RRAccelerationStructure::create_procedural_blas(
+                instance,
+                device,
+                command_pool.as_ref(),
+                &primitive.model,
+                *aabb,
+            )?;
+            acceleration_structure.procedural_blas.push(blas);
+        }
+        hit_table_entries.push((primitive.model, primitive.params));
     }
 
     let tlas = RRAccelerationStructure::create_tlas(
@@ -884,16 +912,21 @@ pub unsafe fn rebuild_acceleration_structures(
         device,
         command_pool.as_ref(),
         &acceleration_structure.blas_list,
-        &acceleration_structure.water_blas,
+        &acceleration_structure.procedural_blas,
     )?;
     acceleration_structure.tlas = tlas;
     log!(
-        "Created TLAS with {} mesh + {} water instances",
+        "Created TLAS with {} mesh + {} procedural instances",
         acceleration_structure.blas_list.len(),
-        acceleration_structure.water_blas.len()
+        acceleration_structure.procedural_blas.len()
     );
 
-    acceleration_structure.fill_hit_shading_table(instance, device, &vertex_buffers, waters)?;
+    acceleration_structure.fill_hit_shading_table(
+        instance,
+        device,
+        &vertex_buffers,
+        &hit_table_entries,
+    )?;
 
     raytracing.acceleration_structure = Some(acceleration_structure);
     log!("Acceleration structures rebuilt successfully");
@@ -906,7 +939,7 @@ pub unsafe fn rebuild_acceleration_structures_from_data(
     data: &mut AppData,
     rrcommand_pool: &Rc<RRCommandPool>,
 ) -> Result<()> {
-    let waters = collect_water_instances(&data.ecs_world);
+    let procedural_primitives = collect_procedural_primitives(&data.ecs_world);
     let mesh_transforms = collect_mesh_transforms(&data.ecs_world, &data.ecs_assets);
     rebuild_acceleration_structures(
         instance,
@@ -914,7 +947,7 @@ pub unsafe fn rebuild_acceleration_structures_from_data(
         rrcommand_pool,
         &data.graphics_resources,
         &mut data.raytracing,
-        &waters,
+        &procedural_primitives,
         &mesh_transforms,
     )
 }
@@ -1480,7 +1513,7 @@ pub(crate) unsafe fn append_model_to_scene(
         graphics.mesh_material_ids.push(material_id);
     }
 
-    let waters = collect_water_instances(world);
+    let procedural_primitives = collect_procedural_primitives(world);
     let mesh_transforms = collect_mesh_transforms(world, assets);
     rebuild_acceleration_structures(
         instance,
@@ -1488,7 +1521,7 @@ pub(crate) unsafe fn append_model_to_scene(
         command_pool,
         graphics,
         raytracing,
-        &waters,
+        &procedural_primitives,
         &mesh_transforms,
     )?;
     update_ray_query_descriptor(device, raytracing)?;

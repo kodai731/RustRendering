@@ -87,7 +87,7 @@ impl App {
         };
 
         if acceleration_structure.blas_list.len() != gbuffer_mesh_indices.len()
-            || acceleration_structure.water_blas.len() != water_instances.len()
+            || acceleration_structure.procedural_blas.len() != water_instances.len()
         {
             return Ok(());
         }
@@ -105,7 +105,7 @@ impl App {
             needs_update |= apply_instance_transform(blas, &model);
         }
         for (blas, (model, _, _)) in acceleration_structure
-            .water_blas
+            .procedural_blas
             .iter_mut()
             .zip(water_instances.iter())
         {
@@ -122,7 +122,7 @@ impl App {
             command_pool.as_ref(),
             &mut acceleration_structure.tlas,
             &acceleration_structure.blas_list,
-            &acceleration_structure.water_blas,
+            &acceleration_structure.procedural_blas,
         )
     }
 
@@ -325,8 +325,10 @@ impl App {
                 }
                 if water_state.is_some() {
                     let command_pool = self.resource::<CommandState>().pool.clone();
-                    let waters =
-                        crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+                    let procedural_primitives =
+                        crate::app::model_loader::collect_procedural_primitives(
+                            &self.data.ecs_world,
+                        );
                     let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
                         &self.data.ecs_world,
                         &self.data.ecs_assets,
@@ -337,7 +339,7 @@ impl App {
                         &command_pool,
                         &self.data.graphics_resources,
                         &mut self.data.raytracing,
-                        &waters,
+                        &procedural_primitives,
                         &mesh_transforms,
                     )?;
                 }
@@ -574,20 +576,19 @@ impl App {
         }
 
         let command_pool = self.resource::<CommandState>().pool.clone();
-        let waters = crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+        let procedural_primitives =
+            crate::app::model_loader::collect_procedural_primitives(&self.data.ecs_world);
         let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
             &self.data.ecs_world,
             &self.data.ecs_assets,
         );
-        let water_instances =
-            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
         crate::app::model_loader::rebuild_acceleration_structures(
             &self.instance,
             &self.rrdevice,
             &command_pool,
             &self.data.graphics_resources,
             &mut self.data.raytracing,
-            &waters,
+            &procedural_primitives,
             &mesh_transforms,
         )?;
 

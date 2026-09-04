@@ -16,6 +16,7 @@ use crate::vulkanr::data::{Vertex, VertexData};
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;
 use crate::vulkanr::resource::MeshBuffer;
 use crate::vulkanr::vulkan::Instance;
+use thyllore_vulkan_core::raytracing::GpuPrimitive;
 use thyllore_vulkan_core::resource::image::{
     create_image_view, create_texture_image_pixel, create_texture_sampler,
 };
@@ -65,7 +66,7 @@ pub unsafe fn spawn_color_test_quads(
         graphics.mesh_material_ids.push(material_id);
     }
 
-    let water_transforms: Vec<(cgmath::Matrix4<f32>, f32, f32)> = vec![];
+    let procedural_primitives: Vec<GpuPrimitive> = vec![];
     let mesh_transforms: Vec<cgmath::Matrix4<f32>> = vec![
         cgmath::Matrix4::new(
             1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
@@ -78,7 +79,7 @@ pub unsafe fn spawn_color_test_quads(
         command_pool,
         &graphics.meshes,
         &mesh_transforms,
-        &water_transforms,
+        &procedural_primitives,
     )?;
 
     for (i, spec) in specs.iter().enumerate() {

@@ -131,7 +131,7 @@ impl App {
             water_buffer_size: viewport.water_buffer.as_ref().map(|b| [b.width, b.height]),
             mesh_count: self.data.graphics_resources.meshes.len(),
             mesh_blas_count: acceleration.map(|a| a.blas_list.len()).unwrap_or(0),
-            water_blas_count: acceleration.map(|a| a.water_blas.len()).unwrap_or(0),
+            procedural_blas_count: acceleration.map(|a| a.procedural_blas.len()).unwrap_or(0),
             hit_shading_table_capacity: acceleration
                 .and_then(|a| a.hit_shading_table.as_ref())
                 .map(|table| table.capacity),
@@ -163,19 +163,15 @@ impl App {
             .collect();
 
         let blas_count = acceleration.blas_list.len();
-        instances.extend(
-            acceleration
-                .water_blas
-                .iter()
-                .enumerate()
-                .map(|(water_index, blas)| {
-                    json!({
-                        "blas_index": blas_count + water_index,
-                        "kind": "water",
-                        "transform": blas.transform.matrix,
-                    })
-                }),
-        );
+        instances.extend(acceleration.procedural_blas.iter().enumerate().map(
+            |(water_index, blas)| {
+                json!({
+                    "blas_index": blas_count + water_index,
+                    "kind": "water",
+                    "transform": blas.transform.matrix,
+                })
+            },
+        ));
 
         Value::Array(instances)
     }
