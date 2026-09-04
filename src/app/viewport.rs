@@ -5,11 +5,12 @@ use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::descriptor::{imgui_layout_spec, shader_bindings, ReflectedSetLayout};
 use crate::vulkanr::resource::{
     AutoExposureBuffers, BloomChain, DofBuffer, FlameBuffer, HdrBuffer, OffscreenFramebuffer,
-    WaterBuffer,
+    RenderTargetRegistry, WaterBuffer,
 };
 
 #[derive(Debug, Default)]
 pub struct ViewportState {
+    pub render_targets: RenderTargetRegistry,
     pub offscreen: Option<OffscreenFramebuffer>,
     pub hdr_buffer: Option<HdrBuffer>,
     pub bloom_chain: Option<BloomChain>,
@@ -67,6 +68,7 @@ impl ViewportState {
             Self::create_imgui_descriptor(rrdevice, &offscreen)?;
 
         Ok(Self {
+            render_targets: Default::default(),
             offscreen: Some(offscreen),
             hdr_buffer: Some(hdr_buffer),
             bloom_chain: Some(bloom_chain),
@@ -172,6 +174,8 @@ impl ViewportState {
         if let Some(mut water_buffer) = self.water_buffer.take() {
             water_buffer.destroy(&rrdevice.device);
         }
+        self.render_targets
+            .set_extent_and_reset(&rrdevice.device, new_width, new_height);
 
         self.width = new_width;
         self.height = new_height;
@@ -210,6 +214,8 @@ impl ViewportState {
         if let Some(ref mut water_buffer) = self.water_buffer {
             water_buffer.destroy(device);
         }
+
+        self.render_targets.destroy_all(device);
 
         log!("Destroyed viewport state");
     }
