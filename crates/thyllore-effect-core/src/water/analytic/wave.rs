@@ -1,4 +1,5 @@
 use cgmath::{InnerSpace, Vector3};
+use thyllore_math_core::LinearCongruentialGenerator;
 
 pub const WATER_WAVE_MODE_COUNT: usize = 8;
 
@@ -11,30 +12,19 @@ pub struct WaterWaveMode {
     pub phase: f32,
 }
 
-/// Deterministic LCG (Linear Congruential Generator) with fixed seed.
-pub(crate) fn lcg_next(state: &mut u64) -> u64 {
-    *state = (*state)
-        .wrapping_mul(6364136223846793005)
-        .wrapping_add(1442695040888963407);
-    *state
-}
-
 /// Fixed coefficient tables F[k] and G[k] in [0.5, 2.0].
 const F: [f32; WATER_WAVE_MODE_COUNT] = [1.0, 1.5, 0.5, 2.0, 1.2, 0.8, 1.8, 1.3];
 const G: [f32; WATER_WAVE_MODE_COUNT] = [1.5, 0.5, 2.0, 1.0, 1.7, 1.1, 0.6, 1.9];
 
 const DETERMINISTIC_MODE_COUNT: usize = 4;
-
-pub(crate) fn next_unit_f64(state: &mut u64) -> f64 {
-    lcg_next(state) as f64 / (1u64 << 63) as f64
-}
+const DETERMINISTIC_SEED: u64 = 12345;
 
 fn build_deterministic_mode(
     slot: usize,
     wave_amplitude: f32,
     wave_frequency: f32,
     wave_speed: f32,
-    state: &mut u64,
+    random: &mut LinearCongruentialGenerator,
 ) -> WaterWaveMode {
     let mut m = (wave_frequency * F[slot]).round() as i32;
     let n = (wave_frequency * G[slot]).round() as i32;
@@ -48,18 +38,22 @@ fn build_deterministic_mode(
         n,
         amplitude: wave_amplitude * (2.0_f32).powi(-(slot as i32) / 2),
         omega: wave_speed * ((m * m + n * n) as f32).sqrt(),
-        phase: (next_unit_f64(state) * 2.0 * std::f64::consts::PI) as f32,
+        phase: random.next_angle_f32(),
     }
 }
 
 /// Deep-water dispersion sample: |k| log-uniform in [0.5, 3.0] * wave_frequency,
 /// direction uniform, omega = wave_speed * sqrt(|k|), amplitude proportional to 1 / |k|.
-fn sample_dispersive_mode(wave_frequency: f32, wave_speed: f32, state: &mut u64) -> WaterWaveMode {
+fn sample_dispersive_mode(
+    wave_frequency: f32,
+    wave_speed: f32,
+    random: &mut LinearCongruentialGenerator,
+) -> WaterWaveMode {
     let log_min = (wave_frequency.max(1e-6) * 0.5).ln() as f64;
     let log_max = (wave_frequency.max(1e-6) * 3.0).ln() as f64;
 
-    let wave_number = (log_min + next_unit_f64(state) * (log_max - log_min)).exp();
-    let theta = next_unit_f64(state) * 2.0 * std::f64::consts::PI;
+    let wave_number = (log_min + random.next_unit_f64() * (log_max - log_min)).exp();
+    let theta = random.next_unit_f64() * 2.0 * std::f64::consts::PI;
 
     let mut m = (wave_number * theta.cos()).round() as i32;
     let n = (wave_number * theta.sin()).round() as i32;
@@ -73,7 +67,7 @@ fn sample_dispersive_mode(wave_frequency: f32, wave_speed: f32, state: &mut u64)
         n,
         amplitude: (1.0 / wave_number) as f32,
         omega: wave_speed * (wave_number as f32).sqrt(),
-        phase: (next_unit_f64(state) * 2.0 * std::f64::consts::PI) as f32,
+        phase: random.next_angle_f32(),
     }
 }
 
@@ -97,7 +91,7 @@ pub fn generate_water_wave_modes(
     frame_index: u32,
 ) -> [WaterWaveMode; WATER_WAVE_MODE_COUNT] {
     let mut modes = [WaterWaveMode::default(); WATER_WAVE_MODE_COUNT];
-    let mut deterministic_state: u64 = 12345;
+    let mut deterministic_random = LinearCongruentialGenerator::from_seed(DETERMINISTIC_SEED);
 
     if dispersion <= 0.0 {
         for slot in 0..WATER_WAVE_MODE_COUNT {
@@ -106,7 +100,7 @@ pub fn generate_water_wave_modes(
                 wave_amplitude,
                 wave_frequency,
                 wave_speed,
-                &mut deterministic_state,
+                &mut deterministic_random,
             );
         }
 
@@ -122,14 +116,15 @@ pub fn generate_water_wave_modes(
             wave_amplitude,
             wave_frequency,
             wave_speed,
-            &mut deterministic_state,
+            &mut deterministic_random,
         );
     }
 
-    let mut dispersive_state: u64 =
-        12345 ^ (frame_index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15);
+    let mut dispersive_random = LinearCongruentialGenerator::from_seed(
+        DETERMINISTIC_SEED ^ (frame_index as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15),
+    );
     for slot in DETERMINISTIC_MODE_COUNT..WATER_WAVE_MODE_COUNT {
-        modes[slot] = sample_dispersive_mode(wave_frequency, wave_speed, &mut dispersive_state);
+        modes[slot] = sample_dispersive_mode(wave_frequency, wave_speed, &mut dispersive_random);
     }
 
     let (deterministic, dispersive) = modes.split_at_mut(DETERMINISTIC_MODE_COUNT);

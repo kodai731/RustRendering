@@ -47,11 +47,9 @@ assert abs(obj.thyllore_flame.height - 0.28) < 1e-5, (
 from blender_addon.effects.flame.properties import flame_render_params
 
 cls = addon.properties._registered_cls
-assert set(cls.PARAM_NAMES) == {
-    "height", "radius", "intensity", "optical_depth", "noise_amplitude", "noise_contrast", "noise_aniso_y",
-    "color_base", "color_tip", "use_blackbody", "temperature_base_k", "temperature_tip_k",
-}, (
-    f"unexpected exposed params {cls.PARAM_NAMES}"
+expected_params = [p["name"] for p in fx.flame_ui_params() if p["persisted"]]
+assert list(cls.PARAM_NAMES) == expected_params, (
+    f"exposed params {cls.PARAM_NAMES} must mirror the persisted engine UI params {expected_params}"
 )
 candle_params = fx.flame_preset_params("candle")
 collected = flame_render_params(obj.thyllore_flame)

@@ -10,3 +10,6 @@ repository = "https://github.com/kodai731/Thyllore-Animation"
 [dependencies]
 cgmath = "0.18"
 anyhow = "1"
+
+[dev-dependencies]
+fastrand = "2"

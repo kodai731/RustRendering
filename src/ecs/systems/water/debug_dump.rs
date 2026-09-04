@@ -12,7 +12,7 @@ use crate::ecs::systems::camera_systems::{
     compute_camera_direction, compute_camera_position, compute_camera_right, compute_camera_up,
 };
 use crate::ecs::world::{Entity, Name, World};
-use thyllore_effect_core::water::analytic::lb_basis::compute_lb_modes_cached;
+use thyllore_effect_core::water::analytic::laplace_beltrami_basis::compute_laplace_beltrami_modes_cached;
 use thyllore_effect_core::{
     build_water_ubo, generate_water_wave_modes, inverse_view_proj_f64, WaterUBO,
 };
@@ -249,7 +249,7 @@ fn build_water_instance_json(world: &World, entity: Entity, index: usize) -> Val
             "frame_index": accum.frame_index,
         },
         "wave_modes": build_wave_modes_json(effect, accum.frame_index as u32),
-        "lb_modes": build_lb_modes_json(effect),
+        "lb_modes": build_laplace_beltrami_modes_json(effect),
         "ubo": build_ubo_json(&ubo),
     })
 }
@@ -290,11 +290,11 @@ fn build_wave_modes_json(effect: &WaterTorusEffect, frame_index: u32) -> Value {
     )
 }
 
-fn build_lb_modes_json(effect: &WaterTorusEffect) -> Value {
+fn build_laplace_beltrami_modes_json(effect: &WaterTorusEffect) -> Value {
     if effect.wave_lb_blend <= 0.0 {
         return Value::Array(Vec::new());
     }
-    let modes = compute_lb_modes_cached(effect.major_radius, effect.minor_radius);
+    let modes = compute_laplace_beltrami_modes_cached(effect.major_radius, effect.minor_radius);
     Value::Array(
         modes
             .iter()

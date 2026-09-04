@@ -1,8 +1,12 @@
-use crate::water::analytic::lb_basis::{compute_lb_modes_cached, LB_MODE_COUNT, LB_SLOTS_PER_MODE};
-use crate::water::analytic::{generate_water_wave_modes, next_unit_f64, WATER_WAVE_MODE_COUNT};
+use crate::water::analytic::laplace_beltrami_basis::{
+    compute_laplace_beltrami_modes_cached, LAPLACE_BELTRAMI_MODE_COUNT,
+    LAPLACE_BELTRAMI_SLOTS_PER_MODE,
+};
+use crate::water::analytic::{generate_water_wave_modes, WATER_WAVE_MODE_COUNT};
 use crate::water::effect::WaterTorusEffect;
 use crate::water::*;
 use cgmath::{Matrix4, SquareMatrix};
+use thyllore_math_core::LinearCongruentialGenerator;
 
 /// Compute inverse(proj * view) using f64 precision to minimize fp32 rounding error.
 /// Returns the result as Matrix4<f32>.
@@ -15,40 +19,42 @@ pub fn inverse_view_proj_f64(proj: Matrix4<f32>, view: Matrix4<f32>) -> Matrix4<
     inv.cast().unwrap()
 }
 
-const LB_PHASE_SEED: u64 = 999;
+const LAPLACE_BELTRAMI_PHASE_SEED: u64 = 999;
 
-fn lb_relative_weight(mode_index: usize) -> f32 {
+fn laplace_beltrami_relative_weight(mode_index: usize) -> f32 {
     (-(mode_index as f32) / 2.0).exp2()
 }
 
-pub fn build_lb_modes(effect: &WaterTorusEffect) -> [[f32; 4]; 20] {
-    let mut lb_modes = [[0.0f32; 4]; 20];
+pub fn build_laplace_beltrami_modes(effect: &WaterTorusEffect) -> [[f32; 4]; 20] {
+    let mut packed_modes = [[0.0f32; 4]; 20];
     if effect.wave_lb_blend <= 0.0 {
-        return lb_modes;
+        return packed_modes;
     }
 
-    let modes = compute_lb_modes_cached(effect.major_radius, effect.minor_radius);
-    let weight_sum: f32 = (0..LB_MODE_COUNT).map(lb_relative_weight).sum();
+    let modes = compute_laplace_beltrami_modes_cached(effect.major_radius, effect.minor_radius);
+    let weight_sum: f32 = (0..LAPLACE_BELTRAMI_MODE_COUNT)
+        .map(laplace_beltrami_relative_weight)
+        .sum();
     let amplitude_sum = effect.wave_amplitude * effect.wave_lb_blend;
-    let mut phase_state = LB_PHASE_SEED;
+    let mut phase_random = LinearCongruentialGenerator::from_seed(LAPLACE_BELTRAMI_PHASE_SEED);
 
     for (k, mode) in modes.iter().enumerate() {
-        let slot = LB_SLOTS_PER_MODE * k;
-        let amplitude = amplitude_sum * lb_relative_weight(k) / weight_sum;
+        let slot = LAPLACE_BELTRAMI_SLOTS_PER_MODE * k;
+        let amplitude = amplitude_sum * laplace_beltrami_relative_weight(k) / weight_sum;
         let omega = effect.wave_speed * (mode.lambda as f32).sqrt().sqrt();
-        let phase = (next_unit_f64(&mut phase_state) * 2.0 * std::f64::consts::PI) as f32;
+        let phase = phase_random.next_angle_f32();
 
-        lb_modes[slot] = [mode.m as f32, omega, amplitude, phase];
+        packed_modes[slot] = [mode.m as f32, omega, amplitude, phase];
 
         for i in 0..4 {
-            lb_modes[slot + 1][i] = mode.phi_cheb[i];
-            lb_modes[slot + 2][i] = mode.phi_cheb[i + 4];
-            lb_modes[slot + 3][i] = mode.dphi_cheb[i];
-            lb_modes[slot + 4][i] = mode.dphi_cheb[i + 4];
+            packed_modes[slot + 1][i] = mode.phi_cheb[i];
+            packed_modes[slot + 2][i] = mode.phi_cheb[i + 4];
+            packed_modes[slot + 3][i] = mode.dphi_cheb[i];
+            packed_modes[slot + 4][i] = mode.dphi_cheb[i + 4];
         }
     }
 
-    lb_modes
+    packed_modes
 }
 
 pub fn build_water_ubo(effect: &WaterTorusEffect, frame_index: u32) -> WaterUBO {
@@ -116,7 +122,7 @@ pub fn build_water_ubo(effect: &WaterTorusEffect, frame_index: u32) -> WaterUBO 
         temporal: [0.0, 0.0, 0.0, 0.0],
         wave_modes,
         inv_view_proj: Matrix4::identity(),
-        lb_modes: build_lb_modes(effect),
+        lb_modes: build_laplace_beltrami_modes(effect),
     }
 }
 
@@ -136,14 +142,14 @@ mod tests {
             .sum()
     }
 
-    fn lb_amplitude_sum(ubo: &WaterUBO) -> f32 {
-        (0..LB_MODE_COUNT)
-            .map(|k| ubo.lb_modes[k * LB_SLOTS_PER_MODE][2])
+    fn laplace_beltrami_amplitude_sum(ubo: &WaterUBO) -> f32 {
+        (0..LAPLACE_BELTRAMI_MODE_COUNT)
+            .map(|k| ubo.lb_modes[k * LAPLACE_BELTRAMI_SLOTS_PER_MODE][2])
             .sum()
     }
 
     #[test]
-    fn test_zero_blend_zeroes_lb_modes_and_preserves_flat_modes() {
+    fn test_zero_blend_zeroes_laplace_beltrami_modes_and_preserves_flat_modes() {
         let effect = WaterTorusEffect::default();
         let ubo = build_water_ubo(&effect, 0);
 
@@ -167,7 +173,7 @@ mod tests {
     }
 
     #[test]
-    fn test_half_blend_splits_amplitude_between_lb_and_flat_modes() {
+    fn test_half_blend_splits_amplitude_between_laplace_beltrami_and_flat_modes() {
         let effect = WaterTorusEffect {
             wave_lb_blend: 0.5,
             ..WaterTorusEffect::default()
@@ -176,18 +182,18 @@ mod tests {
         let expected_sum = effect.wave_amplitude * 0.5;
 
         assert_eq!(ubo.lb_modes[0][0], 1.0);
-        for k in 1..LB_MODE_COUNT {
-            let ratio = ubo.lb_modes[k * LB_SLOTS_PER_MODE][2]
-                / ubo.lb_modes[(k - 1) * LB_SLOTS_PER_MODE][2];
+        for k in 1..LAPLACE_BELTRAMI_MODE_COUNT {
+            let ratio = ubo.lb_modes[k * LAPLACE_BELTRAMI_SLOTS_PER_MODE][2]
+                / ubo.lb_modes[(k - 1) * LAPLACE_BELTRAMI_SLOTS_PER_MODE][2];
             assert!(
                 (ratio - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-5,
                 "amplitude ratio at k={k} is {ratio}, expected 2^-1/2"
             );
         }
         assert!(
-            (lb_amplitude_sum(&ubo) - expected_sum).abs() < 1e-6,
+            (laplace_beltrami_amplitude_sum(&ubo) - expected_sum).abs() < 1e-6,
             "lb amplitude sum {} should be ~{expected_sum}",
-            lb_amplitude_sum(&ubo)
+            laplace_beltrami_amplitude_sum(&ubo)
         );
         assert!(
             (flat_amplitude_sum(&ubo) - expected_sum).abs() < 1e-6,

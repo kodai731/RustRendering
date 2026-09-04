@@ -32,7 +32,7 @@ pub fn project_to_torus(p: Vector3<f32>, major_radius: f32, r: f32) -> TorusProj
     }
 }
 
-pub fn water_surface_point(u: f32, v: f32, major_radius: f32, r: f32) -> Vector3<f32> {
+pub fn torus_surface_point(u: f32, v: f32, major_radius: f32, r: f32) -> Vector3<f32> {
     let cos_v = v.cos();
     let sin_v = v.sin();
     let cos_u = u.cos();
@@ -42,7 +42,7 @@ pub fn water_surface_point(u: f32, v: f32, major_radius: f32, r: f32) -> Vector3
     Vector3::new(radius * cos_u, r * sin_v, radius * sin_u)
 }
 
-pub fn water_surface_normal(u: f32, v: f32) -> Vector3<f32> {
+pub fn torus_surface_normal(u: f32, v: f32) -> Vector3<f32> {
     let cos_v = v.cos();
     let sin_v = v.sin();
     let cos_u = u.cos();

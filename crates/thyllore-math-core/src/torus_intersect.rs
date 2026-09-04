@@ -22,15 +22,15 @@ pub fn torus_gradient(p: Vector3<f32>, r_hat: f32) -> Vector3<f32> {
     )
 }
 
-pub fn water_local_bounds(major_radius: f32, minor_radius: f32) -> (Vector3<f32>, Vector3<f32>) {
+pub fn torus_local_bounds(major_radius: f32, minor_radius: f32) -> (Vector3<f32>, Vector3<f32>) {
     let radius = major_radius + minor_radius;
     let min = Vector3::new(-radius, -minor_radius, -radius);
     let max = Vector3::new(radius, minor_radius, radius);
     (min, max)
 }
 
-pub fn water_local_bounds_corners(major_radius: f32, minor_radius: f32) -> [Vector3<f32>; 8] {
-    let (min, max) = water_local_bounds(major_radius, minor_radius);
+pub fn torus_local_bounds_corners(major_radius: f32, minor_radius: f32) -> [Vector3<f32>; 8] {
+    let (min, max) = torus_local_bounds(major_radius, minor_radius);
     let mut corners = [Vector3::new(0.0, 0.0, 0.0); 8];
     for (index, corner) in corners.iter_mut().enumerate() {
         corner.x = if index & 1 == 0 { min.x } else { max.x };

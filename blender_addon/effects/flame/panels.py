@@ -3,6 +3,7 @@ from __future__ import annotations
 import bpy
 
 from . import debug_tools
+from ._common import effect_properties
 
 
 class VIEW3D_PT_thyllore_flame(bpy.types.Panel):
@@ -26,8 +27,6 @@ class VIEW3D_PT_thyllore_flame(bpy.types.Panel):
         props = obj.thyllore_flame
 
         layout.prop(props, "preset")
-        box = layout.box()
-        for name in type(props).PARAM_NAMES:
-            box.prop(props, name)
+        effect_properties.draw_param_groups(layout, props)
 
         debug_tools.draw_panel(layout)

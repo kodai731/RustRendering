@@ -13,7 +13,12 @@ mod oscillatory_response;
 pub use oscillatory_response::*;
 mod matrix;
 mod quaternion;
+mod random;
 mod smooth_step;
+mod torus_intersect;
+mod torus_projection;
+#[cfg(test)]
+mod torus_tests;
 mod vector;
 mod winding;
 
@@ -31,7 +36,10 @@ pub use erf_moments::*;
 pub use erf_response::*;
 pub use matrix::*;
 pub use quaternion::*;
+pub use random::*;
 pub use smooth_step::*;
+pub use torus_intersect::*;
+pub use torus_projection::*;
 pub use vector::*;
 pub use winding::*;
 

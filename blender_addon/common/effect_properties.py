@@ -1,13 +1,6 @@
 from __future__ import annotations
 
-import tomllib
-from pathlib import Path
 from typing import Callable
-
-
-def load_exposed_param_rules(params_file: Path) -> dict:
-    exposed = tomllib.loads(params_file.read_text(encoding="utf-8"))["exposed"]
-    return {"names": tuple(exposed["names"]), "prefixes": tuple(exposed["prefixes"])}
 
 
 def precision_from_format(fmt: str) -> int:
@@ -32,12 +25,26 @@ def property_kind(default) -> str:
     return "float"
 
 
-def is_exposed_param(name: str, rules: dict) -> bool:
-    return name in rules["names"] or name.startswith(rules["prefixes"])
+def select_exposed_params(ui_params: list[dict]) -> list[dict]:
+    """Mirrors the engine's persisted UI parameters; runtime-only ones are driven by scene playback."""
+    return [p for p in ui_params if p["persisted"]]
 
 
-def select_exposed_params(ui_params: list[dict], rules: dict) -> list[dict]:
-    return [p for p in ui_params if is_exposed_param(p["name"], rules)]
+def group_params_by_owner(exposed_params: list[dict]) -> list[tuple[str, list[str]]]:
+    groups: dict[str, list[str]] = {}
+    for param in exposed_params:
+        groups.setdefault(param.get("owner", "frame"), []).append(param["name"])
+    return list(groups.items())
+
+
+def draw_param_groups(layout, props) -> None:
+    groups = type(props).PARAM_GROUPS
+    for owner, names in groups:
+        box = layout.box()
+        if len(groups) > 1:
+            box.label(text=owner.title())
+        for name in names:
+            box.prop(props, name)
 
 
 def collect_params(props, names: list[str]) -> dict:
@@ -102,7 +109,6 @@ def build_param_property(param: dict):
 
 def build_effect_property_group(
     *,
-    params_file: Path,
     ui_params: Callable[[], list[dict]],
     preset_params: Callable[[str], dict],
     preset_names: Callable[[], list[str]],
@@ -114,8 +120,7 @@ def build_effect_property_group(
 ):
     import bpy
 
-    rules = load_exposed_param_rules(params_file)
-    exposed_params = select_exposed_params(ui_params(), rules)
+    exposed_params = select_exposed_params(ui_params())
     param_names = [p["name"] for p in exposed_params]
 
     def apply_preset(self, context):
@@ -138,6 +143,7 @@ def build_effect_property_group(
     attrs = {
         "__annotations__": annotations,
         "PARAM_NAMES": param_names,
+        "PARAM_GROUPS": group_params_by_owner(exposed_params),
         "__module__": module_name,
     }
 

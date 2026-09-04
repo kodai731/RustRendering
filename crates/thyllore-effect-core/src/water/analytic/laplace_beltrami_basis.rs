@@ -5,11 +5,11 @@ use std::sync::{LazyLock, Mutex};
 const GRID_N: usize = 64;
 const CHEB_ORDER: usize = 8;
 
-pub const LB_MODE_COUNT: usize = 4;
-pub const LB_SLOTS_PER_MODE: usize = 5;
+pub const LAPLACE_BELTRAMI_MODE_COUNT: usize = 4;
+pub const LAPLACE_BELTRAMI_SLOTS_PER_MODE: usize = 5;
 
 #[derive(Debug, Clone, Copy)]
-pub struct LbMode {
+pub struct LaplaceBeltramiMode {
     pub m: i32,
     pub lambda: f64,
     pub phi_cheb: [f32; CHEB_ORDER],
@@ -38,21 +38,22 @@ fn eval_cheb8(lo: [f32; 4], hi: [f32; 4], x01: f32) -> f32 {
     eval_cheb(&coeffs, 2.0 * x01 - 1.0)
 }
 
-/// Mirror of GLSL `waterLbHeightAndGradient`, evaluating the packed LB modes at (u, v).
+/// Mirror of GLSL `waterLbHeightAndGradient`, evaluating the packed Laplace-Beltrami modes at (u, v).
 /// Returns (h, h_u, h_v).
-pub fn water_lb_height_and_gradient(
+pub fn water_laplace_beltrami_height_and_gradient(
     uv: Vector2<f32>,
     time: f32,
     flow_rate: Vector2<f32>,
-    lb_modes: &[[f32; 4]; LB_MODE_COUNT * LB_SLOTS_PER_MODE],
+    laplace_beltrami_modes: &[[f32; 4];
+         LAPLACE_BELTRAMI_MODE_COUNT * LAPLACE_BELTRAMI_SLOTS_PER_MODE],
 ) -> (f32, f32, f32) {
     let mut h = 0.0f32;
     let mut h_u = 0.0f32;
     let mut h_v = 0.0f32;
 
-    for k in 0..LB_MODE_COUNT {
-        let slot = LB_SLOTS_PER_MODE * k;
-        let [m, omega, amplitude, phase] = lb_modes[slot];
+    for k in 0..LAPLACE_BELTRAMI_MODE_COUNT {
+        let slot = LAPLACE_BELTRAMI_SLOTS_PER_MODE * k;
+        let [m, omega, amplitude, phase] = laplace_beltrami_modes[slot];
         if amplitude <= 0.0 {
             continue;
         }
@@ -61,8 +62,16 @@ pub fn water_lb_height_and_gradient(
         let v_advected = (uv.y + flow_rate.y * time).rem_euclid(2.0 * std::f32::consts::PI);
         let t = (v_advected - std::f32::consts::PI) / std::f32::consts::PI;
 
-        let phi = eval_cheb8(lb_modes[slot + 1], lb_modes[slot + 2], 0.5 * t + 0.5);
-        let dphi = eval_cheb8(lb_modes[slot + 3], lb_modes[slot + 4], 0.5 * t + 0.5);
+        let phi = eval_cheb8(
+            laplace_beltrami_modes[slot + 1],
+            laplace_beltrami_modes[slot + 2],
+            0.5 * t + 0.5,
+        );
+        let dphi = eval_cheb8(
+            laplace_beltrami_modes[slot + 3],
+            laplace_beltrami_modes[slot + 4],
+            0.5 * t + 0.5,
+        );
 
         h += amplitude * phase_prime.cos() * phi;
         h_u -= amplitude * m * phase_prime.sin() * phi;
@@ -74,7 +83,7 @@ pub fn water_lb_height_and_gradient(
 
 #[derive(Default)]
 pub struct Cache {
-    data: Mutex<HashMap<u32, [LbMode; 4]>>,
+    data: Mutex<HashMap<u32, [LaplaceBeltramiMode; 4]>>,
 }
 
 impl Cache {
@@ -82,7 +91,7 @@ impl Cache {
         Self::default()
     }
 
-    pub fn get_or_compute(&self, major_radius: f32, minor_radius: f32) -> [LbMode; 4] {
+    pub fn get_or_compute(&self, major_radius: f32, minor_radius: f32) -> [LaplaceBeltramiMode; 4] {
         let key = ((major_radius / minor_radius) * 1000.0) as u32;
 
         let mut map = self.data.lock().unwrap();
@@ -90,7 +99,7 @@ impl Cache {
             return *modes;
         }
 
-        let modes = compute_lb_modes(major_radius, minor_radius);
+        let modes = compute_laplace_beltrami_modes(major_radius, minor_radius);
         map.insert(key, modes);
         modes
     }
@@ -98,7 +107,10 @@ impl Cache {
 
 pub static CACHE: LazyLock<Cache> = LazyLock::new(Cache::new);
 
-pub fn compute_lb_modes_cached(major_radius: f32, minor_radius: f32) -> [LbMode; 4] {
+pub fn compute_laplace_beltrami_modes_cached(
+    major_radius: f32,
+    minor_radius: f32,
+) -> [LaplaceBeltramiMode; 4] {
     CACHE.get_or_compute(major_radius, minor_radius)
 }
 
@@ -296,7 +308,10 @@ fn cheb_parameters(n: usize) -> Vec<f64> {
         .collect()
 }
 
-pub fn compute_lb_modes(major_radius: f32, minor_radius: f32) -> [LbMode; 4] {
+pub fn compute_laplace_beltrami_modes(
+    major_radius: f32,
+    minor_radius: f32,
+) -> [LaplaceBeltramiMode; 4] {
     let r_major = major_radius as f64;
     let r_minor = minor_radius as f64;
     let n = GRID_N;
@@ -311,7 +326,7 @@ pub fn compute_lb_modes(major_radius: f32, minor_radius: f32) -> [LbMode; 4] {
             .map(|i| (phi[(i + 1) % n] - phi[(i + n - 1) % n]) / (2.0 * h))
             .collect();
 
-        LbMode {
+        LaplaceBeltramiMode {
             m,
             lambda,
             phi_cheb: least_squares_cheb(&phi, &t),
@@ -327,7 +342,7 @@ mod tests {
     #[test]
     fn eigenpairs_satisfy_discrete_generalized_problem() {
         let (r_major, r_minor) = (1.0f64, 0.3f64);
-        let modes = compute_lb_modes(r_major as f32, r_minor as f32);
+        let modes = compute_laplace_beltrami_modes(r_major as f32, r_minor as f32);
 
         for mode in &modes {
             let (a, b) = build_operator(mode.m, r_major, r_minor, GRID_N);
@@ -354,7 +369,7 @@ mod tests {
     #[test]
     fn eigenvalues_approach_thin_torus_limit() {
         let r_major = 100.0f64;
-        let modes = compute_lb_modes(r_major as f32, 0.3);
+        let modes = compute_laplace_beltrami_modes(r_major as f32, 0.3);
 
         for mode in &modes {
             let expected = (mode.m as f64).powi(2) / (r_major * r_major);
@@ -371,7 +386,7 @@ mod tests {
     #[test]
     fn chebyshev_fit_reconstructs_grid_samples() {
         let (r_major, r_minor) = (1.0f64, 0.3f64);
-        let modes = compute_lb_modes(r_major as f32, r_minor as f32);
+        let modes = compute_laplace_beltrami_modes(r_major as f32, r_minor as f32);
         let t = cheb_parameters(GRID_N);
 
         for mode in &modes {

@@ -199,12 +199,8 @@ fn compute_water_probe_report_matches_rust_solver() {
                 cgmath::Vector3::new(d_local_raw.x, d_local_raw.y, d_local_raw.z).normalize();
 
             // Solve with Rust's analytic solver (same as compute_water_probe_report)
-            let rust_hits = thyllore_effect_core::water::analytic::intersect_torus(
-                p_local,
-                d_local,
-                1.0,
-                minor_over_major,
-            );
+            let rust_hits =
+                thyllore_math_core::intersect_torus(p_local, d_local, 1.0, minor_over_major);
 
             // Write result into synthetic image (as if from GLSL shader).
             // High-precision encoding: t = t_norm * R, decomposed as

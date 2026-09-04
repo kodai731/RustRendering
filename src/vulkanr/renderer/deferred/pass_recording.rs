@@ -1351,7 +1351,7 @@ fn compute_water_scissor(
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    for corner in thyllore_effect_core::water_local_bounds_corners(major_radius, minor_radius) {
+    for corner in thyllore_math_core::torus_local_bounds_corners(major_radius, minor_radius) {
         let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
         if clip.w <= 0.0 {
             return Some(full_extent_scissor(extent));

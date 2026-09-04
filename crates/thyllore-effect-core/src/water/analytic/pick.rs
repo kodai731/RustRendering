@@ -1,10 +1,10 @@
 use cgmath::{InnerSpace, Matrix4, Vector2, Vector3, Vector4};
 
-use super::lb_basis::water_lb_height_and_gradient;
-use super::torus_intersect::intersect_torus;
+use super::laplace_beltrami_basis::water_laplace_beltrami_height_and_gradient;
 use super::wave::{generate_water_wave_modes, water_height_and_gradient};
 use crate::water::effect::WaterTorusEffect;
-use crate::water::gpu::systems::build_lb_modes;
+use crate::water::gpu::systems::build_laplace_beltrami_modes;
+use thyllore_math_core::intersect_torus;
 
 pub fn pick_torus(
     ray_origin: Vector3<f32>,
@@ -61,12 +61,17 @@ pub fn water_total_height_and_gradient(
     let (flat_h, flat_h_u, flat_h_v) =
         water_height_and_gradient(u, v, effect.time, flow, &flat_modes);
 
-    let (lb_h, lb_h_u, lb_h_v) = water_lb_height_and_gradient(
-        Vector2::new(u, v),
-        effect.time,
-        Vector2::new(flow.0, flow.1),
-        &build_lb_modes(effect),
-    );
+    let (laplace_beltrami_h, laplace_beltrami_h_u, laplace_beltrami_h_v) =
+        water_laplace_beltrami_height_and_gradient(
+            Vector2::new(u, v),
+            effect.time,
+            Vector2::new(flow.0, flow.1),
+            &build_laplace_beltrami_modes(effect),
+        );
 
-    (flat_h + lb_h, flat_h_u + lb_h_u, flat_h_v + lb_h_v)
+    (
+        flat_h + laplace_beltrami_h,
+        flat_h_u + laplace_beltrami_h_u,
+        flat_h_v + laplace_beltrami_h_v,
+    )
 }

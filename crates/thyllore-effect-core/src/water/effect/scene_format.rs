@@ -327,6 +327,14 @@ mod tests {
     }
 
     #[test]
+    fn test_runtime_ui_params_are_flagged_as_not_persisted() {
+        for param in WATER_UI_PARAMS {
+            let is_runtime = matches!(param.name, "time" | "time_scale" | "time_offset");
+            assert_eq!(param.persisted, !is_runtime, "{}", param.name);
+        }
+    }
+
+    #[test]
     fn test_overwrite_persisted_fields_keeps_runtime_state() {
         let mut loaded = WaterTorusEffect::default();
         loaded.major_radius = 5.0;

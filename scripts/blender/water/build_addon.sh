@@ -123,7 +123,7 @@ stage_sources() {
 }
 stage_sources
 
-for required in shaders/water_torus.glsl shaders/water_torus.bindings.json common/coordinates.py common/effect_properties.py water_params.toml blender_manifest.toml; do
+for required in shaders/water_torus.glsl shaders/water_torus.bindings.json common/coordinates.py common/effect_properties.py blender_manifest.toml; do
     if [[ ! -f "$STAGE_DIR/$required" ]]; then
         echo "$required missing from stage" >&2
         exit 1

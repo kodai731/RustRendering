@@ -14,7 +14,7 @@ license = ["SPDX:GPL-3.0-or-later"]
 
 # The "PLATFORM" placeholders are substituted by
 # scripts/blender/flame/build_addon.sh when producing per-platform ZIPs.
-# The parameters exposed in the UI are listed in flame_params.toml.
+# The UI mirrors the persisted parameters reported by thyllore_effect_core.flame_ui_params().
 wheels = [
     "./wheels/thyllore_effect_core-0.0.1-cp310-abi3-PLATFORM.whl",
 ]

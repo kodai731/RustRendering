@@ -44,7 +44,7 @@ assert set(collected.keys()) == set(candle_params.keys()), "render params must c
 print("ADDON_SMOKE ok", flush=True)
 
 from math import radians
-from blender_addon.effects.water.draw_handler import WaterViewportRenderer
+from blender_addon.effects.water.draw_handler import WaterViewportRenderer, scene_color_binding
 from blender_addon.common.coordinates import look_at_view_matrix, engine_projection
 
 view = look_at_view_matrix((0, 1.2, 4.5), (0, 0, -1), (0, 1, 0))
@@ -57,8 +57,11 @@ rotation = (1.0, 0.0, 0.0, 0.0)
 light_pos = (0.0, 2.0, 2.0)
 camera_pos = (0.0, 1.2, 4.5)
 
+scene_color, scene_color_rect = scene_color_binding(256, 256)
 for i in range(3):
-    color_tex, depth_tex = renderer.render(view, proj, camera_pos, light_pos, params, 1.5, position, rotation, 256, 256)
+    color_tex, depth_tex = renderer.render(
+        view, proj, camera_pos, light_pos, params, 1.5, position, rotation, 256, 256, scene_color, scene_color_rect
+    )
 
 pixels = color_tex.read().to_list()
 alpha_count = sum(1 for row in pixels for px in row if px[3] > 0.0)

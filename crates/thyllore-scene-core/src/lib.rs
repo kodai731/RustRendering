@@ -22,6 +22,8 @@ pub struct UiParam {
     pub max: f32,
     pub format: &'static str,
     pub tooltip: &'static str,
+    /// Persisted parameters are saved with the scene; runtime ones are driven by playback.
+    pub persisted: bool,
 }
 
 impl UiParam {
@@ -302,6 +304,7 @@ macro_rules! declare_scene_format {
                     max: $ui_max,
                     format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $ui_format)?),
                     tooltip: $crate::declare_scene_format!(@ui_or_default "" $(, $ui_tooltip)?),
+                    persisted: true,
                 },
             )? )+
             $( $(
@@ -312,6 +315,7 @@ macro_rules! declare_scene_format {
                     max: $rt_ui_max,
                     format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $rt_ui_format)?),
                     tooltip: $crate::declare_scene_format!(@ui_or_default "" $(, $rt_ui_tooltip)?),
+                    persisted: false,
                 },
             )? )*
         ];
@@ -443,6 +447,7 @@ mod tests {
             max: 1.0,
             format: "",
             tooltip: "",
+            persisted: true,
         };
         let derived = UiParam {
             label: None,

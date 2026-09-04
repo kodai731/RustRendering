@@ -128,12 +128,8 @@ pub fn compute_water_probe_report(
             let d_local = Vector3::new(d_local_raw.x, d_local_raw.y, d_local_raw.z).normalize();
 
             // Solve in Rust using thyllore_effect_core's analytic solver
-            let rust_hits = thyllore_effect_core::water::analytic::intersect_torus(
-                p_local,
-                d_local,
-                1.0,
-                minor_over_major,
-            );
+            let rust_hits =
+                thyllore_math_core::intersect_torus(p_local, d_local, 1.0, minor_over_major);
 
             // Compare root count
             if rust_hits.count != hit_count {

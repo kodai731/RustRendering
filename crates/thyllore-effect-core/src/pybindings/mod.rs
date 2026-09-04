@@ -7,12 +7,13 @@ use crate::flame::{
 };
 use crate::water::{
     apply_water_preset, build_water_model_matrix, build_water_ubo, inverse_view_proj_f64,
-    overwrite_water_persisted_fields, water_local_bounds_corners, WaterTorusEffect, WaterUBO,
-    WATER_PRESET_NAMES, WATER_SCALAR_PARAMS, WATER_UI_PARAMS,
+    overwrite_water_persisted_fields, WaterTorusEffect, WaterUBO, WATER_PRESET_NAMES,
+    WATER_SCALAR_PARAMS, WATER_UI_PARAMS,
 };
 use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use thyllore_math_core::torus_local_bounds_corners;
 
 #[pyfunction]
 fn flame_preset_names() -> Vec<&'static str> {
@@ -34,6 +35,7 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         dict.set_item("max", param.max)?;
         dict.set_item("format", param.format)?;
         dict.set_item("tooltip", param.tooltip)?;
+        dict.set_item("persisted", param.persisted)?;
 
         let Some(default_value) = default_dict.get_item(param.name)? else {
             continue;
@@ -67,6 +69,7 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         dict.set_item("tooltip", color_param_tooltip(name))?;
         dict.set_item("default", default_value)?;
         dict.set_item("owner", "style")?;
+        dict.set_item("persisted", true)?;
         if name.starts_with("temperature_") {
             dict.set_item("min", 1000.0)?;
             dict.set_item("max", 6500.0)?;
@@ -285,6 +288,7 @@ fn water_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         dict.set_item("max", param.max)?;
         dict.set_item("format", param.format)?;
         dict.set_item("tooltip", param.tooltip)?;
+        dict.set_item("persisted", param.persisted)?;
 
         let Some(default_value) = default_dict.get_item(param.name)? else {
             continue;
@@ -396,7 +400,7 @@ fn water_bounds_corners(
     let model = build_water_model_matrix(&effect);
 
     Ok(
-        water_local_bounds_corners(effect.major_radius, effect.minor_radius)
+        torus_local_bounds_corners(effect.major_radius, effect.minor_radius)
             .iter()
             .map(|corner| {
                 let world = model * Vector4::new(corner.x, corner.y, corner.z, 1.0);
