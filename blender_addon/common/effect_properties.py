@@ -31,9 +31,11 @@ def select_exposed_params(ui_params: list[dict]) -> list[dict]:
 
 
 def group_params_by_owner(exposed_params: list[dict]) -> list[tuple[str, list[str]]]:
+    """Groups by the engine's "group" label when present, falling back to "owner"."""
     groups: dict[str, list[str]] = {}
     for param in exposed_params:
-        groups.setdefault(param.get("owner", "frame"), []).append(param["name"])
+        key = param.get("group") or param.get("owner", "frame")
+        groups.setdefault(key, []).append(param["name"])
     return list(groups.items())
 
 

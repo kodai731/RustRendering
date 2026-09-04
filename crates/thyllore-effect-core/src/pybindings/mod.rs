@@ -31,6 +31,7 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         let dict = PyDict::new(py);
         dict.set_item("name", param.name)?;
         dict.set_item("label", param.display_label())?;
+        dict.set_item("group", param.group)?;
         dict.set_item("min", param.min)?;
         dict.set_item("max", param.max)?;
         dict.set_item("format", param.format)?;
@@ -284,6 +285,7 @@ fn water_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         let dict = PyDict::new(py);
         dict.set_item("name", param.name)?;
         dict.set_item("label", param.display_label())?;
+        dict.set_item("group", param.group)?;
         dict.set_item("min", param.min)?;
         dict.set_item("max", param.max)?;
         dict.set_item("format", param.format)?;

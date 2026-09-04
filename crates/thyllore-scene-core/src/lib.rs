@@ -17,6 +17,7 @@ pub fn find_scalar_param<'a, C>(
 /// UI-toolkit-free display metadata of one scalar parameter, joined to the accessor table by `name`.
 pub struct UiParam {
     pub name: &'static str,
+    pub group: &'static str,
     pub label: Option<&'static str>,
     pub min: f32,
     pub max: f32,
@@ -111,7 +112,8 @@ macro_rules! declare_scene_format {
                     min: $ui_min:expr,
                     max: $ui_max:expr
                     $(, format: $ui_format:expr)?
-                    $(, tooltip: $ui_tooltip:expr)? $(,)?
+                    $(, tooltip: $ui_tooltip:expr)?
+                    $(, group: $ui_group:expr)? $(,)?
                 })?
                 $(,)?
             } ),+ $(,)?
@@ -125,7 +127,8 @@ macro_rules! declare_scene_format {
                     min: $rt_ui_min:expr,
                     max: $rt_ui_max:expr
                     $(, format: $rt_ui_format:expr)?
-                    $(, tooltip: $rt_ui_tooltip:expr)? $(,)?
+                    $(, tooltip: $rt_ui_tooltip:expr)?
+                    $(, group: $rt_ui_group:expr)? $(,)?
                 })?
                 $(,)?
             } ),* $(,)?
@@ -160,6 +163,7 @@ macro_rules! declare_scene_format {
                         max: $ui_max
                         $(, format: $ui_format)?
                         $(, tooltip: $ui_tooltip)?
+                        $(, group: $ui_group)?
                     })?
                 } ),+
             },
@@ -173,6 +177,7 @@ macro_rules! declare_scene_format {
                         max: $rt_ui_max
                         $(, format: $rt_ui_format)?
                         $(, tooltip: $rt_ui_tooltip)?
+                        $(, group: $rt_ui_group)?
                     })?
                 } ),*
             },
@@ -201,7 +206,8 @@ macro_rules! declare_scene_format {
                     min: $ui_min:expr,
                     max: $ui_max:expr
                     $(, format: $ui_format:expr)?
-                    $(, tooltip: $ui_tooltip:expr)? $(,)?
+                    $(, tooltip: $ui_tooltip:expr)?
+                    $(, group: $ui_group:expr)? $(,)?
                 })?
                 $(,)?
             } ),+ $(,)?
@@ -215,7 +221,8 @@ macro_rules! declare_scene_format {
                     min: $rt_ui_min:expr,
                     max: $rt_ui_max:expr
                     $(, format: $rt_ui_format:expr)?
-                    $(, tooltip: $rt_ui_tooltip:expr)? $(,)?
+                    $(, tooltip: $rt_ui_tooltip:expr)?
+                    $(, group: $rt_ui_group:expr)? $(,)?
                 })?
                 $(,)?
             } ),* $(,)?
@@ -299,6 +306,7 @@ macro_rules! declare_scene_format {
             $( $(
                 $crate::UiParam {
                     name: stringify!($name),
+                    group: $crate::declare_scene_format!(@ui_or_default "" $(, $ui_group)?),
                     label: $crate::declare_scene_format!(@ui_label $(, $ui_label)?),
                     min: $ui_min,
                     max: $ui_max,
@@ -310,6 +318,7 @@ macro_rules! declare_scene_format {
             $( $(
                 $crate::UiParam {
                     name: stringify!($runtime_name),
+                    group: $crate::declare_scene_format!(@ui_or_default "" $(, $rt_ui_group)?),
                     label: $crate::declare_scene_format!(@ui_label $(, $rt_ui_label)?),
                     min: $rt_ui_min,
                     max: $rt_ui_max,
@@ -442,6 +451,7 @@ mod tests {
     fn test_display_label_prefers_explicit_label() {
         let explicit = UiParam {
             name: "swirl_gain",
+            group: "",
             label: Some("Swirl"),
             min: 0.0,
             max: 1.0,

@@ -14,10 +14,6 @@ use super::flame_param_groups::{
 };
 use super::param_widgets::draw_scalar_params;
 use super::viewport_window::ViewportInfo;
-use super::water_param_groups::{
-    WATER_FLOW_PARAMS, WATER_LOOK_PARAMS, WATER_OPTICS_PARAMS, WATER_PARAM_GROUPS,
-    WATER_SHAPE_PARAMS, WATER_WAVE_PARAMS,
-};
 
 const OVERLAY_MARGIN: f32 = 8.0;
 const OVERLAY_WIDTH: f32 = 420.0;
@@ -600,10 +596,25 @@ fn build_water_section(
                 if let Some(effect) = ecs_world.get_component::<WaterTorusEffect>(selected_water) {
                     let mut effect_copy = effect.clone();
 
-                    for group in WATER_PARAM_GROUPS {
+                    let mut drawn_groups: Vec<&str> = Vec::new();
+                    for group in thyllore_effect_core::WATER_UI_PARAMS
+                        .iter()
+                        .map(|param| param.group)
+                        .filter(|group| !group.is_empty())
+                    {
+                        if drawn_groups.contains(&group) {
+                            continue;
+                        }
+                        drawn_groups.push(group);
+
+                        let names: Vec<&str> = thyllore_effect_core::WATER_UI_PARAMS
+                            .iter()
+                            .filter(|param| param.group == group)
+                            .map(|param| param.name)
+                            .collect();
                         draw_scalar_params(
                             ui,
-                            group,
+                            &names,
                             thyllore_effect_core::WATER_UI_PARAMS,
                             thyllore_effect_core::WATER_SCALAR_PARAMS,
                             &mut effect_copy,

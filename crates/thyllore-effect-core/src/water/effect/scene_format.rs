@@ -30,6 +30,7 @@ declare_scene_format! {
                 min: 0.01,
                 max: 10.0,
                 format: "%.2f",
+                group: "shape",
             },
         },
         minor_radius: f32 = Frame {
@@ -39,6 +40,7 @@ declare_scene_format! {
                 min: 0.01,
                 max: 5.0,
                 format: "%.2f",
+                group: "shape",
             },
         },
         ior: f32 = Frame {
@@ -48,6 +50,7 @@ declare_scene_format! {
                 min: 1.0,
                 max: 2.5,
                 format: "%.3f",
+                group: "optics",
             },
         },
         absorption_r: f32 = Frame {
@@ -57,6 +60,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 10.0,
                 format: "%.2f",
+                group: "optics",
             },
         },
         absorption_g: f32 = Frame {
@@ -66,6 +70,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 10.0,
                 format: "%.2f",
+                group: "optics",
             },
         },
         absorption_b: f32 = Frame {
@@ -75,6 +80,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 10.0,
                 format: "%.2f",
+                group: "optics",
             },
         },
         flow_longitudinal: f32 = Frame {
@@ -84,6 +90,7 @@ declare_scene_format! {
                 min: -5.0,
                 max: 5.0,
                 format: "%.2f",
+                group: "flow",
             },
         },
         flow_meridional: f32 = Frame {
@@ -93,6 +100,7 @@ declare_scene_format! {
                 min: -5.0,
                 max: 5.0,
                 format: "%.2f",
+                group: "flow",
             },
         },
         wave_amplitude: f32 = Frame {
@@ -102,6 +110,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 1.0,
                 format: "%.3f",
+                group: "wave",
             },
         },
         wave_frequency: f32 = Frame {
@@ -111,6 +120,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 50.0,
                 format: "%.1f",
+                group: "wave",
             },
         },
         wave_speed: f32 = Frame {
@@ -120,6 +130,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 10.0,
                 format: "%.2f",
+                group: "wave",
             },
         },
         wave_dispersion: f32 = Frame {
@@ -129,6 +140,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 1.0,
                 format: "%.2f",
+                group: "wave",
             },
         },
         wave_lb_blend: f32 = Frame {
@@ -138,33 +150,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 1.0,
                 format: "%.2f",
-            },
-        },
-        reflect_strength: f32 = Frame {
-            get: |e| e.reflect_strength,
-            set: |e, v| e.reflect_strength = v,
-            ui {
-                min: 0.0,
-                max: 1.0,
-                format: "%.2f",
-            },
-        },
-        refract_strength: f32 = Frame {
-            get: |e| e.refract_strength,
-            set: |e, v| e.refract_strength = v,
-            ui {
-                min: 0.0,
-                max: 1.0,
-                format: "%.2f",
-            },
-        },
-        caustic_strength: f32 = Frame {
-            get: |e| e.caustic_strength,
-            set: |e, v| e.caustic_strength = v,
-            ui {
-                min: 0.0,
-                max: 2.0,
-                format: "%.2f",
+                group: "wave",
             },
         },
         light_intensity: f32 = Frame {
@@ -174,6 +160,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 20.0,
                 format: "%.2f",
+                group: "lighting",
             },
         },
         highlight_sharpness: f32 = Frame {
@@ -183,6 +170,7 @@ declare_scene_format! {
                 min: 1.0,
                 max: 1024.0,
                 format: "%.0f",
+                group: "lighting",
             },
         },
         sky_brightness: f32 = Frame {
@@ -192,6 +180,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 2.0,
                 format: "%.2f",
+                group: "lighting",
             },
         },
         scatter_strength: f32 = Frame {
@@ -201,6 +190,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 10.0,
                 format: "%.2f",
+                group: "lighting",
             },
         },
         scatter_anisotropy: f32 = Frame {
@@ -210,6 +200,37 @@ declare_scene_format! {
                 min: -0.9,
                 max: 0.9,
                 format: "%.2f",
+                group: "lighting",
+            },
+        },
+        reflect_strength: f32 = Frame {
+            get: |e| e.reflect_strength,
+            set: |e, v| e.reflect_strength = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                group: "look",
+            },
+        },
+        refract_strength: f32 = Frame {
+            get: |e| e.refract_strength,
+            set: |e, v| e.refract_strength = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                group: "look",
+            },
+        },
+        caustic_strength: f32 = Frame {
+            get: |e| e.caustic_strength,
+            set: |e, v| e.caustic_strength = v,
+            ui {
+                min: 0.0,
+                max: 2.0,
+                format: "%.2f",
+                group: "look",
             },
         },
         tint_r: f32 = Frame {
@@ -219,6 +240,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 1.0,
                 format: "%.2f",
+                group: "look",
             },
         },
         tint_g: f32 = Frame {
@@ -228,6 +250,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 1.0,
                 format: "%.2f",
+                group: "look",
             },
         },
         tint_b: f32 = Frame {
@@ -237,6 +260,7 @@ declare_scene_format! {
                 min: 0.0,
                 max: 1.0,
                 format: "%.2f",
+                group: "look",
             },
         },
     },
@@ -323,6 +347,78 @@ mod tests {
                 param.name
             );
             assert!(param.min < param.max, "{}", param.name);
+        }
+    }
+
+    #[test]
+    fn test_ui_param_groups_cover_every_water_group_in_display_order() {
+        let mut groups: Vec<&str> = Vec::new();
+        for param in WATER_UI_PARAMS {
+            if !param.group.is_empty() && !groups.contains(&param.group) {
+                groups.push(param.group);
+            }
+        }
+        assert_eq!(
+            groups,
+            ["shape", "optics", "flow", "wave", "lighting", "look"]
+        );
+    }
+
+    #[test]
+    fn test_ui_param_group_members_match_their_group() {
+        let expected: &[(&str, &[&str])] = &[
+            ("shape", &["major_radius", "minor_radius"]),
+            (
+                "optics",
+                &["ior", "absorption_r", "absorption_g", "absorption_b"],
+            ),
+            ("flow", &["flow_longitudinal", "flow_meridional"]),
+            (
+                "wave",
+                &[
+                    "wave_amplitude",
+                    "wave_frequency",
+                    "wave_speed",
+                    "wave_dispersion",
+                    "wave_lb_blend",
+                ],
+            ),
+            (
+                "lighting",
+                &[
+                    "light_intensity",
+                    "highlight_sharpness",
+                    "sky_brightness",
+                    "scatter_strength",
+                    "scatter_anisotropy",
+                ],
+            ),
+            (
+                "look",
+                &[
+                    "reflect_strength",
+                    "refract_strength",
+                    "caustic_strength",
+                    "tint_r",
+                    "tint_g",
+                    "tint_b",
+                ],
+            ),
+        ];
+
+        for (group, members) in expected {
+            let declared: Vec<&str> = WATER_UI_PARAMS
+                .iter()
+                .filter(|param| param.group == *group)
+                .map(|param| param.name)
+                .collect();
+            assert_eq!(declared, *members, "{group}");
+            for name in *members {
+                assert!(
+                    find_scalar_param(WATER_SCALAR_PARAMS, name).is_some(),
+                    "{name}"
+                );
+            }
         }
     }
 
