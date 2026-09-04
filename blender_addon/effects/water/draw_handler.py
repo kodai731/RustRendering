@@ -4,6 +4,7 @@ import traceback
 
 from ._common import coordinates
 from .water_shader import build_tonemap_composite_shader, build_water_shader, matrix_column_major, pack_frame_ubo
+from .viewport_color import ViewportColorCapture
 from .viewport_depth import ViewportDepthCapture
 
 VIEWPORT_NEAR = 0.1
@@ -20,7 +21,12 @@ _draw_handle = None
 _shader = None
 _renderers: dict[str, "WaterViewportRenderer"] = {}
 _viewport_depth = ViewportDepthCapture()
+_viewport_color = ViewportColorCapture()
 _scene_depth = None
+_scene_color = None
+_scene_color_rect = None
+_BLACK_COLOR_TEX = None
+SCENE_COLOR_PADDING_RATIO = 0.25
 _composite_shader = None
 _draw_failure_reported = False
 _draw_diagnostic_reported = False
@@ -93,11 +99,12 @@ class WaterViewportRenderer:
         with self.fb_color.bind():
             self.fb_color.clear(color=(0.0, 0.0, 0.0, 0.0), depth=0.0)
 
-    def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h, flip_y=True):
+    def render(self, view, proj, camera_pos, light_pos, params, time, position, rotation, w, h, scene_color, scene_color_rect, flip_y=True):
         import gpu
         import thyllore_effect_core as fx
 
         self.ensure_size(w, h)
+        self.clear_color_for_discarded_fragments()
         if flip_y:
             proj = flip_projection_y(proj)
         frame_bytes = pack_frame_ubo(view, proj, camera_pos + (1.0,), light_pos + (1.0,), (1.0, 1.0, 1.0, 1.0))
@@ -123,6 +130,8 @@ class WaterViewportRenderer:
                 shader.bind()
                 shader.uniform_block("frame", self.frame_ubo)
                 shader.uniform_block("water", self.water_ubo)
+                shader.uniform_sampler("sceneColorSampler", scene_color)
+                shader.uniform_float("sceneColorRect", scene_color_rect)
                 gpu.state.depth_test_set("ALWAYS")
                 gpu.state.depth_mask_set(True)
                 from gpu_extras.batch import batch_for_shader
@@ -140,13 +149,73 @@ class WaterViewportRenderer:
             setattr(self, attr, None)
 
 
-def capture_scene_depth():
-    global _scene_depth
+def viewport_frame(context):
+    region = context.region
+    region_data = context.region_data
+    view_matrix = list(region_data.view_matrix)
+    window_matrix = list(region_data.window_matrix)
+    proj = blender_window_to_engine_projection(window_matrix, VIEWPORT_NEAR)
+    view, camera_pos = blender_view_to_engine_view(view_matrix)
+    return view, proj, camera_pos, window_matrix, region.width, region.height
+
+
+def water_screen_rects(water_objects, view, proj, w, h):
+    import thyllore_effect_core as fx
+
+    from .properties import water_render_params
+
+    rects = []
+    for obj in water_objects:
+        params = water_render_params(obj.thyllore_water)
+        position = coordinates.blender_to_engine_point(obj.matrix_world.translation)
+        rotation = coordinates.blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
+        rect = coordinates.project_bounds_to_pixel_rect(fx.water_bounds_corners(params, position, rotation), view, proj, w, h)
+        if rect is not None:
+            rects.append(rect)
+    return rects
+
+
+def padded_union_rect(rects, w, h, padding_ratio):
+    if not rects:
+        return None
+    min_x = min(r[0] for r in rects)
+    min_y = min(r[1] for r in rects)
+    max_x = max(r[0] + r[2] for r in rects)
+    max_y = max(r[1] + r[3] for r in rects)
+    pad = int(max(max_x - min_x, max_y - min_y) * padding_ratio)
+    x0 = max(min_x - pad, 0)
+    y0 = max(min_y - pad, 0)
+    x1 = min(max_x + pad, w)
+    y1 = min(max_y + pad, h)
+    if x1 - x0 < 1 or y1 - y0 < 1:
+        return None
+    return (x0, y0, x1 - x0, y1 - y0)
+
+
+def capture_scene_buffers():
+    global _scene_depth, _scene_color, _scene_color_rect
     import bpy
 
-    region = bpy.context.region
-    window_matrix = list(bpy.context.region_data.window_matrix)
-    _scene_depth = _viewport_depth.capture(region.width, region.height, window_matrix, VIEWPORT_NEAR)
+    context = bpy.context
+    view, proj, _camera_pos, window_matrix, w, h = viewport_frame(context)
+    _scene_depth = _viewport_depth.capture(w, h, window_matrix, VIEWPORT_NEAR)
+
+    rect = padded_union_rect(water_screen_rects(find_water_objects(context.scene), view, proj, w, h), w, h, SCENE_COLOR_PADDING_RATIO)
+    _scene_color_rect = rect
+    _scene_color = _viewport_color.capture(rect) if rect is not None else None
+
+
+def scene_color_binding(w, h):
+    """Returns the linear scene color texture and the uv remap (origin, inverse size) from full-screen uv into it."""
+    global _BLACK_COLOR_TEX
+    import gpu
+
+    if _scene_color is not None and _scene_color_rect is not None:
+        x, y, rw, rh = _scene_color_rect
+        return _scene_color, (x / w, y / h, w / rw, h / rh)
+    if _BLACK_COLOR_TEX is None:
+        _BLACK_COLOR_TEX = gpu.types.GPUTexture((1, 1), format="RGBA16F", data=gpu.types.Buffer("FLOAT", 4, [0.0, 0.0, 0.0, 1.0]))
+    return _BLACK_COLOR_TEX, (0.0, 0.0, 1.0, 1.0)
 
 
 def draw_viewport():
@@ -176,19 +245,13 @@ def draw_water():
     from .properties import water_render_params
 
     context = bpy.context
-    region = context.region
-    region_data = context.region_data
-    view_matrix = list(region_data.view_matrix)
-    window_matrix = list(region_data.window_matrix)
-    proj = blender_window_to_engine_projection(window_matrix, VIEWPORT_NEAR)
-    view, camera_pos = blender_view_to_engine_view(view_matrix)
-    w = region.width
-    h = region.height
+    view, proj, camera_pos, window_matrix, w, h = viewport_frame(context)
 
     scene = context.scene
     scene_time = (scene.frame_current - scene.frame_start) / scene.render.fps
     light_pos = find_light_position(scene)
     water_objects = find_water_objects(scene)
+    scene_color, scene_color_rect = scene_color_binding(w, h)
 
     last_color = None
     render_started = time.perf_counter()
@@ -198,7 +261,7 @@ def draw_water():
         position = coordinates.blender_to_engine_point(obj.matrix_world.translation)
         rotation = coordinates.blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
         last_color, _depth = renderer.render(
-            view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h
+            view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h, scene_color, scene_color_rect
         )
 
     report_first_draw(w, h, camera_pos, water_objects, time.perf_counter() - render_started)
@@ -262,12 +325,12 @@ def register_draw_handler():
     global _depth_handle, _draw_handle
     import bpy
 
-    _depth_handle = bpy.types.SpaceView3D.draw_handler_add(capture_scene_depth, (), "WINDOW", "POST_VIEW")
+    _depth_handle = bpy.types.SpaceView3D.draw_handler_add(capture_scene_buffers, (), "WINDOW", "POST_VIEW")
     _draw_handle = bpy.types.SpaceView3D.draw_handler_add(draw_viewport, (), "WINDOW", "POST_PIXEL")
 
 
 def unregister_draw_handler():
-    global _depth_handle, _draw_handle, _scene_depth, _composite_shader, _shader
+    global _depth_handle, _draw_handle, _scene_depth, _scene_color, _scene_color_rect, _composite_shader, _shader
     import bpy
 
     for handle in (_draw_handle, _depth_handle):
@@ -279,5 +342,8 @@ def unregister_draw_handler():
     _renderers.clear()
     _shader = None
     _viewport_depth.release()
+    _viewport_color.release()
     _scene_depth = None
+    _scene_color = None
+    _scene_color_rect = None
     _composite_shader = None

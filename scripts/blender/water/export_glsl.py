@@ -239,6 +239,20 @@ def convert_to_blender_dialect(lines: list[str]) -> tuple[list[str], dict]:
     return output, bindings
 
 
+SCENE_COLOR_SAMPLE_PATTERN = re.compile(r'texture\s*\(\s*sceneColorSampler\s*,\s*(\w+)\s*\)')
+
+
+def remap_scene_color_to_capture_rect(lines: list[str]) -> list[str]:
+    """Blender captures only the water's screen rect, so full-screen uvs are remapped through sceneColorRect."""
+    remapped = []
+    for line in lines:
+        remapped.append(SCENE_COLOR_SAMPLE_PATTERN.sub(r'texture(sceneColorSampler, (\1 - sceneColorRect.xy) * sceneColorRect.zw)', line))
+    leftover = [line for line in remapped if "sceneColorSampler" in line and "sceneColorRect" not in line]
+    if leftover:
+        raise SystemExit(f"sceneColorSampler reads that the rect remap does not cover: {leftover}")
+    return remapped
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Export GLSL shaders for Blender addon")
     parser.add_argument("--repo-root", default=".", help="Repository root directory")
@@ -253,29 +267,20 @@ def main() -> None:
     stripped_lines = strip_include_guards(expanded_lines)
 
     output_lines, bindings = convert_to_blender_dialect(stripped_lines)
-
-    # Post-processing: remove sceneColorSampler lines and replace texture calls with water.tint.rgb
-    filtered_lines: list[str] = []
-    for line in output_lines:
-        if "uniform sampler2D sceneColorSampler;" in line:
-            continue
-        line = re.sub(r'texture\s*\(\s*sceneColorSampler\s*,\s*.*?\)\.rgb', 'water.tint.rgb', line)
-        line = re.sub(r'textureSize\s*\(\s*sceneColorSampler\s*,\s*\d+\s*\)', 'ivec2(1)', line)
-        filtered_lines.append(line)
+    output_lines = remap_scene_color_to_capture_rect(output_lines)
 
     os.makedirs(out_dir, exist_ok=True)
     glsl_path = os.path.join(out_dir, "water_torus.glsl")
     with open(glsl_path, "w") as f:
-        for line in filtered_lines:
+        for line in output_lines:
             f.write(line + "\n")
 
     json_path = os.path.join(out_dir, "water_torus.bindings.json")
-    bindings["samplers"] = [s for s in bindings["samplers"] if s["name"] != "sceneColorSampler"]
     with open(json_path, "w") as f:
         json.dump(bindings, f, indent=2)
         f.write("\n")
 
-    print(f"Written {len(filtered_lines)} lines to {glsl_path}")
+    print(f"Written {len(output_lines)} lines to {glsl_path}")
     print(f"Bindings written to {json_path}")
 
 

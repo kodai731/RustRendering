@@ -49,6 +49,7 @@ def build_water_shader(glsl_path: str, bindings_path: str):
     info.vertex_in(0, "VEC2", "pos")
     info.vertex_out(iface)
     info.fragment_out(0, "VEC4", "outColor")
+    info.push_constant("VEC4", "sceneColorRect")
     info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
     pc = bindings["push_constants"][0]
     wanted = {"push.secondaryRays": 1.0, "push.debugView": 0.0}
@@ -80,6 +81,40 @@ def build_depth_convert_shader():
     info.fragment_out(0, "VEC4", "outDepth")
     info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
     info.fragment_source(depth_convert_fragment_source())
+    return gpu.shader.create_from_info(info)
+
+
+def color_decode_fragment_source() -> str:
+    """Decodes the display-encoded capture to linear and box-blurs it so thin overlay lines (the grid) cannot alias into speckles after refraction."""
+    return (
+        "vec3 decodeSrgb(vec3 c){"
+        " return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));"
+        " }"
+        "void main(){"
+        " vec2 texel = 1.0 / vec2(textureSize(windowColor, 0));"
+        " vec3 sum = vec3(0.0);"
+        " for (int y = -2; y <= 2; ++y) {"
+        "  for (int x = -2; x <= 2; ++x) {"
+        "   sum += decodeSrgb(texture(windowColor, fragTexCoord + vec2(x, y) * texel).rgb);"
+        "  }"
+        " }"
+        " outColor = vec4(sum / 25.0, 1.0);"
+        " }"
+    )
+
+
+def build_color_decode_shader():
+    import gpu
+
+    info = gpu.types.GPUShaderCreateInfo()
+    info.sampler(0, "FLOAT_2D", "windowColor")
+    iface = gpu.types.GPUStageInterfaceInfo("color_decode_iface")
+    iface.smooth("VEC2", "fragTexCoord")
+    info.vertex_in(0, "VEC2", "pos")
+    info.vertex_out(iface)
+    info.fragment_out(0, "VEC4", "outColor")
+    info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
+    info.fragment_source(color_decode_fragment_source())
     return gpu.shader.create_from_info(info)
 
 

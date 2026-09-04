@@ -85,18 +85,18 @@ class TestNoTransformedArtifacts:
     def test_sampler_count(self, exported):
         _, bindings = exported
         samplers = bindings["samplers"]
-        assert len(samplers) == 0, f"expected 0 samplers, got {len(samplers)}: {samplers}"
+        assert len(samplers) == 1, f"expected 1 sampler, got {len(samplers)}: {samplers}"
 
     def test_sampler_names(self, exported):
         _, bindings = exported
         names = {s["name"] for s in bindings["samplers"]}
-        expected = set()
+        expected = {"sceneColorSampler"}
         assert names == expected, f"expected {expected}, got {names}"
 
-    def test_no_scene_color_sampler_in_output(self, exported):
+    def test_scene_color_sampler_kept(self, exported):
         text, _ = exported
-        assert "sceneColorSampler" not in text, "output GLSL must not contain sceneColorSampler"
-        assert "water.tint.rgb" in text, "output GLSL must contain water.tint.rgb"
+        assert "texture(sceneColorSampler, (uvExit - sceneColorRect.xy) * sceneColorRect.zw)" in text
+        assert "texture(sceneColorSampler, (fragTexCoord - sceneColorRect.xy) * sceneColorRect.zw)" in text
 
     def test_output_count(self, exported):
         _, bindings = exported
@@ -221,10 +221,7 @@ class TestByteIdentical:
             expected_lines.append(line)
             i += 1
 
-        # Apply sceneColorSampler -> water.tint replacement (same as main() post-processing)
-        expected_lines = [re.sub(r'texture\s*\(\s*sceneColorSampler\s*,\s*.*?\)\.rgb', 'water.tint.rgb', line) for line in expected_lines]
-        expected_lines = [re.sub(r'textureSize\s*\(\s*sceneColorSampler\s*,\s*\d+\s*\)', 'ivec2(1)', line) for line in expected_lines]
-
+        expected_lines = _water_module.remap_scene_color_to_capture_rect(expected_lines)
         actual_lines = glsl_text.splitlines()
 
         mismatches = []
