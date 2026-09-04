@@ -3,6 +3,7 @@ mod history_accumulate;
 mod pick;
 mod preset;
 pub mod probe;
+mod resize;
 mod spawn;
 #[cfg(test)]
 mod tests;

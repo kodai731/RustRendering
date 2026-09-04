@@ -2,6 +2,7 @@ mod attach;
 mod history_accumulate;
 mod pick;
 mod preset;
+mod resize;
 mod spawn;
 mod style;
 mod texture_fit;

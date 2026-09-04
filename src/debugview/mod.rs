@@ -1,5 +1,6 @@
 pub mod billboard_debug;
 pub mod fbx_debug;
+pub mod flame_history_dump;
 pub mod shadow_debug;
 pub mod water_debug_dump;
 
