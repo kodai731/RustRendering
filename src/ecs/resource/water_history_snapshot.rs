@@ -6,13 +6,13 @@ use crate::ecs::component::WaterTorusEffect;
 /// The frame state that history reuse depends on. Any difference between two
 /// consecutive frames invalidates the accumulated history.
 #[derive(Clone, PartialEq)]
-pub struct WaterTemporalSnapshot {
+pub struct WaterHistorySnapshot {
     pub view: Matrix4<f32>,
     pub effect: WaterTorusEffect,
     pub settings: WaterRenderSettings,
 }
 
 #[derive(Default)]
-pub struct WaterTemporalState {
-    pub previous: Option<WaterTemporalSnapshot>,
+pub struct WaterHistorySnapshotState {
+    pub previous: Option<WaterHistorySnapshot>,
 }

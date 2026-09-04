@@ -137,10 +137,10 @@ fn save_water_probe_if_requested(app: &mut App) {
             let g_bits = u16::from_le_bytes([chunk[2], chunk[3]]);
             let b_bits = u16::from_le_bytes([chunk[4], chunk[5]]);
             let a_bits = u16::from_le_bytes([chunk[6], chunk[7]]);
-            f32_data.push(crate::app::util::f16_to_f32(r_bits));
-            f32_data.push(crate::app::util::f16_to_f32(g_bits));
-            f32_data.push(crate::app::util::f16_to_f32(b_bits));
-            f32_data.push(crate::app::util::f16_to_f32(a_bits));
+            f32_data.push(thyllore_math_core::f16_to_f32(r_bits));
+            f32_data.push(thyllore_math_core::f16_to_f32(g_bits));
+            f32_data.push(thyllore_math_core::f16_to_f32(b_bits));
+            f32_data.push(thyllore_math_core::f16_to_f32(a_bits));
         }
 
         unsafe {
@@ -222,7 +222,7 @@ fn save_water_probe_if_requested(app: &mut App) {
                     p.set_file_name(format!("{}.npy", stem.to_string_lossy()));
                     p
                 };
-                if let Err(e) = crate::app::util::write_npy_f32(
+                if let Err(e) = thyllore_math_core::write_npy_f32(
                     &npy_path,
                     &[h as usize, w as usize, 4],
                     &f32_data,

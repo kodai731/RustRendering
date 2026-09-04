@@ -11,6 +11,19 @@ def resolve_layout_macros(line: str, defines: dict[str, str]) -> str:
     return re.sub(r'\b[A-Za-z_]\w*\b', lambda m: defines.get(m.group(0), m.group(0)), line)
 
 
+ENTRY_SHADER = "water/waterResolveFragment.frag"
+RAY_QUERY_ONLY_INCLUDE = "water/include/water_secondary.glsl"
+
+
+def resolve_include(including_path: str, included: str, repo_root: str) -> str:
+    """Mirror glslc lookup: relative to the including file first, then the shaders/ root (-I)."""
+    relative = os.path.normpath(os.path.join(os.path.dirname(including_path), included))
+    for candidate in (relative, os.path.normpath(included)):
+        if os.path.isfile(os.path.join(repo_root, "shaders", candidate)):
+            return candidate
+    raise FileNotFoundError(f"{included} (included from {including_path}) not found under shaders/")
+
+
 def expand_includes(source_path: str, repo_root: str) -> list[str]:
     seen: set[str] = set()
     result: list[str] = []
@@ -29,17 +42,15 @@ def expand_includes(source_path: str, repo_root: str) -> list[str]:
             if m:
                 included = m.group(1)
                 # Skip water_secondary.glsl — it contains ray-query code (traceScene, VertexBuffer)
-                if included == "include/water_secondary.glsl":
+                if included == RAY_QUERY_ONLY_INCLUDE:
                     continue
-                base_dir = os.path.dirname(path)
-                inc_path = os.path.normpath(os.path.join(base_dir, included))
-                inc_full = os.path.join(repo_root, "shaders", inc_path)
-                with open(inc_full, "r") as f:
+                inc_path = resolve_include(path, included, repo_root)
+                with open(os.path.join(repo_root, "shaders", inc_path), "r") as f:
                     _expand(inc_path, f.read())
             else:
                 result.append(resolve_layout_macros(line, defines))
 
-    entry = "waterResolveFragment.frag"
+    entry = source_path
     full = os.path.join(repo_root, "shaders", entry)
     with open(full, "r") as f:
         _expand(entry, f.read())
@@ -262,7 +273,7 @@ def main() -> None:
     repo_root = os.path.abspath(args.repo_root)
     out_dir = os.path.abspath(args.out)
 
-    expanded_lines = expand_includes("waterResolveFragment.frag", repo_root)
+    expanded_lines = expand_includes(ENTRY_SHADER, repo_root)
 
     stripped_lines = strip_include_guards(expanded_lines)
 

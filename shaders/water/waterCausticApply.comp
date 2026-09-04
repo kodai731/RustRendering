@@ -3,7 +3,7 @@
 
 #define WATER_UBO_SET 0
 #define WATER_UBO_BINDING 3
-#include "include/water_component.glsl"
+#include "water/include/water_component.glsl"
 
 layout(local_size_x = 16, local_size_y = 16) in;
 

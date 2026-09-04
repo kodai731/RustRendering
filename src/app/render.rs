@@ -18,12 +18,6 @@ use anyhow::{anyhow, Result};
 use std::fs::OpenOptions;
 use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct WaterCausticAccumStats {
-    pub nonzero_count: u64,
-    pub max_value: u32,
-}
-
 impl App {
     pub unsafe fn begin_frame(&mut self) -> Result<usize> {
         self.handle_viewport_resize()?;
@@ -841,7 +835,7 @@ impl App {
         if let Some(mut state) = self
             .data
             .ecs_world
-            .get_resource_mut::<crate::ecs::resource::FlameTemporalState>()
+            .get_resource_mut::<crate::ecs::resource::FlameHistorySnapshotState>()
         {
             state.previous = None;
         }
@@ -1275,7 +1269,7 @@ impl App {
     }
 
     pub unsafe fn save_flame_history_npy(&self, path: &std::path::Path) -> Result<()> {
-        use crate::app::util::{f16_to_f32, write_npy_f32};
+        use thyllore_math_core::{f16_to_f32, write_npy_f32};
 
         let device = &self.rrdevice.device;
         let flame_buffer = self
@@ -1339,63 +1333,6 @@ impl App {
         write_npy_f32(path, &[height as usize, width as usize, 4], &f32_data)?;
 
         Ok(())
-    }
-
-    pub unsafe fn save_water_caustic_accum_npy(
-        &self,
-        path: &std::path::Path,
-    ) -> Result<WaterCausticAccumStats> {
-        use crate::app::util::write_npy_u32;
-
-        let device = &self.rrdevice.device;
-        let water_buffer = self
-            .data
-            .viewport
-            .water_buffer
-            .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("water buffer not initialized"))?;
-
-        let caustic_image = water_buffer.caustic_accum_image;
-        let width = water_buffer.width;
-        let height = water_buffer.height;
-        let image_size = (width * height * 4) as vk::DeviceSize;
-        let command_pool = self.resource::<CommandState>().pool.command_pool;
-
-        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
-            caustic_image,
-            width,
-            height,
-            image_size,
-            command_pool,
-            vk::ImageLayout::GENERAL,
-        )?;
-
-        let data_ptr =
-            device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
-        let slice = std::slice::from_raw_parts(data_ptr as *const u8, image_size as usize);
-
-        let mut u32_data: Vec<u32> = Vec::with_capacity((width * height) as usize);
-        let mut stats = WaterCausticAccumStats::default();
-        for chunk in slice.chunks_exact(4) {
-            let value = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-            if value != 0 {
-                stats.nonzero_count += 1;
-            }
-            stats.max_value = stats.max_value.max(value);
-            u32_data.push(value);
-        }
-
-        device.unmap_memory(buffer_memory);
-        device.free_command_buffers(command_pool, &[command_buffer]);
-        device.free_memory(buffer_memory, None);
-        device.destroy_buffer(buffer, None);
-
-        if let Some(directory) = path.parent() {
-            std::fs::create_dir_all(directory)?;
-        }
-        write_npy_u32(path, &[height as usize, width as usize], &u32_data)?;
-
-        Ok(stats)
     }
 
     pub unsafe fn copy_image_to_buffer(

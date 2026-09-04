@@ -4,23 +4,16 @@ use vulkanalia::prelude::v1_0::*;
 use crate::core::device::RRDevice;
 use crate::resource::buffer::create_buffer;
 use crate::vulkan::*;
+use thyllore_math_core::GpuMat4;
 
-/// Per-instance hit shading record matching the GLSL `HitShadingRecord` layout.
-/// repr(C) ensures the Rust and GLSL std430 layouts match:
-///   vertex_address: u64  (offset 0,   8 bytes)
-///   index_address: u64   (offset 8,   8 bytes)
-///   model: [[f32;4];4]   (offset 16,  64 bytes)
-///   normal_matrix: [[f32;4];4] (offset 80, 64 bytes)
-///   base_color: [f32;4]  (offset 144, 16 bytes)
-///   params: [f32;4]      (offset 160, 16 bytes)
-/// Total: 176 bytes per record.
+/// Per-instance hit shading record; repr(C) matches the GLSL std430 `HitShadingRecord` (176 bytes).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct HitShadingRecord {
     pub vertex_address: u64,
     pub index_address: u64,
-    pub model: [[f32; 4]; 4],
-    pub normal_matrix: [[f32; 4]; 4],
+    pub model: GpuMat4,
+    pub normal_matrix: GpuMat4,
     pub base_color: [f32; 4],
     pub params: [f32; 4],
 }
@@ -30,8 +23,8 @@ impl HitShadingRecord {
         Self {
             vertex_address: 0,
             index_address: 0,
-            model: [[0.0; 4]; 4],
-            normal_matrix: [[0.0; 4]; 4],
+            model: GpuMat4::ZERO,
+            normal_matrix: GpuMat4::ZERO,
             base_color: [1.0, 1.0, 1.0, 1.0],
             params: [0.0; 4],
         }

@@ -3,7 +3,8 @@ use crate::core::device::*;
 use crate::resource::{HitShadingRecord, HitShadingTable};
 use crate::vulkan::*;
 use anyhow::Result;
-use cgmath::{Matrix, Matrix4, SquareMatrix};
+use cgmath::Matrix4;
+use thyllore_math_core::{AffineRows3x4, GpuMat4};
 use vulkanalia::vk::KhrAccelerationStructureExtension;
 
 #[derive(Clone, Debug, Default)]
@@ -337,11 +338,7 @@ impl RRAccelerationStructure {
             device_address,
             update_scratch: None,
             transform: vk::TransformMatrixKHR {
-                matrix: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                ],
+                matrix: AffineRows3x4::IDENTITY.rows,
             },
         })
     }
@@ -434,11 +431,7 @@ impl RRAccelerationStructure {
             device_address,
             update_scratch: None,
             transform: vk::TransformMatrixKHR {
-                matrix: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                ],
+                matrix: AffineRows3x4::IDENTITY.rows,
             },
         })
     }
@@ -478,11 +471,7 @@ impl RRAccelerationStructure {
         let mut blas = Self::create_aabb_blas(instance, rrdevice, rrcommand_pool, &buf.buffer, 1)?;
         destroy_device_buffer(&rrdevice.device, &buf);
         blas.transform = vk::TransformMatrixKHR {
-            matrix: [
-                [model[0][0], model[1][0], model[2][0], model[3][0]],
-                [model[0][1], model[1][1], model[2][1], model[3][1]],
-                [model[0][2], model[1][2], model[2][2], model[3][2]],
-            ],
+            matrix: AffineRows3x4::from_mat4(*model).rows,
         };
         Ok(blas)
     }
@@ -918,61 +907,19 @@ impl RRAccelerationStructure {
             records.push(HitShadingRecord {
                 vertex_address,
                 index_address,
-                model: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ],
-                normal_matrix: [
-                    [1.0, 0.0, 0.0, 0.0],
-                    [0.0, 1.0, 0.0, 0.0],
-                    [0.0, 0.0, 1.0, 0.0],
-                    [0.0, 0.0, 0.0, 1.0],
-                ],
+                model: GpuMat4::IDENTITY,
+                normal_matrix: GpuMat4::IDENTITY,
                 base_color: [1.0, 1.0, 1.0, 1.0],
                 params: [0.0; 4],
             });
         }
 
         for (model, major_radius, minor_radius) in waters.iter() {
-            let inv = model.invert().unwrap_or(Matrix4::identity());
-            let normal_matrix: Matrix4<f32> = inv.transpose();
             records.push(HitShadingRecord {
                 vertex_address: 0,
                 index_address: 0,
-                model: [
-                    [model[0][0], model[0][1], model[0][2], model[0][3]],
-                    [model[1][0], model[1][1], model[1][2], model[1][3]],
-                    [model[2][0], model[2][1], model[2][2], model[2][3]],
-                    [model[3][0], model[3][1], model[3][2], model[3][3]],
-                ],
-                normal_matrix: [
-                    [
-                        normal_matrix[0][0],
-                        normal_matrix[0][1],
-                        normal_matrix[0][2],
-                        normal_matrix[0][3],
-                    ],
-                    [
-                        normal_matrix[1][0],
-                        normal_matrix[1][1],
-                        normal_matrix[1][2],
-                        normal_matrix[1][3],
-                    ],
-                    [
-                        normal_matrix[2][0],
-                        normal_matrix[2][1],
-                        normal_matrix[2][2],
-                        normal_matrix[2][3],
-                    ],
-                    [
-                        normal_matrix[3][0],
-                        normal_matrix[3][1],
-                        normal_matrix[3][2],
-                        normal_matrix[3][3],
-                    ],
-                ],
+                model: GpuMat4::from_mat4(*model),
+                normal_matrix: GpuMat4::normal_matrix_of(*model),
                 base_color: [1.0, 1.0, 1.0, 1.0],
                 params: [1.0, *major_radius, *minor_radius, 0.0],
             });

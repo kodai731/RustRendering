@@ -14,5 +14,8 @@ pub use flame_gpu_blocks::{
 pub use gpu_block_codegen::{
     generate_gpu_blocks_rust, GpuBlockCodegenConfig, GpuBlockCodegenError,
 };
-pub use manifest::{ManifestError, PassDefinition, PassManifest, SetRole, StageKind, StageSource};
+pub use manifest::{
+    collect_shader_sources, ManifestError, PassDefinition, PassManifest, SetRole, StageKind,
+    StageSource,
+};
 pub use naming::{is_shader_source, spirv_output_name};

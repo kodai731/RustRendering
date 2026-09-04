@@ -1,17 +1,17 @@
-use crate::ecs::component::{FlameBaked, FlameEffect, FlameTemporalAccum};
+use crate::ecs::component::{WaterTemporalAccum, WaterTorusEffect};
 use crate::ecs::resource::{
-    BatchRun, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState, ProjectionData,
+    BatchRun, ProjectionData, WaterHistorySnapshot, WaterHistorySnapshotState, WaterRenderSettings,
 };
 use crate::ecs::world::World;
 
 const STABLE_FRAME_HISTORY_WEIGHT: f32 = 0.85;
 
-/// Reusing the previous frame's shading is only valid while the camera and the flame
+/// Reusing the previous frame's shading is only valid while the camera and the water
 /// parameters hold still. Batch runs never reuse history so a single-frame screenshot
 /// stays deterministic.
-pub fn flame_temporal_accumulate(world: &mut World) {
-    let flame_entities = world.query_flames();
-    let count = flame_entities.len();
+pub fn accumulate_water_history(world: &mut World) {
+    let water_entities = world.query_waters();
+    let count = water_entities.len();
 
     if count == 0 {
         return;
@@ -19,16 +19,17 @@ pub fn flame_temporal_accumulate(world: &mut World) {
 
     // If there are 2 or more instances, only increment the frame counter for all
     if count >= 2 {
-        for &entity in &flame_entities {
+        for &entity in &water_entities {
             let next = world
-                .get_component::<FlameTemporalAccum>(entity)
+                .get_component::<WaterTemporalAccum>(entity)
                 .map(|t| t.frame_index.wrapping_add(1))
                 .unwrap_or(0);
             world.insert_component(
                 entity,
-                FlameTemporalAccum {
+                WaterTemporalAccum {
                     weight: 0.0,
                     frame_index: next,
+                    history_invalidated: false,
                 },
             );
         }
@@ -36,38 +37,33 @@ pub fn flame_temporal_accumulate(world: &mut World) {
     }
 
     // Single instance: perform original snapshot comparison logic
-    let entity = flame_entities[0];
+    let entity = water_entities[0];
     // Collect data first to avoid borrow conflicts
     let view = world.resource::<ProjectionData>().view;
-    let settings = *world.resource::<FlameRenderSettings>();
+    let settings = *world.resource::<WaterRenderSettings>();
     let has_batch_run = world.contains_resource::<BatchRun>();
-    let old_effect = world.get_component::<FlameEffect>(entity).cloned();
+    let old_effect = world.get_component::<WaterTorusEffect>(entity).cloned();
     let Some(old_effect) = old_effect else {
         return;
     };
-    let baked = world
-        .get_component::<FlameBaked>(entity)
-        .cloned()
-        .unwrap_or_default();
     let old_temporal = world
-        .get_component::<FlameTemporalAccum>(entity)
+        .get_component::<WaterTemporalAccum>(entity)
         .cloned()
         .unwrap_or_default();
 
-    let snapshot = FlameTemporalSnapshot {
+    let snapshot = WaterHistorySnapshot {
         view,
-        appearance: strip_per_frame_state(&old_effect),
-        baked,
+        effect: strip_per_frame_state(&old_effect),
         settings,
     };
 
     // Get matches_previous_frame before taking mutable borrow
-    let state = world.resource::<FlameTemporalState>();
+    let state = world.resource::<WaterHistorySnapshotState>();
     let matches_previous_frame = state.previous.as_ref() == Some(&snapshot);
     drop(state);
 
     // Update the temporal state
-    let mut state = world.resource_mut::<FlameTemporalState>();
+    let mut state = world.resource_mut::<WaterHistorySnapshotState>();
     state.previous = Some(snapshot);
     drop(state);
 
@@ -79,17 +75,20 @@ pub fn flame_temporal_accumulate(world: &mut World) {
 
     world.insert_component(
         entity,
-        FlameTemporalAccum {
+        WaterTemporalAccum {
             frame_index: if let Some(fr) = batch_frames_rendered {
                 fr
             } else {
                 old_temporal.frame_index.wrapping_add(1)
             },
-            weight: if matches_previous_frame && !has_batch_run {
-                STABLE_FRAME_HISTORY_WEIGHT
+            weight: if matches_previous_frame {
+                settings
+                    .batch_history_weight
+                    .unwrap_or(STABLE_FRAME_HISTORY_WEIGHT)
             } else {
                 0.0
             },
+            history_invalidated: !matches_previous_frame,
         },
     );
 }
@@ -97,7 +96,7 @@ pub fn flame_temporal_accumulate(world: &mut World) {
 /// The clock advances on its own every frame and must be excluded, otherwise
 /// the snapshot never compares equal and history would be discarded
 /// unconditionally.
-fn strip_per_frame_state(effect: &FlameEffect) -> FlameEffect {
+fn strip_per_frame_state(effect: &WaterTorusEffect) -> WaterTorusEffect {
     let mut appearance = effect.clone();
     appearance.time = 0.0;
     appearance

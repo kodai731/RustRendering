@@ -3,7 +3,7 @@
 #extension GL_GOOGLE_include_directive : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-#include "include/water_torus_intersect.glsl"
+#include "water/include/water_torus_intersect.glsl"
 
 // Compute shader for ray traced shadows using Ray Query
 layout(local_size_x = 16, local_size_y = 16) in;

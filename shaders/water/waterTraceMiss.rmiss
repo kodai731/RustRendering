@@ -1,7 +1,7 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 
-#include "include/water_trace_payload.glsl"
+#include "water/include/water_trace_payload.glsl"
 
 layout(location = 0) rayPayloadInEXT WaterTracePayload payload;
 

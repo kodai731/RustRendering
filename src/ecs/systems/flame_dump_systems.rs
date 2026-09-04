@@ -2,7 +2,7 @@ use std::io::Write;
 
 use serde_json::{json, Value};
 
-use crate::ecs::resource::{Camera, FlameDumpSink, FlameRenderSettings, FlameTemporalState};
+use crate::ecs::resource::{Camera, FlameDumpSink, FlameHistorySnapshotState, FlameRenderSettings};
 use crate::ecs::World;
 use thyllore_effect_core::{
     build_flame_ubo, probe_flame_wall, FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO,
@@ -218,7 +218,7 @@ fn build_branch_field_json(field: &thyllore_effect_core::FlameBranchField) -> se
     })
 }
 
-pub fn build_temporal_json(state: &FlameTemporalState) -> serde_json::Value {
+pub fn build_temporal_json(state: &FlameHistorySnapshotState) -> serde_json::Value {
     let has_previous = state.previous.is_some();
     let previous = state.previous.as_ref().map(|snap| {
         json!({
@@ -245,7 +245,7 @@ pub fn build_flame_dump_record(
     effect: &FlameEffect,
     baked: &FlameBaked,
     temporal_accum: &FlameTemporalAccum,
-    temporal: &FlameTemporalState,
+    temporal: &FlameHistorySnapshotState,
     instance_index: usize,
     trail_enabled: bool,
     trail_len: usize,
@@ -279,7 +279,7 @@ pub fn build_flame_dump_record(
 
 pub fn flame_dump_system(
     sink: &mut FlameDumpSink,
-    temporal: &FlameTemporalState,
+    temporal: &FlameHistorySnapshotState,
     flames: &[(FlameEffect, FlameBaked, FlameTemporalAccum)],
     trails: &[Option<crate::ecs::component::flame_trail::FlameTrail>],
 ) {
@@ -672,8 +672,8 @@ mod tests {
         }
     }
 
-    fn sample_temporal() -> FlameTemporalState {
-        FlameTemporalState { previous: None }
+    fn sample_temporal() -> FlameHistorySnapshotState {
+        FlameHistorySnapshotState { previous: None }
     }
 
     #[test]

@@ -1,8 +1,8 @@
 #ifndef WATER_LIGHTING_GLSL
 #define WATER_LIGHTING_GLSL
 
-#include "radiative_transfer.glsl"
-#include "water_torus_intersect.glsl"
+#include "include/radiative_transfer.glsl"
+#include "water/include/water_torus_intersect.glsl"
 
 #define WATER_SCATTER_SAMPLES 4
 

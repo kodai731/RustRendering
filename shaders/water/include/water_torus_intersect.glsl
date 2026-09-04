@@ -1,6 +1,8 @@
 #ifndef WATER_TORUS_INTERSECT_GLSL
 #define WATER_TORUS_INTERSECT_GLSL
 
+#include "include/common.glsl"
+
 // Signed cube root: pow(x, 1.0/3.0) is undefined for x < 0 in GLSL (NaN).
 float cbrtSigned(float x) { return sign(x) * pow(abs(x), 1.0 / 3.0); }
 
@@ -55,8 +57,8 @@ int solveQuartic(float c[5], out float roots[4]) {
             float phi = acos(-qc / sqrt(-cb_p)) / 3.0;
             float t = 2.0 * sqrt(-pc);
             roots[count++] = t * cos(phi) - ca / 3.0;
-            roots[count++] = -t * cos(phi + 3.141592653589793 / 3.0) - ca / 3.0;
-            roots[count++] = -t * cos(phi - 3.141592653589793 / 3.0) - ca / 3.0;
+            roots[count++] = -t * cos(phi + PI / 3.0) - ca / 3.0;
+            roots[count++] = -t * cos(phi - PI / 3.0) - ca / 3.0;
         } else {
             float sqrt_disc = sqrt(cubic_d);
             float u = cbrtSigned(sqrt_disc - qc);

@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use thyllore_shader_manifest::{
-    generate_pass_manifest_rust, generate_shader_bindings_rust, spirv_output_name, PassManifest,
+    collect_shader_sources, generate_pass_manifest_rust, generate_shader_bindings_rust,
+    spirv_output_name, PassManifest,
 };
 use thyllore_spirv_reflect::{reflect_shader_bytes, verify_spirv_against_glsl, ShaderReflection};
 
@@ -66,9 +67,10 @@ fn read_manifest(manifest_path: &Path, shader_dir: &Path) -> PassManifest {
     manifest
 }
 
-fn glslc_command(source_path: &Path) -> Command {
+fn glslc_command(shader_dir: &Path, source_path: &Path) -> Command {
     let mut cmd = Command::new("glslc");
     cmd.arg(source_path.to_str().unwrap());
+    cmd.arg("-I").arg(shader_dir.to_str().unwrap());
     cmd.arg("-DWATER_RAY_QUERY");
     if let Ok(rotation) = std::env::var("THYLLORE_FLAME_NOISE_ROT_DEG") {
         cmd.arg(format!("-DFLAME_NOISE_ROT_DEG_OVERRIDE={}", rotation));
@@ -81,24 +83,22 @@ fn glslc_command(source_path: &Path) -> Command {
 }
 
 fn compile_shaders(shader_dir: &Path, spirv_dir: &Path) -> BTreeMap<String, ShaderReflection> {
-    let entries = std::fs::read_dir(shader_dir).unwrap_or_else(|error| {
-        eprintln!("failed to read {}: {error}", shader_dir.display());
+    let sources = collect_shader_sources(shader_dir).unwrap_or_else(|error| {
+        eprintln!("{error}");
         std::process::exit(1);
     });
 
     let mut reflections = BTreeMap::new();
     let mut expected_outputs = Vec::new();
-    for entry in entries.filter_map(Result::ok) {
-        let path = entry.path();
-        let file_name = path.file_name().unwrap().to_str().unwrap().to_string();
+    for (file_name, path) in sources {
         let Some(out_name) = spirv_output_name(&file_name) else {
             continue;
         };
         let out_path = spirv_dir.join(&out_name);
         expected_outputs.push(out_name);
 
-        compile_shader(&path, &out_path);
-        let reflection = verify_descriptor_declarations(&path, &out_path);
+        compile_shader(shader_dir, &path, &out_path);
+        let reflection = verify_descriptor_declarations(shader_dir, &path, &out_path);
         reflections.insert(file_name, reflection);
     }
 
@@ -106,9 +106,9 @@ fn compile_shaders(shader_dir: &Path, spirv_dir: &Path) -> BTreeMap<String, Shad
     reflections
 }
 
-fn compile_shader(source_path: &Path, out_path: &Path) {
+fn compile_shader(shader_dir: &Path, source_path: &Path, out_path: &Path) {
     let file_name = source_path.file_name().unwrap().to_str().unwrap();
-    let mut cmd = glslc_command(source_path);
+    let mut cmd = glslc_command(shader_dir, source_path);
     cmd.arg("-o").arg(out_path.to_str().unwrap());
     match cmd.output() {
         Ok(output) if output.status.success() => {}
@@ -130,9 +130,13 @@ fn compile_shader(source_path: &Path, out_path: &Path) {
     }
 }
 
-fn verify_descriptor_declarations(source_path: &Path, spirv_path: &Path) -> ShaderReflection {
+fn verify_descriptor_declarations(
+    shader_dir: &Path,
+    source_path: &Path,
+    spirv_path: &Path,
+) -> ShaderReflection {
     let file_name = source_path.file_name().unwrap().to_str().unwrap();
-    let preprocessed = match glslc_command(source_path).arg("-E").output() {
+    let preprocessed = match glslc_command(shader_dir, source_path).arg("-E").output() {
         Ok(output) if output.status.success() => {
             String::from_utf8_lossy(&output.stdout).into_owned()
         }

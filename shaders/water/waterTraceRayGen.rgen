@@ -4,9 +4,9 @@
 
 #define WATER_UBO_SET 0
 #define WATER_UBO_BINDING 2
-#include "include/water_component.glsl"
-#include "include/water_lighting.glsl"
-#include "include/water_trace_payload.glsl"
+#include "water/include/water_component.glsl"
+#include "water/include/water_lighting.glsl"
+#include "water/include/water_trace_payload.glsl"
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 1, rgba16f) uniform image2D outImage;

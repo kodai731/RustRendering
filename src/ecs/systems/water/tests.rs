@@ -378,7 +378,7 @@ fn inverse_view_proj_f64_is_inverse_of_proj_times_view() {
 #[test]
 fn water_temporal_same_snapshot_twice_weight_0_85() {
     use crate::ecs::component::{WaterTemporalAccum, WaterTorusEffect};
-    use crate::ecs::resource::{WaterRenderSettings, WaterTemporalState};
+    use crate::ecs::resource::{WaterHistorySnapshotState, WaterRenderSettings};
     use cgmath::{Matrix4, SquareMatrix};
 
     let mut world = World::new();
@@ -389,19 +389,19 @@ fn water_temporal_same_snapshot_twice_weight_0_85() {
         aspect: 800.0 / 600.0,
     });
     world.insert_resource(WaterRenderSettings::default());
-    world.insert_resource(WaterTemporalState::default());
+    world.insert_resource(WaterHistorySnapshotState::default());
 
     let entity = spawn_default_water(&mut world, "Water");
 
     // First call: no previous snapshot, so weight should be 0.0
-    crate::ecs::systems::water_temporal_accumulate(&mut world);
+    crate::ecs::systems::accumulate_water_history(&mut world);
 
     let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
     assert_eq!(temporal.weight, 0.0, "first frame weight should be 0");
     assert_eq!(temporal.frame_index, 1, "first frame index should be 1");
 
     // Second call: same snapshot (nothing changed), so weight should be 0.85
-    crate::ecs::systems::water_temporal_accumulate(&mut world);
+    crate::ecs::systems::accumulate_water_history(&mut world);
 
     let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
     assert_eq!(temporal.weight, 0.85, "second frame weight should be 0.85");
@@ -411,7 +411,7 @@ fn water_temporal_same_snapshot_twice_weight_0_85() {
 #[test]
 fn water_temporal_view_change_weight_0() {
     use crate::ecs::component::{WaterTemporalAccum, WaterTorusEffect};
-    use crate::ecs::resource::{WaterRenderSettings, WaterTemporalState};
+    use crate::ecs::resource::{WaterHistorySnapshotState, WaterRenderSettings};
     use cgmath::{Matrix4, SquareMatrix};
 
     let mut world = World::new();
@@ -422,12 +422,12 @@ fn water_temporal_view_change_weight_0() {
         aspect: 800.0 / 600.0,
     });
     world.insert_resource(WaterRenderSettings::default());
-    world.insert_resource(WaterTemporalState::default());
+    world.insert_resource(WaterHistorySnapshotState::default());
 
     let entity = spawn_default_water(&mut world, "Water");
 
     // First call: no previous snapshot, weight 0
-    crate::ecs::systems::water_temporal_accumulate(&mut world);
+    crate::ecs::systems::accumulate_water_history(&mut world);
 
     let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
     assert_eq!(temporal.weight, 0.0, "first frame weight should be 0");
@@ -438,7 +438,7 @@ fn water_temporal_view_change_weight_0() {
     drop(proj);
 
     // Second call: view changed, so weight should be 0.0
-    crate::ecs::systems::water_temporal_accumulate(&mut world);
+    crate::ecs::systems::accumulate_water_history(&mut world);
 
     let temporal = world.get_component::<WaterTemporalAccum>(entity).unwrap();
     assert_eq!(temporal.weight, 0.0, "view change should reset weight to 0");

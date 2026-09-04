@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use crate::ecs::component::{AppliedWaterPreset, WaterTemporalAccum, WaterTorusEffect};
 use crate::ecs::resource::{
     Camera, DebugViewState, LightState, ModelState, ProjectionData, SceneState, TimelineState,
-    WaterRenderSettings, WaterTemporalState,
+    WaterHistorySnapshotState, WaterRenderSettings,
 };
 use crate::ecs::systems::camera_systems::{
     compute_camera_direction, compute_camera_position, compute_camera_right, compute_camera_up,
@@ -212,7 +212,7 @@ fn build_render_settings_json(world: &World) -> Value {
 }
 
 fn build_temporal_state_json(world: &World) -> Value {
-    let Some(state) = world.get_resource::<WaterTemporalState>() else {
+    let Some(state) = world.get_resource::<WaterHistorySnapshotState>() else {
         return Value::Null;
     };
     json!({

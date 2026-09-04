@@ -1,7 +1,8 @@
 #ifndef WATER_LB_GLSL
 #define WATER_LB_GLSL
 
-#include "chebyshev.glsl"
+#include "include/chebyshev.glsl"
+#include "include/common.glsl"
 
 const int LB_MODE_COUNT = 4;
 const int LB_SLOTS_PER_MODE = 5;
@@ -24,8 +25,8 @@ void waterLbHeightAndGradient(vec2 uv, float time, vec2 flowRate, inout float h,
         }
 
         float phasePrime = m * (uv.x + flowRate.x * time) - omega * time + phase;
-        float vAdvected = mod(uv.y + flowRate.y * time, 6.28318530718);
-        float t = (vAdvected - 3.14159265359) / 3.14159265359;
+        float vAdvected = mod(uv.y + flowRate.y * time, TWO_PI);
+        float t = (vAdvected - PI) / PI;
 
         float phi = waterLbCheb(water.lbModes[slot + 1], water.lbModes[slot + 2], t);
         float dphi = waterLbCheb(water.lbModes[slot + 3], water.lbModes[slot + 4], t);

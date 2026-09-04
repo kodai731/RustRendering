@@ -2,6 +2,7 @@ use anyhow::Result;
 use cgmath::SquareMatrix;
 use std::cell::Cell;
 use std::rc::Rc;
+use thyllore_math_core::AffineRows3x4;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::command::RRCommandPool;
@@ -199,11 +200,7 @@ impl RayTracingData {
                 .copied()
                 .unwrap_or_else(cgmath::Matrix4::identity);
             blas.transform = vk::TransformMatrixKHR {
-                matrix: [
-                    [model[0][0], model[1][0], model[2][0], model[3][0]],
-                    [model[0][1], model[1][1], model[2][1], model[3][1]],
-                    [model[0][2], model[1][2], model[2][2], model[3][2]],
-                ],
+                matrix: AffineRows3x4::from_mat4(model).rows,
             };
 
             acceleration_structure.blas_list.push(blas);

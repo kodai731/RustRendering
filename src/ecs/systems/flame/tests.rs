@@ -5,7 +5,7 @@ use crate::ecs::component::{
     FlameTemporalAccum, FlameTrail, FLAME_DOMAIN,
 };
 use crate::ecs::resource::{
-    BatchRun, FlameRenderSettings, FlameTemporalSnapshot, FlameTemporalState, HierarchyState,
+    BatchRun, FlameHistorySnapshot, FlameHistorySnapshotState, FlameRenderSettings, HierarchyState,
     LightState, ProjectionData, TimelineState,
 };
 use crate::ecs::world::{Entity, Transform, World};

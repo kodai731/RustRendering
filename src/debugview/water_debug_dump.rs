@@ -8,6 +8,7 @@ use crate::ecs::systems::{
 use crate::vulkanr::context::{CommandState, SwapchainState};
 use crate::vulkanr::data::Vertex;
 use crate::vulkanr::vulkan::*;
+use thyllore_math_core::write_npy_u32;
 
 use serde_json::{json, Value};
 use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
@@ -15,7 +16,68 @@ use thyllore_vulkan_core::resource::mesh_buffer::MeshBuffer;
 
 const VERTEX_PROBE_COUNT: usize = 64;
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct WaterCausticAccumStats {
+    pub nonzero_count: u64,
+    pub max_value: u32,
+}
+
 impl App {
+    pub unsafe fn save_water_caustic_accum_npy(
+        &self,
+        path: &std::path::Path,
+    ) -> Result<WaterCausticAccumStats> {
+        let device = &self.rrdevice.device;
+        let water_buffer = self
+            .data
+            .viewport
+            .water_buffer
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("water buffer not initialized"))?;
+
+        let caustic_image = water_buffer.caustic_accum_image;
+        let width = water_buffer.width;
+        let height = water_buffer.height;
+        let image_size = (width * height * 4) as vk::DeviceSize;
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
+
+        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
+            caustic_image,
+            width,
+            height,
+            image_size,
+            command_pool,
+            vk::ImageLayout::GENERAL,
+        )?;
+
+        let data_ptr =
+            device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
+        let slice = std::slice::from_raw_parts(data_ptr as *const u8, image_size as usize);
+
+        let mut u32_data: Vec<u32> = Vec::with_capacity((width * height) as usize);
+        let mut stats = WaterCausticAccumStats::default();
+        for chunk in slice.chunks_exact(4) {
+            let value = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+            if value != 0 {
+                stats.nonzero_count += 1;
+            }
+            stats.max_value = stats.max_value.max(value);
+            u32_data.push(value);
+        }
+
+        device.unmap_memory(buffer_memory);
+        device.free_command_buffers(command_pool, &[command_buffer]);
+        device.free_memory(buffer_memory, None);
+        device.destroy_buffer(buffer, None);
+
+        if let Some(directory) = path.parent() {
+            std::fs::create_dir_all(directory)?;
+        }
+        write_npy_u32(path, &[height as usize, width as usize], &u32_data)?;
+
+        Ok(stats)
+    }
+
     pub fn dump_water_debug(&self) {
         self.dump_water_debug_at(self.frame % crate::app::init::MAX_FRAMES_IN_FLIGHT);
     }

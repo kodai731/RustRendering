@@ -17,12 +17,12 @@ layout(set = 0, binding = 0) uniform FrameUBO {
     vec4 light_color;
 } frame;
 
-#include "include/water_component.glsl"
-#include "include/water_torus_intersect.glsl"
-#include "include/water_flow.glsl"
-#include "include/water_surface.glsl"
-#include "include/water_lb.glsl"
-#include "include/water_lighting.glsl"
+#include "water/include/water_component.glsl"
+#include "water/include/water_torus_intersect.glsl"
+#include "water/include/water_flow.glsl"
+#include "water/include/water_surface.glsl"
+#include "water/include/water_lb.glsl"
+#include "water/include/water_lighting.glsl"
 
 layout(set = 1, binding = 1) uniform sampler2D sceneColorSampler;
 
@@ -47,7 +47,7 @@ layout(push_constant) uniform WaterPush {
     int debugView;
 } push;
 #ifdef WATER_RAY_QUERY
-#include "include/water_secondary.glsl"
+#include "water/include/water_secondary.glsl"
 
 // Second-bounce misses read the scene color through a wide box filter so thin screen
 // features (grid lines) cannot alias into combs after two refractions.

@@ -1,6 +1,8 @@
 #ifndef RADIATIVE_TRANSFER_GLSL
 #define RADIATIVE_TRANSFER_GLSL
 
+#include "common.glsl"
+
 // dL/ds = -sigma_t L + sigma_a L_e + sigma_s * integral p(theta) L_in
 // Each effect supplies its own coefficients; this file holds only the equation.
 
@@ -32,7 +34,7 @@ float rteIntegrateEmissionSegment(float source, float sigmaT, float dt) {
 
 float rteHenyeyGreenstein(float cosTheta, float g) {
     float denom = 1.0 + g * g - 2.0 * g * cosTheta;
-    return (1.0 - g * g) / (4.0 * 3.141592653589793 * denom * sqrt(max(denom, 1e-6)));
+    return (1.0 - g * g) / (4.0 * PI * denom * sqrt(max(denom, 1e-6)));
 }
 
 float rteMidpointDistance(int index, int sampleCount, float pathLength) {
