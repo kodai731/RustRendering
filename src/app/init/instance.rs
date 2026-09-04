@@ -60,6 +60,7 @@ pub const DEVICE_EXTENSIONS: &[vk::ExtensionName] = &[
     vk::KHR_BUFFER_DEVICE_ADDRESS_EXTENSION.name,
     vk::KHR_ACCELERATION_STRUCTURE_EXTENSION.name,
     vk::KHR_RAY_QUERY_EXTENSION.name,
+    vk::KHR_RAY_TRACING_PIPELINE_EXTENSION.name,
     vk::KHR_DEFERRED_HOST_OPERATIONS_EXTENSION.name,
 ];
 pub const MAX_FRAMES_IN_FLIGHT: usize = 2;
@@ -230,6 +231,14 @@ impl App {
         // exist before it is applied. Registration is idempotent and runs again below.
         Self::register_editor_resources(&mut data);
         Self::apply_loaded_scene(&mut data, loaded_scene);
+        if let Err(e) = Self::build_acceleration_structures_with_resources(
+            &instance,
+            &rrdevice,
+            &mut data,
+            &rrcommand_pool,
+        ) {
+            log_warn!("Failed to build acceleration structures: {:?}", e);
+        }
 
         if let Err(e) = Self::create_ray_tracing_pipelines_with_resources(
             &instance,
@@ -909,6 +918,13 @@ impl App {
             }
 
             scene_state.set_from_loaded(scene_path, scene.scene.metadata.clone());
+        } else {
+            crate::ecs::systems::spawn_flame_with_clip(
+                &mut data.ecs_world,
+                &mut data.ecs_assets,
+                crate::ecs::systems::DEFAULT_FLAME_NAME,
+                crate::ecs::component::FlameEffect::default(),
+            );
         }
         data.ecs_world.insert_resource(scene_state);
     }
@@ -1175,15 +1191,9 @@ impl App {
         Self::insert_default_if_missing::<crate::ecs::resource::AutoExposure>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::OnionSkinningConfig>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::FlameRenderSettings>(data);
-        if data.ecs_world.query_flames().is_empty() {
-            crate::ecs::systems::spawn_flame_with_clip(
-                &mut data.ecs_world,
-                &mut data.ecs_assets,
-                crate::ecs::systems::DEFAULT_FLAME_NAME,
-                crate::ecs::component::FlameEffect::default(),
-            );
-        }
-        Self::insert_default_if_missing::<crate::ecs::resource::FlameTemporalState>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::WaterRenderSettings>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::FlameHistorySnapshotState>(data);
+        Self::insert_default_if_missing::<crate::ecs::resource::WaterHistorySnapshotState>(data);
     }
 
     #[cfg(feature = "ml")]
@@ -1314,7 +1324,11 @@ impl App {
                 if scene_path.exists() {
                     match load_scene(&scene_path) {
                         Ok(loaded) => {
-                            let model_path = loaded.scene.model.path.clone();
+                            let model_path = loaded
+                                .model_path
+                                .as_ref()
+                                .map(|p| p.to_string_lossy().to_string())
+                                .unwrap_or_default();
                             let clips = loaded.clips.clone();
                             log!("Loaded batch scene from: {}", scene_path.display());
                             return (model_path, Some((scene_path, loaded, clips)));
@@ -1334,9 +1348,13 @@ impl App {
         if let Some(scene_path) = find_default_scene() {
             match load_scene(&scene_path) {
                 Ok(loaded) => {
-                    // The scene's own reference, not the resolved file: a generated mesh has no
-                    // file and must round-trip its sentinel back out on the next save.
-                    let model_path = loaded.scene.model.path.clone();
+                    // Loading uses the resolved assets path from LoadedScene.model_path (None for
+                    // a generated mesh with no file). Saving still uses loaded.scene.model.path.
+                    let model_path = loaded
+                        .model_path
+                        .as_ref()
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_default();
                     let clips = loaded.clips.clone();
                     log!("Loaded default scene from: {}", scene_path.display());
                     return (model_path, Some((scene_path, loaded, clips)));

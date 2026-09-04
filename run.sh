@@ -32,6 +32,11 @@ Commands:
       added (scripts/blender/flame/launch.sh). Fresh-install checks use blender-verify:
         ./run.sh blender --flame
         ./run.sh blender-verify --zip dist/thyllore_flame-0.0.1-linux_x86_64.zip
+  blender --water [--skip-build] [--release] [--software-gl] [scene.blend]
+      Build the water addon ZIP, install it into a pristine Docker Blender on
+      the NVIDIA GPU and open blender/water.blend with a water torus already
+      added (scripts/blender/water/launch.sh):
+        ./run.sh blender --water
   blend [--scene PATH.blend] [--software-gl] [args...]
       Open a pristine Docker Blender on the NVIDIA GPU with a new empty scene,
       no addon installed (blender/docker/run_gui.sh --no-install).
@@ -63,6 +68,10 @@ case "$command" in
         if [[ "${1:-}" == "--flame" ]]; then
             shift
             exec bash "$REPO_ROOT/scripts/blender/flame/launch.sh" "$@"
+        fi
+        if [[ "${1:-}" == "--water" ]]; then
+            shift
+            exec bash "$REPO_ROOT/scripts/blender/water/launch.sh" "$@"
         fi
         exec bash "$REPO_ROOT/scripts/run_blender_debug.sh" "$@"
         ;;

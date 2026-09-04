@@ -16,6 +16,7 @@ use crate::vulkanr::vulkan::*;
 
 use anyhow::{anyhow, Result};
 use std::fs::OpenOptions;
+use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
 
 impl App {
     pub unsafe fn begin_frame(&mut self) -> Result<usize> {
@@ -56,6 +57,73 @@ impl App {
         self.resource_mut::<SwapchainState>().images_in_flight[image_index] = current_fence;
 
         Ok(image_index)
+    }
+
+    pub unsafe fn refresh_tlas_mesh_transforms(&mut self) -> Result<()> {
+        if !self.data.raytracing.has_valid_tlas() {
+            return Ok(());
+        }
+
+        let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+            &self.data.ecs_world,
+            &self.data.ecs_assets,
+        );
+        let water_instances =
+            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+        let gbuffer_mesh_indices: Vec<usize> = self
+            .data
+            .graphics_resources
+            .meshes
+            .iter()
+            .enumerate()
+            .filter(|(_, mesh)| mesh.render_to_gbuffer)
+            .map(|(mesh_index, _)| mesh_index)
+            .collect();
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let Some(acceleration_structure) = self.data.raytracing.acceleration_structure.as_mut()
+        else {
+            return Ok(());
+        };
+
+        if acceleration_structure.blas_list.len() != gbuffer_mesh_indices.len()
+            || acceleration_structure.water_blas.len() != water_instances.len()
+        {
+            return Ok(());
+        }
+
+        let mut needs_update = false;
+        for (blas, &mesh_index) in acceleration_structure
+            .blas_list
+            .iter_mut()
+            .zip(gbuffer_mesh_indices.iter())
+        {
+            let model = mesh_transforms
+                .get(mesh_index)
+                .copied()
+                .unwrap_or_else(cgmath::SquareMatrix::identity);
+            needs_update |= apply_instance_transform(blas, &model);
+        }
+        for (blas, (model, _, _)) in acceleration_structure
+            .water_blas
+            .iter_mut()
+            .zip(water_instances.iter())
+        {
+            needs_update |= apply_instance_transform(blas, model);
+        }
+
+        if !needs_update {
+            return Ok(());
+        }
+
+        RRAccelerationStructure::update_tlas(
+            &self.instance,
+            &self.rrdevice,
+            command_pool.as_ref(),
+            &mut acceleration_structure.tlas,
+            &acceleration_structure.blas_list,
+            &acceleration_structure.water_blas,
+        )
     }
 
     unsafe fn handle_viewport_resize(&mut self) -> Result<()> {
@@ -205,6 +273,9 @@ impl App {
         log!("Loading new model from: {}", path);
         self.rrdevice.device.device_wait_idle()?;
 
+        let water_state = crate::scene::build_water_scene_data(&self.data.ecs_world);
+        let flame_state = crate::scene::build_flame_scene_data(&self.data.ecs_world);
+
         let command_pool = self.resource::<CommandState>().pool.clone();
         let swapchain = self.resource::<SwapchainState>().swapchain.clone();
         match Self::load_model_from_path_with_resources(
@@ -236,6 +307,39 @@ impl App {
                     let mut scene_state =
                         self.data.ecs_world.resource_mut::<crate::ecs::SceneState>();
                     scene_state.clear();
+                }
+
+                if let Some(ref water) = water_state {
+                    crate::scene::apply_water_state_to_world(
+                        &mut self.data.ecs_world,
+                        &mut self.data.ecs_assets,
+                        water,
+                    );
+                }
+                if let Some(ref flame) = flame_state {
+                    crate::scene::apply_flame_state_to_world(
+                        &mut self.data.ecs_world,
+                        &mut self.data.ecs_assets,
+                        flame,
+                    );
+                }
+                if water_state.is_some() {
+                    let command_pool = self.resource::<CommandState>().pool.clone();
+                    let waters =
+                        crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+                    let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+                        &self.data.ecs_world,
+                        &self.data.ecs_assets,
+                    );
+                    crate::app::model_loader::rebuild_acceleration_structures(
+                        &self.instance,
+                        &self.rrdevice,
+                        &command_pool,
+                        &self.data.graphics_resources,
+                        &mut self.data.raytracing,
+                        &waters,
+                        &mesh_transforms,
+                    )?;
                 }
 
                 msg_info!("Model loaded: {}", path);
@@ -347,6 +451,100 @@ impl App {
         Ok(())
     }
 
+    pub unsafe fn spawn_debug_primitive(
+        &mut self,
+        kind: crate::ecs::events::DebugPrimitiveKind,
+    ) -> Result<()> {
+        let position = default_debug_primitive_position(kind);
+        self.spawn_debug_primitive_at(kind, position)
+    }
+
+    pub unsafe fn spawn_debug_primitive_at(
+        &mut self,
+        kind: crate::ecs::events::DebugPrimitiveKind,
+        position: cgmath::Vector3<f32>,
+    ) -> Result<()> {
+        log!("Spawning debug primitive: {:?}", kind);
+        self.rrdevice.device.device_wait_idle()?;
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let swapchain = self.resource::<SwapchainState>().swapchain.clone();
+
+        let (load_result, part_name) = match kind {
+            crate::ecs::events::DebugPrimitiveKind::Cube => (
+                thyllore_importer_core::primitive::build_cube_model(1.0),
+                "Cube",
+            ),
+            crate::ecs::events::DebugPrimitiveKind::Sphere => (
+                thyllore_importer_core::primitive::build_uv_sphere_model(0.6, 32, 16),
+                "Sphere",
+            ),
+            crate::ecs::events::DebugPrimitiveKind::Floor => (
+                thyllore_importer_core::primitive::build_box_model(
+                    12.0,
+                    0.2,
+                    12.0,
+                    [0.8, 0.8, 0.8, 1.0],
+                ),
+                "Floor",
+            ),
+        };
+        let parent_entity = crate::app::model_loader::append_model_to_scene(
+            &load_result,
+            part_name,
+            &self.instance,
+            &self.rrdevice,
+            &command_pool,
+            &swapchain,
+            &mut self.data.graphics_resources,
+            &mut self.data.raytracing,
+            &mut self.data.ecs_world,
+            &mut self.data.ecs_assets,
+        )?;
+
+        self.data.ecs_world.insert_component(
+            parent_entity,
+            crate::ecs::component::DebugPrimitiveTag { kind },
+        );
+
+        let mut transform = self
+            .data
+            .ecs_world
+            .get_component_mut::<crate::ecs::world::Transform>(parent_entity)
+            .unwrap();
+        transform.translation = position;
+
+        msg_info!(
+            "Debug primitive spawned: {:?} at ({:.1}, {:.1}, {:.1})",
+            kind,
+            position.x,
+            position.y,
+            position.z
+        );
+        Ok(())
+    }
+
+    pub unsafe fn spawn_pending_debug_primitives(&mut self) {
+        let requests = match self
+            .data
+            .ecs_world
+            .get_resource_mut::<crate::ecs::resource::PendingDebugPrimitives>()
+        {
+            Some(mut pending) => pending.take_requests(),
+            None => return,
+        };
+
+        for request in requests {
+            if let Err(e) = self.spawn_debug_primitive_at(request.kind, request.position) {
+                log_error!(
+                    "Failed to spawn scene debug primitive {:?}: {:?}",
+                    request.kind,
+                    e
+                );
+            }
+        }
+    }
+
     pub unsafe fn delete_entities(&mut self, entities: &[u64]) -> Result<()> {
         self.rrdevice.device.device_wait_idle()?;
 
@@ -376,12 +574,21 @@ impl App {
         }
 
         let command_pool = self.resource::<CommandState>().pool.clone();
+        let waters = crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+        let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+            &self.data.ecs_world,
+            &self.data.ecs_assets,
+        );
+        let water_instances =
+            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
         crate::app::model_loader::rebuild_acceleration_structures(
             &self.instance,
             &self.rrdevice,
             &command_pool,
             &self.data.graphics_resources,
             &mut self.data.raytracing,
+            &waters,
+            &mesh_transforms,
         )?;
 
         log!("Deleted {} entities with GPU cleanup", entities.len());
@@ -460,7 +667,7 @@ impl App {
         let object_id_view = gbuffer.object_id_image_view;
         self.recreate_gbuffer_framebuffer()?;
         self.attach_gbuffer_depth_to_hdr()?;
-
+        self.recreate_water_on_resize()?;
         self.update_gbuffer_descriptors(
             position_view,
             normal_view,
@@ -490,6 +697,120 @@ impl App {
         Ok(())
     }
 
+    unsafe fn recreate_water_on_resize(&mut self) -> Result<()> {
+        let depth_view = {
+            let rt = self.resource::<RenderTargets>();
+            rt.render.gbuffer_depth_image_view
+        };
+        let hdr_view = match &self.data.viewport.hdr_buffer {
+            Some(hdr) => hdr.color_image_view,
+            None => return Ok(()),
+        };
+        if depth_view == vk::ImageView::null() {
+            return Ok(());
+        }
+
+        let width = self.data.viewport.width;
+        let height = self.data.viewport.height;
+
+        // Destroy old buffer if it exists
+        if let Some(mut old_buffer) = self.data.viewport.water_buffer.take() {
+            old_buffer.destroy(&self.rrdevice.device);
+        }
+
+        // Recreate with new dimensions
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
+        let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
+            &self.instance,
+            &self.rrdevice,
+            command_pool,
+            width,
+            height,
+            hdr_view,
+            depth_view,
+        )?;
+        let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
+        self.data.viewport.water_buffer = Some(water_buffer);
+
+        if let Some(descriptor) = &self.data.raytracing.water_descriptor {
+            descriptor.update_scene_color(&self.rrdevice, scene_color_view, scene_color_sampler)?;
+        }
+
+        if let Some(trace_descriptor) = &self.data.raytracing.water_trace_descriptor {
+            if let Some(accel) = self.data.raytracing.acceleration_structure.as_ref() {
+                if let Some(tlas) = accel.tlas.acceleration_structure {
+                    if let Some(hit_table) = accel.hit_shading_table.as_ref() {
+                        if let Some(water_buffer) = self.data.viewport.water_buffer.as_ref() {
+                            if let Some(water_ubo) = self.data.raytracing.water_ubo.as_ref() {
+                                trace_descriptor.write_all(
+                                    &self.rrdevice,
+                                    tlas,
+                                    water_buffer.trace_image_view,
+                                    water_ubo,
+                                    hit_table.buffer,
+                                )?;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        self.update_water_caustic_descriptor()?;
+
+        Ok(())
+    }
+
+    /// The caustic descriptor binds the accumulation, G-buffer position and HDR views
+    /// directly, so every resize that recreates them leaves it stale.
+    unsafe fn update_water_caustic_descriptor(&mut self) -> Result<()> {
+        let (Some(caustic_accum_view), Some(hdr_color_view)) = (
+            self.data
+                .viewport
+                .water_buffer
+                .as_ref()
+                .map(|water_buffer| water_buffer.caustic_accum_view),
+            self.data
+                .viewport
+                .hdr_buffer
+                .as_ref()
+                .map(|hdr_buffer| hdr_buffer.color_image_view),
+        ) else {
+            return Ok(());
+        };
+
+        let rrdevice = &self.rrdevice;
+        let raytracing = &mut self.data.raytracing;
+        let tlas = raytracing
+            .acceleration_structure
+            .as_ref()
+            .and_then(|accel| accel.tlas.acceleration_structure);
+        let (Some(position_image_view), Some(scene_buffer), Some(water_ubo)) = (
+            raytracing
+                .gbuffer
+                .as_ref()
+                .map(|gbuffer| gbuffer.position_image_view),
+            raytracing.scene_uniform_buffer,
+            raytracing.water_ubo.as_ref().map(|ubo| ubo.handle()),
+        ) else {
+            return Ok(());
+        };
+
+        let Some(descriptor) = raytracing.water_caustic_descriptor.as_mut() else {
+            return Ok(());
+        };
+
+        descriptor.allocate_and_update(
+            rrdevice,
+            caustic_accum_view,
+            position_image_view,
+            tlas,
+            scene_buffer,
+            water_ubo,
+            hdr_color_view,
+        )
+    }
+
     unsafe fn recreate_flame_on_resize(&mut self) -> Result<()> {
         let (Some(ref flame_buffer), Some(ref flame_descriptor)) = (
             &self.data.viewport.flame_buffer,
@@ -514,7 +835,7 @@ impl App {
         if let Some(mut state) = self
             .data
             .ecs_world
-            .get_resource_mut::<crate::ecs::resource::FlameTemporalState>()
+            .get_resource_mut::<crate::ecs::resource::FlameHistorySnapshotState>()
         {
             state.previous = None;
         }
@@ -600,6 +921,8 @@ impl App {
                 shadow_mask_view,
             )?;
         }
+
+        self.update_water_caustic_descriptor()?;
 
         {
             let swapchain = self.resource::<SwapchainState>().swapchain.clone();
@@ -840,6 +1163,8 @@ impl App {
     }
 
     pub unsafe fn render(&mut self, image_index: usize, draw_data: &imgui::DrawData) -> Result<()> {
+        self.refresh_tlas_mesh_transforms()?;
+
         let frame_slot = self.resource::<FrameSync>().current_frame;
 
         Self::update_imgui_buffers(
@@ -903,6 +1228,18 @@ impl App {
         Ok(())
     }
     pub unsafe fn save_screenshot(&self, image_index: usize) -> Result<String> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+            .as_secs();
+        let path = std::path::PathBuf::from(format!("log/screenshot_{}.png", timestamp));
+        self.save_screenshot_to(image_index, &path)
+    }
+
+    pub unsafe fn save_screenshot_to(
+        &self,
+        image_index: usize,
+        path: &std::path::Path,
+    ) -> Result<String> {
         let device = &self.rrdevice.device;
         let swapchain = &self.resource::<SwapchainState>().swapchain;
         let swapchain_image = swapchain.swapchain_images[image_index];
@@ -921,17 +1258,18 @@ impl App {
             vk::ImageLayout::PRESENT_SRC_KHR,
         )?;
 
-        let path = Self::encode_and_save_png(device, buffer_memory, image_size, width, height)?;
+        let saved_path =
+            Self::encode_and_save_png(device, buffer_memory, image_size, width, height, path)?;
 
         device.free_command_buffers(command_pool, &[command_buffer]);
         device.free_memory(buffer_memory, None);
         device.destroy_buffer(buffer, None);
 
-        Ok(path)
+        Ok(saved_path)
     }
 
     pub unsafe fn save_flame_history_npy(&self, path: &std::path::Path) -> Result<()> {
-        use crate::app::util::{f16_to_f32, write_npy_f32};
+        use thyllore_math_core::{f16_to_f32, write_npy_f32};
 
         let device = &self.rrdevice.device;
         let flame_buffer = self
@@ -1072,10 +1410,10 @@ impl App {
         image_size: vk::DeviceSize,
         width: u32,
         height: u32,
+        path: &std::path::Path,
     ) -> Result<String> {
         use std::fs::File;
         use std::io::BufWriter;
-        use std::time::SystemTime;
 
         let data = device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
         let slice = std::slice::from_raw_parts(data as *const u8, image_size as usize);
@@ -1090,13 +1428,11 @@ impl App {
 
         device.unmap_memory(buffer_memory);
 
-        let timestamp = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)?
-            .as_secs();
-        let filename = format!("log/screenshot_{}.png", timestamp);
-        std::fs::create_dir_all("log")?;
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
 
-        let file = File::create(&filename)?;
+        let file = File::create(path)?;
         let writer = BufWriter::new(file);
         let mut encoder = png::Encoder::new(writer, width, height);
         encoder.set_color(png::ColorType::Rgba);
@@ -1104,8 +1440,7 @@ impl App {
         let mut png_writer = encoder.write_header()?;
         png_writer.write_image_data(&rgba_data)?;
 
-        let absolute_path = std::fs::canonicalize(&filename)
-            .unwrap_or_else(|_| std::path::PathBuf::from(&filename));
+        let absolute_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
         let path_str = absolute_path.to_string_lossy().to_string();
 
         log!("Screenshot saved to: {}", path_str);
@@ -1646,6 +1981,16 @@ impl App {
     }
 }
 
+pub fn default_debug_primitive_position(
+    kind: crate::ecs::events::DebugPrimitiveKind,
+) -> cgmath::Vector3<f32> {
+    match kind {
+        crate::ecs::events::DebugPrimitiveKind::Cube => cgmath::Vector3::new(3.0, 0.5, 0.0),
+        crate::ecs::events::DebugPrimitiveKind::Sphere => cgmath::Vector3::new(-3.0, 0.6, 0.0),
+        crate::ecs::events::DebugPrimitiveKind::Floor => cgmath::Vector3::new(0.0, -1.6, 0.0),
+    }
+}
+
 unsafe fn allocate_one_time_command_buffer(
     device: &crate::vulkanr::core::device::Device,
     command_pool: vk::CommandPool,
@@ -1748,4 +2093,20 @@ fn append_jsonl(path: &str, line: &str) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = file.write_all(line.as_bytes());
     }
+}
+
+fn apply_instance_transform(
+    blas: &mut thyllore_vulkan_core::raytracing::RRBLAS,
+    model: &cgmath::Matrix4<f32>,
+) -> bool {
+    let matrix = [
+        [model[0][0], model[1][0], model[2][0], model[3][0]],
+        [model[0][1], model[1][1], model[2][1], model[3][1]],
+        [model[0][2], model[1][2], model[2][2], model[3][2]],
+    ];
+    if blas.transform.matrix == matrix {
+        return false;
+    }
+    blas.transform.matrix = matrix;
+    true
 }

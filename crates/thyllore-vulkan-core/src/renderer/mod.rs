@@ -10,6 +10,7 @@ pub mod onion_skin_buffers;
 pub mod push_constants;
 pub mod rayquery;
 pub mod tonemap;
+pub mod water;
 
 pub use auto_exposure::record_auto_exposure_pass;
 pub use bloom::record_bloom_pass;
@@ -25,6 +26,9 @@ pub use line_mesh_draw::{
 };
 pub use onion_skin::{record_onion_skin_composite_pass, record_onion_skin_ghost_pass};
 pub use onion_skin_buffers::{OnionSkinGhostBuffer, OnionSkinGpuState};
-pub use push_constants::{FlamePushConstants, GBufferPushConstants, OnionSkinPushConstants};
+pub use push_constants::{
+    FlamePushConstants, GBufferPushConstants, OnionSkinPushConstants, WaterPushConstants,
+};
 pub use rayquery::record_ray_query_pass;
 pub use tonemap::{begin_tonemap_render_pass, end_tonemap_render_pass, record_tonemap_draw};
+pub use water::{record_water_scene_color_copy, record_water_shading_pass};

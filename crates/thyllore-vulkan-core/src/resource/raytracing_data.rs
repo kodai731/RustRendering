@@ -1,5 +1,8 @@
 use anyhow::Result;
+use cgmath::SquareMatrix;
+use std::cell::Cell;
 use std::rc::Rc;
+use thyllore_math_core::AffineRows3x4;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::command::RRCommandPool;
@@ -11,13 +14,15 @@ use crate::descriptor::{
     CompositeGBufferViews, FlameImageBindings, RRAutoExposureAverageDescriptorSet,
     RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
     RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
-    RRToneMapDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM, BLOOM_DOWNSAMPLE,
+    RRToneMapDescriptorSet, RRWaterCausticDescriptorSet, RRWaterDescriptorSet,
+    RRWaterTraceDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM, BLOOM_DOWNSAMPLE,
     BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE, GBUFFER, ONION_SKIN_COMPOSITE, ONION_SKIN_GHOST,
-    RAY_QUERY_SHADOW, TONEMAP,
+    RAY_QUERY_SHADOW, TONEMAP, WATER_CAUSTIC_APPLY, WATER_CAUSTIC_SPLAT, WATER_RESOLVE,
+    WATER_TRACE,
 };
 use crate::pipeline::{
     BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
-    VertexInputConfig,
+    RRRayTracingPipeline, VertexInputConfig,
 };
 use crate::raytracing::RRAccelerationStructure;
 use crate::render::RRRender;
@@ -27,13 +32,18 @@ use crate::resource::buffer::create_buffer;
 use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::uniform_buffer::{Placement, UniformBuffer};
-use crate::resource::{BloomChain, FlameBuffer, OnionSkinPassResources, RRGBuffer};
-use thyllore_effect_core::FlameUBO;
+use crate::resource::{
+    BloomChain, FlameBuffer, HdrBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer,
+};
+use thyllore_effect_core::{FlameUBO, WaterUBO};
 
 pub const MAX_FLAME_INSTANCES: usize = 4;
+pub const MAX_WATER_INSTANCES: usize = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
+    pub command_pool: vk::CommandPool,
+
     pub gbuffer: Option<RRGBuffer>,
     pub gbuffer_pipeline: Option<RRPipeline>,
     pub gbuffer_sampler: Option<vk::Sampler>,
@@ -68,6 +78,17 @@ pub struct RayTracingData {
     pub flame_descriptor: Option<RRFlameDescriptorSet>,
     pub flame_ubo: Option<UniformBuffer<FlameUBO>>,
 
+    pub water_shading_pipeline: Option<RRPipeline>,
+    pub water_descriptor: Option<RRWaterDescriptorSet>,
+    pub water_ubo: Option<UniformBuffer<WaterUBO>>,
+
+    pub water_trace_pipeline: Option<RRRayTracingPipeline>,
+    pub water_trace_descriptor: Option<RRWaterTraceDescriptorSet>,
+
+    pub water_caustic_splat_pipeline: Option<RRPipeline>,
+    pub water_caustic_apply_pipeline: Option<RRPipeline>,
+    pub water_caustic_descriptor: Option<RRWaterCausticDescriptorSet>,
+
     pub flame_sdf_image: vk::Image,
     pub flame_sdf_image_memory: vk::DeviceMemory,
     pub flame_sdf_image_view: vk::ImageView,
@@ -75,6 +96,8 @@ pub struct RayTracingData {
 
     pub scene_uniform_buffer: Option<vk::Buffer>,
     pub scene_uniform_buffer_memory: Option<vk::DeviceMemory>,
+
+    pub water_descriptor_tlas: Cell<vk::AccelerationStructureKHR>,
 }
 
 impl RayTracingData {
@@ -134,17 +157,34 @@ impl RayTracingData {
         rrdevice: &RRDevice,
         rrcommand_pool: &Rc<RRCommandPool>,
         meshes: &[MeshBuffer],
+        mesh_transforms: &[cgmath::Matrix4<f32>],
+        waters: &[(cgmath::Matrix4<f32>, f32, f32)],
     ) -> Result<()> {
         log!("Building acceleration structures...");
 
         let mut acceleration_structure = RRAccelerationStructure::new();
 
-        for mesh in meshes {
+        // Collect vertex_buffers in the same order as BLAS creation
+        let vertex_buffers: Vec<_> = meshes
+            .iter()
+            .filter(|mesh| mesh.render_to_gbuffer)
+            .map(|mesh| {
+                (
+                    &mesh.vertex_buffer.buffer,
+                    mesh.vertex_data.vertices.len() as u32,
+                    std::mem::size_of::<vulkan_data::Vertex>() as u32,
+                    &mesh.index_buffer.buffer,
+                    mesh.vertex_data.indices.len() as u32,
+                )
+            })
+            .collect();
+
+        for (mesh_index, mesh) in meshes.iter().enumerate() {
             if !mesh.render_to_gbuffer {
                 continue;
             }
 
-            let blas = RRAccelerationStructure::create_blas(
+            let mut blas = RRAccelerationStructure::create_blas(
                 instance,
                 rrdevice,
                 rrcommand_pool,
@@ -155,29 +195,52 @@ impl RayTracingData {
                 mesh.vertex_data.indices.len() as u32,
             )?;
 
+            let model = mesh_transforms
+                .get(mesh_index)
+                .copied()
+                .unwrap_or_else(cgmath::Matrix4::identity);
+            blas.transform = vk::TransformMatrixKHR {
+                matrix: AffineRows3x4::from_mat4(model).rows,
+            };
+
             acceleration_structure.blas_list.push(blas);
             log!("Created BLAS for mesh");
         }
 
-        if !acceleration_structure.blas_list.is_empty() {
-            let tlas = RRAccelerationStructure::create_tlas(
+        for (model, major, minor) in waters {
+            let blas = RRAccelerationStructure::create_water_blas(
                 instance,
                 rrdevice,
                 rrcommand_pool,
-                &acceleration_structure.blas_list,
+                model,
+                *major,
+                *minor,
             )?;
-            acceleration_structure.tlas = tlas;
-            log!(
-                "Created TLAS with {} instances",
-                acceleration_structure.blas_list.len()
-            );
+            acceleration_structure.water_blas.push(blas);
         }
 
-        if acceleration_structure.blas_list.is_empty() {
-            self.acceleration_structure = None;
-        } else {
-            self.acceleration_structure = Some(acceleration_structure);
-        }
+        let tlas = RRAccelerationStructure::create_tlas(
+            instance,
+            rrdevice,
+            rrcommand_pool,
+            &acceleration_structure.blas_list,
+            &acceleration_structure.water_blas,
+        )?;
+        acceleration_structure.tlas = tlas;
+        log!(
+            "Created TLAS with {} mesh + {} water instances",
+            acceleration_structure.blas_list.len(),
+            acceleration_structure.water_blas.len()
+        );
+
+        acceleration_structure.fill_hit_shading_table(
+            instance,
+            rrdevice,
+            &vertex_buffers,
+            waters,
+        )?;
+
+        self.acceleration_structure = Some(acceleration_structure);
         log!("Acceleration structures built successfully");
         Ok(())
     }
@@ -261,6 +324,12 @@ impl RayTracingData {
         ) else {
             return Ok(());
         };
+        let hit_shading_table_buffer = self
+            .acceleration_structure
+            .as_ref()
+            .and_then(|accel| accel.hit_shading_table.as_ref())
+            .map(|table| table.buffer)
+            .unwrap_or_else(vk::Buffer::null);
 
         if descriptor.descriptor_set == vk::DescriptorSet::null() {
             descriptor.allocate_and_update(
@@ -270,10 +339,17 @@ impl RayTracingData {
                 gbuffer.shadow_mask_image_view,
                 tlas,
                 scene_buffer,
-            )
+                hit_shading_table_buffer,
+            )?;
         } else {
-            descriptor.update_tlas(rrdevice, tlas)
+            descriptor.update_tlas(rrdevice, tlas, hit_shading_table_buffer)?;
         }
+
+        if let Some(caustic_descriptor) = self.water_caustic_descriptor.as_mut() {
+            caustic_descriptor.update_tlas(rrdevice, tlas)?;
+        }
+
+        Ok(())
     }
 
     unsafe fn init_scene_uniform_buffer(
@@ -494,6 +570,177 @@ impl RayTracingData {
         self.flame_ubo = Some(flame_ubo);
 
         log!("Created flame pipelines");
+        Ok(())
+    }
+
+    pub unsafe fn create_water_pipeline(
+        &mut self,
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        rrrender: &RRRender,
+        graphics_resources: &GraphicsResources,
+        water_buffer: &WaterBuffer,
+        hdr_buffer: &HdrBuffer,
+    ) -> Result<()> {
+        let water_ubo = UniformBuffer::new(
+            instance,
+            rrdevice,
+            MAX_WATER_INSTANCES,
+            Placement::DeviceUpdated,
+        )?;
+        water_ubo.write_slot(rrdevice, 0, &WaterUBO::default())?;
+
+        let mut water_descriptor = RRWaterDescriptorSet::new(rrdevice)?;
+        let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
+        if let Some(accel_struct) = self.acceleration_structure.as_ref() {
+            if let (Some(tlas), Some(hit_table)) = (
+                accel_struct.tlas.acceleration_structure,
+                accel_struct.hit_shading_table.as_ref(),
+            ) {
+                water_descriptor.write_all(
+                    rrdevice,
+                    &water_ubo,
+                    scene_color_view,
+                    scene_color_sampler,
+                    water_buffer.history_image_views,
+                    water_buffer.history_sampler,
+                    water_buffer.trace_image_view,
+                    water_buffer.history_sampler,
+                    tlas,
+                    hit_table.buffer,
+                )?;
+            }
+        }
+
+        let water_shading_pipeline = PipelineBuilder::from_pass(&WATER_RESOLVE)
+            .vertex_input(VertexInputConfig::Custom {
+                bindings: vec![],
+                attributes: vec![],
+            })
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .depth_test(DepthTestConfig {
+                test_enable: true,
+                write_enable: true,
+                compare_op: vk::CompareOp::GREATER_OR_EQUAL,
+            })
+            .custom_render_pass(water_buffer.render_pass)
+            .msaa_samples(vk::SampleCountFlags::_1)
+            .mrt_attachments(2)
+            .blend(BlendConfig {
+                enable: false,
+                src_color_factor: vk::BlendFactor::ONE,
+                dst_color_factor: vk::BlendFactor::ZERO,
+                color_op: vk::BlendOp::ADD,
+                src_alpha_factor: vk::BlendFactor::ONE,
+                dst_alpha_factor: vk::BlendFactor::ZERO,
+                alpha_op: vk::BlendOp::ADD,
+            })
+            .push_constants(PushConstantConfig {
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                offset: 0,
+                size: std::mem::size_of::<crate::renderer::WaterPushConstants>() as u32,
+            })
+            .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
+            .descriptor_layouts(&[
+                &graphics_resources.frame_set.layout,
+                &water_descriptor.layout,
+            ])
+            .build(rrdevice, rrrender, Some(water_buffer.extent()))?;
+
+        self.water_shading_pipeline = Some(water_shading_pipeline);
+        self.water_descriptor = Some(water_descriptor);
+
+        let water_trace_descriptor = RRWaterTraceDescriptorSet::new(rrdevice)?;
+        if let Some(accel_struct) = self.acceleration_structure.as_ref() {
+            if let (Some(tlas), Some(hit_table)) = (
+                accel_struct.tlas.acceleration_structure,
+                accel_struct.hit_shading_table.as_ref(),
+            ) {
+                water_trace_descriptor.write_all(
+                    rrdevice,
+                    tlas,
+                    water_buffer.trace_image_view,
+                    &water_ubo,
+                    hit_table.buffer,
+                )?;
+            }
+        }
+
+        self.water_ubo = Some(water_ubo);
+        let intersection_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::INTERSECTION_KHR)
+            .offset(0)
+            .size(8)
+            .build();
+        let raygen_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::RAYGEN_KHR)
+            .offset(16)
+            .size(112)
+            .build();
+        let closest_hit_range = vk::PushConstantRange::builder()
+            .stage_flags(vk::ShaderStageFlags::CLOSEST_HIT_KHR)
+            .offset(96)
+            .size(32)
+            .build();
+        let water_trace_pipeline = RRRayTracingPipeline::new(
+            instance,
+            rrdevice,
+            &WATER_TRACE,
+            &[water_trace_descriptor.layout.handle],
+            &[intersection_range, raygen_range, closest_hit_range],
+        )?;
+
+        self.water_trace_descriptor = Some(water_trace_descriptor);
+        self.water_trace_pipeline = Some(water_trace_pipeline);
+
+        self.create_water_caustic_pipelines(rrdevice, water_buffer, hdr_buffer)?;
+
+        log!("Created water trace pipeline");
+        Ok(())
+    }
+    /// Caustic splat/apply need the water UBO and the water buffer, so they are built
+    /// once the water pipeline has produced them; the TLAS is bound later if missing.
+    unsafe fn create_water_caustic_pipelines(
+        &mut self,
+        rrdevice: &RRDevice,
+        water_buffer: &WaterBuffer,
+        hdr_buffer: &HdrBuffer,
+    ) -> Result<()> {
+        let (Some(gbuffer), Some(scene_buffer), Some(water_ubo)) = (
+            self.gbuffer.as_ref(),
+            self.scene_uniform_buffer,
+            self.water_ubo.as_ref(),
+        ) else {
+            log!("Water caustic inputs are not ready, skipping caustic pipelines");
+            return Ok(());
+        };
+        let tlas = self
+            .acceleration_structure
+            .as_ref()
+            .and_then(|accel| accel.tlas.acceleration_structure);
+
+        let mut descriptor = RRWaterCausticDescriptorSet::new(rrdevice)?;
+
+        descriptor.allocate_and_update(
+            rrdevice,
+            water_buffer.caustic_accum_view,
+            gbuffer.position_image_view,
+            tlas,
+            scene_buffer,
+            water_ubo.handle(),
+            hdr_buffer.color_image_view,
+        )?;
+
+        let splat_pipeline =
+            RRPipeline::new_compute(rrdevice, &WATER_CAUSTIC_SPLAT, &[&descriptor.splat_layout])?;
+        let apply_pipeline =
+            RRPipeline::new_compute(rrdevice, &WATER_CAUSTIC_APPLY, &[&descriptor.apply_layout])?;
+
+        self.water_caustic_splat_pipeline = Some(splat_pipeline);
+        self.water_caustic_apply_pipeline = Some(apply_pipeline);
+        self.water_caustic_descriptor = Some(descriptor);
+
+        log!("Created water caustic pipelines");
         Ok(())
     }
 
@@ -761,6 +1008,11 @@ unsafe fn build_ray_query_pipeline(
 
     if let (Some(gbuffer), Some(accel_struct)) = (gbuffer, acceleration_structure) {
         if let Some(tlas) = accel_struct.tlas.acceleration_structure {
+            let hit_shading_table_buffer = accel_struct
+                .hit_shading_table
+                .as_ref()
+                .map(|t| t.buffer)
+                .unwrap_or(vk::Buffer::null());
             descriptor.allocate_and_update(
                 rrdevice,
                 gbuffer.position_image_view,
@@ -768,6 +1020,7 @@ unsafe fn build_ray_query_pipeline(
                 gbuffer.shadow_mask_image_view,
                 tlas,
                 scene_buffer,
+                hit_shading_table_buffer,
             )?;
         }
     }

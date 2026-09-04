@@ -1,5 +1,9 @@
 #version 460
 #extension GL_EXT_ray_query : require
+#extension GL_GOOGLE_include_directive : require
+#extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
+
+#include "water/include/water_torus_intersect.glsl"
 
 // Compute shader for ray traced shadows using Ray Query
 layout(local_size_x = 16, local_size_y = 16) in;
@@ -21,6 +25,19 @@ layout(binding = 4) uniform SceneData {
     mat4 view;             // View matrix (for debugging)
     mat4 proj;             // Projection matrix (for debugging)
 } sceneData;
+
+// Hit shading table for water torus instances
+struct HitShadingRecord {
+    uint64_t vertexAddress;
+    uint64_t indexAddress;
+    mat4 model;
+    mat4 normalMatrix;
+    vec4 baseColor;
+    vec4 params;
+};
+layout(binding = 5, std430) readonly buffer HitShadingTable {
+    HitShadingRecord records[];
+} hitTable;
 
 // Push constants for per-frame parameters
 layout(push_constant) uniform PushConstants {
@@ -73,7 +90,23 @@ void main() {
 
     // Process ray query
     while(rayQueryProceedEXT(rayQuery)) {
-        // No action needed - we just want to know if there's any hit
+        if (rayQueryGetIntersectionTypeEXT(rayQuery, false) == gl_RayQueryCandidateIntersectionAABBEXT) {
+            uint idx = rayQueryGetIntersectionInstanceCustomIndexEXT(rayQuery, false);
+            HitShadingRecord rec = hitTable.records[idx];
+            if (rec.params.x > 0.5) {
+                vec3 o = rayQueryGetIntersectionObjectRayOriginEXT(rayQuery, false) / rec.params.y;
+                vec3 d = normalize(rayQueryGetIntersectionObjectRayDirectionEXT(rayQuery, false));
+                float roots[4];
+                bool fb;
+                int n = intersectTorus(o, d, rec.params.z / rec.params.y, roots, fb);
+                if (n > 0) {
+                    float t = roots[0] * rec.params.y / length(rayQueryGetIntersectionObjectRayDirectionEXT(rayQuery, false));
+                    if (t >= rayQueryGetRayTMinEXT(rayQuery) && t <= lightDistance) {
+                        rayQueryGenerateIntersectionEXT(rayQuery, t);
+                    }
+                }
+            }
+        }
     }
 
     // Check result

@@ -170,7 +170,11 @@ fn test_shader_count_matches() {
                 && (path.extension() == Some("vert".as_ref())
                     || path.extension() == Some("frag".as_ref())
                     || path.extension() == Some("comp".as_ref())
-                    || path.extension() == Some("geom".as_ref()))
+                    || path.extension() == Some("geom".as_ref())
+                    || path.extension() == Some("rchit".as_ref())
+                    || path.extension() == Some("rmiss".as_ref())
+                    || path.extension() == Some("rgen".as_ref())
+                    || path.extension() == Some("rint".as_ref()))
         })
         .count();
 

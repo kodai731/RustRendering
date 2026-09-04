@@ -8,10 +8,24 @@ use crate::gpu_block_codegen::{
     generate_gpu_blocks_rust, GpuBlockCodegenConfig, GpuBlockCodegenError,
 };
 
-pub const FLAME_GPU_BLOCK_NAME: &str = "FlameUBO";
+pub struct GpuBlockTarget {
+    pub block_name: &'static str,
+    pub output_path: &'static str,
+    pub codegen_config: fn() -> GpuBlockCodegenConfig,
+}
 
-pub const FLAME_GPU_BLOCKS_PATH: &str =
-    "crates/thyllore-effect-core/src/flame/gpu/components/generated.rs";
+pub const GPU_BLOCK_TARGETS: &[GpuBlockTarget] = &[
+    GpuBlockTarget {
+        block_name: "FlameUBO",
+        output_path: "crates/thyllore-effect-core/src/flame/gpu/components/generated.rs",
+        codegen_config: flame_codegen_config,
+    },
+    GpuBlockTarget {
+        block_name: "WaterUBO",
+        output_path: "crates/thyllore-effect-core/src/water/gpu/components/generated.rs",
+        codegen_config: water_codegen_config,
+    },
+];
 
 pub const REGENERATE_GPU_BLOCKS_COMMAND: &str =
     "cargo run -p thyllore-shader-manifest --bin generate_gpu_blocks";
@@ -50,9 +64,23 @@ fn flame_codegen_config() -> GpuBlockCodegenConfig {
     }
 }
 
-pub fn flame_gpu_blocks_source(spirv_dir: &Path) -> Result<String, FlameGpuBlocksError> {
-    let block = find_uniform_block(spirv_dir, FLAME_GPU_BLOCK_NAME)?;
-    Ok(generate_gpu_blocks_rust(&block, &flame_codegen_config())?)
+fn water_codegen_config() -> GpuBlockCodegenConfig {
+    GpuBlockCodegenConfig {
+        regenerate_command: REGENERATE_GPU_BLOCKS_COMMAND.into(),
+        imports: vec!["cgmath::Matrix4".into()],
+        extra_derives: BTreeMap::new(),
+    }
+}
+
+pub fn gpu_blocks_source(
+    spirv_dir: &Path,
+    target: &GpuBlockTarget,
+) -> Result<String, FlameGpuBlocksError> {
+    let block = find_uniform_block(spirv_dir, target.block_name)?;
+    Ok(generate_gpu_blocks_rust(
+        &block,
+        &(target.codegen_config)(),
+    )?)
 }
 
 fn find_uniform_block(

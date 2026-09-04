@@ -1,0 +1,164 @@
+import json
+import struct
+
+from ._common import _import_shared
+
+shader_info = _import_shared("shader_info")
+
+
+def matrix_column_major(m) -> list[float]:
+    """Flatten a 4x4 matrix into a 16-element list in column-major order."""
+    out: list[float] = []
+    for col in range(4):
+        for row in range(4):
+            out.append(m[row][col])
+    return out
+
+
+def pack_frame_ubo(
+    view: list[list[float]],
+    proj: list[list[float]],
+    camera_pos: tuple[float, float, float, float],
+    light_pos: tuple[float, float, float, float],
+    light_color: tuple[float, float, float, float],
+) -> bytes:
+    values = matrix_column_major(view) + matrix_column_major(proj) + list(camera_pos) + list(light_pos) + list(light_color)
+    assert len(values) == 16 * 2 + 4 * 3, f"expected 44 floats, got {len(values)}"
+    return struct.pack("44f", *values)
+
+
+def build_water_shader(glsl_path: str, bindings_path: str):
+    import bpy
+    import gpu
+
+    with open(glsl_path) as f:
+        glsl_text = f.read()
+    with open(bindings_path) as f:
+        bindings = json.load(f)
+
+    typedef, body = shader_info.split_typedef_and_body(glsl_text)
+
+    info = gpu.types.GPUShaderCreateInfo()
+    info.typedef_source(typedef)
+    info.uniform_buf(0, "FrameUBO", "frame")
+    info.uniform_buf(1, "WaterUBO", "water")
+    for i, sampler in enumerate(bindings["samplers"]):
+        info.sampler(i, "FLOAT_2D", sampler["name"])
+    iface = gpu.types.GPUStageInterfaceInfo("water_iface")
+    iface.smooth("VEC2", "fragTexCoord")
+    info.vertex_in(0, "VEC2", "pos")
+    info.vertex_out(iface)
+    info.fragment_out(0, "VEC4", "outColor")
+    info.push_constant("VEC4", "sceneColorRect")
+    info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
+    pc = bindings["push_constants"][0]
+    wanted = {"push.secondaryRays": 1.0, "push.debugView": 0.0}
+    info.fragment_source(shader_info.push_prelude(pc["type"], pc["members"]) + shader_info.specialize_body(body, {k: v for k, v in wanted.items() if k in body}))
+    return gpu.shader.create_from_info(info)
+
+
+def depth_convert_fragment_source() -> str:
+    return (
+        "void main(){"
+        " float d = texture(windowDepth, fragTexCoord).r;"
+        " float zEye = depthParams.y / (2.0 * d - 1.0 + depthParams.x);"
+        " float engineDepth = (d >= 1.0 || zEye <= 0.0) ? 0.0 : depthParams.z / zEye;"
+        " outDepth = vec4(engineDepth, 0.0, 0.0, 1.0);"
+        " }"
+    )
+
+
+def build_depth_convert_shader():
+    import gpu
+
+    info = gpu.types.GPUShaderCreateInfo()
+    info.sampler(0, "FLOAT_2D", "windowDepth")
+    info.push_constant("VEC3", "depthParams")
+    iface = gpu.types.GPUStageInterfaceInfo("depth_convert_iface")
+    iface.smooth("VEC2", "fragTexCoord")
+    info.vertex_in(0, "VEC2", "pos")
+    info.vertex_out(iface)
+    info.fragment_out(0, "VEC4", "outDepth")
+    info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
+    info.fragment_source(depth_convert_fragment_source())
+    return gpu.shader.create_from_info(info)
+
+
+def color_decode_fragment_source() -> str:
+    """Decodes the display-encoded capture to linear and box-blurs it so thin overlay lines (the grid) cannot alias into speckles after refraction."""
+    return (
+        "vec3 decodeSrgb(vec3 c){"
+        " return mix(c / 12.92, pow((c + 0.055) / 1.055, vec3(2.4)), step(vec3(0.04045), c));"
+        " }"
+        "void main(){"
+        " vec2 texel = 1.0 / vec2(textureSize(windowColor, 0));"
+        " vec3 sum = vec3(0.0);"
+        " for (int y = -2; y <= 2; ++y) {"
+        "  for (int x = -2; x <= 2; ++x) {"
+        "   sum += decodeSrgb(texture(windowColor, fragTexCoord + vec2(x, y) * texel).rgb);"
+        "  }"
+        " }"
+        " outColor = vec4(sum / 25.0, 1.0);"
+        " }"
+    )
+
+
+def build_color_decode_shader():
+    import gpu
+
+    info = gpu.types.GPUShaderCreateInfo()
+    info.sampler(0, "FLOAT_2D", "windowColor")
+    iface = gpu.types.GPUStageInterfaceInfo("color_decode_iface")
+    iface.smooth("VEC2", "fragTexCoord")
+    info.vertex_in(0, "VEC2", "pos")
+    info.vertex_out(iface)
+    info.fragment_out(0, "VEC4", "outColor")
+    info.vertex_source("void main(){ fragTexCoord = pos*0.5+0.5; gl_Position = vec4(pos,0.0,1.0); }")
+    info.fragment_source(color_decode_fragment_source())
+    return gpu.shader.create_from_info(info)
+
+
+def tonemap_composite_fragment_source() -> str:
+    return (
+        "vec3 acesFilmic(vec3 x){"
+        " return clamp((x * (2.51 * x + 0.03)) / (x * (2.43 * x + 0.59) + 0.14), 0.0, 1.0);"
+        " }"
+        "vec3 encodeSrgb(vec3 c){"
+        " return mix(c * 12.92, 1.055 * pow(c, vec3(1.0 / 2.4)) - 0.055, step(vec3(0.0031308), c));"
+        " }"
+        "void main(){"
+        " float wd = texture(waterDepth, fragTexCoord).r;"
+        " if (wd <= 0.0) discard;"
+        " float sd = texture(sceneDepth, fragTexCoord).r;"
+        " if (sd > wd) discard;"
+        " vec4 hdr = texture(image, fragTexCoord);"
+        " vec3 display = acesFilmic(hdr.rgb * tonemapParams.x);"
+        " if (tonemapParams.y > 0.5) { display = encodeSrgb(display); }"
+        " outColor = vec4(display, hdr.a);"
+        " float zEye = depthParams.z / wd;"
+        " gl_FragDepth = (depthParams.y / zEye + 1.0 - depthParams.x) * 0.5;"
+        " }"
+    )
+
+
+def build_tonemap_composite_shader():
+    import gpu
+
+    info = gpu.types.GPUShaderCreateInfo()
+    info.sampler(0, "FLOAT_2D", "image")
+    info.sampler(1, "FLOAT_2D", "waterDepth")
+    info.sampler(2, "FLOAT_2D", "sceneDepth")
+    info.push_constant("MAT4", "ModelViewProjectionMatrix")
+    info.push_constant("VEC2", "tonemapParams")
+    info.push_constant("VEC3", "depthParams")
+    iface = gpu.types.GPUStageInterfaceInfo("tonemap_composite_iface")
+    iface.smooth("VEC2", "fragTexCoord")
+    info.vertex_in(0, "VEC2", "pos")
+    info.vertex_in(1, "VEC2", "texCoord")
+    info.vertex_out(iface)
+    info.fragment_out(0, "VEC4", "outColor")
+    info.vertex_source(
+        "void main(){ fragTexCoord = texCoord; gl_Position = ModelViewProjectionMatrix * vec4(pos, 0.0, 1.0); }"
+    )
+    info.fragment_source(tonemap_composite_fragment_source())
+    return gpu.shader.create_from_info(info)

@@ -4,11 +4,7 @@ from __future__ import annotations
 import pytest
 
 from blender_addon.effects.flame.properties import (
-    EXPOSED_PARAM_RULES,
-    PARAMS_FILE,
     collect_params,
-    is_exposed_param,
-    load_exposed_param_rules,
     merge_preset_params,
     precision_from_format,
     property_kind,
@@ -101,42 +97,18 @@ class TestCollectParams:
         assert result == {}
 
 
-class TestExposedParamRules:
-    def test_rules_come_from_flame_params_toml(self):
-        assert PARAMS_FILE.name == "flame_params.toml"
-        assert load_exposed_param_rules() == EXPOSED_PARAM_RULES
-
-    def test_rules_file_lists_names_and_prefixes(self):
-        assert EXPOSED_PARAM_RULES["names"] == ("height", "radius", "intensity", "optical_depth", "use_blackbody")
-        assert EXPOSED_PARAM_RULES["prefixes"] == ("noise_", "color_", "temperature_")
-
-    def test_custom_rules_override_file(self):
-        rules = {"names": ("intensity",), "prefixes": ()}
-        assert is_exposed_param("intensity", rules)
-        assert not is_exposed_param("height", rules)
-
-
 class TestExposedParams:
-    def test_named_params_are_exposed(self):
-        assert is_exposed_param("height")
-        assert is_exposed_param("radius")
-        assert is_exposed_param("intensity")
-        assert is_exposed_param("optical_depth")
-        assert is_exposed_param("use_blackbody")
+    def test_persisted_params_are_exposed(self):
+        ui_params = [{"name": "height", "persisted": True}, {"name": "swirl_gain", "persisted": True}]
+        assert [p["name"] for p in select_exposed_params(ui_params)] == ["height", "swirl_gain"]
 
-    def test_noise_prefix_is_exposed(self):
-        assert is_exposed_param("noise_amplitude")
-        assert is_exposed_param("noise_aniso_y")
-        assert is_exposed_param("color_base")
-        assert is_exposed_param("temperature_tip_k")
+    def test_runtime_params_are_hidden(self):
+        ui_params = [{"name": "time", "persisted": False}, {"name": "height", "persisted": True}]
+        assert [p["name"] for p in select_exposed_params(ui_params)] == ["height"]
 
-    def test_other_params_are_hidden(self):
-        assert not is_exposed_param("branch_gain")
-        assert not is_exposed_param("swirl_gain")
-
-    def test_select_keeps_order_and_filters(self):
-        ui_params = [{"name": "swirl_gain"}, {"name": "height"}, {"name": "noise_contrast"}, {"name": "mix_lo"}]
-        assert [p["name"] for p in select_exposed_params(ui_params)] == ["height", "noise_contrast"]
+    def test_select_keeps_declaration_order(self):
+        ui_params = [{"name": "b", "persisted": True}, {"name": "a", "persisted": True}]
+        assert [p["name"] for p in select_exposed_params(ui_params)] == ["b", "a"]
 
 
 class TestMergePresetParams:

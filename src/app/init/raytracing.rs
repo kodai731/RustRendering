@@ -45,11 +45,17 @@ impl App {
         data: &mut AppData,
         rrcommand_pool: &Rc<RRCommandPool>,
     ) -> Result<()> {
+        data.raytracing.command_pool = rrcommand_pool.command_pool;
+        let water_transforms = crate::app::model_loader::collect_water_instances(&data.ecs_world);
+        let mesh_transforms =
+            crate::app::model_loader::collect_mesh_transforms(&data.ecs_world, &data.ecs_assets);
         data.raytracing.build_acceleration_structures(
             instance,
             rrdevice,
             rrcommand_pool,
             &data.graphics_resources.meshes,
+            &mesh_transforms,
+            &water_transforms,
         )
     }
 
@@ -90,7 +96,59 @@ impl App {
         Self::create_auto_exposure_pipelines_with_resources(rrdevice, data)?;
         Self::create_onion_skin_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
         Self::create_flame_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
+        Self::create_water_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
 
+        Ok(())
+    }
+
+    pub(crate) unsafe fn create_water_pipeline_with_resources(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        data: &mut AppData,
+        rrrender: &RRRender,
+    ) -> Result<()> {
+        let hdr_view = match data.viewport.hdr_buffer {
+            Some(ref hdr) => hdr.color_image_view,
+            None => {
+                log!("HDR buffer not available, skipping water pipeline");
+                return Ok(());
+            }
+        };
+
+        let depth_view = rrrender.gbuffer_depth_image_view;
+        let w = data.viewport.width;
+        let h = data.viewport.height;
+
+        let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
+            instance,
+            rrdevice,
+            data.raytracing.command_pool,
+            w,
+            h,
+            hdr_view,
+            depth_view,
+        )?;
+
+        data.viewport.water_buffer = Some(water_buffer);
+
+        let (Some(water_buffer), Some(hdr_buffer)) = (
+            data.viewport.water_buffer.as_ref(),
+            data.viewport.hdr_buffer.as_ref(),
+        ) else {
+            log!("Water buffer not available, skipping water pipeline");
+            return Ok(());
+        };
+
+        data.raytracing.create_water_pipeline(
+            instance,
+            rrdevice,
+            rrrender,
+            &data.graphics_resources,
+            water_buffer,
+            hdr_buffer,
+        )?;
+
+        log!("Water pipeline created successfully");
         Ok(())
     }
 

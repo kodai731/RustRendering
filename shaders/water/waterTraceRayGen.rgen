@@ -1,0 +1,71 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_GOOGLE_include_directive : require
+
+#define WATER_UBO_SET 0
+#define WATER_UBO_BINDING 2
+#include "water/include/water_component.glsl"
+#include "water/include/water_lighting.glsl"
+#include "water/include/water_trace_payload.glsl"
+
+layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
+layout(set = 0, binding = 1, rgba16f) uniform image2D outImage;
+layout(push_constant) uniform WaterTraceFrame {
+    layout(offset = 16) mat4 invViewProj;
+    layout(offset = 80) vec4 cameraPos;
+    layout(offset = 96) vec4 lightPos;
+    layout(offset = 112) vec4 lightColor;
+} frame;
+layout(location = 0) rayPayloadEXT WaterTracePayload payload;
+
+void main() {
+    vec2 uv = (vec2(gl_LaunchIDEXT.xy) + 0.5) / vec2(gl_LaunchSizeEXT.xy);
+    vec2 ndc = uv * 2.0 - 1.0;
+    vec4 world = frame.invViewProj * vec4(ndc, 1.0, 1.0);
+    vec3 dir = normalize(world.xyz / world.w - frame.cameraPos.xyz);
+    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, frame.cameraPos.xyz, 1e-3, dir, 1e30, 0);
+    if (payload.exitOrigin.w < 0.5) {
+        imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), payload.color);
+        return;
+    }
+    float F = payload.reflOrigin.w;
+    float chord = payload.reflDir.w;
+    float slopeVariance = payload.exitDir.w;
+    vec3 p1 = payload.reflOrigin.xyz;
+    vec3 reflDir = payload.reflDir.xyz;
+    vec3 exitOrigin = payload.exitOrigin.xyz;
+    vec3 exitDir = payload.exitDir.xyz;
+
+    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, p1 + reflDir * 1e-3, 1e-3, reflDir, 1e30, 0);
+    vec3 reflection;
+    if (payload.color.a > 0.5 && payload.exitOrigin.w < 0.5) {
+        reflection = payload.color.rgb;
+    } else {
+        vec3 lightDir = normalize(frame.lightPos.xyz - p1);
+        reflection = waterEnvironmentReflection(reflDir, lightDir, frame.lightColor.rgb, slopeVariance);
+    }
+
+    traceRayEXT(tlas, gl_RayFlagsOpaqueEXT, 0xff, 0, 0, 0, exitOrigin + exitDir * 1e-3, 1e-3, exitDir, 1e30, 0);
+    vec3 background;
+    if (payload.color.a > 0.5 && payload.exitOrigin.w < 0.5) {
+        background = payload.color.rgb;
+    } else {
+        background = vec3(0.6, 0.7, 0.8) * water.lighting.z;
+    }
+
+    vec3 transmission = mix(background, water.tint.rgb, clamp(water.tint.a, 0.0, 1.0)) * rteTransmittance(waterExtinctionCoefficient(), chord);
+    vec3 lightDirExit = normalize(frame.lightPos.xyz - exitOrigin);
+    transmission += waterTransmittedHighlight(exitDir, lightDirExit, frame.lightColor.rgb, chord);
+
+    float scatterPath = length(exitOrigin - p1);
+    if (scatterPath > 1e-6) {
+        vec3 viewDirWater = (exitOrigin - p1) / scatterPath;
+        float ds = scatterPath / float(WATER_SCATTER_SAMPLES);
+        for (int i = 0; i < WATER_SCATTER_SAMPLES; ++i) {
+            WaterScatterSample smp = waterScatterSampleAt(p1, exitOrigin, i, frame.lightPos.xyz);
+            transmission += waterScatterSampleRadiance(smp, viewDirWater, frame.lightColor.rgb, ds);
+        }
+    }
+    vec3 composite = F * reflection * water.composite.x + (1.0 - F) * transmission * water.composite.y;
+    imageStore(outImage, ivec2(gl_LaunchIDEXT.xy), vec4(composite, 1.0));
+}

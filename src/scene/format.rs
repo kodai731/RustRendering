@@ -23,6 +23,33 @@ pub struct SceneFile {
     pub panel_layout: Option<PanelLayoutState>,
     #[serde(default)]
     pub flame: Option<FlameSceneData>,
+    #[serde(default)]
+    pub water: Option<WaterSceneData>,
+    #[serde(default)]
+    pub debug_primitives: Vec<DebugPrimitiveSceneData>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DebugPrimitiveSceneData {
+    pub kind: String,
+    pub position: [f32; 3],
+}
+
+pub fn debug_primitive_kind_to_str(kind: crate::ecs::events::DebugPrimitiveKind) -> &'static str {
+    match kind {
+        crate::ecs::events::DebugPrimitiveKind::Cube => "cube",
+        crate::ecs::events::DebugPrimitiveKind::Sphere => "sphere",
+        crate::ecs::events::DebugPrimitiveKind::Floor => "floor",
+    }
+}
+
+pub fn debug_primitive_kind_from_str(s: &str) -> Option<crate::ecs::events::DebugPrimitiveKind> {
+    match s {
+        "cube" => Some(crate::ecs::events::DebugPrimitiveKind::Cube),
+        "sphere" => Some(crate::ecs::events::DebugPrimitiveKind::Sphere),
+        "floor" => Some(crate::ecs::events::DebugPrimitiveKind::Floor),
+        _ => None,
+    }
 }
 
 impl SceneFile {
@@ -38,6 +65,8 @@ impl SceneFile {
             editor: EditorState::default(),
             panel_layout: None,
             flame: None,
+            water: None,
+            debug_primitives: Vec::new(),
         }
     }
 }
@@ -274,6 +303,18 @@ pub struct FlameStyleRefData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WaterSceneData {
+    pub effect: thyllore_effect_core::WaterTorusEffect,
+    #[serde(default)]
+    pub channels: Vec<FlameChannelData>,
+    /// Authored clip length floor in seconds (0 = keyframes decide).
+    #[serde(default)]
+    pub clip_min_duration: f32,
+    #[serde(default)]
+    pub preset: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameChannelData {
     pub param: String,
     pub keys: Vec<FlameKeyData>,
@@ -333,8 +374,8 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
 
     let effect = world.get_component::<crate::ecs::component::FlameEffect>(*entity)?;
 
-    let channels: Vec<FlameChannelData> = build_flame_channels_from_clip(world, *entity);
-    let clip_min_duration = flame_clip_min_duration(world, *entity);
+    let channels: Vec<FlameChannelData> = build_effect_channels_from_clip(world, *entity);
+    let clip_min_duration = effect_clip_min_duration(world, *entity);
 
     let motion_path = world
         .get_component::<crate::ecs::component::MotionPath>(*entity)
@@ -356,7 +397,7 @@ pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameS
     })
 }
 
-fn flame_clip_min_duration(
+fn effect_clip_min_duration(
     world: &crate::ecs::world::World,
     entity: crate::ecs::world::Entity,
 ) -> f32 {
@@ -369,7 +410,7 @@ fn flame_clip_min_duration(
         .unwrap_or(0.0)
 }
 
-fn build_flame_channels_from_clip(
+fn build_effect_channels_from_clip(
     world: &crate::ecs::world::World,
     entity: crate::ecs::world::Entity,
 ) -> Vec<FlameChannelData> {
@@ -454,15 +495,130 @@ pub fn apply_flame_state_to_world(
         flame.effect.rotation,
     );
 
-    // Rebuild the flame clip (scalar curves) from the scene channels. Loading is
-    // idempotent: any previously scheduled flame clip instance is replaced. An
-    // empty clip is still scheduled so the Timeline shows a lane whose length
-    // can be edited before any key exists.
-    let mut editable = thyllore_anim_core::editable::EditableAnimationClip::new(
-        0,
-        crate::ecs::component::FLAME_DOMAIN.name.to_string(),
+    rebuild_effect_clip(
+        world,
+        assets,
+        entity,
+        crate::ecs::component::FLAME_DOMAIN.name,
+        &flame.channels,
+        flame.clip_min_duration,
     );
-    for ch in &flame.channels {
+
+    if let Some(mp) = &flame.motion_path {
+        world.insert_component(entity, mp.clone());
+    }
+}
+
+/// Build WaterSceneData from the first water entity's WaterTorusEffect.
+pub fn build_water_scene_data(world: &crate::ecs::world::World) -> Option<WaterSceneData> {
+    let entities: Vec<_> = world.query_waters();
+    let entity = entities.first()?;
+
+    let effect = world.get_component::<crate::ecs::component::WaterTorusEffect>(*entity)?;
+
+    let channels: Vec<FlameChannelData> = build_effect_channels_from_clip(world, *entity);
+    let clip_min_duration = effect_clip_min_duration(world, *entity);
+
+    let preset = world
+        .get_component::<crate::ecs::component::AppliedWaterPreset>(*entity)
+        .map(|applied| applied.name.clone());
+
+    Some(WaterSceneData {
+        effect: effect.clone(),
+        channels,
+        clip_min_duration,
+        preset,
+    })
+}
+
+pub fn build_debug_primitives_scene_data(
+    world: &crate::ecs::world::World,
+) -> Vec<DebugPrimitiveSceneData> {
+    let mut primitives: Vec<_> = world
+        .iter_components::<crate::ecs::component::DebugPrimitiveTag>()
+        .filter_map(|(entity, tag)| {
+            let transform = world.get_component::<crate::ecs::world::Transform>(entity)?;
+            Some((
+                entity,
+                DebugPrimitiveSceneData {
+                    kind: debug_primitive_kind_to_str(tag.kind).to_string(),
+                    position: [
+                        transform.translation.x,
+                        transform.translation.y,
+                        transform.translation.z,
+                    ],
+                },
+            ))
+        })
+        .collect();
+
+    primitives.sort_by_key(|(entity, _)| *entity);
+    primitives.into_iter().map(|(_, data)| data).collect()
+}
+
+/// Apply loaded water state to the first water entity in the world.
+pub fn apply_water_state_to_world(
+    world: &mut crate::ecs::world::World,
+    assets: &mut crate::asset::AssetStorage,
+    water: &WaterSceneData,
+) {
+    let entities: Vec<_> = world.query_waters();
+    let entity = match entities.first() {
+        Some(e) => *e,
+        None => crate::ecs::systems::spawn_water_with_clip(
+            world,
+            assets,
+            "Water",
+            crate::ecs::component::WaterTorusEffect::default(),
+        ),
+    };
+
+    if let Some(mut effect) =
+        world.get_component_mut::<crate::ecs::component::WaterTorusEffect>(entity)
+    {
+        thyllore_effect_core::overwrite_water_persisted_fields(&mut effect, &water.effect);
+    }
+
+    if let Some(ref preset_name) = water.preset {
+        world.insert_component(
+            entity,
+            crate::ecs::component::AppliedWaterPreset {
+                name: preset_name.clone(),
+            },
+        );
+    }
+
+    crate::ecs::systems::write_water_transform(
+        world,
+        entity,
+        water.effect.position,
+        water.effect.rotation,
+    );
+
+    rebuild_effect_clip(
+        world,
+        assets,
+        entity,
+        crate::ecs::component::WATER_DOMAIN.name,
+        &water.channels,
+        water.clip_min_duration,
+    );
+}
+
+/// Rebuild an effect clip (scalar curves) from scene channels and schedule it on the entity.
+/// Loading is idempotent: any previously scheduled clip instance is replaced. An empty clip
+/// is still scheduled so the Timeline shows a lane whose length can be edited before any key exists.
+fn rebuild_effect_clip(
+    world: &mut crate::ecs::world::World,
+    assets: &mut crate::asset::AssetStorage,
+    entity: crate::ecs::world::Entity,
+    domain_name: &str,
+    channels: &[FlameChannelData],
+    clip_min_duration: f32,
+) {
+    let mut editable =
+        thyllore_anim_core::editable::EditableAnimationClip::new(0, domain_name.to_string());
+    for ch in channels {
         let Some((_, channel)) = crate::ecs::component::scalar_channel_for_scene_name(&ch.param)
         else {
             continue;
@@ -493,7 +649,7 @@ pub fn apply_flame_state_to_world(
             }
         }
     }
-    editable.min_duration = flame.clip_min_duration.max(0.0);
+    editable.min_duration = clip_min_duration.max(0.0);
     thyllore_anim_core::editable::clip_recalculate_duration(&mut editable);
 
     if let Some(previous_clip_id) =
@@ -524,10 +680,6 @@ pub fn apply_flame_state_to_world(
             duration,
         ));
     world.insert_component(entity, schedule);
-
-    if let Some(mp) = &flame.motion_path {
-        world.insert_component(entity, mp.clone());
-    }
 }
 
 #[cfg(test)]

@@ -52,6 +52,31 @@ impl FlamePushConstants {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
+pub struct WaterPushConstants {
+    pub secondary_rays: i32,
+    pub debug_view: i32,
+}
+
+impl WaterPushConstants {
+    pub fn new(secondary_rays: i32, debug_view: i32) -> Self {
+        Self {
+            secondary_rays,
+            debug_view,
+        }
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        unsafe {
+            std::slice::from_raw_parts(
+                (self as *const Self) as *const u8,
+                std::mem::size_of::<Self>(),
+            )
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct OnionSkinPushConstants {
     pub ghost_tint_r: f32,
     pub ghost_tint_g: f32,

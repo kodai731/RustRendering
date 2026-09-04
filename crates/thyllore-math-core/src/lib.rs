@@ -4,6 +4,8 @@ mod chebyshev;
 mod compact_support;
 pub mod coordinate_system;
 mod faddeeva;
+mod gpu_matrix;
+mod half_float;
 pub use faddeeva::*;
 mod height_falloff;
 pub use height_falloff::*;
@@ -12,8 +14,14 @@ mod erf_response;
 mod oscillatory_response;
 pub use oscillatory_response::*;
 mod matrix;
+mod npy;
 mod quaternion;
+mod random;
 mod smooth_step;
+mod torus_intersect;
+mod torus_projection;
+#[cfg(test)]
+mod torus_tests;
 mod vector;
 mod winding;
 
@@ -29,9 +37,15 @@ pub use coordinate_system::{
 };
 pub use erf_moments::*;
 pub use erf_response::*;
+pub use gpu_matrix::*;
+pub use half_float::*;
 pub use matrix::*;
+pub use npy::*;
 pub use quaternion::*;
+pub use random::*;
 pub use smooth_step::*;
+pub use torus_intersect::*;
+pub use torus_projection::*;
 pub use vector::*;
 pub use winding::*;
 

@@ -14,10 +14,10 @@ use crate::ecs::component::{AnimationMeta, ClipSchedule, EntityIcon};
 use crate::ecs::resource::billboard::BillboardData;
 use crate::ecs::resource::gizmo::{BoneGizmoData, ConstraintGizmoData};
 use crate::ecs::resource::{
-    AnimationType, ClipLibrary, FbxModelCache, GltfModelCache, MeshAssets, ModelState, NodeAssets,
-    TimelineState,
+    AnimationType, BatchRun, ClipLibrary, FbxModelCache, GltfModelCache, MeshAssets, ModelState,
+    NodeAssets, TimelineState,
 };
-use crate::ecs::world::{Animator, Transform, World};
+use crate::ecs::world::{Animator, GlobalTransform, MeshRef, Transform, World};
 use crate::loader::fbx::FbxModel;
 use crate::loader::load_png_image;
 use crate::loader::{ModelLoadResult, TextureSource};
@@ -32,6 +32,7 @@ use crate::vulkanr::resource::graphics_resource::{
 };
 use crate::vulkanr::swapchain::RRSwapchain;
 use crate::vulkanr::vulkan::Instance;
+use thyllore_math_core::AffineRows3x4;
 use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
 use thyllore_vulkan_core::resource::image::{
     create_image_view, create_texture_image_pixel, create_texture_sampler,
@@ -176,7 +177,17 @@ unsafe fn apply_model_to_resources(
         assets,
         load_result,
     )?;
-    rebuild_acceleration_structures(instance, device, command_pool, graphics, raytracing)?;
+    let waters = collect_water_instances(world);
+    let mesh_transforms = collect_mesh_transforms(world, assets);
+    rebuild_acceleration_structures(
+        instance,
+        device,
+        command_pool,
+        graphics,
+        raytracing,
+        &waters,
+        &mesh_transforms,
+    )?;
     update_ray_query_descriptor(device, raytracing)?;
 
     {
@@ -293,6 +304,54 @@ fn log_model_load_info(
     );
 }
 
+pub fn find_best_clip(world: &World) -> Option<SourceClipId> {
+    if !world.contains_resource::<ClipLibrary>() {
+        return None;
+    }
+
+    let clip_library = world.resource::<ClipLibrary>();
+    let mut clip_ids: Vec<_> = clip_library.all_clip_ids().copied().collect();
+    clip_ids.sort_unstable();
+
+    clip_ids
+        .iter()
+        .copied()
+        .find(|&id| {
+            clip_library
+                .get(id)
+                .is_some_and(|clip| !clip.tracks.is_empty())
+        })
+        .or_else(|| clip_ids.first().copied())
+}
+
+fn restore_batch_playback(world: &World) {
+    let requested_clip_id = match world.get_resource::<BatchRun>() {
+        Some(batch_run) if batch_run.play_requested => batch_run.play_clip_id,
+        _ => return,
+    };
+
+    let clip_still_loaded = requested_clip_id.is_some_and(|id| {
+        world
+            .get_resource::<ClipLibrary>()
+            .is_some_and(|library| library.get(id).is_some())
+    });
+    let clip_id = if clip_still_loaded {
+        requested_clip_id
+    } else {
+        find_best_clip(world)
+    };
+
+    if !world.contains_resource::<TimelineState>() {
+        return;
+    }
+
+    let mut timeline = world.resource_mut::<TimelineState>();
+    timeline.playing = true;
+    if let Some(id) = clip_id {
+        timeline.current_clip_id = Some(id);
+    }
+}
+
 unsafe fn cleanup_resources(
     device: &RRDevice,
     graphics: &mut GraphicsResources,
@@ -326,6 +385,7 @@ unsafe fn cleanup_resources(
         timeline_state.selected_keyframes.clear();
         timeline_state.expanded_tracks.clear();
     }
+    restore_batch_playback(world);
 
     if world.contains_resource::<FbxModelCache>() {
         let mut cache = world.resource_mut::<FbxModelCache>();
@@ -570,6 +630,7 @@ unsafe fn apply_initial_pose(
             timeline.playing = false;
             timeline.current_time = 0.0;
         }
+        restore_batch_playback(world);
     }
 
     let skeleton_id = graphics.meshes.first().and_then(|m| m.skeleton_id);
@@ -710,23 +771,80 @@ unsafe fn upload_mesh_vertices(
     Ok(())
 }
 
+pub fn collect_water_instances(world: &World) -> Vec<(cgmath::Matrix4<f32>, f32, f32)> {
+    world
+        .query_waters()
+        .iter()
+        .filter_map(|&entity| {
+            let effect = world.get_component::<crate::ecs::component::WaterTorusEffect>(entity)?;
+            let ubo = thyllore_effect_core::build_water_ubo(effect, 0);
+            Some((ubo.model, effect.major_radius, effect.minor_radius))
+        })
+        .collect()
+}
+
+pub fn collect_mesh_transforms(world: &World, assets: &AssetStorage) -> Vec<cgmath::Matrix4<f32>> {
+    let indexed_transforms: Vec<(usize, cgmath::Matrix4<f32>)> = world
+        .iter_components::<MeshRef>()
+        .filter_map(|(entity, mesh_ref)| {
+            let mesh_asset = assets.get_mesh(mesh_ref.mesh_asset_id)?;
+            let model_matrix = world
+                .get_component::<GlobalTransform>(entity)
+                .map(|global_transform| global_transform.0)
+                .unwrap_or_else(cgmath::Matrix4::identity);
+            Some((mesh_asset.graphics_mesh_index, model_matrix))
+        })
+        .collect();
+
+    let transform_count = indexed_transforms
+        .iter()
+        .map(|(index, _)| index + 1)
+        .max()
+        .unwrap_or(0);
+
+    let mut transforms = vec![cgmath::Matrix4::identity(); transform_count];
+    for (index, model_matrix) in indexed_transforms {
+        transforms[index] = model_matrix;
+    }
+
+    transforms
+}
+
 pub unsafe fn rebuild_acceleration_structures(
     instance: &Instance,
     device: &RRDevice,
     command_pool: &Rc<RRCommandPool>,
     graphics: &GraphicsResources,
     raytracing: &mut RayTracingData,
+    waters: &[(cgmath::Matrix4<f32>, f32, f32)],
+    mesh_transforms: &[cgmath::Matrix4<f32>],
 ) -> Result<()> {
     log!("Rebuilding acceleration structures...");
 
     let mut acceleration_structure = RRAccelerationStructure::new();
 
-    for mesh in &graphics.meshes {
+    // Collect vertex_buffers in the same order as BLAS creation
+    let vertex_buffers: Vec<_> = graphics
+        .meshes
+        .iter()
+        .filter(|mesh| mesh.render_to_gbuffer)
+        .map(|mesh| {
+            (
+                &mesh.vertex_buffer.buffer,
+                mesh.vertex_data.vertices.len() as u32,
+                std::mem::size_of::<vulkan_data::Vertex>() as u32,
+                &mesh.index_buffer.buffer,
+                mesh.vertex_data.indices.len() as u32,
+            )
+        })
+        .collect();
+
+    for (mesh_index, mesh) in graphics.meshes.iter().enumerate() {
         if !mesh.render_to_gbuffer {
             continue;
         }
 
-        let blas = RRAccelerationStructure::create_blas(
+        let mut blas = RRAccelerationStructure::create_blas(
             instance,
             device,
             command_pool.as_ref(),
@@ -737,29 +855,47 @@ pub unsafe fn rebuild_acceleration_structures(
             mesh.vertex_data.indices.len() as u32,
         )?;
 
+        let model = mesh_transforms
+            .get(mesh_index)
+            .copied()
+            .unwrap_or_else(cgmath::Matrix4::identity);
+        blas.transform = vk::TransformMatrixKHR {
+            matrix: AffineRows3x4::from_mat4(model).rows,
+        };
+
         acceleration_structure.blas_list.push(blas);
         log!("Created BLAS for mesh");
     }
 
-    if !acceleration_structure.blas_list.is_empty() {
-        let tlas = RRAccelerationStructure::create_tlas(
+    for (model, major, minor) in waters {
+        let blas = RRAccelerationStructure::create_water_blas(
             instance,
             device,
             command_pool.as_ref(),
-            &acceleration_structure.blas_list,
+            model,
+            *major,
+            *minor,
         )?;
-        acceleration_structure.tlas = tlas;
-        log!(
-            "Created TLAS with {} instances",
-            acceleration_structure.blas_list.len()
-        );
+        acceleration_structure.water_blas.push(blas);
     }
 
-    if acceleration_structure.blas_list.is_empty() {
-        raytracing.acceleration_structure = None;
-    } else {
-        raytracing.acceleration_structure = Some(acceleration_structure);
-    }
+    let tlas = RRAccelerationStructure::create_tlas(
+        instance,
+        device,
+        command_pool.as_ref(),
+        &acceleration_structure.blas_list,
+        &acceleration_structure.water_blas,
+    )?;
+    acceleration_structure.tlas = tlas;
+    log!(
+        "Created TLAS with {} mesh + {} water instances",
+        acceleration_structure.blas_list.len(),
+        acceleration_structure.water_blas.len()
+    );
+
+    acceleration_structure.fill_hit_shading_table(instance, device, &vertex_buffers, waters)?;
+
+    raytracing.acceleration_structure = Some(acceleration_structure);
     log!("Acceleration structures rebuilt successfully");
     Ok(())
 }
@@ -770,12 +906,16 @@ pub unsafe fn rebuild_acceleration_structures_from_data(
     data: &mut AppData,
     rrcommand_pool: &Rc<RRCommandPool>,
 ) -> Result<()> {
+    let waters = collect_water_instances(&data.ecs_world);
+    let mesh_transforms = collect_mesh_transforms(&data.ecs_world, &data.ecs_assets);
     rebuild_acceleration_structures(
         instance,
         rrdevice,
         rrcommand_pool,
         &data.graphics_resources,
         &mut data.raytracing,
+        &waters,
+        &mesh_transforms,
     )
 }
 
@@ -1300,7 +1440,7 @@ pub unsafe fn load_model_additive(
     Ok(())
 }
 
-unsafe fn append_model_to_scene(
+pub(crate) unsafe fn append_model_to_scene(
     load_result: &ModelLoadResult,
     part_name: &str,
     instance: &Instance,
@@ -1340,7 +1480,17 @@ unsafe fn append_model_to_scene(
         graphics.mesh_material_ids.push(material_id);
     }
 
-    rebuild_acceleration_structures(instance, device, command_pool, graphics, raytracing)?;
+    let waters = collect_water_instances(world);
+    let mesh_transforms = collect_mesh_transforms(world, assets);
+    rebuild_acceleration_structures(
+        instance,
+        device,
+        command_pool,
+        graphics,
+        raytracing,
+        &waters,
+        &mesh_transforms,
+    )?;
     update_ray_query_descriptor(device, raytracing)?;
 
     {

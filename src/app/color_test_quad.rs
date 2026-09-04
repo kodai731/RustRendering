@@ -65,7 +65,21 @@ pub unsafe fn spawn_color_test_quads(
         graphics.mesh_material_ids.push(material_id);
     }
 
-    raytracing.build_acceleration_structures(instance, device, command_pool, &graphics.meshes)?;
+    let water_transforms: Vec<(cgmath::Matrix4<f32>, f32, f32)> = vec![];
+    let mesh_transforms: Vec<cgmath::Matrix4<f32>> = vec![
+        cgmath::Matrix4::new(
+            1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 1.0
+        );
+        specs.len()
+    ];
+    raytracing.build_acceleration_structures(
+        instance,
+        device,
+        command_pool,
+        &graphics.meshes,
+        &mesh_transforms,
+        &water_transforms,
+    )?;
 
     for (i, spec) in specs.iter().enumerate() {
         let mesh_idx = mesh_start_index + i;

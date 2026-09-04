@@ -61,7 +61,7 @@ pub fn run_input_phase(ctx: &mut EcsContext) -> Result<()> {
 
     request_batch_pick(ctx);
 
-    sync_transform_gizmo_to_bone(ctx);
+    sync_transform_gizmo(ctx);
 
     let capture_active = ctx.pointer_capture().active;
     let viewport_hovered = ctx.pointer_state().viewport_hovered;
@@ -944,11 +944,9 @@ fn apply_entity_scale(ctx: &mut EcsContext, entity: Entity, scale: Vector3<f32>)
     }
 }
 
-fn sync_transform_gizmo_to_bone(ctx: &mut EcsContext) {
+/// An active bone on a visible bone gizmo owns the transform gizmo; otherwise the selected entity does.
+fn sync_transform_gizmo(ctx: &mut EcsContext) {
     if !ctx.world.contains_resource::<TransformGizmoData>() {
-        return;
-    }
-    if !ctx.world.contains_resource::<BoneGizmoData>() {
         return;
     }
 
@@ -956,26 +954,21 @@ fn sync_transform_gizmo_to_bone(ctx: &mut EcsContext) {
         return;
     }
 
-    let (active_bone, transforms, offsets, mesh_scale) = {
-        let selection = ctx.bone_selection();
-        let active = selection.active_bone_index;
-        drop(selection);
+    let active_bone = ctx.bone_selection().active_bone_index;
+    let bone_gizmo_visible = ctx
+        .world
+        .get_resource::<BoneGizmoData>()
+        .is_some_and(|bone_gizmo| bone_gizmo.visible);
 
-        let bone_gizmo = ctx.world.resource::<BoneGizmoData>();
-        if !bone_gizmo.visible {
-            let mut tg = ctx.transform_gizmo_mut();
-            tg.visible = false;
-            return;
-        }
-        (
-            active,
-            bone_gizmo.cached_global_transforms.clone(),
-            bone_gizmo.bone_local_offsets.clone(),
-            bone_gizmo.mesh_scale,
-        )
-    };
-
-    if active_bone.is_some() {
+    if active_bone.is_some() && bone_gizmo_visible {
+        let (transforms, offsets, mesh_scale) = {
+            let bone_gizmo = ctx.world.resource::<BoneGizmoData>();
+            (
+                bone_gizmo.cached_global_transforms.clone(),
+                bone_gizmo.bone_local_offsets.clone(),
+                bone_gizmo.mesh_scale,
+            )
+        };
         let mut tg = ctx.transform_gizmo_mut();
         transform_gizmo_systems::transform_gizmo_sync_to_bone(
             &mut tg,
@@ -1096,4 +1089,53 @@ fn compute_animation_globals(
     sample_clip_to_pose(&clip_asset.clip, current_time, skeleton, &mut pose, false);
 
     Some(compute_pose_global_transforms(skeleton, &pose))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::asset::AssetStorage;
+    use crate::ecs::resource::gizmo::BoneSelectionState;
+    use crate::ecs::resource::HierarchyState;
+    use crate::ecs::systems::hierarchy_select;
+    use crate::ecs::systems::water::spawn_water;
+    use crate::ecs::World;
+
+    fn world_with_selected_water_and_hidden_bone_gizmo() -> (World, Entity) {
+        let mut world = World::new();
+        let mut effect = crate::ecs::component::WaterTorusEffect::default();
+        effect.position = Vector3::new(1.0, 2.0, 3.0);
+        let water = spawn_water(&mut world, "Water", effect);
+        crate::ecs::systems::transform_propagation_system(&mut world);
+
+        world.insert_resource(TransformGizmoData::default());
+        world.insert_resource(BoneGizmoData::default());
+        world.insert_resource(BoneSelectionState::default());
+        let mut hierarchy = HierarchyState::default();
+        hierarchy_select(&mut hierarchy, water);
+        world.insert_resource(hierarchy);
+        (world, water)
+    }
+
+    #[test]
+    fn a_selected_water_owns_the_transform_gizmo_without_a_skeleton() {
+        let (mut world, water) = world_with_selected_water_and_hidden_bone_gizmo();
+        let mut assets = AssetStorage::new();
+        let mut ctx = EcsContext {
+            time: 0.0,
+            delta_time: 0.0,
+            image_index: 0,
+            swapchain_extent: (1, 1),
+            world: &mut world,
+            assets: &mut assets,
+            mesh_positions: Vec::new(),
+        };
+
+        sync_transform_gizmo(&mut ctx);
+
+        let gizmo = ctx.transform_gizmo();
+        assert!(gizmo.visible);
+        assert_eq!(gizmo.target_entity, Some(water));
+        assert_eq!(gizmo.position.position, Vector3::new(1.0, 2.0, 3.0));
+    }
 }

@@ -10,12 +10,14 @@ import tempfile
 
 import pytest
 
-from blender_addon.effects.flame.flame_shader import (
-    pack_frame_ubo,
+from blender_addon.common.shader_info import (
     push_prelude,
-    specialization_key,
     specialize_body,
     split_typedef_and_body,
+)
+from blender_addon.effects.flame.flame_shader import (
+    pack_frame_ubo,
+    specialization_key,
 )
 
 
@@ -85,8 +87,9 @@ def test_pack_frame_ubo_column_major():
 
 
 def test_push_prelude_fixes_mode_zero_at_compile_time():
-    assert "const FlamePush push = FlamePush(0, 0, 0);" in push_prelude()
-    assert "#define" not in push_prelude()
+    prelude = push_prelude("FlamePush", ["int mode", "int stepCount", "int debugView"])
+    assert "const FlamePush push = FlamePush(0, 0, 0);" in prelude
+    assert "#define" not in prelude
 
 
 def test_specialize_body_replaces_every_reference():

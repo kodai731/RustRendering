@@ -20,12 +20,13 @@ from pathlib import Path
 try:
     from mcp.server.fastmcp import FastMCP
 except ImportError:
-    print("mcp package not installed: pip install mcp", file=sys.stderr)
+    print("mcp package not installed or too new: run via .mcp.json (uv run --with 'mcp<2')", file=sys.stderr)
     sys.exit(1)
 
 mcp = FastMCP("thyllore", log_level="WARNING")
 
 _BATCH_TIMEOUT_SECONDS = 300
+_WATER_SCRIPT_TIMEOUT_SECONDS = 900
 
 
 def _repo_root() -> Path:
@@ -482,6 +483,142 @@ def fringe_field_patch(dump: str, out: str = "", res: int = 128, rect: str = "-1
 
     report = json.loads(result2.stdout.strip())
     return json.dumps({"ok": True, "patch": out, "report": report})
+
+
+def _import_engine_harness():
+    tools_dir = str(_repo_root() / "tools")
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    from engine_harness import dood_wrap, engine_env, engine_path
+
+    return dood_wrap, engine_env, engine_path
+
+
+def _run_water_script(command: list[str]) -> str:
+    """Run a tools/water_*.py helper and return its final stdout line (JSON)."""
+    try:
+        result = subprocess.run(command, capture_output=True, text=True,
+                                cwd=str(_repo_root()), timeout=_WATER_SCRIPT_TIMEOUT_SECONDS)
+    except (OSError, subprocess.TimeoutExpired) as failure:
+        return _error(str(failure))
+    if result.returncode != 0:
+        return _error((result.stderr or result.stdout).strip()[-800:])
+
+    lines = result.stdout.strip().splitlines()
+    if not lines:
+        return _error(f"no JSON output: {result.stderr.strip()[-800:]}")
+    return lines[-1]
+
+
+def _latest_water_debug_json() -> Path | None:
+    dumps = sorted(_repo_root().glob("log/water/water_debug_*.json"), key=lambda p: p.stat().st_mtime)
+    return dumps[-1] if dumps else None
+
+
+@mcp.tool()
+def water_dump(scene: str = "assets/scenes/default.scene.ron", camera: str = "",
+               frames: int = 30, caustic_debug: int = 0, debug_view: int = 0,
+               history: float = -1.0, time: float = -1.0, actions: str = "",
+               dood: bool = True, engine: str = "target/debug/thyllore-animation") -> str:
+    """Run the engine in batch mode and dump water debug data as JSON.
+
+    caustic_debug stages: 0=normal, 1=splat markers, 2=depth match skip,
+    4=depth probe (offset), 6=NaN bits, 7=depth packed, 8=offset packed.
+    Returns the latest water_debug JSON with added screenshot and caustic_npy (u32) paths.
+    """
+    args: list[str] = [
+        "--batch-screenshot", "log/water/mcp_dump.png",
+        "--batch-scene", scene,
+        "--batch-frames", str(frames),
+        "--batch-water-caustic-debug", str(caustic_debug),
+    ]
+    if camera:
+        args.extend(["--batch-camera", camera])
+    if debug_view != 0:
+        args.extend(["--batch-water-debug-view", str(debug_view)])
+    if history >= 0:
+        args.extend(["--batch-water-history", str(history)])
+    if time >= 0:
+        args.extend(["--batch-water-time", str(time)])
+    for action in (entry.strip() for entry in actions.split(",")):
+        if action:
+            args.extend(["--batch-debug-action", action])
+    args.extend(["--batch-debug-action", "dump_water_debug"])
+
+    screenshot_path = _repo_root() / "log" / "water" / "mcp_dump.png"
+    screenshot_path.parent.mkdir(parents=True, exist_ok=True)
+    dump_before_run = _latest_water_debug_json()
+
+    previous_engine_override = os.environ.get("THYLLORE_ENGINE")
+    try:
+        dood_wrap, engine_env, engine_path = _import_engine_harness()
+        os.environ["THYLLORE_ENGINE"] = engine
+        command = [str(engine_path()), *args]
+        if dood:
+            command = dood_wrap(command)
+        result = subprocess.run(command, capture_output=True, text=True, cwd=str(_repo_root()),
+                                timeout=_BATCH_TIMEOUT_SECONDS, env=engine_env())
+    except (OSError, SystemExit, subprocess.TimeoutExpired) as failure:
+        return _error(str(failure))
+    finally:
+        if previous_engine_override is None:
+            os.environ.pop("THYLLORE_ENGINE", None)
+        else:
+            os.environ["THYLLORE_ENGINE"] = previous_engine_override
+    if result.returncode != 0:
+        return _error((result.stderr or result.stdout).strip()[-800:])
+
+    dump_path = _latest_water_debug_json()
+    if dump_path is None or dump_path == dump_before_run:
+        return _error("no new log/water/water_debug_*.json produced by the run")
+    try:
+        dump = json.loads(dump_path.read_text())
+    except (OSError, json.JSONDecodeError) as failure:
+        return _error(f"unreadable dump {dump_path}: {failure}")
+
+    dump["caustic_npy"] = str(dump_path.with_name(f"{dump_path.stem}_caustic.npy"))
+    dump["screenshot"] = str(screenshot_path)
+    return json.dumps(dump, ensure_ascii=False)
+
+
+@mcp.tool()
+def water_cost(frames: int = 120, dood: bool = True,
+               engine: str = "target/debug/thyllore-animation", out_dir: str = "") -> str:
+    """GPU cost of the water passes at far / mid / near cameras (tools/water_cost.py).
+
+    dood: run the engine through the docker screenshot harness (needed from auto-mode).
+    Returns the script's one-line JSON: per-camera median / p95 ms for the water,
+    ray_query and gbuffer passes plus cpu_dt_ms.
+    """
+    cmd = ["uv", "run", "--with", "numpy", "python3", "tools/water_cost.py",
+           "--frames", str(frames)]
+    if dood:
+        cmd.append("--dood")
+    cmd.extend(["--engine", engine])
+    if out_dir:
+        cmd.extend(["--out-dir", out_dir])
+    return _run_water_script(cmd)
+
+
+@mcp.tool()
+def water_depth_mask(camera: str = "80,10,6,0,0,0", frames: int = 30, dood: bool = True,
+                     engine: str = "target/debug/thyllore-animation", out_dir: str = "",
+                     threshold: float = 0.99) -> str:
+    """Depth-occlusion check for the water pass at one camera (tools/water_depth_mask.py).
+
+    threshold: IoU below which the check fails. dood: run the engine through the
+    docker screenshot harness (needed from auto-mode).
+    Returns the script's one-line JSON: pass verdict, iou and the water / cube pixel counts.
+    """
+    cmd = ["uv", "run", "--with", "numpy", "--with", "pillow", "python3",
+           "tools/water_depth_mask.py", "--camera", camera, "--frames", str(frames)]
+    if dood:
+        cmd.append("--dood")
+    cmd.extend(["--engine", engine])
+    if out_dir:
+        cmd.extend(["--out-dir", out_dir])
+    cmd.extend(["--threshold", str(threshold)])
+    return _run_water_script(cmd)
 
 
 if __name__ == "__main__":

@@ -25,6 +25,11 @@ pub struct Constrained;
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WithSpringBone;
 
+#[derive(Clone, Copy, Debug)]
+pub struct DebugPrimitiveTag {
+    pub kind: crate::ecs::events::DebugPrimitiveKind,
+}
+
 #[cfg(feature = "ml")]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct WithInferenceActor;

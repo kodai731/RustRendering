@@ -101,6 +101,42 @@ impl App {
             log!("Destroyed flame uniform buffer");
         }
 
+        if let Some(mut water_descriptor) = self.data.raytracing.water_descriptor.take() {
+            water_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(water_shading_pipeline) = self.data.raytracing.water_shading_pipeline.take() {
+            water_shading_pipeline.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(mut water_ubo) = self.data.raytracing.water_ubo.take() {
+            water_ubo.destroy(&self.rrdevice.device);
+            log!("Destroyed water uniform buffer");
+        }
+
+        if let Some(mut water_trace_descriptor) = self.data.raytracing.water_trace_descriptor.take()
+        {
+            water_trace_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(water_trace_pipeline) = self.data.raytracing.water_trace_pipeline.take() {
+            water_trace_pipeline.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(mut water_caustic_descriptor) =
+            self.data.raytracing.water_caustic_descriptor.take()
+        {
+            water_caustic_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(pipeline) = self.data.raytracing.water_caustic_splat_pipeline.take() {
+            pipeline.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(pipeline) = self.data.raytracing.water_caustic_apply_pipeline.take() {
+            pipeline.destroy(&self.rrdevice.device);
+        }
+
         if let (Some(buffer), Some(memory)) = (
             self.data.raytracing.scene_uniform_buffer,
             self.data.raytracing.scene_uniform_buffer_memory,

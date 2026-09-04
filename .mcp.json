@@ -2,7 +2,7 @@
   "mcpServers": {
     "thyllore": {
       "command": "uv",
-      "args": ["run", "--with", "mcp", "python3", "tools/mcp/thyllore_mcp.py"]
+      "args": ["run", "--with", "mcp<2", "python3", "tools/mcp/thyllore_mcp.py"]
     }
   }
 }

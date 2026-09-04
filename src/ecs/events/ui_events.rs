@@ -9,13 +9,13 @@ use crate::animation::{ConstraintId, ConstraintType};
 use crate::app::data::LightMoveTarget;
 use crate::ecs::component::{
     ColliderShape, FlameEffect, SpringChain, SpringChainId, SpringColliderDef, SpringColliderGroup,
-    SpringColliderGroupId, SpringColliderId, SpringJointParam,
+    SpringColliderGroupId, SpringColliderId, SpringJointParam, WaterTorusEffect,
 };
 use crate::ecs::resource::gizmo::BoneDisplayStyle;
 use crate::ecs::resource::{
     AutoExposure, CoordinateSpace, CurveTrackRef, DepthOfField, FlameRenderSettings,
     HierarchyDisplayMode, OnionSkinningConfig, PhysicalCameraParameters, SelectedKeyframe,
-    SelectionModifier, TransformGizmoMode, TransformGizmoState,
+    SelectionModifier, TransformGizmoMode, TransformGizmoState, WaterRenderSettings,
 };
 use crate::ecs::world::Entity;
 use crate::ecs::world::Visibility;
@@ -28,6 +28,13 @@ pub enum ModelLoadSource {
     TextToMeshOutput,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum DebugPrimitiveKind {
+    Cube,
+    Sphere,
+    Floor,
+}
+
 #[derive(Clone, Debug)]
 pub enum UIEvent {
     LoadModel {
@@ -35,6 +42,9 @@ pub enum UIEvent {
     },
     LoadModelAdditive {
         path: String,
+    },
+    SpawnDebugPrimitive {
+        kind: DebugPrimitiveKind,
     },
 
     ResetCamera,
@@ -56,6 +66,7 @@ pub enum UIEvent {
     DumpFlameWallProbe {
         viewport_size: [f32; 2],
     },
+    DumpWaterDebug,
 
     SelectEntity(Entity),
     DeselectAll,
@@ -444,6 +455,11 @@ pub enum UIEvent {
         seconds: f32,
     },
     SelectFlameInstance(usize),
+    AddWater,
+    UpdateWaterEffect(Box<WaterTorusEffect>),
+    ApplyWaterPreset(String),
+    UpdateWaterRenderSettings(WaterRenderSettings),
+    SelectWaterInstance(usize),
     OpenScalarCurveEditor,
 }
 

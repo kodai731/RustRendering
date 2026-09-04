@@ -12,6 +12,7 @@ pub enum DeferredAction {
     DebugBillboardDepth,
     DumpDebugInfo,
     DumpAnimationDebug,
+    DumpWaterDebug,
     LoadClipFromFile {
         path: PathBuf,
     },
@@ -30,6 +31,9 @@ pub enum DeferredAction {
     },
     LoadModelAdditive {
         path: String,
+    },
+    SpawnDebugPrimitive {
+        kind: crate::ecs::events::DebugPrimitiveKind,
     },
     DeleteEntities {
         entities: Vec<u64>,

@@ -59,6 +59,7 @@ mod text_to_mesh_systems;
 mod timeline_systems;
 pub mod transform_gizmo_systems;
 mod ui_event_systems;
+pub mod water;
 mod weight_heatmap_systems;
 
 pub use animation::*;
@@ -113,4 +114,5 @@ pub use text_to_mesh_systems::*;
 pub use timeline_systems::*;
 pub use transform_gizmo_systems::*;
 pub use ui_event_systems::*;
+pub use water::*;
 pub use weight_heatmap_systems::*;

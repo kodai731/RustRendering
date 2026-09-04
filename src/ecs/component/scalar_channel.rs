@@ -45,7 +45,10 @@ pub struct ScalarChannelDomain {
     pub local_time: fn(&World, Entity) -> Option<f32>,
 }
 
-static SCALAR_CHANNEL_DOMAINS: [&ScalarChannelDomain; 1] = [&super::flame_param::FLAME_DOMAIN];
+static SCALAR_CHANNEL_DOMAINS: [&ScalarChannelDomain; 2] = [
+    &super::flame_param::FLAME_DOMAIN,
+    &super::water_param::WATER_DOMAIN,
+];
 
 pub fn scalar_channel_domains() -> &'static [&'static ScalarChannelDomain] {
     &SCALAR_CHANNEL_DOMAINS

@@ -15,14 +15,22 @@ Stale `.spv` files with no matching source are removed automatically.
 
 ## Shader Source Files
 
-Shader source files are located in `shaders/`:
+Shader source files are located in `shaders/` and its subdirectories; `build.rs` walks the tree and compiles every
+source to a flat `assets/shaders/`, so file names must be unique across the tree:
 
 - `vertex.vert` -> `assets/shaders/vert.spv`
 - `fragment.frag` -> `assets/shaders/frag.spv`
 - `gbufferVertex.vert` -> `assets/shaders/gbufferVert.spv`
 - `gbufferFragment.frag` -> `assets/shaders/gbufferFrag.spv`
 - `rayQueryShadow.comp` -> `assets/shaders/rayQueryShadowComp.spv`
+- `water/waterCausticSplat.comp` -> `assets/shaders/waterCausticSplatComp.spv`
 - etc.
+
+Feature-specific shaders live in a subdirectory with their own `include/` (`shaders/water/`, `shaders/water/include/`);
+shared includes live in `shaders/include/` (`common.glsl` holds `PI` / `TWO_PI` / `HALF_PI`; never re-declare them).
+glslc runs with `-I shaders`, so every `#include` is written as a path from the `shaders/` root
+(`#include "include/common.glsl"`, `#include "water/include/water_lb.glsl"`). `passes.toml` references stages by bare
+file name regardless of subdirectory.
 
 ## Pass Manifest (`shaders/passes.toml`)
 

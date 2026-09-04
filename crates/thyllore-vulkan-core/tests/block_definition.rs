@@ -1,9 +1,9 @@
 use std::path::{Path, PathBuf};
 
-use thyllore_effect_core::FlameUBO;
+use thyllore_effect_core::{FlameUBO, WaterUBO};
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_shader_manifest::{
-    flame_gpu_blocks_source, FLAME_GPU_BLOCKS_PATH, REGENERATE_GPU_BLOCKS_COMMAND,
+    gpu_blocks_source, GpuBlockTarget, GPU_BLOCK_TARGETS, REGENERATE_GPU_BLOCKS_COMMAND,
 };
 use thyllore_spirv_reflect::{
     compare_block_layout, BlockCoverage, DescriptorKind, GpuBlock, LayoutDifference, ReflectedBlock,
@@ -65,6 +65,7 @@ fn rust_blocks() -> Vec<RustBlock> {
         rust_block::<MaterialUBO>("MaterialUBO"),
         rust_block::<ObjectUBO>("ObjectUBO"),
         rust_block::<FlameUBO>("FlameUBO"),
+        rust_block::<WaterUBO>("WaterUBO"),
         rust_block::<SceneUniformData>("SceneData"),
         rust_block::<SelectionUBO>("SelectionData"),
         rust_block::<UniformBufferObject>("UniformBufferObject"),
@@ -230,14 +231,25 @@ fn first_line_difference(left: &str, right: &str) -> Option<(usize, String, Stri
 #[test]
 fn generated_flame_gpu_blocks_match_spirv() {
     enter_workspace_root();
-    let generated = flame_gpu_blocks_source(Path::new("assets/shaders"))
-        .unwrap_or_else(|error| panic!("generate flame gpu blocks: {error}"));
-    let checked_in = std::fs::read_to_string(FLAME_GPU_BLOCKS_PATH)
-        .unwrap_or_else(|error| panic!("read {FLAME_GPU_BLOCKS_PATH}: {error}"));
+    let mut failures: Vec<String> = Vec::new();
 
-    if let Some((line, expected, current)) = first_line_difference(&generated, &checked_in) {
-        panic!(
-            "{FLAME_GPU_BLOCKS_PATH} is stale at line {line}; run `{REGENERATE_GPU_BLOCKS_COMMAND}`\n  generated : {expected}\n  checked in: {current}"
-        );
+    for target in GPU_BLOCK_TARGETS {
+        let generated = gpu_blocks_source(Path::new("assets/shaders"), target)
+            .unwrap_or_else(|error| panic!("generate {} gpu blocks: {error}", target.block_name));
+        let checked_in = std::fs::read_to_string(target.output_path)
+            .unwrap_or_else(|error| panic!("read {}: {error}", target.output_path));
+
+        if let Some((line, expected, current)) = first_line_difference(&generated, &checked_in) {
+            failures.push(format!(
+                "{} is stale at line {line}; run `{REGENERATE_GPU_BLOCKS_COMMAND}`\n  generated : {expected}\n  checked in: {current}",
+                target.output_path
+            ));
+        }
     }
+
+    assert!(
+        failures.is_empty(),
+        "generated gpu blocks differ from checked-in files:\n{}",
+        failures.join("\n")
+    );
 }

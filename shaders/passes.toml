@@ -30,6 +30,10 @@ sets = { 0 = "frame", 1 = "material", 2 = "object" }
 stages = ["tonemapVertex.vert", "onionSkinCompositeFragment.frag"]
 sets = { 0 = "local" }
 
+[pass.water_resolve]
+stages = ["tonemapVertex.vert", "waterResolveFragment.frag"]
+sets = { 0 = "frame", 1 = "local" }
+
 [pass.flame_resolve]
 stages = ["tonemapVertex.vert", "flameResolveFragment.frag"]
 sets = { 0 = "frame", 1 = "local" }
@@ -62,6 +66,14 @@ sets = { 0 = "local" }
 stages = ["rayQueryShadow.comp"]
 sets = { 0 = "local" }
 
+[pass.water_caustic_splat]
+stages = ["waterCausticSplat.comp"]
+sets = { 0 = "local" }
+
+[pass.water_caustic_apply]
+stages = ["waterCausticApply.comp"]
+sets = { 0 = "local" }
+
 [pass.composite]
 stages = ["compositeVertex.vert", "compositeFragment.frag"]
 sets = { 0 = "local" }
@@ -72,4 +84,8 @@ sets = { 0 = "local" }
 
 [pass.imgui]
 stages = ["imguiVertex.vert", "imguiFragment.frag"]
+sets = { 0 = "local" }
+
+[pass.water_trace]
+stages = ["waterTraceRayGen.rgen", "waterTraceMiss.rmiss", "waterTorusIntersection.rint", "waterTorusClosestHit.rchit", "waterSceneClosestHit.rchit"]
 sets = { 0 = "local" }

@@ -3737,6 +3737,7 @@ name = "thyllore-effect-core"
 version = "0.0.1"
 dependencies = [
  "cgmath",
+ "fastrand",
  "numpy",
  "pyo3",
  "pythonize",
@@ -3819,6 +3820,7 @@ version = "0.0.1"
 dependencies = [
  "anyhow",
  "cgmath",
+ "fastrand",
 ]
 
 [[package]]

@@ -5,9 +5,15 @@ use crate::flame::{
     FlameBaked, FlameEffect, FlameTemporalAccum, FlameUBO, FLAME_PRESET_NAMES, FLAME_UI_PARAMS,
     MIN_FLAME_EXTENT, TEXTURE_FIT_COLOR_PARAMETERS,
 };
-use cgmath::{Quaternion, Vector3, Vector4};
+use crate::water::{
+    apply_water_preset, build_water_model_matrix, build_water_ubo, inverse_view_proj_f64,
+    overwrite_water_persisted_fields, WaterTorusEffect, WaterUBO, WATER_PRESET_NAMES,
+    WATER_SCALAR_PARAMS, WATER_UI_PARAMS,
+};
+use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
+use thyllore_math_core::torus_local_bounds_corners;
 
 #[pyfunction]
 fn flame_preset_names() -> Vec<&'static str> {
@@ -29,6 +35,7 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         dict.set_item("max", param.max)?;
         dict.set_item("format", param.format)?;
         dict.set_item("tooltip", param.tooltip)?;
+        dict.set_item("persisted", param.persisted)?;
 
         let Some(default_value) = default_dict.get_item(param.name)? else {
             continue;
@@ -62,6 +69,7 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         dict.set_item("tooltip", color_param_tooltip(name))?;
         dict.set_item("default", default_value)?;
         dict.set_item("owner", "style")?;
+        dict.set_item("persisted", true)?;
         if name.starts_with("temperature_") {
             dict.set_item("min", 1000.0)?;
             dict.set_item("max", 6500.0)?;
@@ -257,10 +265,154 @@ fn flame_effective_optical_depth(py: Python<'_>, params: &Bound<'_, PyDict>) -> 
         build_effect_from_params(py, params, 0.0, [0.0; 3], [1.0, 0.0, 0.0, 0.0], None)?;
     Ok(effective_sigma_t(&effect) * effect.radius.max(MIN_FLAME_EXTENT))
 }
-
 #[pyfunction]
 fn flame_ubo_size() -> usize {
     std::mem::size_of::<FlameUBO>()
+}
+
+#[pyfunction]
+fn water_preset_names() -> Vec<&'static str> {
+    WATER_PRESET_NAMES.to_vec()
+}
+
+#[pyfunction]
+fn water_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+    let default_dict: Bound<'_, PyDict> =
+        pythonize::pythonize(py, &WaterTorusEffect::default())?.cast_into::<PyDict>()?;
+    let list = PyList::empty(py);
+    for param in WATER_UI_PARAMS {
+        let dict = PyDict::new(py);
+        dict.set_item("name", param.name)?;
+        dict.set_item("label", param.display_label())?;
+        dict.set_item("min", param.min)?;
+        dict.set_item("max", param.max)?;
+        dict.set_item("format", param.format)?;
+        dict.set_item("tooltip", param.tooltip)?;
+        dict.set_item("persisted", param.persisted)?;
+
+        let Some(default_value) = default_dict.get_item(param.name)? else {
+            continue;
+        };
+        dict.set_item("default", default_value)?;
+        dict.set_item("owner", "frame")?;
+
+        list.append(dict)?;
+    }
+    Ok(list)
+}
+
+#[pyfunction]
+fn water_preset_params<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyDict>> {
+    let mut effect = WaterTorusEffect::default();
+    if !apply_water_preset(&mut effect, name) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "unknown preset: {}",
+            name
+        )));
+    }
+
+    let dict: Bound<'py, PyDict> = pythonize::pythonize(py, &effect)?.cast_into::<PyDict>()?;
+    Ok(dict)
+}
+
+fn build_water_effect_from_params(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    time: f32,
+    position: [f32; 3],
+    rotation: [f32; 4],
+) -> PyResult<WaterTorusEffect> {
+    let merged: Bound<'_, PyDict> =
+        pythonize::pythonize(py, &WaterTorusEffect::default())?.cast_into::<PyDict>()?;
+    for key in params.keys() {
+        if !merged.contains(&key)? {
+            let key_str: &str = key.extract()?;
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "unknown parameter: {}",
+                key_str
+            )));
+        }
+    }
+
+    merged.update(params.as_mapping())?;
+
+    let source: WaterTorusEffect = pythonize::depythonize(&merged).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "failed to deserialize parameters: {}",
+            e
+        ))
+    })?;
+
+    let mut effect = WaterTorusEffect::default();
+    overwrite_water_persisted_fields(&mut effect, &source);
+
+    effect.time = time;
+    effect.position = Vector3::new(position[0], position[1], position[2]);
+    effect.rotation = Quaternion::new(rotation[0], rotation[1], rotation[2], rotation[3]);
+
+    Ok(effect)
+}
+
+#[pyfunction]
+#[pyo3(signature = (params, time, position, rotation, view, proj, frame_index=0))]
+fn pack_water_ubo(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    time: f32,
+    position: [f32; 3],
+    rotation: [f32; 4],
+    view: [f32; 16],
+    proj: [f32; 16],
+    frame_index: u32,
+) -> PyResult<Vec<u8>> {
+    let effect = build_water_effect_from_params(py, params, time, position, rotation)?;
+    let mut ubo = build_water_ubo(&effect, frame_index);
+
+    // Compute inv_view_proj from view and proj matrices (column-major, same as pack_frame_ubo)
+    let view_mat: Matrix4<f32> = Matrix4::new(
+        view[0], view[1], view[2], view[3], view[4], view[5], view[6], view[7], view[8], view[9],
+        view[10], view[11], view[12], view[13], view[14], view[15],
+    );
+    let proj_mat: Matrix4<f32> = Matrix4::new(
+        proj[0], proj[1], proj[2], proj[3], proj[4], proj[5], proj[6], proj[7], proj[8], proj[9],
+        proj[10], proj[11], proj[12], proj[13], proj[14], proj[15],
+    );
+    ubo.inv_view_proj = inverse_view_proj_f64(proj_mat, view_mat);
+
+    let bytes = unsafe {
+        std::slice::from_raw_parts(
+            &ubo as *const WaterUBO as *const u8,
+            std::mem::size_of::<WaterUBO>(),
+        )
+    };
+    Ok(bytes.to_vec())
+}
+
+#[pyfunction]
+fn water_bounds_corners(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    position: [f32; 3],
+    rotation: [f32; 4],
+) -> PyResult<Vec<[f32; 3]>> {
+    let effect = build_water_effect_from_params(py, params, 0.0, position, rotation)?;
+
+    let model = build_water_model_matrix(&effect);
+
+    Ok(
+        torus_local_bounds_corners(effect.major_radius, effect.minor_radius)
+            .iter()
+            .map(|corner| {
+                let world = model * Vector4::new(corner.x, corner.y, corner.z, 1.0);
+                [world.x, world.y, world.z]
+            })
+            .collect(),
+    )
+}
+
+#[pyfunction]
+fn water_ubo_size() -> usize {
+    std::mem::size_of::<WaterUBO>()
 }
 
 #[pymodule]
@@ -273,6 +425,14 @@ fn thyllore_effect_core(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flame_ubo_size, m)?)?;
     m.add_function(wrap_pyfunction!(flame_shader_specialization, m)?)?;
     m.add_function(wrap_pyfunction!(flame_bounds_corners, m)?)?;
+
+    m.add_function(wrap_pyfunction!(water_preset_names, m)?)?;
+    m.add_function(wrap_pyfunction!(water_ui_params, m)?)?;
+    m.add_function(wrap_pyfunction!(water_preset_params, m)?)?;
+    m.add_function(wrap_pyfunction!(pack_water_ubo, m)?)?;
+    m.add_function(wrap_pyfunction!(water_bounds_corners, m)?)?;
+    m.add_function(wrap_pyfunction!(water_ubo_size, m)?)?;
+
     Ok(())
 }
 

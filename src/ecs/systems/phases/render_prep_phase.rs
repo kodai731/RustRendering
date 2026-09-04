@@ -62,6 +62,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     crate::ecs::systems::flame_bone_attach_sync(ctx);
 
     let t = Instant::now();
+    crate::ecs::systems::water_time_advance(ctx);
     crate::ecs::systems::flame_time_advance(ctx);
     crate::ecs::systems::field_manifest_sync(ctx);
     sub.insert("flame_time".to_string(), t.elapsed().as_secs_f32() * 1000.0);
@@ -84,7 +85,7 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
         ctx.world
             .get_resource_mut::<crate::ecs::resource::FlameDumpSink>(),
         ctx.world
-            .get_resource::<crate::ecs::resource::FlameTemporalState>(),
+            .get_resource::<crate::ecs::resource::FlameHistorySnapshotState>(),
     ) {
         let t = Instant::now();
         let flame_entities: Vec<_> = ctx.world.query_flames();
@@ -125,9 +126,16 @@ pub unsafe fn run_render_prep_phase(ctx: &mut FrameContext) -> Result<()> {
     }
 
     let t = Instant::now();
-    crate::ecs::systems::flame_temporal_accumulate(ctx);
+    crate::ecs::systems::accumulate_flame_history(&mut ctx.world);
     sub.insert(
         "flame_temporal".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    );
+
+    let t = Instant::now();
+    crate::ecs::systems::accumulate_water_history(&mut ctx.world);
+    sub.insert(
+        "water_temporal".to_string(),
         t.elapsed().as_secs_f32() * 1000.0,
     );
 

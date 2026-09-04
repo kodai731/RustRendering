@@ -1,0 +1,26 @@
+#version 460
+#extension GL_EXT_ray_tracing : require
+#extension GL_GOOGLE_include_directive : require
+
+#include "water/include/water_torus_intersect.glsl"
+
+layout(push_constant) uniform WaterTracePush {
+    float majorRadius;
+    float minorRadius;
+} push;
+
+void main() {
+    vec3 dObj = gl_ObjectRayDirectionEXT;
+    float len = length(dObj);
+    vec3 o = gl_ObjectRayOriginEXT / push.majorRadius;
+    vec3 d = dObj / len;
+    float roots[4];
+    bool fb;
+    int n = intersectTorus(o, d, push.minorRadius / push.majorRadius, roots, fb);
+    if (n > 0) {
+        float t = roots[0] * push.majorRadius / len;
+        if (t >= gl_RayTminEXT && t <= gl_RayTmaxEXT) {
+            reportIntersectionEXT(t, 0u);
+        }
+    }
+}

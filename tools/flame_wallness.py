@@ -26,12 +26,13 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
-import shlex
 import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from engine_harness import dood_wrap, engine_env, engine_path, repo_root
 
 import cv2
 import numpy as np
@@ -222,43 +223,6 @@ def analyze_image(
         "candidate_chains": len(chains),
         "overlay": str(overlay_path),
     }
-
-
-def repo_root() -> Path:
-    return Path(__file__).resolve().parent.parent
-
-
-def engine_env() -> dict[str, str]:
-    env = dict(os.environ)
-    candidates = sorted((repo_root() / "vendor" / "onnxruntime").glob("*/lib/libonnxruntime.so"))
-    if candidates:
-        env.setdefault("ORT_DYLIB_PATH", str(candidates[-1]))
-    return env
-
-
-def engine_path() -> Path:
-    for profile in ("release", "debug"):
-        candidate = repo_root() / "target" / profile / "thyllore-animation"
-        if candidate.is_file():
-            return candidate
-    raise SystemExit("engine not built: cargo build --bin thyllore-animation")
-
-
-DOOD_IMAGE = "thyllore-screenshot-harness:local"
-
-
-def dood_wrap(command: list[str]) -> list[str]:
-    root = str(repo_root())
-    ort = "vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so"
-    inner = f"ORT_DYLIB_PATH={ort} " + shlex.join(command)
-    return [
-        "docker", "run", "--rm", "--entrypoint", "bash", "--hostname", "kodai-computer",
-        "-v", f"{root}:{root}", "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
-        "-v", "/run/user/1000/gdm/Xauthority:/xauth:ro",
-        "-e", "XAUTHORITY=/xauth", "-e", "DISPLAY=:1",
-        "--device", "/dev/dri", "--group-add", "992", "-w", root,
-        DOOD_IMAGE, "-c", inner,
-    ]
 
 
 def capture(output: Path, camera: str, overrides: list[str], frames: int, dood: bool, preset: str = "ring", extra_overrides: list[str] | None = None) -> None:

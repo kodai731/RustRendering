@@ -86,6 +86,10 @@ pub fn dispatch_camera_light_debug_events(
                 deferred.push(DeferredAction::LoadModelAdditive { path: path.clone() });
             }
 
+            UIEvent::SpawnDebugPrimitive { kind } => {
+                deferred.push(DeferredAction::SpawnDebugPrimitive { kind: *kind });
+            }
+
             UIEvent::TakeScreenshot => {
                 deferred.push(DeferredAction::TakeScreenshot);
             }
@@ -106,6 +110,10 @@ pub fn dispatch_camera_light_debug_events(
 
             UIEvent::DumpAnimationDebug => {
                 deferred.push(DeferredAction::DumpAnimationDebug);
+            }
+
+            UIEvent::DumpWaterDebug => {
+                deferred.push(DeferredAction::DumpWaterDebug);
             }
 
             _ => {}

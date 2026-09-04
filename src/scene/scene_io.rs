@@ -4,17 +4,19 @@ use std::path::{Path, PathBuf};
 use super::clip_io::{load_animation_clip, save_animation_clip};
 use super::error::{SceneError, SceneResult};
 use super::format::{
-    apply_flame_state_to_world, build_flame_scene_data, AnimationClipRef, AutoExposureState,
-    BloomState, CameraState, DepthOfFieldState, EditorState, ExposureState, LensEffectsState,
-    ModelReference, PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata,
-    TimelineConfig, ToneMappingState, SCENE_FORMAT_VERSION,
+    apply_flame_state_to_world, apply_water_state_to_world, build_debug_primitives_scene_data,
+    build_flame_scene_data, build_water_scene_data, debug_primitive_kind_from_str,
+    AnimationClipRef, AutoExposureState, BloomState, CameraState, DebugPrimitiveSceneData,
+    DepthOfFieldState, EditorState, ExposureState, LensEffectsState, ModelReference,
+    PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata, TimelineConfig,
+    ToneMappingState, SCENE_FORMAT_VERSION,
 };
 use crate::animation::editable::SourceClipId;
 use crate::ecs::resource::CurveEditorState;
 use crate::ecs::resource::{
     AutoExposure, BloomSettings, Camera, ClipLibrary, DepthOfField, Exposure, LensEffects,
-    ModelState, PanelLayout, PhysicalCameraParameters, SceneState, TimelineState, ToneMapOperator,
-    ToneMapping,
+    ModelState, PanelLayout, PendingDebugPrimitive, PendingDebugPrimitives,
+    PhysicalCameraParameters, SceneState, TimelineState, ToneMapOperator, ToneMapping,
 };
 use crate::ecs::world::World;
 
@@ -253,6 +255,8 @@ fn build_scene_file(
     scene.editor = collected.editor;
     scene.panel_layout = collected.panel_layout;
     scene.flame = build_flame_scene_data(world);
+    scene.water = build_water_scene_data(world);
+    scene.debug_primitives = build_debug_primitives_scene_data(world);
 
     if let Some(prev) = previous_metadata {
         scene.metadata.created_at = prev.created_at;
@@ -381,9 +385,38 @@ pub fn apply_loaded_scene_to_world(
     apply_editor_state(&loaded.scene.editor, world);
     apply_rendering_params(&loaded.scene.camera, world);
     apply_panel_layout(loaded.scene.panel_layout.as_ref(), world);
-    if let Some(ref flame) = loaded.scene.flame {
-        apply_flame_state_to_world(world, assets, flame);
+    match loaded.scene.flame {
+        Some(ref flame) => apply_flame_state_to_world(world, assets, flame),
+        None => crate::ecs::systems::despawn_flames(world),
     }
+    match loaded.scene.water {
+        Some(ref water) => apply_water_state_to_world(world, assets, water),
+        None => crate::ecs::systems::despawn_waters(world),
+    }
+    request_debug_primitives(&loaded.scene.debug_primitives, world);
+}
+
+/// Spawning is deferred to the app because a non-additive model load clears every entity.
+fn request_debug_primitives(primitives: &[DebugPrimitiveSceneData], world: &mut World) {
+    let requests = primitives
+        .iter()
+        .filter_map(|primitive| {
+            let Some(kind) = debug_primitive_kind_from_str(&primitive.kind) else {
+                log_warn!("Unknown debug primitive kind in scene: {}", primitive.kind);
+                return None;
+            };
+            Some(PendingDebugPrimitive {
+                kind,
+                position: cgmath::Vector3::new(
+                    primitive.position[0],
+                    primitive.position[1],
+                    primitive.position[2],
+                ),
+            })
+        })
+        .collect();
+
+    world.insert_resource(PendingDebugPrimitives { requests });
 }
 
 fn apply_camera_state(camera_state: &CameraState, world: &mut World) {
@@ -581,18 +614,18 @@ mod tests {
     }
 
     #[test]
-    fn default_scene_asset_holds_campfire_flame() {
+    fn default_scene_asset_holds_water_torus_and_no_flame() {
         let content = fs::read_to_string(
             Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/default.scene.ron"),
         )
         .expect("default scene asset readable");
         let scene: SceneFile = ron::from_str(&content).expect("default scene asset parses");
 
-        let flame = scene.flame.expect("flame section present");
-        let mut campfire = thyllore_effect_core::FlameEffect::default();
-        thyllore_effect_core::apply_flame_preset(&mut campfire, "campfire");
-        assert_eq!(flame.effect, campfire);
-        assert!(flame.style.is_none());
+        assert!(scene.flame.is_none());
+        let water = scene.water.expect("water section present");
+        assert!(water.effect.major_radius > 0.0);
+        assert!(water.effect.minor_radius > 0.0);
+        assert!(water.preset.is_none());
     }
 
     #[test]
@@ -605,5 +638,184 @@ mod tests {
         let loaded = load_scene(&scene_path).expect("model file exists");
 
         assert_eq!(loaded.model_path, Some(dir.join("models/mesh.glb")));
+    }
+
+    #[test]
+    fn water_roundtrip() {
+        let dir = temp_dir("water_roundtrip");
+        let scenes_dir = dir.join("scenes");
+        fs::create_dir_all(&scenes_dir).unwrap();
+        let scene_path = scenes_dir.join("test.scene.ron");
+
+        // Build a world with a water entity
+        let mut world = World::new();
+        world.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets = crate::asset::AssetStorage::new();
+        let effect = crate::ecs::component::WaterTorusEffect::default();
+        let entity =
+            crate::ecs::systems::spawn_water_with_clip(&mut world, &mut assets, "Water", effect);
+
+        // Set major_radius = 2.5 and AppliedWaterPreset { name: "sea" }
+        if let Some(mut water) =
+            world.get_component_mut::<crate::ecs::component::WaterTorusEffect>(entity)
+        {
+            water.major_radius = 2.5;
+        }
+        world.insert_component(
+            entity,
+            crate::ecs::component::AppliedWaterPreset {
+                name: "sea".to_string(),
+            },
+        );
+
+        // Save the scene
+        save_scene(&scene_path, &world).unwrap();
+
+        // Load into a new world
+        let loaded = load_scene(&scene_path).unwrap();
+        let mut world2 = World::new();
+        world2.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets2 = crate::asset::AssetStorage::new();
+        apply_loaded_scene_to_world(&loaded, &mut world2, &mut assets2, &[]);
+
+        // Assert: exactly 1 water entity, major_radius == 2.5, preset name == "sea"
+        let waters: Vec<_> = world2.query_waters();
+        assert_eq!(waters.len(), 1, "expected exactly 1 water entity");
+        let water_entity = waters[0];
+        let water = world2
+            .get_component::<crate::ecs::component::WaterTorusEffect>(water_entity)
+            .unwrap();
+        assert!(
+            (water.major_radius - 2.5).abs() < f32::EPSILON,
+            "expected major_radius == 2.5, got {}",
+            water.major_radius
+        );
+        let preset = world2
+            .get_component::<crate::ecs::component::AppliedWaterPreset>(water_entity)
+            .unwrap();
+        assert_eq!(
+            preset.name, "sea",
+            "expected preset name == \"sea\", got \"{}\"",
+            preset.name
+        );
+    }
+
+    fn spawn_tagged_debug_primitive(
+        world: &mut World,
+        kind: crate::ecs::events::DebugPrimitiveKind,
+        position: [f32; 3],
+    ) {
+        let entity = world
+            .entity()
+            .with_name(super::super::format::debug_primitive_kind_to_str(kind))
+            .with_transform(crate::ecs::world::Transform::default())
+            .build();
+        world.insert_component(entity, crate::ecs::component::DebugPrimitiveTag { kind });
+        if let Some(transform) = world.get_component_mut::<crate::ecs::world::Transform>(entity) {
+            transform.translation = cgmath::Vector3::new(position[0], position[1], position[2]);
+        }
+    }
+
+    #[test]
+    fn debug_primitives_roundtrip() {
+        use crate::ecs::events::DebugPrimitiveKind;
+
+        let dir = temp_dir("debug_primitives");
+        let scenes_dir = dir.join("scenes");
+        fs::create_dir_all(&scenes_dir).unwrap();
+        let scene_path = scenes_dir.join("test.scene.ron");
+
+        let mut world = World::new();
+        world.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        spawn_tagged_debug_primitive(&mut world, DebugPrimitiveKind::Cube, [1.0, 2.0, 3.0]);
+        spawn_tagged_debug_primitive(&mut world, DebugPrimitiveKind::Floor, [0.0, -1.6, 0.0]);
+
+        save_scene(&scene_path, &world).unwrap();
+
+        let loaded = load_scene(&scene_path).unwrap();
+        assert_eq!(loaded.scene.debug_primitives.len(), 2);
+        assert_eq!(loaded.scene.debug_primitives[0].kind, "cube");
+        assert_eq!(loaded.scene.debug_primitives[0].position, [1.0, 2.0, 3.0]);
+        assert_eq!(loaded.scene.debug_primitives[1].kind, "floor");
+        assert_eq!(loaded.scene.debug_primitives[1].position, [0.0, -1.6, 0.0]);
+
+        let mut respawned = World::new();
+        respawned.insert_resource(crate::ecs::resource::ClipLibrary::new());
+        let mut assets = crate::asset::AssetStorage::new();
+        apply_loaded_scene_to_world(&loaded, &mut respawned, &mut assets, &[]);
+
+        let requests = respawned
+            .resource_mut::<PendingDebugPrimitives>()
+            .take_requests();
+        assert_eq!(
+            requests.len(),
+            2,
+            "every scene primitive must be requested for spawning"
+        );
+        assert_eq!(requests[0].kind, DebugPrimitiveKind::Cube);
+        assert_eq!(requests[0].position, cgmath::Vector3::new(1.0, 2.0, 3.0));
+        assert_eq!(requests[1].kind, DebugPrimitiveKind::Floor);
+        assert_eq!(requests[1].position, cgmath::Vector3::new(0.0, -1.6, 0.0));
+
+        for request in &requests {
+            spawn_tagged_debug_primitive(
+                &mut respawned,
+                request.kind,
+                [request.position.x, request.position.y, request.position.z],
+            );
+        }
+
+        let resaved_path = scenes_dir.join("resaved.scene.ron");
+        save_scene(&resaved_path, &respawned).unwrap();
+        let reloaded = load_scene(&resaved_path).unwrap();
+
+        assert_eq!(
+            reloaded.scene.debug_primitives.len(),
+            loaded.scene.debug_primitives.len(),
+            "load -> save must keep the debug primitive count"
+        );
+        for (resaved, original) in reloaded
+            .scene
+            .debug_primitives
+            .iter()
+            .zip(loaded.scene.debug_primitives.iter())
+        {
+            assert_eq!(resaved.kind, original.kind);
+            assert_eq!(resaved.position, original.position);
+        }
+    }
+
+    #[test]
+    fn scene_without_debug_primitives_field_loads() {
+        let dir = temp_dir("debug_primitives_absent");
+        let scene_path = write_scene(&dir, ModelReference::GENERATED_MESH);
+
+        let written = fs::read_to_string(&scene_path).unwrap();
+        let legacy: Vec<&str> = written
+            .lines()
+            .filter(|line| !line.trim_start().starts_with("debug_primitives:"))
+            .collect();
+        assert_eq!(legacy.len(), written.lines().count() - 1);
+        fs::write(&scene_path, legacy.join("\n")).unwrap();
+
+        let loaded = load_scene(&scene_path).expect("scene without the field loads");
+
+        assert!(loaded.scene.debug_primitives.is_empty());
+    }
+
+    #[test]
+    fn water_probe_scene_asset_loads() {
+        let content = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("assets/scenes/water_probe.scene.ron"),
+        )
+        .expect("water probe scene asset readable");
+        let scene: SceneFile = ron::from_str(&content).expect("water probe scene asset parses");
+
+        let water = scene.water.expect("water section present");
+        assert!(
+            (water.effect.major_radius - 1.2).abs() < f32::EPSILON,
+            "expected major_radius == 1.2, got {}",
+            water.effect.major_radius
+        );
     }
 }

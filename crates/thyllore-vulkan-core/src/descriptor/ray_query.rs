@@ -32,6 +32,7 @@ impl RRRayQueryDescriptorSet {
         shadow_mask_image_view: vk::ImageView,
         tlas: vk::AccelerationStructureKHR,
         scene_uniform_buffer: vk::Buffer,
+        hit_shading_table_buffer: vk::Buffer,
     ) -> Result<()> {
         self.descriptor_set = self.layout.allocate_set(rrdevice)?;
 
@@ -41,7 +42,7 @@ impl RRRayQueryDescriptorSet {
             normal_image_view,
             shadow_mask_image_view,
         )?;
-        self.update_tlas(rrdevice, tlas)?;
+        self.update_tlas(rrdevice, tlas, hit_shading_table_buffer)?;
         self.layout
             .writer(self.descriptor_set)
             .buffer(
@@ -94,15 +95,25 @@ impl RRRayQueryDescriptorSet {
         &mut self,
         rrdevice: &RRDevice,
         tlas: vk::AccelerationStructureKHR,
+        hit_shading_table: vk::Buffer,
     ) -> Result<()> {
         if self.descriptor_set == vk::DescriptorSet::null() {
             return Ok(());
         }
 
-        self.layout
+        let mut writer = self
+            .layout
             .writer(self.descriptor_set)
-            .acceleration_structure(ray_query_shadow::TOP_LEVEL_AS, tlas)?
-            .apply(rrdevice);
+            .acceleration_structure(ray_query_shadow::TOP_LEVEL_AS, tlas)?;
+        if hit_shading_table != vk::Buffer::null() {
+            writer = writer.buffer(
+                ray_query_shadow::HIT_TABLE,
+                hit_shading_table,
+                0,
+                vk::WHOLE_SIZE as u64,
+            )?;
+        }
+        writer.apply(rrdevice);
         Ok(())
     }
 
