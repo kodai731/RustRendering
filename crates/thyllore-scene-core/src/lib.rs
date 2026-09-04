@@ -14,10 +14,23 @@ pub fn find_scalar_param<'a, C>(
     params.iter().find(|param| param.name == name)
 }
 
-/// UI-toolkit-free display metadata of one scalar parameter, joined to the accessor table by `name`.
+/// Widget family a parameter is edited with; `Color` and `Absorption` are `[f32; 3]` parameters
+/// whose components are reachable through the `<name>_r/_g/_b` scalar aliases.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum UiKind {
+    Scalar,
+    Color,
+    /// Beer-Lambert coefficients per meter, edited as the colour transmitted over a reference distance.
+    Absorption,
+}
+
+pub const COLOR_COMPONENT_SUFFIXES: [&str; 3] = ["_r", "_g", "_b"];
+
+/// UI-toolkit-free display metadata of one parameter, joined to the accessor table by `name`.
 pub struct UiParam {
     pub name: &'static str,
     pub label: Option<&'static str>,
+    pub kind: UiKind,
     pub min: f32,
     pub max: f32,
     pub format: &'static str,
@@ -33,6 +46,11 @@ impl UiParam {
             Some(label) => Cow::Borrowed(label),
             None => Cow::Owned(title_case_snake(self.name)),
         }
+    }
+
+    /// Scalar alias names of a `Color` / `Absorption` parameter, in r, g, b order.
+    pub fn color_component_names(&self) -> [String; 3] {
+        COLOR_COMPONENT_SUFFIXES.map(|suffix| format!("{}{}", self.name, suffix))
     }
 }
 
@@ -107,6 +125,7 @@ macro_rules! declare_scene_format {
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
                 $(, ui {
+                    $( kind: $ui_kind:ident, )?
                     $( label: $ui_label:expr, )?
                     min: $ui_min:expr,
                     max: $ui_max:expr
@@ -155,6 +174,7 @@ macro_rules! declare_scene_format {
                         set: $alias_set,
                     } ),+ })?
                     $(, ui {
+                        $( kind: $ui_kind, )?
                         $( label: $ui_label, )?
                         min: $ui_min,
                         max: $ui_max
@@ -197,6 +217,7 @@ macro_rules! declare_scene_format {
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
                 $(, ui {
+                    $( kind: $ui_kind:ident, )?
                     $( label: $ui_label:expr, )?
                     min: $ui_min:expr,
                     max: $ui_max:expr
@@ -300,6 +321,7 @@ macro_rules! declare_scene_format {
                 $crate::UiParam {
                     name: stringify!($name),
                     label: $crate::declare_scene_format!(@ui_label $(, $ui_label)?),
+                    kind: $crate::declare_scene_format!(@ui_kind $(, $ui_kind)?),
                     min: $ui_min,
                     max: $ui_max,
                     format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $ui_format)?),
@@ -311,6 +333,7 @@ macro_rules! declare_scene_format {
                 $crate::UiParam {
                     name: stringify!($runtime_name),
                     label: $crate::declare_scene_format!(@ui_label $(, $rt_ui_label)?),
+                    kind: $crate::UiKind::Scalar,
                     min: $rt_ui_min,
                     max: $rt_ui_max,
                     format: $crate::declare_scene_format!(@ui_or_default "%.3f" $(, $rt_ui_format)?),
@@ -324,6 +347,12 @@ macro_rules! declare_scene_format {
         pub fn $overwrite_name(target: &mut $component, loaded: &$component) {
             $record::capture(loaded).apply(target);
         }
+    };
+    (@ui_kind) => {
+        $crate::UiKind::Scalar
+    };
+    (@ui_kind, $kind:ident) => {
+        $crate::UiKind::$kind
     };
     (@ui_label) => {
         None
@@ -443,6 +472,7 @@ mod tests {
         let explicit = UiParam {
             name: "swirl_gain",
             label: Some("Swirl"),
+            kind: UiKind::Scalar,
             min: 0.0,
             max: 1.0,
             format: "",
@@ -455,5 +485,20 @@ mod tests {
         };
         assert_eq!(explicit.display_label(), "Swirl");
         assert_eq!(derived.display_label(), "Swirl Gain");
+    }
+
+    #[test]
+    fn test_color_component_names_follow_rgb_suffixes() {
+        let tint = UiParam {
+            name: "tint",
+            label: None,
+            kind: UiKind::Color,
+            min: 0.0,
+            max: 1.0,
+            format: "",
+            tooltip: "",
+            persisted: true,
+        };
+        assert_eq!(tint.color_component_names(), ["tint_r", "tint_g", "tint_b"]);
     }
 }

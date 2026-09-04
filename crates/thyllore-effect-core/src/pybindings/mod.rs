@@ -7,13 +7,40 @@ use crate::flame::{
 };
 use crate::water::{
     apply_water_preset, build_water_model_matrix, build_water_ubo, inverse_view_proj_f64,
-    overwrite_water_persisted_fields, WaterTorusEffect, WaterUBO, WATER_PRESET_NAMES,
-    WATER_SCALAR_PARAMS, WATER_UI_PARAMS,
+    overwrite_water_persisted_fields, WaterTorusEffect, WaterUBO, ABSORPTION_REFERENCE_DISTANCE,
+    WATER_PRESET_NAMES, WATER_UI_PARAMS,
 };
 use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use thyllore_math_core::torus_local_bounds_corners;
+use thyllore_scene_core::{UiKind, UiParam};
+
+fn ui_kind_name(kind: UiKind) -> &'static str {
+    match kind {
+        UiKind::Scalar => "scalar",
+        UiKind::Color => "color",
+        UiKind::Absorption => "absorption",
+    }
+}
+
+fn fill_ui_param_dict(dict: &Bound<'_, PyDict>, param: &UiParam) -> PyResult<()> {
+    dict.set_item("name", param.name)?;
+    dict.set_item("label", param.display_label())?;
+    dict.set_item("kind", ui_kind_name(param.kind))?;
+    dict.set_item("min", param.min)?;
+    dict.set_item("max", param.max)?;
+    dict.set_item("format", param.format)?;
+    dict.set_item("tooltip", param.tooltip)?;
+    dict.set_item("persisted", param.persisted)?;
+    match param.kind {
+        UiKind::Scalar | UiKind::Color => {}
+        UiKind::Absorption => {
+            dict.set_item("reference_distance", ABSORPTION_REFERENCE_DISTANCE)?;
+        }
+    }
+    Ok(())
+}
 
 #[pyfunction]
 fn flame_preset_names() -> Vec<&'static str> {
@@ -29,13 +56,7 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         let owner = parameter_owner(param.name);
 
         let dict = PyDict::new(py);
-        dict.set_item("name", param.name)?;
-        dict.set_item("label", param.display_label())?;
-        dict.set_item("min", param.min)?;
-        dict.set_item("max", param.max)?;
-        dict.set_item("format", param.format)?;
-        dict.set_item("tooltip", param.tooltip)?;
-        dict.set_item("persisted", param.persisted)?;
+        fill_ui_param_dict(&dict, param)?;
 
         let Some(default_value) = default_dict.get_item(param.name)? else {
             continue;
@@ -66,6 +87,7 @@ fn flame_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
         let dict = PyDict::new(py);
         dict.set_item("name", name)?;
         dict.set_item("label", color_param_label(name))?;
+        dict.set_item("kind", ui_kind_name(color_param_kind(name)))?;
         dict.set_item("tooltip", color_param_tooltip(name))?;
         dict.set_item("default", default_value)?;
         dict.set_item("owner", "style")?;
@@ -91,6 +113,13 @@ fn color_param_label(name: &str) -> String {
         })
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn color_param_kind(name: &str) -> UiKind {
+    match name {
+        "color_base" | "color_tip" => UiKind::Color,
+        _ => UiKind::Scalar,
+    }
 }
 
 fn color_param_tooltip(name: &str) -> &'static str {
@@ -282,13 +311,7 @@ fn water_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
     let list = PyList::empty(py);
     for param in WATER_UI_PARAMS {
         let dict = PyDict::new(py);
-        dict.set_item("name", param.name)?;
-        dict.set_item("label", param.display_label())?;
-        dict.set_item("min", param.min)?;
-        dict.set_item("max", param.max)?;
-        dict.set_item("format", param.format)?;
-        dict.set_item("tooltip", param.tooltip)?;
-        dict.set_item("persisted", param.persisted)?;
+        fill_ui_param_dict(&dict, param)?;
 
         let Some(default_value) = default_dict.get_item(param.name)? else {
             continue;
