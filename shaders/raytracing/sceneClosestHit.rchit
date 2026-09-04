@@ -4,7 +4,7 @@
 #extension GL_EXT_scalar_block_layout : require
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 
-#include "water/include/water_trace_payload.glsl"
+#include "include/trace_payload.glsl"
 
 struct HitShadingRecord { uint64_t vertexAddress; uint64_t indexAddress; mat4 model; mat4 normalMatrix; vec4 baseColor; vec4 params; };
 layout(set = 0, binding = 3, std430) readonly buffer HitShadingTable { HitShadingRecord records[]; } hitTable;
@@ -14,7 +14,7 @@ layout(push_constant) uniform WaterTraceLight {
     layout(offset = 96) vec4 lightPos;
     layout(offset = 112) vec4 lightColor;
 } light;
-layout(location = 0) rayPayloadInEXT WaterTracePayload payload;
+layout(location = 0) rayPayloadInEXT TracePayload payload;
 hitAttributeEXT vec2 attribs;
 
 void main() {

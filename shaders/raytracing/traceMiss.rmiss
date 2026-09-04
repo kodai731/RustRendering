@@ -1,9 +1,9 @@
 #version 460
 #extension GL_EXT_ray_tracing : require
 
-#include "water/include/water_trace_payload.glsl"
+#include "include/trace_payload.glsl"
 
-layout(location = 0) rayPayloadInEXT WaterTracePayload payload;
+layout(location = 0) rayPayloadInEXT TracePayload payload;
 
 void main() {
     payload.color = vec4(0.0);

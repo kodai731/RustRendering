@@ -736,7 +736,7 @@ impl App {
             descriptor.update_scene_color(&self.rrdevice, scene_color_view, scene_color_sampler)?;
         }
 
-        if let Some(trace_descriptor) = &self.data.raytracing.water_trace_descriptor {
+        if let Some(trace_descriptor) = &self.data.raytracing.effect_trace_descriptor {
             if let Some(accel) = self.data.raytracing.acceleration_structure.as_ref() {
                 if let Some(tlas) = accel.tlas.acceleration_structure {
                     if let Some(hit_table) = accel.hit_shading_table.as_ref() {

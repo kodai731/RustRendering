@@ -6,7 +6,7 @@
 #define WATER_UBO_BINDING 2
 #include "water/include/water_component.glsl"
 #include "water/include/water_lighting.glsl"
-#include "water/include/water_trace_payload.glsl"
+#include "include/trace_payload.glsl"
 
 layout(set = 0, binding = 0) uniform accelerationStructureEXT tlas;
 layout(set = 0, binding = 1, rgba16f) uniform image2D outImage;
@@ -16,7 +16,7 @@ layout(push_constant) uniform WaterTraceFrame {
     layout(offset = 96) vec4 lightPos;
     layout(offset = 112) vec4 lightColor;
 } frame;
-layout(location = 0) rayPayloadEXT WaterTracePayload payload;
+layout(location = 0) rayPayloadEXT TracePayload payload;
 
 void main() {
     vec2 uv = (vec2(gl_LaunchIDEXT.xy) + 0.5) / vec2(gl_LaunchSizeEXT.xy);

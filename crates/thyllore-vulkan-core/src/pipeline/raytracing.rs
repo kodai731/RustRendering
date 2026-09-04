@@ -51,10 +51,8 @@ impl RRRayTracingPipeline {
         let triangle_closest_hit = pass
             .stages
             .iter()
-            .find(|s| s.path.contains("waterSceneRchit"))
-            .ok_or_else(|| {
-                anyhow::anyhow!("pass `{}` has no waterSceneRchit stage", pass.name())
-            })?;
+            .find(|s| s.path.contains("sceneRchit"))
+            .ok_or_else(|| anyhow::anyhow!("pass `{}` has no sceneRchit stage", pass.name()))?;
 
         let raygen_module = load_shader_module(rrdevice, raygen_shader.path)?;
         let miss_module = load_shader_module(rrdevice, miss_shader.path)?;

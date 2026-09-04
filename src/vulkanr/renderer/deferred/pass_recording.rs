@@ -829,7 +829,7 @@ pub unsafe fn record_water_passes(
                 hit_table,
             )?;
 
-            if let Some(trace_descriptor) = app.data.raytracing.water_trace_descriptor.as_ref() {
+            if let Some(trace_descriptor) = app.data.raytracing.effect_trace_descriptor.as_ref() {
                 if let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() {
                     trace_descriptor.write_all(
                         ctx.device,
@@ -853,8 +853,8 @@ pub unsafe fn record_water_passes(
         .unwrap_or_default();
     if settings.secondary_rays == thyllore_effect_core::WaterSecondaryRays::RayTracingPipeline {
         if let (Some(trace_pipeline), Some(trace_descriptor)) = (
-            app.data.raytracing.water_trace_pipeline.as_ref(),
-            app.data.raytracing.water_trace_descriptor.as_ref(),
+            app.data.raytracing.effect_trace_pipeline.as_ref(),
+            app.data.raytracing.effect_trace_descriptor.as_ref(),
         ) {
             if let Some(effect) = app
                 .data
