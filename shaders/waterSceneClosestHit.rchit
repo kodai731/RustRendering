@@ -42,12 +42,10 @@ void main() {
     float u = attribs.x;
     float v = attribs.y;
     float w = 1.0 - u - v;
-    vec3 P = p0 * w + p1 * u + p2 * v;
+    vec3 P = gl_ObjectToWorldEXT * vec4(p0 * w + p1 * u + p2 * v, 1.0);
     vec3 vertexColor = c0 * w + c1 * u + c2 * v;
     vec3 N = n0 * w + n1 * u + n2 * v;
-    vec3 norm = normalize(vec3(rec.normalMatrix[0][0] * N.x + rec.normalMatrix[1][0] * N.y + rec.normalMatrix[2][0] * N.z,
-                               rec.normalMatrix[0][1] * N.x + rec.normalMatrix[1][1] * N.y + rec.normalMatrix[2][1] * N.z,
-                               rec.normalMatrix[0][2] * N.x + rec.normalMatrix[1][2] * N.y + rec.normalMatrix[2][2] * N.z));
+    vec3 norm = normalize((N * gl_WorldToObjectEXT).xyz);
     vec3 L = light.lightPos.xyz - P;
     float dist = length(L);
     L /= dist;

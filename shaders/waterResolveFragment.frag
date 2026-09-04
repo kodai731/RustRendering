@@ -168,7 +168,7 @@ void main() {
 
     // Fresnel: Aqoole Reflectance P/S (average of parallel and perpendicular)
     float eta = water.absorption.w;
-    float cosThetaI = -dot(rayDir, n);
+    float cosThetaI = clamp(-dot(rayDir, n), 0.0, 1.0);
     float sinThetaT2 = (1.0 - cosThetaI * cosThetaI) / (eta * eta);
     float cosThetaT = sqrt(max(1.0 - sinThetaT2, 0.0));
 

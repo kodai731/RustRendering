@@ -94,13 +94,10 @@ bool traceScene(vec3 o, vec3 d, float tMax, out vec3 color, out float tHit) {
     float v = bary.y;
     float w = 1.0 - u - v;
 
-    // Interpolate position, color, normal
-    vec3 P = p0 * w + p1 * u + p2 * v;
+    vec3 P = rayQueryGetIntersectionObjectToWorldEXT(rq, true) * vec4(p0 * w + p1 * u + p2 * v, 1.0);
     vec3 vertexColor = c0 * w + c1 * u + c2 * v;
     vec3 nLocal = n0 * w + n1 * u + n2 * v;
-
-    // Transform normal to world space
-    vec3 N = normalize(rec.normalMatrix[0].xyz * nLocal.x + rec.normalMatrix[1].xyz * nLocal.y + rec.normalMatrix[2].xyz * nLocal.z);
+    vec3 N = normalize((nLocal * rayQueryGetIntersectionWorldToObjectEXT(rq, true)).xyz);
 
     vec3 L = normalize(frame.light_pos.xyz - P);
     float ndotl = max(dot(N, L), 0.0);

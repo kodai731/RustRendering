@@ -52,6 +52,7 @@ class TestNoTransformedArtifacts:
     def test_no_version(self, exported):
         glsl_text, _ = exported
         assert "#version" not in glsl_text, "output still contains #version line"
+        assert "#extension" not in glsl_text, "output still contains #extension line"
 
     def test_no_layout(self, exported):
         glsl_text, _ = exported
@@ -177,7 +178,7 @@ class TestByteIdentical:
         i = 0
         while i < len(stripped):
             line = stripped[i]
-            if re.match(r'^\s*#\s*version\b', line):
+            if re.match(r'^\s*#\s*(version|extension)\b', line):
                 i += 1
                 continue
             layout_match = re.match(r'^\s*layout\s*\(', line)

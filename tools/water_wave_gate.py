@@ -38,6 +38,7 @@ CAMERAS = {
 
 JUMP_THRESHOLD_DEG = 10.0
 MASK_EROSION = 3
+MIN_SAMPLE_COUNT = 500
 
 
 def capture(scene: str, camera: str, frames: int, view: int, out_path: Path, dood: bool,
@@ -137,12 +138,23 @@ def masked_angles(normal_path: Path, mask_path: Path) -> np.ndarray:
 
 
 def percentile_deg(angles: np.ndarray, percentile: float) -> float:
-    return round(float(np.percentile(angles, percentile)), 4) if angles.size > 0 else 0.0
+    return round(float(np.percentile(angles, percentile)), 4)
 
 
 def evaluate(shots: dict[str, tuple[Path, Path]]) -> dict:
-    seam_angles = masked_angles(*shots["seam"])
-    opposite_angles = masked_angles(*shots["opposite"])
+    angles = {name: masked_angles(*paths) for name, paths in shots.items()}
+    sample_counts = {name: int(values.size) for name, values in angles.items()}
+    too_few = {name: count for name, count in sample_counts.items() if count < MIN_SAMPLE_COUNT}
+    if too_few:
+        return {
+            "ok": False,
+            "pass": False,
+            "error": f"too few torus samples (min {MIN_SAMPLE_COUNT}): {too_few}",
+            "sample_counts": sample_counts,
+        }
+
+    seam_angles = angles["seam"]
+    opposite_angles = angles["opposite"]
 
     seam_jump_px = int(np.count_nonzero(seam_angles > JUMP_THRESHOLD_DEG))
     opposite_jump_px = int(np.count_nonzero(opposite_angles > JUMP_THRESHOLD_DEG))
@@ -151,13 +163,14 @@ def evaluate(shots: dict[str, tuple[Path, Path]]) -> dict:
         seam_jump_px <= opposite_jump_px * 2 + 50 and seam_p999_deg < JUMP_THRESHOLD_DEG
     )
 
-    p99_deg = {name: percentile_deg(masked_angles(*shots[name]), 99.0) for name in ("d2", "d4", "d8")}
+    p99_deg = {name: percentile_deg(angles[name], 99.0) for name in ("d2", "d4", "d8")}
     ratio_d8_d2 = round(p99_deg["d8"] / p99_deg["d2"], 4) if p99_deg["d2"] > 0 else 0.0
     distance_pass = bool(p99_deg["d8"] <= p99_deg["d2"] * 2.5)
 
     return {
         "ok": True,
         "pass": bool(seam_pass and distance_pass),
+        "sample_counts": sample_counts,
         "seam": {
             "seam_jump_px": seam_jump_px,
             "opposite_jump_px": opposite_jump_px,
@@ -173,6 +186,10 @@ def evaluate(shots: dict[str, tuple[Path, Path]]) -> dict:
 
 
 def write_report(result: dict, out_dir: Path) -> None:
+    if not result["ok"]:
+        (out_dir / "report.md").write_text(f"# Water Wave Gate\n\nerror: {result['error']}\n")
+        return
+
     seam = result["seam"]
     distance = result["distance"]
     rows = [

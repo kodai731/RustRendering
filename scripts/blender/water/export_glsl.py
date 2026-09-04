@@ -135,7 +135,7 @@ def convert_to_blender_dialect(lines: list[str]) -> tuple[list[str], dict]:
     while i < len(lines):
         line = lines[i]
 
-        if re.match(r'^\s*#\s*version\b', line):
+        if re.match(r'^\s*#\s*(version|extension)\b', line):
             i += 1
             continue
 

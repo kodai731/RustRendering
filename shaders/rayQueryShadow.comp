@@ -101,7 +101,9 @@ void main() {
                 int n = intersectTorus(o, d, rec.params.z / rec.params.y, roots, fb);
                 if (n > 0) {
                     float t = roots[0] * rec.params.y / length(rayQueryGetIntersectionObjectRayDirectionEXT(rayQuery, false));
-                    rayQueryGenerateIntersectionEXT(rayQuery, t);
+                    if (t >= rayQueryGetRayTMinEXT(rayQuery) && t <= lightDistance) {
+                        rayQueryGenerateIntersectionEXT(rayQuery, t);
+                    }
                 }
             }
         }

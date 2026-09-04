@@ -18,7 +18,7 @@ impl LinearCongruentialGenerator {
     }
 
     pub fn next_unit_f64(&mut self) -> f64 {
-        self.next_u64() as f64 / (1u64 << 63) as f64
+        (self.next_u64() >> 11) as f64 / (1u64 << 53) as f64
     }
 
     pub fn next_angle_f32(&mut self) -> f32 {
@@ -44,7 +44,7 @@ mod tests {
         let mut generator = LinearCongruentialGenerator::from_seed(7);
         for _ in 0..1000 {
             let value = generator.next_unit_f64();
-            assert!((0.0..2.0).contains(&value), "value {value} out of range");
+            assert!((0.0..1.0).contains(&value), "value {value} out of range");
         }
     }
 }

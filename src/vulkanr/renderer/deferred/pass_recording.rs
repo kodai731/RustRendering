@@ -980,6 +980,17 @@ pub unsafe fn record_water_passes(
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("HDR buffer not initialized"))?;
 
+    let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {
+        return Ok(());
+    };
+    let instance_ubos = record_water_ubo_updates(
+        app,
+        &ctx,
+        water_ubo,
+        &waters[..instance_count],
+        command_buffer,
+    )?;
+
     record_water_caustic_pass(app, water_buffer, hdr_buffer, waters[0], command_buffer);
 
     thyllore_vulkan_core::renderer::record_water_scene_color_copy(
@@ -1008,57 +1019,13 @@ pub unsafe fn record_water_passes(
         clear_water_history_images(&ctx.device.device, water_buffer, command_buffer);
     }
 
-    for i in 0..instance_count {
-        let water = waters[i];
+    for (i, (ubo, ubo_dynamic_offset)) in instance_ubos.iter().enumerate() {
         let effect = app
             .data
             .ecs_world
-            .get_component::<crate::ecs::component::WaterTorusEffect>(water)
+            .get_component::<crate::ecs::component::WaterTorusEffect>(waters[i])
             .ok_or_else(|| anyhow::anyhow!("Missing WaterTorusEffect for instance {}", i))?;
 
-        let accum = app
-            .data
-            .ecs_world
-            .get_component::<crate::ecs::component::WaterTemporalAccum>(water)
-            .cloned()
-            .unwrap_or_default();
-
-        // Build UBO for this instance
-        let mut ubo = thyllore_effect_core::build_water_ubo(effect, accum.frame_index as u32);
-
-        // Overwrite inv_view_proj with f64-precision calculation for probe consistency
-        let projection = app
-            .data
-            .ecs_world
-            .resource::<crate::ecs::resource::ProjectionData>();
-        ubo.inv_view_proj = crate::ecs::systems::water::probe::inverse_view_proj_f64(
-            projection.proj,
-            projection.view,
-        );
-
-        ubo.temporal = [accum.weight, accum.frame_index as f32, 0.0, 0.0];
-
-        let settings = app
-            .data
-            .ecs_world
-            .get_resource::<crate::ecs::resource::WaterRenderSettings>()
-            .map(|settings| *settings)
-            .unwrap_or_default();
-        ubo.composite[3] = settings.caustic_debug as f32;
-
-        let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {
-            return Ok(());
-        };
-        let ubo_dynamic_offset = water_ubo.slot_offset(i)? as u32;
-        water_ubo.record_update(
-            &ctx.device.device,
-            command_buffer,
-            i,
-            &ubo,
-            vk::PipelineStageFlags::FRAGMENT_SHADER,
-        )?;
-
-        // Compute per-instance scissor using the model matrix
         let Some(scissor) = compute_water_scissor(
             app,
             water_buffer.extent(),
@@ -1080,7 +1047,7 @@ pub unsafe fn record_water_passes(
             water_buffer,
             shading_pipeline,
             descriptor,
-            ubo_dynamic_offset,
+            *ubo_dynamic_offset,
             scissor,
             push_constants,
             image_index,
@@ -1178,6 +1145,58 @@ unsafe fn clear_water_history_images(
 
 /// Splats refracted light into the accumulation image and adds it to the HDR color.
 /// The G-buffer position image stays in GENERAL from the ray query pass.
+/// Uploads every instance's UBO before the caustic and shading passes read them in this frame.
+unsafe fn record_water_ubo_updates(
+    app: &App,
+    ctx: &thyllore_vulkan_core::FrameRenderContext,
+    water_ubo: &thyllore_vulkan_core::resource::UniformBuffer<thyllore_effect_core::WaterUBO>,
+    waters: &[crate::ecs::world::Entity],
+    command_buffer: vk::CommandBuffer,
+) -> Result<Vec<(thyllore_effect_core::WaterUBO, u32)>> {
+    let projection = app
+        .data
+        .ecs_world
+        .resource::<crate::ecs::resource::ProjectionData>();
+    let inv_view_proj =
+        crate::ecs::systems::water::probe::inverse_view_proj_f64(projection.proj, projection.view);
+    let settings = app
+        .data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::WaterRenderSettings>()
+        .map(|settings| *settings)
+        .unwrap_or_default();
+
+    let mut instance_ubos = Vec::with_capacity(waters.len());
+    for (i, water) in waters.iter().enumerate() {
+        let effect = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::WaterTorusEffect>(*water)
+            .ok_or_else(|| anyhow::anyhow!("Missing WaterTorusEffect for instance {}", i))?;
+        let accum = app
+            .data
+            .ecs_world
+            .get_component::<crate::ecs::component::WaterTemporalAccum>(*water)
+            .cloned()
+            .unwrap_or_default();
+
+        let mut ubo = thyllore_effect_core::build_water_ubo(effect, accum.frame_index as u32);
+        ubo.inv_view_proj = inv_view_proj;
+        ubo.temporal = [accum.weight, accum.frame_index as f32, 0.0, 0.0];
+        ubo.composite[3] = settings.caustic_debug as f32;
+
+        water_ubo.record_update(
+            &ctx.device.device,
+            command_buffer,
+            i,
+            &ubo,
+            vk::PipelineStageFlags::FRAGMENT_SHADER | vk::PipelineStageFlags::COMPUTE_SHADER,
+        )?;
+        instance_ubos.push((ubo, water_ubo.slot_offset(i)? as u32));
+    }
+    Ok(instance_ubos)
+}
+
 unsafe fn record_water_caustic_pass(
     app: &App,
     water_buffer: &thyllore_vulkan_core::resource::WaterBuffer,

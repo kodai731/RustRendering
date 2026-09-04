@@ -32,11 +32,11 @@ int solveQuartic(float c[5], out float roots[4]) {
     const float EPS = 1e-9;
 
     if (abs(r) < EPS) {
-        // r ≈ 0: roots are 0 and the cubic q*t^3 + p*t^2 + t = 0
-        // Solve cubic [q, p, 0, 1]
-        float ca = p / q;
-        float cb = 0.0 / q;
-        float cc_c = 1.0 / q;
+        // r ≈ 0: t * (t^3 + p*t + q) = 0
+        roots[count++] = 0.0;
+        float ca = 0.0;
+        float cb = p;
+        float cc_c = q;
         float sq_ca = ca * ca;
         float pc = (1.0 / 3.0) * (-(1.0 / 3.0) * sq_ca + cb);
         float qc = (1.0 / 2.0) * ((2.0 / 27.0) * ca * sq_ca - (1.0 / 3.0) * ca * cb + cc_c);
@@ -150,9 +150,10 @@ int solveQuartic(float c[5], out float roots[4]) {
     return count;
 }
 
-// Sphere-tracing fallback: SDF of torus in normalized coordinates.
-// Returns true if hit found within max steps (t > 1e-6), false otherwise.
+// Sphere-tracing fallback from the bounding-sphere entry point; a chord through the
+// bounding sphere is at most its diameter, so marching stops there.
 bool torusSphereTraceFallback(vec3 o, vec3 d, float rHat, out float t) {
+    float tMax = 2.0 * (1.0 + rHat);
     t = 0.0;
     for (int i = 0; i < 48; ++i) {
         vec3 p = o + d * t;
@@ -160,7 +161,7 @@ bool torusSphereTraceFallback(vec3 o, vec3 d, float rHat, out float t) {
         if (abs(sdf) < 1e-4) {
             if (t > 1e-6) return true;
         }
-        if (t > 4.0) return false;
+        if (t > tMax) return false;
         t += max(sdf, 1e-4);
     }
     return false;
@@ -246,11 +247,11 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fall
     // use SDF sphere tracing to catch grazing intersections the quartic misses.
     if (validCount == 0) {
         float t_out;
-        if (torusSphereTraceFallback(o, d, rHat, t_out)) {
-            roots[0] = t_out;
+        if (torusSphereTraceFallback(oPrime, d, rHat, t_out)) {
+            roots[0] = t_out + tEnter;
             validCount = 1;
             fallbackUsed = true;
-       }
+        }
     }
 
     // Sort ascending (bubble sort, max 4 elements)
@@ -268,12 +269,13 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fall
 }
 
 // First exit of a ray starting inside the tube: sign change of the implicit function,
-// bracketed at tube-diameter scale and refined by bisection. Independent of the quartic
-// discriminant, so grazing exits stay continuous. Returns 0 when no exit is found.
+// bracketed and refined by bisection. Independent of the quartic discriminant, so grazing
+// exits stay continuous. Returns 0 when no exit is found.
+// The longest straight chord inside the tube runs tangent to the hole: 2*sqrt((1+r)^2-(1-r)^2) = 4*sqrt(r).
 float torusExitFromInside(vec3 o, vec3 d, float rHat) {
-    const int BRACKET_STEPS = 16;
+    const int BRACKET_STEPS = 32;
     const int BISECT_STEPS = 12;
-    float tMax = 2.0 * rHat + 1e-3;
+    float tMax = 4.0 * sqrt(rHat) + 1e-3;
     float tInside = 0.0;
     bool seenInside = torusImplicit(o, rHat) < 0.0;
 

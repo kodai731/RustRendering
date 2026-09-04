@@ -83,7 +83,7 @@ pub fn water_laplace_beltrami_height_and_gradient(
 
 #[derive(Default)]
 pub struct Cache {
-    data: Mutex<HashMap<u32, [LaplaceBeltramiMode; 4]>>,
+    data: Mutex<HashMap<(u32, u32), [LaplaceBeltramiMode; 4]>>,
 }
 
 impl Cache {
@@ -92,7 +92,7 @@ impl Cache {
     }
 
     pub fn get_or_compute(&self, major_radius: f32, minor_radius: f32) -> [LaplaceBeltramiMode; 4] {
-        let key = ((major_radius / minor_radius) * 1000.0) as u32;
+        let key = (major_radius.to_bits(), minor_radius.to_bits());
 
         let mut map = self.data.lock().unwrap();
         if let Some(modes) = map.get(&key) {

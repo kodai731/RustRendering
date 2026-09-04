@@ -135,7 +135,7 @@ def evaluate(shots: dict[str, Path]) -> dict:
     diff_inside_torus_px = int(np.count_nonzero(diff_mask & torus_mask))
     diff_inside_hits_px = int(np.count_nonzero(diff_mask & hits_mask))
     diff_inside_hits_frac = (
-        round(diff_inside_hits_px / diff_inside_torus_px, 6) if diff_inside_torus_px > 0 else 1.0
+        round(diff_inside_hits_px / diff_inside_torus_px, 6) if diff_inside_torus_px > 0 else 0.0
     )
 
     miss = mask_metrics(diff, diff_mask, miss_mask)
@@ -143,7 +143,8 @@ def evaluate(shots: dict[str, Path]) -> dict:
     return {
         "ok": True,
         "pass": bool(
-            miss["diff_frac"] < MISS_DIFF_FRAC_LIMIT
+            diff_inside_torus_px > 0
+            and miss["diff_frac"] < MISS_DIFF_FRAC_LIMIT
             and diff_inside_hits_frac >= DIFF_INSIDE_HITS_MIN
         ),
         "onscreen": mask_metrics(diff, diff_mask, onscreen_mask),

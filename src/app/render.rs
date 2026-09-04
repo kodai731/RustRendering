@@ -74,6 +74,8 @@ impl App {
             &self.data.ecs_world,
             &self.data.ecs_assets,
         );
+        let water_instances =
+            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
         let gbuffer_mesh_indices: Vec<usize> = self
             .data
             .graphics_resources
@@ -90,7 +92,9 @@ impl App {
             return Ok(());
         };
 
-        if acceleration_structure.blas_list.len() != gbuffer_mesh_indices.len() {
+        if acceleration_structure.blas_list.len() != gbuffer_mesh_indices.len()
+            || acceleration_structure.water_blas.len() != water_instances.len()
+        {
             return Ok(());
         }
 
@@ -104,16 +108,14 @@ impl App {
                 .get(mesh_index)
                 .copied()
                 .unwrap_or_else(cgmath::SquareMatrix::identity);
-            let matrix = [
-                [model[0][0], model[1][0], model[2][0], model[3][0]],
-                [model[0][1], model[1][1], model[2][1], model[3][1]],
-                [model[0][2], model[1][2], model[2][2], model[3][2]],
-            ];
-
-            if blas.transform.matrix != matrix {
-                blas.transform.matrix = matrix;
-                needs_update = true;
-            }
+            needs_update |= apply_instance_transform(blas, &model);
+        }
+        for (blas, (model, _, _)) in acceleration_structure
+            .water_blas
+            .iter_mut()
+            .zip(water_instances.iter())
+        {
+            needs_update |= apply_instance_transform(blas, model);
         }
 
         if !needs_update {
@@ -583,6 +585,8 @@ impl App {
             &self.data.ecs_world,
             &self.data.ecs_assets,
         );
+        let water_instances =
+            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
         crate::app::model_loader::rebuild_acceleration_structures(
             &self.instance,
             &self.rrdevice,
@@ -2152,4 +2156,20 @@ fn append_jsonl(path: &str, line: &str) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let _ = file.write_all(line.as_bytes());
     }
+}
+
+fn apply_instance_transform(
+    blas: &mut thyllore_vulkan_core::raytracing::RRBLAS,
+    model: &cgmath::Matrix4<f32>,
+) -> bool {
+    let matrix = [
+        [model[0][0], model[1][0], model[2][0], model[3][0]],
+        [model[0][1], model[1][1], model[2][1], model[3][1]],
+        [model[0][2], model[1][2], model[2][2], model[3][2]],
+    ];
+    if blas.transform.matrix == matrix {
+        return false;
+    }
+    blas.transform.matrix = matrix;
+    true
 }

@@ -253,21 +253,18 @@ def draw_water():
     water_objects = find_water_objects(scene)
     scene_color, scene_color_rect = scene_color_binding(w, h)
 
-    last_color = None
     render_started = time.perf_counter()
     for obj in water_objects:
         renderer = _renderers.setdefault(obj.name, WaterViewportRenderer())
         params = water_render_params(obj.thyllore_water)
         position = coordinates.blender_to_engine_point(obj.matrix_world.translation)
         rotation = coordinates.blender_to_engine_quaternion(obj.matrix_world.to_quaternion())
-        last_color, _depth = renderer.render(
+        color, depth = renderer.render(
             view, proj, camera_pos, light_pos, params, scene_time, position, rotation, w, h, scene_color, scene_color_rect
         )
+        composite_tonemapped(color, depth, w, h, window_matrix)
 
     report_first_draw(w, h, camera_pos, water_objects, time.perf_counter() - render_started)
-
-    if last_color is not None:
-        composite_tonemapped(last_color, _renderers[obj.name].depth, w, h, window_matrix)
 
 
 def composite_tonemapped(color_tex, depth_tex, w, h, window_matrix, scene_depth=None):
