@@ -115,6 +115,151 @@ impl RayTracingData {
             && self.composite_pipeline.is_some()
     }
 
+    pub unsafe fn destroy_all(&mut self, rrdevice: &RRDevice) {
+        let device = &rrdevice.device;
+
+        if let Some(sampler) = self.gbuffer_sampler.take() {
+            device.destroy_sampler(sampler, None);
+            log!("Destroyed G-Buffer sampler");
+        }
+
+        if let Some(onion_skin_pass) = self.onion_skin_pass.take() {
+            onion_skin_pass.destroy(device);
+        }
+
+        if let Some(gbuffer_pipeline) = self.gbuffer_pipeline.take() {
+            gbuffer_pipeline.destroy(device);
+            log!("Destroyed G-Buffer pipeline");
+        }
+
+        if let Some(mut dof_descriptor) = self.dof_descriptor.take() {
+            dof_descriptor.destroy(device);
+        }
+
+        if let Some(dof_pipeline) = self.dof_pipeline.take() {
+            dof_pipeline.destroy(device);
+        }
+
+        if let Some(mut descriptor) = self.auto_exposure_histogram_descriptor.take() {
+            descriptor.destroy(device);
+        }
+
+        if let Some(mut descriptor) = self.auto_exposure_average_descriptor.take() {
+            descriptor.destroy(device);
+        }
+
+        if let Some(pipeline) = self.auto_exposure_histogram_pipeline.take() {
+            pipeline.destroy(device);
+        }
+
+        if let Some(pipeline) = self.auto_exposure_average_pipeline.take() {
+            pipeline.destroy(device);
+        }
+
+        if let Some(mut bloom_descriptors) = self.bloom_descriptors.take() {
+            bloom_descriptors.destroy(device);
+        }
+
+        if let Some(bloom_downsample_pipeline) = self.bloom_downsample_pipeline.take() {
+            bloom_downsample_pipeline.destroy(device);
+        }
+
+        if let Some(bloom_upsample_pipeline) = self.bloom_upsample_pipeline.take() {
+            bloom_upsample_pipeline.destroy(device);
+        }
+
+        if let Some(mut tonemap_descriptor) = self.tonemap_descriptor.take() {
+            tonemap_descriptor.destroy(device);
+        }
+
+        if let Some(tonemap_pipeline) = self.tonemap_pipeline.take() {
+            tonemap_pipeline.destroy(device);
+        }
+
+        if let Some(mut composite_descriptor) = self.composite_descriptor.take() {
+            composite_descriptor.destroy(device);
+        }
+
+        if let Some(composite_pipeline) = self.composite_pipeline.take() {
+            composite_pipeline.destroy(device);
+        }
+
+        if let Some(mut flame_descriptor) = self.flame_descriptor.take() {
+            flame_descriptor.destroy(device);
+        }
+
+        if let Some(flame_shading_pipeline) = self.flame_shading_pipeline.take() {
+            flame_shading_pipeline.destroy(device);
+        }
+
+        if let Some(mut flame_ubo) = self.flame_ubo.take() {
+            flame_ubo.destroy(device);
+            log!("Destroyed flame uniform buffer");
+        }
+
+        if let Some(mut water_descriptor) = self.water_descriptor.take() {
+            water_descriptor.destroy(device);
+        }
+
+        if let Some(water_shading_pipeline) = self.water_shading_pipeline.take() {
+            water_shading_pipeline.destroy(device);
+        }
+
+        if let Some(mut water_ubo) = self.water_ubo.take() {
+            water_ubo.destroy(device);
+            log!("Destroyed water uniform buffer");
+        }
+
+        if let Some(mut water_trace_descriptor) = self.water_trace_descriptor.take() {
+            water_trace_descriptor.destroy(device);
+        }
+
+        if let Some(water_trace_pipeline) = self.water_trace_pipeline.take() {
+            water_trace_pipeline.destroy(device);
+        }
+
+        if let Some(mut water_caustic_descriptor) = self.water_caustic_descriptor.take() {
+            water_caustic_descriptor.destroy(device);
+        }
+
+        if let Some(pipeline) = self.water_caustic_splat_pipeline.take() {
+            pipeline.destroy(device);
+        }
+
+        if let Some(pipeline) = self.water_caustic_apply_pipeline.take() {
+            pipeline.destroy(device);
+        }
+
+        if let (Some(buffer), Some(memory)) = (
+            self.scene_uniform_buffer.take(),
+            self.scene_uniform_buffer_memory.take(),
+        ) {
+            device.destroy_buffer(buffer, None);
+            device.free_memory(memory, None);
+            log!("Destroyed scene uniform buffer");
+        }
+
+        if let Some(mut ray_query_descriptor) = self.ray_query_descriptor.take() {
+            ray_query_descriptor.destroy(device);
+            log!("Destroyed ray query descriptor set");
+        }
+
+        if let Some(ray_query_pipeline) = self.ray_query_pipeline.take() {
+            ray_query_pipeline.destroy(device);
+            log!("Destroyed ray query pipeline");
+        }
+
+        if let Some(mut acceleration_structure) = self.acceleration_structure.take() {
+            acceleration_structure.destroy(device);
+            log!("Destroyed acceleration structure");
+        }
+
+        if let Some(mut gbuffer) = self.gbuffer.take() {
+            gbuffer.destroy(rrdevice);
+            log!("Destroyed G-Buffer");
+        }
+    }
+
     pub unsafe fn init_gbuffer(
         &mut self,
         instance: &Instance,
