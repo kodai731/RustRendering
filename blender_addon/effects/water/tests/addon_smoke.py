@@ -41,6 +41,18 @@ candle_params = fx.water_preset_params(fx.water_preset_names()[0])
 collected = water_render_params(obj.thyllore_water)
 assert set(collected.keys()) == set(candle_params.keys()), "render params must cover every preset key"
 
+from blender_addon.effects.water.properties import absorption_to_color
+
+water_props = obj.thyllore_water
+rna = cls.bl_rna.properties
+assert rna["tint"].subtype == "COLOR", "tint must be a colour picker"
+assert rna["absorption_color"].subtype == "COLOR", "absorption picker must be a colour property"
+assert rna["absorption"].is_hidden, "stored absorption coefficient stays hidden"
+water_props.absorption_color = (0.5, 0.25, 0.125)
+expected = absorption_to_color(list(water_props.absorption), 1.0)
+assert all(abs(a - b) < 1e-5 for a, b in zip(water_props.absorption_color, expected)), "picker must round-trip through the coefficient"
+assert water_render_params(water_props)["absorption"] == [float(v) for v in water_props.absorption], "render params take the coefficient"
+
 print("ADDON_SMOKE ok", flush=True)
 
 from math import radians

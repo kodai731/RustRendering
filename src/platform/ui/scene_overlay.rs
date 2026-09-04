@@ -10,8 +10,8 @@ use crate::ecs::resource::{
 use crate::ecs::World;
 
 use super::flame_param_groups::{
-    FLAME_BODY_PARAMS, FLAME_BRANCH_PARAMS, FLAME_FOOTER_PARAMS, FLAME_MIX_PARAMS,
-    FLAME_MOTION_PARAMS, FLAME_NOISE_PARAMS,
+    FLAME_BODY_PARAMS, FLAME_BRANCH_PARAMS, FLAME_COLOR_PARAMS, FLAME_FOOTER_PARAMS,
+    FLAME_MIX_PARAMS, FLAME_MOTION_PARAMS, FLAME_NOISE_PARAMS,
 };
 use super::param_widgets::{draw_params, EditedScalars};
 use super::viewport_window::ViewportInfo;
@@ -1031,10 +1031,16 @@ fn build_flame_section(
                         |ui, edited| flame_key_button(ui, ui_events, edited),
                     );
 
-                    let mut color_changed = false;
-                    color_changed |= ui.color_edit3("Base Color", &mut effect_copy.color.base);
-                    color_changed |= ui.color_edit3("Tip Color", &mut effect_copy.color.tip);
-                    if color_changed {
+                    let colors_before = (effect_copy.color.base, effect_copy.color.tip);
+                    draw_params(
+                        ui,
+                        FLAME_COLOR_PARAMS,
+                        thyllore_effect_core::FLAME_UI_PARAMS,
+                        thyllore_effect_core::FLAME_SCALAR_PARAMS,
+                        &mut effect_copy,
+                        |ui, edited| flame_key_button(ui, ui_events, edited),
+                    );
+                    if (effect_copy.color.base, effect_copy.color.tip) != colors_before {
                         effect_copy.color.use_blackbody = false;
                     }
 

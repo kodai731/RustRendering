@@ -39,17 +39,13 @@ pub const WATER_PARAM_GROUPS: &[&[&str]] = &[
 mod tests {
     use super::*;
     use thyllore_effect_core::{WATER_SCALAR_PARAMS, WATER_UI_PARAMS};
-    use thyllore_scene_core::{find_scalar_param, find_ui_param, UiKind};
+    use thyllore_scene_core::{find_scalar_param, find_ui_param};
 
     #[test]
     fn test_every_grouped_name_resolves_to_ui_and_scalar_params() {
         for name in WATER_PARAM_GROUPS.iter().flat_map(|group| group.iter()) {
             let meta = find_ui_param(WATER_UI_PARAMS, name).unwrap_or_else(|| panic!("{name}"));
-            let accessor_names = match meta.kind {
-                UiKind::Scalar => vec![name.to_string()],
-                UiKind::Color | UiKind::Absorption => meta.color_component_names().to_vec(),
-            };
-            for accessor_name in accessor_names {
+            for accessor_name in meta.scalar_accessor_names() {
                 assert!(
                     find_scalar_param(WATER_SCALAR_PARAMS, &accessor_name).is_some(),
                     "{accessor_name}"

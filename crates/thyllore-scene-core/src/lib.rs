@@ -52,6 +52,14 @@ impl UiParam {
     pub fn color_component_names(&self) -> [String; 3] {
         COLOR_COMPONENT_SUFFIXES.map(|suffix| format!("{}{}", self.name, suffix))
     }
+
+    /// Every `ScalarParam` name this parameter's widget reads and writes.
+    pub fn scalar_accessor_names(&self) -> Vec<String> {
+        match self.kind {
+            UiKind::Scalar => vec![self.name.to_string()],
+            UiKind::Color | UiKind::Absorption => self.color_component_names().to_vec(),
+        }
+    }
 }
 
 pub fn title_case_snake(name: &str) -> String {

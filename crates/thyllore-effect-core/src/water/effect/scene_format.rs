@@ -313,11 +313,7 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), len);
         for param in WATER_UI_PARAMS {
-            let accessor_names = match param.kind {
-                UiKind::Scalar => vec![param.name.to_string()],
-                UiKind::Color | UiKind::Absorption => param.color_component_names().to_vec(),
-            };
-            for accessor_name in accessor_names {
+            for accessor_name in param.scalar_accessor_names() {
                 assert!(
                     find_scalar_param(WATER_SCALAR_PARAMS, &accessor_name).is_some(),
                     "{accessor_name}"

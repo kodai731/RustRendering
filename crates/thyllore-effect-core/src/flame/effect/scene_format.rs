@@ -44,19 +44,69 @@ declare_scene_format! {
                 max: 10.0,
             },
         },
-        color_base: [f32; 3] = Style { get: |e| e.color.base, set: |e, v| e.color.base = v },
-        color_tip: [f32; 3] = Style { get: |e| e.color.tip, set: |e, v| e.color.tip = v },
+        color_base: [f32; 3] = Style {
+            get: |e| e.color.base,
+            set: |e, v| e.color.base = v,
+            scalars {
+                color_base_r: { get: |e| e.color.base[0], set: |e, v| e.color.base[0] = v },
+                color_base_g: { get: |e| e.color.base[1], set: |e, v| e.color.base[1] = v },
+                color_base_b: { get: |e| e.color.base[2], set: |e, v| e.color.base[2] = v },
+            },
+            ui {
+                kind: Color,
+                label: "Base Color",
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Emission color at the flame base (used when blackbody is off)",
+            },
+        },
+        color_tip: [f32; 3] = Style {
+            get: |e| e.color.tip,
+            set: |e, v| e.color.tip = v,
+            scalars {
+                color_tip_r: { get: |e| e.color.tip[0], set: |e, v| e.color.tip[0] = v },
+                color_tip_g: { get: |e| e.color.tip[1], set: |e, v| e.color.tip[1] = v },
+                color_tip_b: { get: |e| e.color.tip[2], set: |e, v| e.color.tip[2] = v },
+            },
+            ui {
+                kind: Color,
+                label: "Tip Color",
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Emission color at the flame tip (used when blackbody is off)",
+            },
+        },
         temperature_base_k: f32 = Style {
             get: |e| e.color.temperature_base_k,
             set: |e, v| e.color.temperature_base_k = v,
+            ui {
+                min: 1000.0,
+                max: 6500.0,
+                format: "%.0f",
+                tooltip: "Blackbody temperature at the base in kelvin",
+            },
         },
         temperature_tip_k: f32 = Style {
             get: |e| e.color.temperature_tip_k,
             set: |e, v| e.color.temperature_tip_k = v,
+            ui {
+                min: 1000.0,
+                max: 6500.0,
+                format: "%.0f",
+                tooltip: "Blackbody temperature at the tip in kelvin",
+            },
         },
         use_blackbody: bool = Style {
             get: |e| e.color.use_blackbody,
             set: |e, v| e.color.use_blackbody = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.0f",
+                tooltip: "Derive the base/tip colors from the blackbody temperatures",
+            },
         },
         noise_amplitude: f32 = Style {
             get: |e| e.noise.amplitude,
@@ -608,11 +658,12 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), len);
         for param in FLAME_UI_PARAMS {
-            assert!(
-                find_scalar_param(FLAME_SCALAR_PARAMS, param.name).is_some(),
-                "{}",
-                param.name
-            );
+            for accessor_name in param.scalar_accessor_names() {
+                assert!(
+                    find_scalar_param(FLAME_SCALAR_PARAMS, &accessor_name).is_some(),
+                    "{accessor_name}"
+                );
+            }
             assert!(param.min < param.max, "{}", param.name);
         }
     }
