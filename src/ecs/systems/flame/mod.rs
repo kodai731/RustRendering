@@ -1,5 +1,6 @@
 mod attach;
 mod history_accumulate;
+mod passes;
 mod pick;
 mod preset;
 mod spawn;
@@ -11,6 +12,7 @@ mod trail;
 
 pub use attach::*;
 pub use history_accumulate::*;
+pub use passes::*;
 pub use pick::*;
 pub use preset::*;
 pub use spawn::*;

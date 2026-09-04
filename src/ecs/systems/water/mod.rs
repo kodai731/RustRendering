@@ -1,5 +1,6 @@
 mod debug_dump;
 mod history_accumulate;
+pub mod passes;
 mod pick;
 mod preset;
 pub mod probe;

@@ -3,6 +3,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use super::App;
 use crate::ecs::resource::GpuPassTimings;
+use crate::ecs::systems::water::passes::record_water_passes;
 use crate::vulkanr::context::FrameSync;
 use crate::vulkanr::renderer::deferred;
 
@@ -135,7 +136,7 @@ impl App {
                     image_index,
                     "water".to_string(),
                 );
-                deferred::record_water_passes(self, command_buffer, image_index)?;
+                record_water_passes(self, command_buffer, image_index)?;
                 self.gpu_timestamp_profiler.end_scope(
                     &self.rrdevice.device,
                     command_buffer,
@@ -148,7 +149,7 @@ impl App {
                     image_index,
                     "flame".to_string(),
                 );
-                deferred::record_flame_passes(self, command_buffer, image_index)?;
+                crate::ecs::systems::record_flame_passes(self, command_buffer, image_index)?;
                 self.gpu_timestamp_profiler.end_scope(
                     &self.rrdevice.device,
                     command_buffer,
