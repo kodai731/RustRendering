@@ -1,4 +1,5 @@
 mod clip_io;
+mod components;
 mod error;
 mod format;
 mod motion_path_format;
@@ -6,6 +7,7 @@ mod scene_io;
 mod transform_format;
 
 pub use clip_io::{load_animation_clip, save_animation_clip};
+pub use components::SceneEntity;
 pub use error::{SceneError, SceneResult};
 pub use format::{
     apply_flame_state_to_world, apply_water_state_to_world, build_debug_primitives_scene_data,

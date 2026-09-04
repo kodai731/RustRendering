@@ -2,14 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::clip_io::{load_animation_clip, save_animation_clip};
+use super::components::{scene_component_registry, SceneEntity};
 use super::error::{SceneError, SceneResult};
 use super::format::{
     apply_flame_state_to_world, apply_water_state_to_world, build_debug_primitives_scene_data,
-    build_flame_scene_data, build_water_scene_data, debug_primitive_kind_from_str,
-    AnimationClipRef, AutoExposureState, BloomState, CameraState, DebugPrimitiveSceneData,
-    DepthOfFieldState, EditorState, ExposureState, LensEffectsState, ModelReference,
-    PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata, TimelineConfig,
-    ToneMappingState, SCENE_FORMAT_VERSION,
+    debug_primitive_kind_from_str, AnimationClipRef, AutoExposureState, BloomState, CameraState,
+    DebugPrimitiveSceneData, DepthOfFieldState, EditorState, ExposureState, LensEffectsState,
+    ModelReference, PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata,
+    TimelineConfig, ToneMappingState, SCENE_FORMAT_VERSION,
 };
 use crate::animation::editable::SourceClipId;
 use crate::ecs::resource::CurveEditorState;
@@ -19,6 +19,10 @@ use crate::ecs::resource::{
     PhysicalCameraParameters, SceneState, TimelineState, ToneMapOperator, ToneMapping,
 };
 use crate::ecs::world::World;
+
+/// First scene version that stores effect state as entity components instead of dedicated fields.
+const SCENE_COMPONENT_FORMAT_VERSION: u32 = 6;
+const EFFECTS_ENTITY_NAME: &str = "effects";
 
 pub fn save_scene(scene_path: &Path, world: &World) -> SceneResult<()> {
     let collected = CollectedSceneState::from_world(world);
@@ -254,9 +258,8 @@ fn build_scene_file(
     scene.timeline = collected.timeline;
     scene.editor = collected.editor;
     scene.panel_layout = collected.panel_layout;
-    scene.flame = build_flame_scene_data(world);
-    scene.water = build_water_scene_data(world);
     scene.debug_primitives = build_debug_primitives_scene_data(world);
+    scene.entities = vec![capture_effects_entity(world)];
 
     if let Some(prev) = previous_metadata {
         scene.metadata.created_at = prev.created_at;
@@ -264,6 +267,18 @@ fn build_scene_file(
     scene.metadata.update_modified();
 
     scene
+}
+
+fn capture_effects_entity(world: &World) -> SceneEntity {
+    let components = scene_component_registry()
+        .iter()
+        .filter_map(|entry| (entry.capture)(world).map(|value| (entry.type_key.to_string(), value)))
+        .collect();
+
+    SceneEntity {
+        name: EFFECTS_ENTITY_NAME.to_string(),
+        components,
+    }
 }
 
 fn write_scene_file(scene_path: &Path, scene: &SceneFile) -> SceneResult<()> {
@@ -298,6 +313,7 @@ pub fn load_scene(scene_path: &Path) -> SceneResult<LoadedScene> {
         && scene.version != 2
         && scene.version != 3
         && scene.version != 4
+        && scene.version != 5
     {
         return Err(SceneError::VersionMismatch {
             expected: SCENE_FORMAT_VERSION,
@@ -385,15 +401,63 @@ pub fn apply_loaded_scene_to_world(
     apply_editor_state(&loaded.scene.editor, world);
     apply_rendering_params(&loaded.scene.camera, world);
     apply_panel_layout(loaded.scene.panel_layout.as_ref(), world);
-    match loaded.scene.flame {
+
+    if loaded.scene.version >= SCENE_COMPONENT_FORMAT_VERSION {
+        apply_scene_component_entities(&loaded.scene.entities, world, assets);
+    } else {
+        apply_legacy_effect_state(&loaded.scene, world, assets);
+    }
+
+    request_debug_primitives(&loaded.scene.debug_primitives, world);
+}
+
+fn apply_scene_component_entities(
+    entities: &[SceneEntity],
+    world: &mut World,
+    assets: &mut crate::asset::AssetStorage,
+) {
+    let mut applied_keys = std::collections::BTreeSet::new();
+
+    for entity in entities {
+        for (type_key, value) in &entity.components {
+            let entry = scene_component_registry()
+                .iter()
+                .find(|entry| entry.type_key == type_key);
+            match entry {
+                Some(entry) => match (entry.apply)(world, assets, value) {
+                    Ok(()) => {
+                        applied_keys.insert(entry.type_key);
+                    }
+                    Err(error) => {
+                        log_warn!("Failed to apply scene component {}: {}", type_key, error)
+                    }
+                },
+                None => log_warn!("Unknown scene component type key: {}", type_key),
+            }
+        }
+    }
+
+    if !applied_keys.contains("flame") {
+        crate::ecs::systems::despawn_flames(world);
+    }
+    if !applied_keys.contains("water_torus") {
+        crate::ecs::systems::despawn_waters(world);
+    }
+}
+
+fn apply_legacy_effect_state(
+    scene: &SceneFile,
+    world: &mut World,
+    assets: &mut crate::asset::AssetStorage,
+) {
+    match scene.flame {
         Some(ref flame) => apply_flame_state_to_world(world, assets, flame),
         None => crate::ecs::systems::despawn_flames(world),
     }
-    match loaded.scene.water {
+    match scene.water {
         Some(ref water) => apply_water_state_to_world(world, assets, water),
         None => crate::ecs::systems::despawn_waters(world),
     }
-    request_debug_primitives(&loaded.scene.debug_primitives, world);
 }
 
 /// Spawning is deferred to the app because a non-additive model load clears every entity.

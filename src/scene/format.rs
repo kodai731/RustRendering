@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-pub const SCENE_FORMAT_VERSION: u32 = 5;
+pub const SCENE_FORMAT_VERSION: u32 = 6;
 
 pub use thyllore_anim_core::editable::{AnimationClipFile, ANIMATION_FORMAT_VERSION};
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +27,8 @@ pub struct SceneFile {
     pub water: Option<WaterSceneData>,
     #[serde(default)]
     pub debug_primitives: Vec<DebugPrimitiveSceneData>,
+    #[serde(default)]
+    pub entities: Vec<crate::scene::components::SceneEntity>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +69,7 @@ impl SceneFile {
             flame: None,
             water: None,
             debug_primitives: Vec::new(),
+            entities: Vec::new(),
         }
     }
 }
