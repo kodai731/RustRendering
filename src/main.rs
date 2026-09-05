@@ -420,7 +420,7 @@ fn main() -> Result<()> {
             app.data.raytracing.flame_sdf_sampler = sampler;
 
             if let (Some(ref flame_buffer), Some(ref flame_descriptor)) = (
-                &app.data.viewport.flame_buffer,
+                &app.data.effect_targets.flame,
                 &app.data.raytracing.flame_descriptor,
             ) {
                 flame_descriptor.update_image_views(

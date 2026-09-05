@@ -143,6 +143,24 @@ impl App {
             .viewport
             .resize(&self.instance, &self.rrdevice, command_pool, width, height)?;
 
+        let hdr_view = self
+            .data
+            .viewport
+            .hdr_buffer
+            .as_ref()
+            .map(|buffer| buffer.color_image_view);
+        if let Some(hdr_view) = hdr_view {
+            self.data.effect_targets.resize(
+                &self.instance,
+                &self.rrdevice,
+                &mut self.data.viewport.render_targets,
+                command_pool,
+                width,
+                height,
+                hdr_view,
+            )?;
+        }
+
         self.resize_gbuffer(width, height)?;
         self.update_postprocessing_descriptors_on_resize()?;
 
@@ -715,7 +733,7 @@ impl App {
         let height = self.data.viewport.height;
 
         // Destroy old buffer if it exists
-        if let Some(mut old_buffer) = self.data.viewport.water_buffer.take() {
+        if let Some(mut old_buffer) = self.data.effect_targets.water.take() {
             old_buffer.destroy(&self.rrdevice.device);
         }
 
@@ -724,6 +742,7 @@ impl App {
         let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
             &self.instance,
             &self.rrdevice,
+            &mut self.data.viewport.render_targets,
             command_pool,
             width,
             height,
@@ -731,7 +750,7 @@ impl App {
             depth_view,
         )?;
         let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
-        self.data.viewport.water_buffer = Some(water_buffer);
+        self.data.effect_targets.water = Some(water_buffer);
 
         if let Some(descriptor) = &self.data.raytracing.water_descriptor {
             descriptor.update_scene_color(&self.rrdevice, scene_color_view, scene_color_sampler)?;
@@ -741,7 +760,7 @@ impl App {
             if let Some(accel) = self.data.raytracing.acceleration_structure.as_ref() {
                 if let Some(tlas) = accel.tlas.acceleration_structure {
                     if let Some(hit_table) = accel.hit_shading_table.as_ref() {
-                        if let Some(water_buffer) = self.data.viewport.water_buffer.as_ref() {
+                        if let Some(water_buffer) = self.data.effect_targets.water.as_ref() {
                             if let Some(water_ubo) = self.data.raytracing.water_ubo.as_ref() {
                                 trace_descriptor.write_all(
                                     &self.rrdevice,
@@ -767,8 +786,8 @@ impl App {
     unsafe fn update_water_caustic_descriptor(&mut self) -> Result<()> {
         let (Some(caustic_accum_view), Some(hdr_color_view)) = (
             self.data
-                .viewport
-                .water_buffer
+                .effect_targets
+                .water
                 .as_ref()
                 .map(|water_buffer| water_buffer.caustic_accum_view),
             self.data
@@ -814,7 +833,7 @@ impl App {
 
     unsafe fn recreate_flame_on_resize(&mut self) -> Result<()> {
         let (Some(ref flame_buffer), Some(ref flame_descriptor)) = (
-            &self.data.viewport.flame_buffer,
+            &self.data.effect_targets.flame,
             &self.data.raytracing.flame_descriptor,
         ) else {
             return Ok(());
@@ -1275,8 +1294,8 @@ impl App {
         let device = &self.rrdevice.device;
         let flame_buffer = self
             .data
-            .viewport
-            .flame_buffer
+            .effect_targets
+            .flame
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("flame buffer not initialized"))?;
 

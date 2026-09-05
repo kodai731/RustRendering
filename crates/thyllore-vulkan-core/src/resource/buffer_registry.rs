@@ -7,6 +7,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::command::RRCommandPool;
 use crate::core::device::RRDevice;
 use crate::resource::buffer::{copy_buffer, create_buffer};
+use crate::resource::GpuResource;
 use thyllore_model_core::mesh::{compute_vertex_layout, create_interleaved_buffer, MeshData};
 use thyllore_render_core::{BufferMemoryType, IndexBufferHandle, VertexBufferHandle};
 
@@ -501,6 +502,16 @@ impl GpuBufferRegistry {
         self.index_buffers.clear();
         self.free_vertex_slots.clear();
         self.free_index_slots.clear();
+    }
+}
+
+impl GpuResource for GpuBufferRegistry {
+    unsafe fn destroy_gpu(&mut self, rrdevice: &RRDevice) {
+        self.destroy_all(rrdevice);
+    }
+
+    fn resource_name(&self) -> &'static str {
+        "GpuBufferRegistry"
     }
 }
 

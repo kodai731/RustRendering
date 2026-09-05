@@ -4,14 +4,16 @@ use vulkanalia::prelude::v1_0::*;
 use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::image::{create_image, create_image_view};
+use crate::resource::render_target_registry::{RenderTargetKey, RenderTargetRegistry};
+
+const FLAME_HISTORY_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(0);
+const FLAME_HISTORY_PREVIOUS_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(1);
 
 pub const FLAME_HISTORY_FORMAT: vk::Format = vk::Format::R16G16B16A16_SFLOAT;
 
 #[derive(Clone, Debug, Default)]
 pub struct FlameBuffer {
     pub history_images: [vk::Image; 2],
-    pub history_image_memories: [vk::DeviceMemory; 2],
     pub history_image_views: [vk::ImageView; 2],
     pub sampler: vk::Sampler,
     pub shading_render_pass: vk::RenderPass,
@@ -24,41 +26,39 @@ impl FlameBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
+        registry: &mut RenderTargetRegistry,
         command_pool: vk::CommandPool,
         width: u32,
         height: u32,
         hdr_image_view: vk::ImageView,
     ) -> Result<Self> {
-        // Create two history images for ping-pong temporal accumulation
-        let mut history_images = [vk::Image::null(); 2];
-        let mut history_image_memories = [vk::DeviceMemory::null(); 2];
-        let mut history_image_views = [vk::ImageView::null(); 2];
-        for i in 0..2 {
-            let (img, mem) = create_image(
-                instance,
-                rrdevice,
-                width,
-                height,
-                1,
-                vk::SampleCountFlags::_1,
-                FLAME_HISTORY_FORMAT,
-                vk::ImageTiling::OPTIMAL,
-                vk::ImageUsageFlags::COLOR_ATTACHMENT
-                    | vk::ImageUsageFlags::SAMPLED
-                    | vk::ImageUsageFlags::TRANSFER_DST
-                    | vk::ImageUsageFlags::TRANSFER_SRC,
-                vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            )?;
-            history_images[i] = img;
-            history_image_memories[i] = mem;
-            history_image_views[i] = create_image_view(
-                rrdevice,
-                img,
-                FLAME_HISTORY_FORMAT,
-                vk::ImageAspectFlags::COLOR,
-                1,
-            )?;
-        }
+        registry.ensure_extent(&rrdevice.device, width, height);
+
+        let history_usage = vk::ImageUsageFlags::COLOR_ATTACHMENT
+            | vk::ImageUsageFlags::SAMPLED
+            | vk::ImageUsageFlags::TRANSFER_DST
+            | vk::ImageUsageFlags::TRANSFER_SRC;
+
+        let history = *registry.ensure(
+            instance,
+            rrdevice,
+            FLAME_HISTORY_KEY,
+            FLAME_HISTORY_FORMAT,
+            history_usage,
+            Some(Self::nearest_clamp_sampler_info()),
+        )?;
+        let previous_history = *registry.ensure(
+            instance,
+            rrdevice,
+            FLAME_HISTORY_PREVIOUS_KEY,
+            FLAME_HISTORY_FORMAT,
+            history_usage,
+            None,
+        )?;
+
+        let history_images = [history.image, previous_history.image];
+        let history_image_views = [history.view, previous_history.view];
+        let sampler = history.sampler;
 
         // Clear both history images to zero using a single-time command buffer
         let cmd = begin_single_time_commands(rrdevice, command_pool)?;
@@ -153,8 +153,6 @@ impl FlameBuffer {
                 .create_framebuffer(&shading_framebuffer_info, None)?;
         }
 
-        let sampler = Self::create_sampler(&rrdevice.device)?;
-
         log!(
             "Created flame buffer: {}x{} history format {:?}",
             width,
@@ -164,7 +162,6 @@ impl FlameBuffer {
 
         Ok(Self {
             history_images,
-            history_image_memories,
             history_image_views,
             sampler,
             shading_render_pass,
@@ -247,8 +244,8 @@ impl FlameBuffer {
         Ok(rrdevice.device.create_render_pass(&info, None)?)
     }
 
-    unsafe fn create_sampler(device: &vulkanalia::Device) -> Result<vk::Sampler> {
-        let sampler_info = vk::SamplerCreateInfo::builder()
+    fn nearest_clamp_sampler_info() -> vk::SamplerCreateInfo {
+        vk::SamplerCreateInfo::builder()
             .mag_filter(vk::Filter::NEAREST)
             .min_filter(vk::Filter::NEAREST)
             .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
@@ -261,15 +258,15 @@ impl FlameBuffer {
             .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
             .mip_lod_bias(0.0)
             .min_lod(0.0)
-            .max_lod(0.0);
-
-        Ok(device.create_sampler(&sampler_info, None)?)
+            .max_lod(0.0)
+            .build()
     }
 
     pub unsafe fn resize(
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
+        registry: &mut RenderTargetRegistry,
         command_pool: vk::CommandPool,
         new_width: u32,
         new_height: u32,
@@ -279,6 +276,7 @@ impl FlameBuffer {
         *self = Self::new(
             instance,
             rrdevice,
+            registry,
             command_pool,
             new_width,
             new_height,
@@ -290,10 +288,6 @@ impl FlameBuffer {
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.sampler != vk::Sampler::null() {
-            device.destroy_sampler(self.sampler, None);
-            self.sampler = vk::Sampler::null();
-        }
         for i in 0..2 {
             if self.shading_framebuffers[i] != vk::Framebuffer::null() {
                 device.destroy_framebuffer(self.shading_framebuffers[i], None);
@@ -305,23 +299,15 @@ impl FlameBuffer {
             self.shading_render_pass = vk::RenderPass::null();
         }
 
-        // Destroy history images (ping-pong temporal accumulation)
-        for i in 0..2 {
-            if self.history_image_views[i] != vk::ImageView::null() {
-                device.destroy_image_view(self.history_image_views[i], None);
-                self.history_image_views[i] = vk::ImageView::null();
-            }
-            if self.history_images[i] != vk::Image::null() {
-                device.destroy_image(self.history_images[i], None);
-                self.history_images[i] = vk::Image::null();
-            }
-            if self.history_image_memories[i] != vk::DeviceMemory::null() {
-                device.free_memory(self.history_image_memories[i], None);
-                self.history_image_memories[i] = vk::DeviceMemory::null();
-            }
-        }
+        self.forget_registry_handles();
 
         log!("Destroyed flame buffer");
+    }
+
+    fn forget_registry_handles(&mut self) {
+        self.history_images = [vk::Image::null(); 2];
+        self.history_image_views = [vk::ImageView::null(); 2];
+        self.sampler = vk::Sampler::null();
     }
 
     pub fn extent(&self) -> vk::Extent2D {
@@ -334,7 +320,14 @@ impl FlameBuffer {
 
 impl Drop for FlameBuffer {
     fn drop(&mut self) {
-        if self.history_images[0] != vk::Image::null() {
+        let mut has_resources = false;
+        for i in 0..2 {
+            if self.shading_framebuffers[i] != vk::Framebuffer::null() {
+                has_resources = true;
+                break;
+            }
+        }
+        if has_resources {
             log_warn!("FlameBuffer dropped without calling destroy()");
         }
     }

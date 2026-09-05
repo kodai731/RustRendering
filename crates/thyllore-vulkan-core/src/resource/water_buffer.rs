@@ -4,7 +4,10 @@ use vulkanalia::prelude::v1_0::*;
 use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::image::{create_image, create_image_view};
+use crate::resource::render_target_registry::{RenderTargetKey, RenderTargetRegistry};
+
+const WATER_HISTORY_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(2);
+const WATER_HISTORY_PREVIOUS_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(3);
 
 #[derive(Clone, Debug, Default)]
 pub struct WaterBuffer {
@@ -14,18 +17,14 @@ pub struct WaterBuffer {
     pub width: u32,
     pub height: u32,
     pub scene_color_image: vk::Image,
-    pub scene_color_image_memory: vk::DeviceMemory,
     pub scene_color_image_view: vk::ImageView,
     pub scene_color_sampler: vk::Sampler,
     pub history_images: [vk::Image; 2],
-    pub history_image_memories: [vk::DeviceMemory; 2],
     pub history_image_views: [vk::ImageView; 2],
     pub history_sampler: vk::Sampler,
     pub trace_image: vk::Image,
-    pub trace_memory: vk::DeviceMemory,
     pub trace_image_view: vk::ImageView,
     pub caustic_accum_image: vk::Image,
-    pub caustic_accum_memory: vk::DeviceMemory,
     pub caustic_accum_view: vk::ImageView,
 }
 
@@ -33,38 +32,41 @@ impl WaterBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
+        registry: &mut RenderTargetRegistry,
         command_pool: vk::CommandPool,
         width: u32,
         height: u32,
         hdr_image_view: vk::ImageView,
         depth_image_view: vk::ImageView,
     ) -> Result<Self> {
+        registry.ensure_extent(&rrdevice.device, width, height);
+
         let render_pass = Self::create_shading_render_pass(rrdevice)?;
 
-        // Create two history images for ping-pong temporal accumulation
-        let mut history_images = [vk::Image::null(); 2];
-        let mut history_image_memories = [vk::DeviceMemory::null(); 2];
-        let mut history_image_views = [vk::ImageView::null(); 2];
-        for i in 0..2 {
-            let (img, mem) = create_image(
-                instance,
-                rrdevice,
-                width,
-                height,
-                1,
-                vk::SampleCountFlags::_1,
-                HDR_FORMAT,
-                vk::ImageTiling::OPTIMAL,
-                vk::ImageUsageFlags::COLOR_ATTACHMENT
-                    | vk::ImageUsageFlags::SAMPLED
-                    | vk::ImageUsageFlags::TRANSFER_DST,
-                vk::MemoryPropertyFlags::DEVICE_LOCAL,
-            )?;
-            history_images[i] = img;
-            history_image_memories[i] = mem;
-            history_image_views[i] =
-                create_image_view(rrdevice, img, HDR_FORMAT, vk::ImageAspectFlags::COLOR, 1)?;
-        }
+        let history_usage = vk::ImageUsageFlags::COLOR_ATTACHMENT
+            | vk::ImageUsageFlags::SAMPLED
+            | vk::ImageUsageFlags::TRANSFER_DST;
+
+        let history = *registry.ensure(
+            instance,
+            rrdevice,
+            WATER_HISTORY_KEY,
+            HDR_FORMAT,
+            history_usage,
+            Some(Self::linear_clamp_sampler_info()),
+        )?;
+        let previous_history = *registry.ensure(
+            instance,
+            rrdevice,
+            WATER_HISTORY_PREVIOUS_KEY,
+            HDR_FORMAT,
+            history_usage,
+            None,
+        )?;
+
+        let history_images = [history.image, previous_history.image];
+        let history_image_views = [history.view, previous_history.view];
+        let history_sampler = history.sampler;
 
         // Create two framebuffers (one per history image)
         let mut framebuffers = [vk::Framebuffer::null(); 2];
@@ -84,74 +86,33 @@ impl WaterBuffer {
         // Keep framebuffer field for compatibility (same as framebuffers[0])
         let framebuffer = framebuffers[0];
 
-        // Create scene color image (TRANSFER_DST | SAMPLED)
-        let (scene_color_image, scene_color_image_memory) = create_image(
+        let scene_color = *registry.ensure(
             instance,
             rrdevice,
-            width,
-            height,
-            1,
-            vk::SampleCountFlags::_1,
+            RenderTargetKey::SceneColorCopy,
             HDR_FORMAT,
-            vk::ImageTiling::OPTIMAL,
             vk::ImageUsageFlags::TRANSFER_DST | vk::ImageUsageFlags::SAMPLED,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            Some(Self::linear_clamp_sampler_info()),
         )?;
 
-        let scene_color_image_view = create_image_view(
-            rrdevice,
-            scene_color_image,
-            HDR_FORMAT,
-            vk::ImageAspectFlags::COLOR,
-            1,
-        )?;
-
-        let scene_color_sampler = Self::create_scene_color_sampler(rrdevice)?;
-
-        // Create trace image (rgba16f, STORAGE | SAMPLED)
-        let (trace_image, trace_memory) = create_image(
+        let trace = *registry.ensure(
             instance,
             rrdevice,
-            width,
-            height,
-            1,
-            vk::SampleCountFlags::_1,
+            RenderTargetKey::TraceImage,
             vk::Format::R16G16B16A16_SFLOAT,
-            vk::ImageTiling::OPTIMAL,
             vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::SAMPLED,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            None,
         )?;
 
-        let trace_image_view = create_image_view(
-            rrdevice,
-            trace_image,
-            vk::Format::R16G16B16A16_SFLOAT,
-            vk::ImageAspectFlags::COLOR,
-            1,
-        )?;
-
-        // Create caustic accum image (r32uint, STORAGE | TRANSFER_DST | TRANSFER_SRC)
-        let (caustic_accum_image, caustic_accum_memory) = create_image(
+        let caustic_accum = *registry.ensure(
             instance,
             rrdevice,
-            width,
-            height,
-            1,
-            vk::SampleCountFlags::_1,
+            RenderTargetKey::CausticAccum,
             vk::Format::R32_UINT,
-            vk::ImageTiling::OPTIMAL,
             vk::ImageUsageFlags::STORAGE
                 | vk::ImageUsageFlags::TRANSFER_DST
                 | vk::ImageUsageFlags::TRANSFER_SRC,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
-
-        let caustic_accum_view = create_image_view(
-            rrdevice,
-            caustic_accum_image,
-            vk::Format::R32_UINT,
-            vk::ImageAspectFlags::COLOR,
-            1,
+            None,
         )?;
 
         // Clear both history images so the first frame samples zero in SHADER_READ_ONLY layout
@@ -218,7 +179,7 @@ impl WaterBuffer {
 
         // Transition trace image to GENERAL layout
         let barrier = vk::ImageMemoryBarrier::builder()
-            .image(trace_image)
+            .image(trace.image)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .src_access_mask(vk::AccessFlags::empty())
@@ -245,7 +206,7 @@ impl WaterBuffer {
 
         // Transition caustic accum image to GENERAL layout
         let barrier = vk::ImageMemoryBarrier::builder()
-            .image(caustic_accum_image)
+            .image(caustic_accum.image)
             .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
             .src_access_mask(vk::AccessFlags::empty())
@@ -279,20 +240,16 @@ impl WaterBuffer {
             framebuffers,
             width,
             height,
-            scene_color_image,
-            scene_color_image_memory,
-            scene_color_image_view,
-            scene_color_sampler,
+            scene_color_image: scene_color.image,
+            scene_color_image_view: scene_color.view,
+            scene_color_sampler: scene_color.sampler,
             history_images,
-            history_image_memories,
             history_image_views,
-            history_sampler: Self::create_scene_color_sampler(rrdevice)?,
-            trace_image,
-            trace_memory,
-            trace_image_view,
-            caustic_accum_image,
-            caustic_accum_memory,
-            caustic_accum_view,
+            history_sampler,
+            trace_image: trace.image,
+            trace_image_view: trace.view,
+            caustic_accum_image: caustic_accum.image,
+            caustic_accum_view: caustic_accum.view,
         })
     }
 
@@ -407,9 +364,9 @@ impl WaterBuffer {
         Ok(rrdevice.device.create_render_pass(&info, None)?)
     }
 
-    unsafe fn create_scene_color_sampler(rrdevice: &RRDevice) -> Result<vk::Sampler> {
+    fn linear_clamp_sampler_info() -> vk::SamplerCreateInfo {
         let address_mode = vk::SamplerAddressMode::CLAMP_TO_EDGE;
-        let info = vk::SamplerCreateInfo::builder()
+        vk::SamplerCreateInfo::builder()
             .mag_filter(vk::Filter::LINEAR)
             .min_filter(vk::Filter::LINEAR)
             .mipmap_mode(vk::SamplerMipmapMode::NEAREST)
@@ -418,15 +375,15 @@ impl WaterBuffer {
             .address_mode_w(address_mode)
             .border_color(vk::BorderColor::FLOAT_OPAQUE_BLACK)
             .anisotropy_enable(false)
-            .max_anisotropy(1.0);
-
-        Ok(rrdevice.device.create_sampler(&info, None)?)
+            .max_anisotropy(1.0)
+            .build()
     }
 
     pub unsafe fn resize(
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
+        registry: &mut RenderTargetRegistry,
         command_pool: vk::CommandPool,
         new_width: u32,
         new_height: u32,
@@ -434,9 +391,11 @@ impl WaterBuffer {
         depth_image_view: vk::ImageView,
     ) -> Result<()> {
         self.destroy(&rrdevice.device);
+
         *self = Self::new(
             instance,
             rrdevice,
+            registry,
             command_pool,
             new_width,
             new_height,
@@ -463,74 +422,22 @@ impl WaterBuffer {
             self.render_pass = vk::RenderPass::null();
         }
 
-        // Destroy scene color resources
-        if self.scene_color_sampler != vk::Sampler::null() {
-            device.destroy_sampler(self.scene_color_sampler, None);
-            self.scene_color_sampler = vk::Sampler::null();
-        }
-        if self.scene_color_image_view != vk::ImageView::null() {
-            device.destroy_image_view(self.scene_color_image_view, None);
-            self.scene_color_image_view = vk::ImageView::null();
-        }
-        if self.scene_color_image != vk::Image::null() {
-            device.destroy_image(self.scene_color_image, None);
-            self.scene_color_image = vk::Image::null();
-        }
-        if self.scene_color_image_memory != vk::DeviceMemory::null() {
-            device.free_memory(self.scene_color_image_memory, None);
-            self.scene_color_image_memory = vk::DeviceMemory::null();
-        }
-
-        // Destroy history resources
-        if self.history_sampler != vk::Sampler::null() {
-            device.destroy_sampler(self.history_sampler, None);
-            self.history_sampler = vk::Sampler::null();
-        }
-        for i in 0..2 {
-            if self.history_image_views[i] != vk::ImageView::null() {
-                device.destroy_image_view(self.history_image_views[i], None);
-                self.history_image_views[i] = vk::ImageView::null();
-            }
-            if self.history_images[i] != vk::Image::null() {
-                device.destroy_image(self.history_images[i], None);
-                self.history_images[i] = vk::Image::null();
-            }
-            if self.history_image_memories[i] != vk::DeviceMemory::null() {
-                device.free_memory(self.history_image_memories[i], None);
-                self.history_image_memories[i] = vk::DeviceMemory::null();
-            }
-        }
-
-        // Destroy trace image resources
-        // Destroy trace image resources
-        if self.trace_image_view != vk::ImageView::null() {
-            device.destroy_image_view(self.trace_image_view, None);
-            self.trace_image_view = vk::ImageView::null();
-        }
-        if self.trace_image != vk::Image::null() {
-            device.destroy_image(self.trace_image, None);
-            self.trace_image = vk::Image::null();
-        }
-        if self.trace_memory != vk::DeviceMemory::null() {
-            device.free_memory(self.trace_memory, None);
-            self.trace_memory = vk::DeviceMemory::null();
-        }
-
-        // Destroy caustic accum image resources
-        if self.caustic_accum_view != vk::ImageView::null() {
-            device.destroy_image_view(self.caustic_accum_view, None);
-            self.caustic_accum_view = vk::ImageView::null();
-        }
-        if self.caustic_accum_image != vk::Image::null() {
-            device.destroy_image(self.caustic_accum_image, None);
-            self.caustic_accum_image = vk::Image::null();
-        }
-        if self.caustic_accum_memory != vk::DeviceMemory::null() {
-            device.free_memory(self.caustic_accum_memory, None);
-            self.caustic_accum_memory = vk::DeviceMemory::null();
-        }
+        self.forget_registry_handles();
 
         log!("Destroyed water buffer");
+    }
+
+    fn forget_registry_handles(&mut self) {
+        self.scene_color_image = vk::Image::null();
+        self.scene_color_image_view = vk::ImageView::null();
+        self.scene_color_sampler = vk::Sampler::null();
+        self.history_images = [vk::Image::null(); 2];
+        self.history_image_views = [vk::ImageView::null(); 2];
+        self.history_sampler = vk::Sampler::null();
+        self.trace_image = vk::Image::null();
+        self.trace_image_view = vk::ImageView::null();
+        self.caustic_accum_image = vk::Image::null();
+        self.caustic_accum_view = vk::ImageView::null();
     }
 
     pub fn extent(&self) -> vk::Extent2D {

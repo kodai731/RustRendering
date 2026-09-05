@@ -1,5 +1,6 @@
 use crate::core::device::RRDevice;
 use crate::descriptor::ReflectedSetLayout;
+use crate::resource::GpuResource;
 use crate::vulkan::*;
 use cgmath::{Matrix4, SquareMatrix, Vector3};
 use thyllore_render_core::ObjectUBO;
@@ -175,5 +176,15 @@ impl GraphicsResources {
             1,
             render_pass,
         )
+    }
+}
+
+impl GpuResource for GraphicsResources {
+    unsafe fn destroy_gpu(&mut self, rrdevice: &RRDevice) {
+        self.destroy(rrdevice);
+    }
+
+    fn resource_name(&self) -> &'static str {
+        "GraphicsResources"
     }
 }

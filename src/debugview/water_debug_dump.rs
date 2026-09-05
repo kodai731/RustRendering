@@ -30,8 +30,8 @@ impl App {
         let device = &self.rrdevice.device;
         let water_buffer = self
             .data
-            .viewport
-            .water_buffer
+            .effect_targets
+            .water
             .as_ref()
             .ok_or_else(|| anyhow::anyhow!("water buffer not initialized"))?;
 
@@ -120,6 +120,7 @@ impl App {
 
         let swapchain_extent = self.resource::<SwapchainState>().swapchain.swapchain_extent;
         let viewport = &self.data.viewport;
+        let effect_targets = &self.data.effect_targets;
         let acceleration = self.data.raytracing.acceleration_structure.as_ref();
 
         WaterDebugRenderInfo {
@@ -128,7 +129,7 @@ impl App {
             api_version: format_vulkan_version(properties.api_version),
             swapchain_size: [swapchain_extent.width, swapchain_extent.height],
             hdr_buffer_size: viewport.hdr_buffer.as_ref().map(|b| [b.width, b.height]),
-            water_buffer_size: viewport.water_buffer.as_ref().map(|b| [b.width, b.height]),
+            water_buffer_size: effect_targets.water.as_ref().map(|b| [b.width, b.height]),
             mesh_count: self.data.graphics_resources.meshes.len(),
             mesh_blas_count: acceleration.map(|a| a.blas_list.len()).unwrap_or(0),
             procedural_blas_count: acceleration.map(|a| a.procedural_blas.len()).unwrap_or(0),
