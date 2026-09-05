@@ -5,12 +5,13 @@ use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::descriptor::{imgui_layout_spec, shader_bindings, ReflectedSetLayout};
 use crate::vulkanr::resource::{
     AutoExposureBuffers, BloomChain, DofBuffer, HdrBuffer, OffscreenFramebuffer,
-    RenderTargetStorage,
+    RenderTargetStorage, RenderTargetTransient,
 };
 
 #[derive(Debug, Default)]
 pub struct ViewportState {
     pub storage: RenderTargetStorage,
+    pub transient: RenderTargetTransient,
     pub offscreen: Option<OffscreenFramebuffer>,
     pub hdr_buffer: Option<HdrBuffer>,
     pub bloom_chain: Option<BloomChain>,
@@ -66,6 +67,7 @@ impl ViewportState {
 
         Ok(Self {
             storage,
+            transient: RenderTargetTransient::new(crate::app::init::MAX_FRAMES_IN_FLIGHT),
             offscreen: Some(offscreen),
             hdr_buffer: Some(hdr_buffer),
             bloom_chain: Some(bloom_chain),
@@ -194,6 +196,7 @@ impl ViewportState {
         }
 
         self.storage.destroy_all(device);
+        self.transient.destroy_all(device);
 
         log!("Destroyed viewport state");
     }

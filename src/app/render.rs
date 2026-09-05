@@ -28,6 +28,12 @@ impl App {
             .device
             .wait_for_fences(&[current_fence], true, u64::MAX)?;
 
+        let frame_index = self.frame % crate::app::init::MAX_FRAMES_IN_FLIGHT;
+        self.data
+            .viewport
+            .transient
+            .begin_frame(&self.rrdevice.device, frame_index)?;
+
         self.update_auto_exposure();
         self.read_object_id_readback();
 

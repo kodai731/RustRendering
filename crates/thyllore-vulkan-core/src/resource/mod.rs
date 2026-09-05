@@ -16,6 +16,7 @@ pub mod onion_skin_pass;
 pub mod pipeline_storage;
 pub mod raytracing_data;
 pub mod render_target_storage;
+pub mod render_target_transient;
 pub mod uniform_buffer;
 pub mod water_buffer;
 
@@ -37,5 +38,8 @@ pub use onion_skin_pass::OnionSkinPassResources;
 pub use pipeline_storage::PipelineStorage;
 pub use raytracing_data::{RayTracingData, MAX_FLAME_INSTANCES, MAX_WATER_INSTANCES};
 pub use render_target_storage::{RenderTargetEntry, RenderTargetKey, RenderTargetStorage};
+pub use render_target_transient::{
+    RenderTargetTransient, TransientDesc, TransientHandle, TransientImage,
+};
 pub use uniform_buffer::{Placement, UniformBuffer};
 pub use water_buffer::WaterBuffer;
