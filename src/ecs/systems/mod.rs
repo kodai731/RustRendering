@@ -28,6 +28,7 @@ pub mod flame_dump_systems;
 mod frame_runner;
 mod frame_systems;
 mod gizmo_systems;
+pub mod gpu_primitive_sources;
 mod grid_systems;
 mod hierarchy_systems;
 #[cfg(feature = "ml")]

@@ -784,26 +784,9 @@ pub fn collect_water_instances(world: &World) -> Vec<(cgmath::Matrix4<f32>, f32,
 }
 
 pub fn collect_procedural_primitives(world: &World) -> Vec<GpuPrimitive<'static>> {
-    collect_water_instances(world)
+    crate::ecs::systems::gpu_primitive_sources::primitive_collectors()
         .into_iter()
-        .map(|(model, major_radius, minor_radius)| {
-            let extent = major_radius + minor_radius;
-            GpuPrimitive {
-                geometry: BlasGeometry::ProceduralAabb {
-                    aabb: vk::AabbPositionsKHR {
-                        min_x: -extent,
-                        min_y: -minor_radius,
-                        min_z: -extent,
-                        max_x: extent,
-                        max_y: minor_radius,
-                        max_z: extent,
-                    },
-                },
-                model,
-                base_color: [1.0, 1.0, 1.0, 1.0],
-                params: [1.0, major_radius, minor_radius, 0.0],
-            }
-        })
+        .flat_map(|f| f(world))
         .collect()
 }
 
