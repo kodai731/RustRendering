@@ -24,7 +24,7 @@ pub enum UiKind {
     Absorption,
 }
 
-pub const COLOR_COMPONENT_SUFFIXES: [&str; 3] = ["_r", "_g", "_b"];
+pub use thyllore_color_core::{get_rgb_channel, set_rgb_channel, RgbField, RGB_CHANNEL_SUFFIXES};
 
 /// UI-toolkit-free display metadata of one parameter, joined to the accessor table by `name`.
 pub struct UiParam {
@@ -50,7 +50,7 @@ impl UiParam {
 
     /// Scalar alias names of a `Color` / `Absorption` parameter, in r, g, b order.
     pub fn color_component_names(&self) -> [String; 3] {
-        COLOR_COMPONENT_SUFFIXES.map(|suffix| format!("{}{}", self.name, suffix))
+        RGB_CHANNEL_SUFFIXES.map(|suffix| format!("{}{}", self.name, suffix))
     }
 
     /// Every `ScalarParam` name this parameter's widget reads and writes.
@@ -132,6 +132,7 @@ macro_rules! declare_scene_format {
                     get: $alias_get:expr,
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
+                $(, scalars: $channels:ident)?
                 $(, ui {
                     $( kind: $ui_kind:ident, )?
                     $( label: $ui_label:expr, )?
@@ -181,6 +182,7 @@ macro_rules! declare_scene_format {
                         get: $alias_get,
                         set: $alias_set,
                     } ),+ })?
+                    $(, scalars: $channels)?
                     $(, ui {
                         $( kind: $ui_kind, )?
                         $( label: $ui_label, )?
@@ -224,6 +226,7 @@ macro_rules! declare_scene_format {
                     get: $alias_get:expr,
                     set: $alias_set:expr $(,)?
                 } ),+ $(,)? })?
+                $(, scalars: $channels:ident)?
                 $(, ui {
                     $( kind: $ui_kind:ident, )?
                     $( label: $ui_label:expr, )?
@@ -319,6 +322,7 @@ macro_rules! declare_scene_format {
                 $(
                     ($name, $ty, $get, $set)
                     $( $( ($alias, f32, $alias_get, $alias_set) )+ )?
+                    $( ($name, $channels, $get, $set) )?
                 )+
                 $( ($runtime_name, $runtime_ty, $runtime_get, $runtime_set) )*
             ], []);
@@ -457,11 +461,35 @@ macro_rules! declare_scene_format {
         ])
     };
     (@scalars $component:ty,
+        [ ($name:ident, rgb, $get:expr, $set:expr) $($rest:tt)* ],
+        [ $($acc:tt)* ]
+    ) => {
+        $crate::declare_scene_format!(@scalars $component, [ $($rest)* ], [ $($acc)*
+            $crate::declare_scene_format!(@rgb_channel $component, $name, $get, $set, 0, "_r"),
+            $crate::declare_scene_format!(@rgb_channel $component, $name, $get, $set, 1, "_g"),
+            $crate::declare_scene_format!(@rgb_channel $component, $name, $get, $set, 2, "_b"),
+        ])
+    };
+    (@scalars $component:ty,
         [ ($name:ident, $other:tt, $get:expr, $set:expr) $($rest:tt)* ],
         [ $($acc:tt)* ]
     ) => {
         $crate::declare_scene_format!(@scalars $component, [ $($rest)* ], [ $($acc)* ])
     };
+    (@rgb_channel $component:ty, $name:ident, $get:expr, $set:expr,
+        $channel:literal, $suffix:literal
+    ) => {{
+        struct Field;
+        impl $crate::RgbField<$component> for Field {
+            const GET: fn(&$component) -> [f32; 3] = $get;
+            const SET: fn(&mut $component, [f32; 3]) = $set;
+        }
+        $crate::ScalarParam {
+            name: concat!(stringify!($name), $suffix),
+            get: $crate::get_rgb_channel::<$component, Field, $channel>,
+            set: $crate::set_rgb_channel::<$component, Field, $channel>,
+        }
+    }};
 }
 
 #[cfg(test)]

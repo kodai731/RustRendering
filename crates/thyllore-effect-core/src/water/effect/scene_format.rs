@@ -53,20 +53,7 @@ declare_scene_format! {
         absorption: [f32; 3] = Frame {
             get: |e| e.absorption,
             set: |e, v| e.absorption = v,
-            scalars {
-                absorption_r: {
-                    get: |e| e.absorption[0],
-                    set: |e, v| e.absorption[0] = v,
-                },
-                absorption_g: {
-                    get: |e| e.absorption[1],
-                    set: |e, v| e.absorption[1] = v,
-                },
-                absorption_b: {
-                    get: |e| e.absorption[2],
-                    set: |e, v| e.absorption[2] = v,
-                },
-            },
+            scalars: rgb,
             ui {
                 kind: Absorption,
                 min: 0.0,
@@ -213,20 +200,7 @@ declare_scene_format! {
         tint: [f32; 3] = Frame {
             get: |e| e.tint,
             set: |e, v| e.tint = v,
-            scalars {
-                tint_r: {
-                    get: |e| e.tint[0],
-                    set: |e, v| e.tint[0] = v,
-                },
-                tint_g: {
-                    get: |e| e.tint[1],
-                    set: |e, v| e.tint[1] = v,
-                },
-                tint_b: {
-                    get: |e| e.tint[2],
-                    set: |e, v| e.tint[2] = v,
-                },
-            },
+            scalars: rgb,
             ui {
                 kind: Color,
                 min: 0.0,

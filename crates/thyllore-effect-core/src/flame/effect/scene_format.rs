@@ -47,11 +47,7 @@ declare_scene_format! {
         color_base: [f32; 3] = Style {
             get: |e| e.color.base,
             set: |e, v| e.color.base = v,
-            scalars {
-                color_base_r: { get: |e| e.color.base[0], set: |e, v| e.color.base[0] = v },
-                color_base_g: { get: |e| e.color.base[1], set: |e, v| e.color.base[1] = v },
-                color_base_b: { get: |e| e.color.base[2], set: |e, v| e.color.base[2] = v },
-            },
+            scalars: rgb,
             ui {
                 kind: Color,
                 label: "Base Color",
@@ -64,11 +60,7 @@ declare_scene_format! {
         color_tip: [f32; 3] = Style {
             get: |e| e.color.tip,
             set: |e, v| e.color.tip = v,
-            scalars {
-                color_tip_r: { get: |e| e.color.tip[0], set: |e, v| e.color.tip[0] = v },
-                color_tip_g: { get: |e| e.color.tip[1], set: |e, v| e.color.tip[1] = v },
-                color_tip_b: { get: |e| e.color.tip[2], set: |e, v| e.color.tip[2] = v },
-            },
+            scalars: rgb,
             ui {
                 kind: Color,
                 label: "Tip Color",
