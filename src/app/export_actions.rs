@@ -1,7 +1,7 @@
 use crate::app::App;
 use crate::ecs::resource::ClipLibrary;
 
-pub(super) fn handle_clip_export_fbx(app: &mut App, source_id: u64) {
+pub(crate) fn handle_clip_export_fbx(app: &mut App, source_id: u64) {
     let clip = {
         let lib = app.data.ecs_world.resource::<ClipLibrary>();
         lib.get(source_id).cloned()
@@ -67,7 +67,7 @@ pub(super) fn handle_clip_export_fbx(app: &mut App, source_id: u64) {
     }
 }
 
-pub(super) fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
+pub(crate) fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
     let clip = {
         let lib = app.data.ecs_world.resource::<ClipLibrary>();
         lib.get(source_id).cloned()
@@ -116,7 +116,7 @@ pub(super) fn handle_clip_export_gltf(app: &mut App, source_id: u64) {
     }
 }
 
-pub(super) fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
+pub(crate) fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u64) {
     let clip = {
         let lib = app.data.ecs_world.resource::<ClipLibrary>();
         lib.get(source_id).cloned()
@@ -142,7 +142,7 @@ pub(super) fn handle_clip_export_gltf_animation_only(app: &mut App, source_id: u
     }
 }
 
-pub(super) fn handle_export_model_gltf(app: &mut App) {
+pub(crate) fn handle_export_model_gltf(app: &mut App) {
     let cache = app
         .data
         .ecs_world
@@ -188,7 +188,7 @@ pub(super) fn handle_export_model_gltf(app: &mut App) {
     }
 }
 
-pub(super) fn resolve_glb_bytes(cache: &crate::ecs::resource::GltfModelCache) -> Option<Vec<u8>> {
+pub(crate) fn resolve_glb_bytes(cache: &crate::ecs::resource::GltfModelCache) -> Option<Vec<u8>> {
     if let Some(ref data) = cache.glb_data {
         return Some(data.clone());
     }
@@ -200,7 +200,7 @@ pub(super) fn resolve_glb_bytes(cache: &crate::ecs::resource::GltfModelCache) ->
     None
 }
 
-pub(super) fn extract_clip_name_from_path(path: &std::path::Path) -> String {
+pub(crate) fn extract_clip_name_from_path(path: &std::path::Path) -> String {
     let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("clip");
 
     filename

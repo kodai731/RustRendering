@@ -1151,6 +1151,7 @@ impl App {
 
     fn register_editor_resources(data: &mut AppData) {
         Self::insert_default_if_missing::<crate::ecs::UIEventQueue>(data);
+        Self::insert_default_if_missing::<crate::ecs::events::PlatformEventQueue>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::MouseInput>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::KeyboardModifiers>(data);
         Self::insert_default_if_missing::<crate::ecs::resource::CameraFlyInput>(data);

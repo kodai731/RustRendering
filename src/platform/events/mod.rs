@@ -1,6 +1,4 @@
-mod debug_dump;
-mod deferred;
-mod export;
+pub(crate) mod deferred;
 mod ui_windows;
 
 use std::time::Instant;
@@ -387,9 +385,12 @@ unsafe fn process_ui_events_and_render_frame(
     let mut all_deferred = deferred_actions;
     all_deferred.append(&mut platform_deferred);
 
-    for action in all_deferred {
-        deferred::execute_deferred_action(app, action);
-    }
+    app.data
+        .ecs_world
+        .resource_mut::<crate::ecs::events::PlatformEventQueue>()
+        .actions
+        .append(&mut all_deferred);
+    app.process_platform_events();
 
     app.spawn_pending_debug_primitives();
 
@@ -456,8 +457,8 @@ unsafe fn render_frame(
                         [1680.0, 840.0],
                     );
                 }
-                debug_dump::save_flame_history_npy_if_requested(app);
-                debug_dump::save_water_probe_if_requested(app);
+                crate::app::debug_dump_actions::save_flame_history_npy_if_requested(app);
+                crate::app::debug_dump_actions::save_water_probe_if_requested(app);
             }
         }
         app.data

@@ -4,7 +4,7 @@ use crate::app::App;
 use crate::vulkanr::context::CommandState;
 use crate::vulkanr::vulkan::*;
 
-pub(super) fn save_flame_history_npy_if_requested(app: &mut App) {
+pub(crate) fn save_flame_history_npy_if_requested(app: &mut App) {
     let batch = app
         .data
         .ecs_world
@@ -63,7 +63,7 @@ pub(super) fn save_flame_history_npy_if_requested(app: &mut App) {
     }
 }
 
-pub(super) fn save_water_probe_if_requested(app: &mut App) {
+pub(crate) fn save_water_probe_if_requested(app: &mut App) {
     let batch = app
         .data
         .ecs_world
