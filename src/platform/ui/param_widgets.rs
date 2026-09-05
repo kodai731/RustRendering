@@ -116,8 +116,8 @@ fn draw_color<C>(
     let stored = channels.map(|channel| (channel.get)(component));
     let mut picked = mapping.to_picker(stored);
     let changed = ui
-        .color_edit3_config(meta.display_label(), &mut picked)
-        .flags(ColorEditFlags::FLOAT | ColorEditFlags::NO_ALPHA)
+        .color_picker3_config(meta.display_label(), &mut picked)
+        .flags(ColorEditFlags::FLOAT | ColorEditFlags::NO_ALPHA | ColorEditFlags::NO_INPUTS)
         .build();
     show_tooltip(ui, &mapping.tooltip(meta.tooltip));
 
