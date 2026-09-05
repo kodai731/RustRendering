@@ -369,13 +369,16 @@ pub unsafe fn record_bloom(app: &App, command_buffer: vk::CommandBuffer) -> Resu
 }
 
 pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result<()> {
-    let (Some(pipeline), Some(dof_descriptor), Some(dof_buffer)) = (
+    let (Some(pipeline), Some(dof_descriptor), Some(dof_buffer), Some(dof_output)) = (
         app.data.raytracing.dof_pipeline.as_ref(),
         app.data.raytracing.dof_descriptor.as_ref(),
         app.data.viewport.dof_buffer.as_ref(),
+        app.data.post_process_targets.dof_output,
     ) else {
         return Ok(());
     };
+    app.data.viewport.transient.get(dof_output)?;
+    let dof_framebuffer = app.data.post_process_targets.dof_framebuffer;
 
     let dof_settings = app
         .data
@@ -402,6 +405,7 @@ pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result
         pipeline,
         dof_descriptor,
         dof_buffer,
+        dof_framebuffer,
         dof_ref,
         camera_ref,
         camera.near_plane,
@@ -479,6 +483,7 @@ pub unsafe fn record_auto_exposure(
         buffers,
         &ae_settings,
         delta_time,
+        frame_slot,
         command_buffer,
     )?;
 
@@ -1569,10 +1574,14 @@ pub unsafe fn record_tonemap_to_offscreen(
         extent,
         command_buffer,
     );
+    let frame_slot = app
+        .resource::<crate::vulkanr::context::FrameSync>()
+        .current_frame;
     thyllore_vulkan_core::renderer::record_tonemap_draw(
         &ctx,
         pipeline,
         descriptor,
+        frame_slot,
         tonemap_ref,
         exposure_ref,
         lens_ref,

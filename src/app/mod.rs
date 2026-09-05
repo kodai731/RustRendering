@@ -6,6 +6,7 @@ pub mod effect_render_targets;
 pub mod frame_context;
 pub mod init;
 pub mod model_loader;
+pub mod post_process_targets;
 pub mod render;
 pub mod render_context;
 pub mod scene_model;

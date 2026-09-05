@@ -51,14 +51,9 @@ impl ViewportState {
         let bloom_chain = BloomChain::new(instance, rrdevice, width, height, 5, command_pool)?;
 
         let mut storage = RenderTargetStorage::default();
-        let dof_buffer = DofBuffer::new(
-            instance,
-            rrdevice,
-            &mut storage,
-            width,
-            height,
-            command_pool,
-        )?;
+        storage.set_extent_and_reset(&rrdevice.device, width, height);
+
+        let dof_buffer = DofBuffer::new(rrdevice, width, height)?;
 
         let auto_exposure_buffers = AutoExposureBuffers::new(instance, rrdevice, width, height)?;
 
@@ -155,14 +150,7 @@ impl ViewportState {
             .set_extent_and_reset(&rrdevice.device, new_width, new_height);
 
         if let Some(ref mut dof_buffer) = self.dof_buffer {
-            dof_buffer.resize(
-                instance,
-                rrdevice,
-                &mut self.storage,
-                new_width,
-                new_height,
-                command_pool,
-            )?;
+            dof_buffer.resize(new_width, new_height);
         }
 
         self.width = new_width;

@@ -1,18 +1,12 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
-use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::render_target_storage::{RenderTargetKey, RenderTargetStorage};
-
-const DOF_OUTPUT_KEY: RenderTargetKey = RenderTargetKey::PostProcess(0);
+use crate::resource::render_target_transient::TransientDesc;
 
 #[derive(Clone, Debug, Default)]
 pub struct DofBuffer {
-    pub output_image: vk::Image,
-    pub output_image_view: vk::ImageView,
-    pub framebuffer: vk::Framebuffer,
     pub render_pass: vk::RenderPass,
     pub sampler: vk::Sampler,
     pub width: u32,
@@ -20,55 +14,37 @@ pub struct DofBuffer {
 }
 
 impl DofBuffer {
-    pub unsafe fn new(
-        instance: &Instance,
-        rrdevice: &RRDevice,
-        storage: &mut RenderTargetStorage,
-        width: u32,
-        height: u32,
-        command_pool: vk::CommandPool,
-    ) -> Result<Self> {
-        storage.ensure_extent(&rrdevice.device, width, height);
-
-        let output = *storage.ensure(
-            instance,
-            rrdevice,
-            DOF_OUTPUT_KEY,
-            HDR_FORMAT,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
-            Some(Self::linear_clamp_sampler_info()),
-        )?;
-
-        let output_image = output.image;
-        let output_image_view = output.view;
-        let sampler = output.sampler;
-
+    pub unsafe fn new(rrdevice: &RRDevice, width: u32, height: u32) -> Result<Self> {
         let render_pass = Self::create_render_pass(rrdevice)?;
 
-        let attachments = [output_image_view];
-        let framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(render_pass)
-            .attachments(&attachments)
-            .width(width)
-            .height(height)
-            .layers(1);
-        let framebuffer = rrdevice
+        let sampler = match rrdevice
             .device
-            .create_framebuffer(&framebuffer_info, None)?;
-
-        Self::transition_initial_layout(rrdevice, command_pool, output_image)?;
+            .create_sampler(&Self::linear_clamp_sampler_info(), None)
+        {
+            Ok(sampler) => sampler,
+            Err(error) => {
+                rrdevice.device.destroy_render_pass(render_pass, None);
+                return Err(error.into());
+            }
+        };
 
         log!("Created DOF buffer: {}x{}", width, height);
 
         Ok(Self {
-            output_image,
-            output_image_view,
-            framebuffer,
             render_pass,
             sampler,
             width,
             height,
         })
+    }
+
+    pub fn output_desc(&self) -> TransientDesc {
+        TransientDesc {
+            width: self.width,
+            height: self.height,
+            format: HDR_FORMAT,
+            usage: vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
+        }
     }
 
     unsafe fn create_render_pass(rrdevice: &RRDevice) -> Result<vk::RenderPass> {
@@ -141,99 +117,22 @@ impl DofBuffer {
             .build()
     }
 
-    unsafe fn transition_initial_layout(
-        rrdevice: &RRDevice,
-        command_pool: vk::CommandPool,
-        image: vk::Image,
-    ) -> Result<()> {
-        let command_buffer = begin_single_time_commands(rrdevice, command_pool)?;
-
-        let barrier = vk::ImageMemoryBarrier::builder()
-            .old_layout(vk::ImageLayout::UNDEFINED)
-            .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-            .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-            .image(image)
-            .subresource_range(vk::ImageSubresourceRange {
-                aspect_mask: vk::ImageAspectFlags::COLOR,
-                base_mip_level: 0,
-                level_count: 1,
-                base_array_layer: 0,
-                layer_count: 1,
-            })
-            .src_access_mask(vk::AccessFlags::empty())
-            .dst_access_mask(vk::AccessFlags::SHADER_READ);
-
-        rrdevice.device.cmd_pipeline_barrier(
-            command_buffer,
-            vk::PipelineStageFlags::TOP_OF_PIPE,
-            vk::PipelineStageFlags::FRAGMENT_SHADER,
-            vk::DependencyFlags::empty(),
-            &[] as &[vk::MemoryBarrier],
-            &[] as &[vk::BufferMemoryBarrier],
-            &[barrier],
-        );
-
-        end_single_time_commands(
-            rrdevice,
-            rrdevice.graphics_queue,
-            command_pool,
-            command_buffer,
-        )?;
-        Ok(())
-    }
-
-    pub unsafe fn resize(
-        &mut self,
-        instance: &Instance,
-        rrdevice: &RRDevice,
-        storage: &mut RenderTargetStorage,
-        new_width: u32,
-        new_height: u32,
-        command_pool: vk::CommandPool,
-    ) -> Result<()> {
-        if new_width == self.width && new_height == self.height {
-            return Ok(());
-        }
-
-        let render_pass = self.render_pass;
-        self.render_pass = vk::RenderPass::null();
-        self.destroy(&rrdevice.device);
-
-        let new_buf = Self::new(
-            instance,
-            rrdevice,
-            storage,
-            new_width,
-            new_height,
-            command_pool,
-        )?;
-        *self = new_buf;
-        rrdevice.device.destroy_render_pass(render_pass, None);
-
-        log!("Resized DOF buffer to: {}x{}", new_width, new_height);
-        Ok(())
+    pub fn resize(&mut self, new_width: u32, new_height: u32) {
+        self.width = new_width;
+        self.height = new_height;
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        if self.framebuffer != vk::Framebuffer::null() {
-            device.destroy_framebuffer(self.framebuffer, None);
-            self.framebuffer = vk::Framebuffer::null();
+        if self.sampler != vk::Sampler::null() {
+            device.destroy_sampler(self.sampler, None);
+            self.sampler = vk::Sampler::null();
         }
         if self.render_pass != vk::RenderPass::null() {
             device.destroy_render_pass(self.render_pass, None);
             self.render_pass = vk::RenderPass::null();
         }
 
-        self.forget_storage_handles();
-
         log!("Destroyed DOF buffer");
-    }
-
-    fn forget_storage_handles(&mut self) {
-        self.output_image = vk::Image::null();
-        self.output_image_view = vk::ImageView::null();
-        self.sampler = vk::Sampler::null();
     }
 
     pub fn extent(&self) -> vk::Extent2D {
@@ -246,8 +145,7 @@ impl DofBuffer {
 
 impl Drop for DofBuffer {
     fn drop(&mut self) {
-        if self.framebuffer != vk::Framebuffer::null() || self.render_pass != vk::RenderPass::null()
-        {
+        if self.sampler != vk::Sampler::null() || self.render_pass != vk::RenderPass::null() {
             log_warn!("DofBuffer dropped without calling destroy()");
         }
     }

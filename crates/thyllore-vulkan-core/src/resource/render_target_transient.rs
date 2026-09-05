@@ -43,6 +43,7 @@ struct PooledImage {
     view: vk::ImageView,
     generation: u64,
     last_used_frame: u64,
+    last_bucket: usize,
     state: PoolState,
 }
 
@@ -168,8 +169,19 @@ impl RenderTargetTransient {
     }
 
     fn acquire_pooled(&mut self, desc: TransientDesc) -> Option<TransientHandle> {
-        let slot = self.pool.iter().position(|entry| {
-            entry.is_some_and(|pooled| pooled.state == PoolState::Free && pooled.desc == desc)
+        let is_free_match =
+            |pooled: &PooledImage| pooled.state == PoolState::Free && pooled.desc == desc;
+        let current_bucket = self.current_bucket;
+
+        let same_bucket = self.pool.iter().position(|entry| {
+            entry.is_some_and(|pooled| {
+                is_free_match(&pooled) && pooled.last_bucket == current_bucket
+            })
+        });
+        let slot = same_bucket.or_else(|| {
+            self.pool
+                .iter()
+                .position(|entry| entry.is_some_and(|pooled| is_free_match(&pooled)))
         })?;
 
         self.mark_in_use(slot);
@@ -190,6 +202,7 @@ impl RenderTargetTransient {
             view,
             generation: self.next_generation,
             last_used_frame: self.current_frame,
+            last_bucket: self.current_bucket,
             state: PoolState::Free,
         };
         self.next_generation += 1;
@@ -215,6 +228,7 @@ impl RenderTargetTransient {
                 bucket: self.current_bucket,
             };
             pooled.last_used_frame = self.current_frame;
+            pooled.last_bucket = self.current_bucket;
         }
         self.buckets[self.current_bucket].push(slot as u32);
     }
@@ -443,6 +457,26 @@ mod tests {
         let third = acquire_null(&mut transient, hdr_desc(64, 64));
 
         assert_eq!(third.slot, first.slot);
+        assert_eq!(transient.pooled_count(), 2);
+        transient.clear_tracking();
+    }
+
+    #[test]
+    fn test_same_bucket_keeps_same_slot_in_steady_state() {
+        let mut transient = RenderTargetTransient::new(2);
+        let mut slots_by_bucket = [Vec::new(), Vec::new()];
+
+        for frame in 0..8 {
+            let bucket = frame % 2;
+            transient.advance_frame(bucket).unwrap();
+            let handle = acquire_null(&mut transient, hdr_desc(64, 64));
+            slots_by_bucket[bucket].push(handle.slot);
+        }
+
+        for slots in &slots_by_bucket {
+            assert!(slots.windows(2).all(|pair| pair[0] == pair[1]));
+        }
+        assert_ne!(slots_by_bucket[0][0], slots_by_bucket[1][0]);
         assert_eq!(transient.pooled_count(), 2);
         transient.clear_tracking();
     }

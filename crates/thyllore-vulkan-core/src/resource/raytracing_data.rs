@@ -756,8 +756,9 @@ impl RayTracingData {
         scene_buffer_size: vk::DeviceSize,
         offscreen_render_pass: vk::RenderPass,
         offscreen_extent: vk::Extent2D,
+        frames_in_flight: usize,
     ) -> Result<()> {
-        let tonemap_descriptor = RRToneMapDescriptorSet::new(rrdevice)?;
+        let tonemap_descriptor = RRToneMapDescriptorSet::new(rrdevice, frames_in_flight)?;
         tonemap_descriptor.write_all(
             rrdevice,
             hdr_image_view,
@@ -921,8 +922,10 @@ impl RayTracingData {
         histogram_buffer_size: u64,
         luminance_buffer: vk::Buffer,
         luminance_buffer_size: u64,
+        frames_in_flight: usize,
     ) -> Result<()> {
-        let histogram_descriptor = RRAutoExposureHistogramDescriptorSet::new(rrdevice)?;
+        let histogram_descriptor =
+            RRAutoExposureHistogramDescriptorSet::new(rrdevice, frames_in_flight)?;
         histogram_descriptor.update_bindings(
             rrdevice,
             hdr_image_view,

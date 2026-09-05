@@ -300,6 +300,7 @@ impl App {
             scene_buffer_size,
             offscreen_render_pass,
             offscreen_extent,
+            crate::app::init::MAX_FRAMES_IN_FLIGHT,
         )?;
 
         log!("Tonemap pipeline created successfully");
@@ -400,18 +401,6 @@ impl App {
             dof_render_pass,
         )?;
 
-        if let (Some(ref dof_buffer), Some(ref tonemap_desc)) = (
-            &data.viewport.dof_buffer,
-            &data.raytracing.tonemap_descriptor,
-        ) {
-            tonemap_desc.update_hdr_sampler(
-                rrdevice,
-                dof_buffer.output_image_view,
-                dof_buffer.sampler,
-            )?;
-            log!("Updated tonemap descriptor binding 0 to DOF output");
-        }
-
         log!("DOF pipeline created successfully");
         Ok(())
     }
@@ -451,6 +440,7 @@ impl App {
             histogram_buffer_size,
             luminance_buffer,
             luminance_buffer_size,
+            crate::app::init::MAX_FRAMES_IN_FLIGHT,
         )?;
 
         log!("AutoExposure pipelines created successfully");
@@ -458,10 +448,6 @@ impl App {
     }
 
     fn resolve_auto_exposure_input(data: &AppData) -> (vk::ImageView, vk::Sampler) {
-        if let Some(ref dof_buffer) = data.viewport.dof_buffer {
-            return (dof_buffer.output_image_view, dof_buffer.sampler);
-        }
-
         if let Some(ref hdr_buffer) = data.viewport.hdr_buffer {
             return (hdr_buffer.color_image_view, hdr_buffer.sampler);
         }
