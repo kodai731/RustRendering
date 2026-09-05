@@ -18,7 +18,7 @@ use thyllore_animation::ecs::systems::{
     apply_flame_overrides, apply_flame_style_from_path, apply_texture_fit_from_path,
     batch_anim_dump_write, batch_apply_anim_edits, batch_apply_debug_actions, batch_run_report,
     debug_actions_json, dump_flame_style_to_path, resolve_engine_cli_overrides,
-    run_sequence_analyze_from_args, BatchDebugAction, BATCH_LIST_DEBUG_ACTIONS_FLAG,
+    run_sequence_analyze_from_args, BatchAction, BATCH_LIST_DEBUG_ACTIONS_FLAG,
 };
 use thyllore_animation::platform;
 
@@ -327,17 +327,11 @@ fn main() -> Result<()> {
     }
     if !overrides.debug_actions.is_empty() {
         let batch_run_owns_dumps = app.data.ecs_world.contains_resource::<BatchRun>();
-        let filtered: Vec<_> = overrides
+        let filtered: Vec<&dyn BatchAction> = overrides
             .debug_actions
             .iter()
-            .filter(|a| {
-                !batch_run_owns_dumps
-                    || !matches!(
-                        a,
-                        BatchDebugAction::WallProbeDump | BatchDebugAction::WaterDebugDump
-                    )
-            })
-            .cloned()
+            .filter(|a| !batch_run_owns_dumps || !a.owns_dump())
+            .map(|a| a.as_ref())
             .collect();
         batch_apply_debug_actions(&app.data.ecs_world, &filtered);
     }

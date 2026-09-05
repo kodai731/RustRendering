@@ -659,11 +659,9 @@ fn debug_actions_parse_names_and_view_mode() {
         "view_mode=normal",
     ]))
     .unwrap();
-    assert_eq!(actions[0], BatchDebugAction::ResetCamera);
-    assert_eq!(
-        actions[1],
-        BatchDebugAction::ViewMode(crate::ecs::resource::DebugViewMode::Normal)
-    );
+    assert_eq!(actions[0].name(), "reset_camera");
+    assert_eq!(actions[1].name(), "view_mode");
+    assert_eq!(format!("{:?}", actions[1]), "ViewMode(Normal)");
     assert!(
         debug_actions_resolve_from_args(&args(&["bin", "--batch-debug-action", "bogus"])).is_err()
     );
@@ -740,9 +738,10 @@ fn flame_clip_preview_parses_and_rejects_invalid() {
         "flame_clip_preview=3.5",
     ]))
     .unwrap();
+    assert_eq!(actions[0].name(), "flame_clip_preview");
     assert_eq!(
-        actions[0],
-        BatchDebugAction::FlameClipPreview { end_seconds: 3.5 }
+        format!("{:?}", actions[0]),
+        "FlameClipPreview { end_seconds: 3.5 }"
     );
     for bad in ["flame_clip_preview=abc", "flame_clip_preview=-1"] {
         assert!(
@@ -768,7 +767,7 @@ fn flame_clip_preview_sets_drag_preview_without_touching_instance() {
 
     batch_apply_debug_actions(
         &world,
-        &[BatchDebugAction::FlameClipPreview { end_seconds: 3.0 }],
+        &[&flame_args::FlameClipPreview { end_seconds: 3.0 } as &dyn BatchAction],
     );
 
     let preview = world
@@ -809,8 +808,8 @@ fn debug_actions_apply_sets_view_mode_and_queues_events() {
     batch_apply_debug_actions(
         &world,
         &[
-            BatchDebugAction::ViewMode(crate::ecs::resource::DebugViewMode::Normal),
-            BatchDebugAction::ResetCamera,
+            &ViewMode(crate::ecs::resource::DebugViewMode::Normal) as &dyn BatchAction,
+            &ResetCamera,
         ],
     );
     assert_eq!(
@@ -856,7 +855,7 @@ fn water_debug_dump_action_still_queues_its_event_outside_a_batch_run() {
     let mut world = World::new();
     world.insert_resource(UIEventQueue::new());
 
-    batch_apply_debug_actions(&world, &[BatchDebugAction::WaterDebugDump]);
+    batch_apply_debug_actions(&world, &[&WaterDebugDump as &dyn BatchAction]);
 
     let events: Vec<UIEvent> = world.resource_mut::<UIEventQueue>().drain().collect();
     assert!(matches!(events[0], UIEvent::DumpWaterDebug));

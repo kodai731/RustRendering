@@ -4,9 +4,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{bail, Context, Result};
 use serde_json::json;
 
-use crate::ecs::component::FlameEffect;
+use crate::ecs::component::{ClipSchedule, FlameBaked, FlameEffect};
+use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::FlameShadingMode;
 use crate::ecs::world::World;
+
+use super::batch_action::BatchAction;
 
 use super::{
     BATCH_FLAME_BONE_FLAG, BATCH_FLAME_COUNT_FLAG, BATCH_FLAME_DEBUG_VIEW_FLAG,
@@ -748,4 +751,215 @@ pub(super) fn parse_texture_fit_args(rest: &str) -> Result<(String, f32, bool)> 
     };
 
     Ok((path, blend, profile))
+}
+
+#[derive(Debug)]
+pub struct AddFlame;
+
+#[derive(Debug)]
+pub struct OpenFlameCurves;
+
+#[derive(Debug)]
+pub struct FlameClipPreview {
+    pub end_seconds: f32,
+}
+
+#[derive(Debug)]
+pub struct TimelineSelectFlameClip;
+
+#[derive(Debug)]
+pub struct ApplyTextureFit {
+    pub path: String,
+    pub blend: f32,
+    pub profile: bool,
+}
+
+#[derive(Debug)]
+pub struct ApplyTextureFitRoundtrip {
+    pub path: String,
+    pub blend: f32,
+    pub profile: bool,
+}
+
+impl BatchAction for AddFlame {
+    fn name(&self) -> &'static str {
+        "add_flame"
+    }
+    fn apply(&self, world: &World) {
+        world.resource_mut::<UIEventQueue>().send(UIEvent::AddFlame);
+    }
+}
+
+impl BatchAction for OpenFlameCurves {
+    fn name(&self) -> &'static str {
+        "open_flame_curves"
+    }
+    fn apply(&self, world: &World) {
+        world
+            .resource_mut::<UIEventQueue>()
+            .send(UIEvent::OpenScalarCurveEditor);
+    }
+}
+
+impl BatchAction for FlameClipPreview {
+    fn name(&self) -> &'static str {
+        "flame_clip_preview"
+    }
+    fn apply(&self, world: &World) {
+        super::debug_actions::apply_flame_clip_preview(world, self.end_seconds);
+    }
+}
+
+impl BatchAction for TimelineSelectFlameClip {
+    fn name(&self) -> &'static str {
+        "timeline_select_flame_clip"
+    }
+    fn apply(&self, world: &World) {
+        let clip_id = world.query_flames().first().and_then(|&flame| {
+            crate::ecs::systems::scalar_clip_systems::find_entity_clip_id(world, flame)
+        });
+        if let Some(clip_id) = clip_id {
+            world
+                .resource_mut::<UIEventQueue>()
+                .send(UIEvent::TimelineSelectClip(clip_id));
+        }
+    }
+}
+
+fn apply_texture_fit_effect(world: &World, path: &str, blend: f32, profile: bool) {
+    let original = world.query_flames().first().and_then(|&flame| {
+        let effect = world.get_component::<FlameEffect>(flame)?.clone();
+        let baked = world
+            .get_component::<crate::ecs::component::FlameBaked>(flame)
+            .cloned()
+            .unwrap_or_default();
+        Some((effect, baked))
+    });
+    if let Some((mut copy, mut baked)) = original {
+        apply_texture_fit_from_path(
+            &mut copy,
+            &mut baked,
+            path,
+            blend,
+            thyllore_effect_core::TextureFitGroups::default(),
+            profile,
+            "debug_action",
+        );
+        world
+            .resource_mut::<UIEventQueue>()
+            .send(UIEvent::UpdateFlameEffect(Box::new(copy)));
+        world
+            .resource_mut::<UIEventQueue>()
+            .send(UIEvent::UpdateFlameBaked(Box::new(baked)));
+    }
+}
+
+impl BatchAction for ApplyTextureFit {
+    fn name(&self) -> &'static str {
+        "apply_texture_fit"
+    }
+    fn apply(&self, world: &World) {
+        apply_texture_fit_effect(world, &self.path, self.blend, self.profile);
+    }
+}
+
+impl BatchAction for ApplyTextureFitRoundtrip {
+    fn name(&self) -> &'static str {
+        "apply_texture_fit_roundtrip"
+    }
+    fn apply(&self, world: &World) {
+        let original = world.query_flames().first().and_then(|&flame| {
+            let effect = world.get_component::<FlameEffect>(flame)?.clone();
+            let baked = world
+                .get_component::<crate::ecs::component::FlameBaked>(flame)
+                .cloned()
+                .unwrap_or_default();
+            Some((effect, baked))
+        });
+        if let Some((original_effect, original_baked)) = original {
+            apply_texture_fit_effect(world, &self.path, self.blend, self.profile);
+            world
+                .resource_mut::<UIEventQueue>()
+                .send(UIEvent::UpdateFlameEffect(Box::new(original_effect)));
+            world
+                .resource_mut::<UIEventQueue>()
+                .send(UIEvent::UpdateFlameBaked(Box::new(original_baked)));
+        }
+    }
+}
+
+fn parse_clip_preview_seconds(text: &str) -> Result<f32> {
+    let end_seconds: f32 = text
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid flame_clip_preview seconds '{text}'"))?;
+    if !end_seconds.is_finite() || end_seconds < 0.0 {
+        bail!("flame_clip_preview seconds must be >= 0 and finite: '{text}'");
+    }
+    Ok(end_seconds)
+}
+
+fn parse_flame_clip_preview(s: &str) -> Option<Result<Box<dyn BatchAction>>> {
+    let seconds_str = s.strip_prefix("flame_clip_preview=")?.trim();
+    Some(
+        parse_clip_preview_seconds(seconds_str)
+            .map(|end_seconds| Box::new(FlameClipPreview { end_seconds }) as Box<dyn BatchAction>),
+    )
+}
+
+fn parse_apply_texture_fit(s: &str) -> Option<Result<Box<dyn BatchAction>>> {
+    let rest = s.strip_prefix("apply_texture_fit:")?;
+    Some(parse_texture_fit_args(rest).map(|(path, blend, profile)| {
+        Box::new(ApplyTextureFit {
+            path,
+            blend,
+            profile,
+        }) as Box<dyn BatchAction>
+    }))
+}
+
+fn parse_apply_texture_fit_roundtrip(s: &str) -> Option<Result<Box<dyn BatchAction>>> {
+    let rest = s.strip_prefix("apply_texture_fit_roundtrip:")?;
+    Some(parse_texture_fit_args(rest).map(|(path, blend, profile)| {
+        Box::new(ApplyTextureFitRoundtrip {
+            path,
+            blend,
+            profile,
+        }) as Box<dyn BatchAction>
+    }))
+}
+
+pub fn flame_action_descriptors() -> Vec<super::batch_action::BatchActionDescriptor> {
+    use super::batch_action::BatchActionDescriptor;
+    vec![
+        BatchActionDescriptor {
+            name: "add_flame",
+            parse: |s| (s == "add_flame").then(|| Ok(Box::new(AddFlame) as Box<dyn BatchAction>)),
+        },
+        BatchActionDescriptor {
+            name: "open_flame_curves",
+            parse: |s| {
+                (s == "open_flame_curves")
+                    .then(|| Ok(Box::new(OpenFlameCurves) as Box<dyn BatchAction>))
+            },
+        },
+        BatchActionDescriptor {
+            name: "flame_clip_preview",
+            parse: parse_flame_clip_preview,
+        },
+        BatchActionDescriptor {
+            name: "timeline_select_flame_clip",
+            parse: |s| {
+                (s == "timeline_select_flame_clip")
+                    .then(|| Ok(Box::new(TimelineSelectFlameClip) as Box<dyn BatchAction>))
+            },
+        },
+        BatchActionDescriptor {
+            name: "apply_texture_fit",
+            parse: parse_apply_texture_fit,
+        },
+        BatchActionDescriptor {
+            name: "apply_texture_fit_roundtrip",
+            parse: parse_apply_texture_fit_roundtrip,
+        },
+    ]
 }

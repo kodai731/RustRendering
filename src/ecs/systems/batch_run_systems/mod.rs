@@ -16,12 +16,14 @@ use crate::ecs::events::{UIEvent, UIEventQueue};
 use crate::ecs::resource::{ClipLibrary, DebugViewState, TimelineState};
 
 mod anim_edits;
+mod batch_action;
 mod debug_actions;
 mod flame_args;
 mod sequence_analyze;
 mod water_args;
 
 pub use anim_edits::*;
+pub use batch_action::*;
 pub use debug_actions::*;
 #[cfg(test)]
 use flame_args::flame_set_valid_keys;
@@ -35,7 +37,7 @@ use flame_args::{
     flame_bone_resolve_from_args, flame_motion_resolve_from_args, flame_orbit_resolve_from_args,
     flame_preset_resolve_from_args, flame_sdf_resolve_from_args, flame_set_resolve_from_args,
     flame_style_resolve_from_args, flame_texture_fit_resolve_from_args,
-    flame_trail_resolve_from_args, heat_plume_resolve_from_args, parse_texture_fit_args,
+    flame_trail_resolve_from_args, heat_plume_resolve_from_args,
 };
 pub use sequence_analyze::*;
 pub use water_args::*;
@@ -115,7 +117,7 @@ pub struct EngineCliOverrides {
     pub scene_path: Option<String>,
     pub anim_edits: Vec<BatchAnimEdit>,
     pub anim_dump_path: Option<String>,
-    pub debug_actions: Vec<BatchDebugAction>,
+    pub debug_actions: Vec<Box<dyn BatchAction>>,
     pub wall_probe_path: Option<String>,
     pub water_probe_path: Option<String>,
 }
@@ -602,25 +604,6 @@ pub fn batch_run_report(batch: &BatchRun) -> (bool, String) {
         ),
     }
 }
-
-pub const DEBUG_ACTION_NAMES: &[&str] = &[
-    "reset_camera",
-    "reset_camera_up",
-    "camera_to_model",
-    "add_flame",
-    "open_flame_curves",
-    "view_mode=<final|position|normal|shadow_mask|ndotl|light_direction|view_depth|object_id|selection_view|selection_ubo>",
-    "black_background (clear the HDR viewport to black and hide the grid and light gizmo, for reference-footage comparison)",
-    "flame_clip_preview=<end_seconds> (draw the first flame's clip block as a mid-drag TrimEnd preview, without committing)",
-    "timeline_select_flame_clip (enqueue TimelineSelectClip for the flame clip — the double-click path — to check it leaves the flame schedule's trim intact)",
-    "dump_wall_probe (write camera pose + wall-regime ray diagnostics to log/flame/)",
-    "dump_water_debug (write water parameters, UBO, camera and a screenshot to log/water/)",
-    "apply_texture_fit:<path>,<blend>,<profile|statistics> (clone FlameEffect, apply texture fit from path, send UpdateFlameEffect)",
-    "apply_texture_fit_roundtrip:<path>,<blend>,<profile|statistics> (same as apply_texture_fit, then restore original FlameEffect)",
-    "spawn_cube (spawn the debug cube primitive, same as the debug window Spawn Cube button)",
-    "spawn_sphere (spawn the debug sphere primitive, same as the debug window Spawn Sphere button)",
-    "spawn_floor (spawn the debug floor primitive, same as the debug window Spawn Floor button)",
-];
 
 #[cfg(test)]
 mod tests;
