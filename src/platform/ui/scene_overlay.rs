@@ -8,10 +8,7 @@ use crate::ecs::resource::{
 };
 use crate::ecs::World;
 
-use super::flame_param_groups::{
-    FLAME_BODY_PARAMS, FLAME_BRANCH_PARAMS, FLAME_FOOTER_PARAMS, FLAME_MIX_PARAMS,
-    FLAME_MOTION_PARAMS, FLAME_NOISE_PARAMS,
-};
+use super::flame_param_groups::flame_group_param_names;
 use super::param_widgets::draw_scalar_params;
 use super::viewport_window::ViewportInfo;
 
@@ -1020,7 +1017,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        FLAME_BODY_PARAMS,
+                        &*flame_group_param_names("body"),
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -1036,7 +1033,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        FLAME_NOISE_PARAMS,
+                        &*flame_group_param_names("noise"),
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -1067,7 +1064,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        FLAME_MIX_PARAMS,
+                        &*flame_group_param_names("mix"),
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -1115,7 +1112,7 @@ fn build_flame_section(
 
                     draw_scalar_params(
                         ui,
-                        FLAME_MOTION_PARAMS,
+                        &*flame_group_param_names("motion"),
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -1126,7 +1123,7 @@ fn build_flame_section(
                     ui.text("Branches");
                     draw_scalar_params(
                         ui,
-                        FLAME_BRANCH_PARAMS,
+                        &*flame_group_param_names("branch"),
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
@@ -1141,7 +1138,7 @@ fn build_flame_section(
                     ui.separator();
                     draw_scalar_params(
                         ui,
-                        FLAME_FOOTER_PARAMS,
+                        &*flame_group_param_names("footer"),
                         thyllore_effect_core::FLAME_UI_PARAMS,
                         thyllore_effect_core::FLAME_SCALAR_PARAMS,
                         &mut effect_copy,
