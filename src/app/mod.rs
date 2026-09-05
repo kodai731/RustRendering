@@ -8,6 +8,7 @@ pub mod model_loader;
 pub mod render;
 pub mod render_context;
 pub mod scene_model;
+pub(crate) mod screenshot;
 pub mod update;
 pub mod util;
 pub mod viewport;
