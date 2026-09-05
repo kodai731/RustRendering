@@ -8,6 +8,7 @@ use crate::vulkan::*;
 pub enum RenderTargetKey {
     SceneColorCopy,
     EffectHistory(u8),
+    PostProcess(u8),
     TraceImage,
     CausticAccum,
 }

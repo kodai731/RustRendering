@@ -380,6 +380,24 @@ impl App {
             rrswapchain.swapchain_format,
         )
         .context("Failed to create viewport state")?;
+
+        let hdr_image_view = data
+            .viewport
+            .hdr_buffer
+            .as_ref()
+            .context("Viewport HDR buffer is missing")?
+            .color_image_view;
+        data.effect_targets = crate::app::effect_render_targets::EffectRenderTargets::new(
+            instance,
+            rrdevice,
+            &mut data.viewport.render_targets,
+            rrcommand_pool.command_pool,
+            viewport_width,
+            viewport_height,
+            hdr_image_view,
+        )
+        .context("Failed to create effect render targets")?;
+
         log!(
             "Created viewport state: {}x{} with MSAA {:?}, format {:?}",
             viewport_width,

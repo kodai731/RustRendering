@@ -130,10 +130,10 @@ impl App {
             depth_view,
         )?;
 
-        data.viewport.water_buffer = Some(water_buffer);
+        data.effect_targets.water = Some(water_buffer);
 
         let (Some(water_buffer), Some(hdr_buffer)) = (
-            data.viewport.water_buffer.as_ref(),
+            data.effect_targets.water.as_ref(),
             data.viewport.hdr_buffer.as_ref(),
         ) else {
             log!("Water buffer not available, skipping water pipeline");
@@ -159,7 +159,7 @@ impl App {
         data: &mut AppData,
         rrrender: &RRRender,
     ) -> Result<()> {
-        let flame_buffer = match data.viewport.flame_buffer {
+        let flame_buffer = match data.effect_targets.flame {
             Some(ref flame) => flame,
             None => {
                 log!("Flame buffer not available, skipping flame pipeline");
