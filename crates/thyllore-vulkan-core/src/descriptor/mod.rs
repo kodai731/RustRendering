@@ -18,6 +18,7 @@ pub mod tonemap;
 pub mod water;
 pub mod water_caustic;
 pub mod water_trace;
+pub mod wind;
 
 pub use auto_exposure::*;
 pub use billboard::*;
@@ -38,3 +39,4 @@ pub use tonemap::*;
 pub use water::RRWaterDescriptorSet;
 pub use water_caustic::*;
 pub use water_trace::*;
+pub use wind::RRWindDescriptorSet;

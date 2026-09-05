@@ -677,6 +677,7 @@ impl App {
         )?;
         self.recreate_onion_skin_on_resize()?;
         self.recreate_flame_on_resize()?;
+        self.recreate_wind_on_resize()?;
         log!("G-Buffer resized to: {}x{}", new_width, new_height);
         Ok(())
     }
@@ -809,6 +810,17 @@ impl App {
             water_ubo,
             hdr_color_view,
         )
+    }
+
+    unsafe fn recreate_wind_on_resize(&mut self) -> Result<()> {
+        let Some(ref wind_descriptor) = self.data.raytracing.wind_descriptor else {
+            return Ok(());
+        };
+        let depth_view = self
+            .resource::<RenderTargets>()
+            .render
+            .gbuffer_depth_image_view;
+        wind_descriptor.update_scene_depth(&self.rrdevice, depth_view)
     }
 
     unsafe fn recreate_flame_on_resize(&mut self) -> Result<()> {

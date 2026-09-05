@@ -101,6 +101,18 @@ impl App {
             log!("Destroyed flame uniform buffer");
         }
 
+        if let Some(mut wind_descriptor) = self.data.raytracing.wind_descriptor.take() {
+            wind_descriptor.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(wind_shading_pipeline) = self.data.raytracing.wind_shading_pipeline.take() {
+            wind_shading_pipeline.destroy(&self.rrdevice.device);
+        }
+
+        if let Some(mut wind_ubo) = self.data.raytracing.wind_ubo.take() {
+            wind_ubo.destroy(&self.rrdevice.device);
+        }
+
         if let Some(mut water_descriptor) = self.data.raytracing.water_descriptor.take() {
             water_descriptor.destroy(&self.rrdevice.device);
         }

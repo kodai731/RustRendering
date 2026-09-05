@@ -31,7 +31,7 @@ impl ScalarChannel {
 /// component stays inside the domain's own system.
 ///
 /// Each domain owns a disjoint block of `Custom` codes: flame uses 0..=15,
-/// the next domain should start at 256.
+/// water 256..=277, wind 512..=524; the next domain should start at 768.
 pub struct ScalarChannelDomain {
     /// Display name of the domain (also the name of the clip it creates).
     pub name: &'static str,
@@ -45,9 +45,10 @@ pub struct ScalarChannelDomain {
     pub local_time: fn(&World, Entity) -> Option<f32>,
 }
 
-static SCALAR_CHANNEL_DOMAINS: [&ScalarChannelDomain; 2] = [
+static SCALAR_CHANNEL_DOMAINS: [&ScalarChannelDomain; 3] = [
     &super::flame_param::FLAME_DOMAIN,
     &super::water_param::WATER_DOMAIN,
+    &super::wind_param::WIND_DOMAIN,
 ];
 
 pub fn scalar_channel_domains() -> &'static [&'static ScalarChannelDomain] {

@@ -115,6 +115,18 @@ fn main() -> Result<()> {
             .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
             .batch_fixed_time = Some(seconds);
     }
+    if let Some(mode) = overrides.wind_mode {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WindRenderSettings>()
+            .shading_mode = mode;
+    }
+    if let Some(debug_view) = overrides.wind_debug_view {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WindRenderSettings>()
+            .debug_view = debug_view;
+    }
     if overrides.water_probe_path.is_some() {
         let debug_view = overrides.water_debug_view.unwrap_or(3);
         app.data

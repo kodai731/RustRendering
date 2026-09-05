@@ -4,12 +4,12 @@ use std::path::{Path, PathBuf};
 use super::clip_io::{load_animation_clip, save_animation_clip};
 use super::error::{SceneError, SceneResult};
 use super::format::{
-    apply_flame_state_to_world, apply_water_state_to_world, build_debug_primitives_scene_data,
-    build_flame_scene_data, build_water_scene_data, debug_primitive_kind_from_str,
-    AnimationClipRef, AutoExposureState, BloomState, CameraState, DebugPrimitiveSceneData,
-    DepthOfFieldState, EditorState, ExposureState, LensEffectsState, ModelReference,
-    PanelLayoutState, PhysicalCameraState, SceneFile, SceneMetadata, TimelineConfig,
-    ToneMappingState, SCENE_FORMAT_VERSION,
+    apply_flame_state_to_world, apply_water_state_to_world, apply_wind_state_to_world,
+    build_debug_primitives_scene_data, build_flame_scene_data, build_water_scene_data,
+    build_wind_scene_data, debug_primitive_kind_from_str, AnimationClipRef, AutoExposureState,
+    BloomState, CameraState, DebugPrimitiveSceneData, DepthOfFieldState, EditorState,
+    ExposureState, LensEffectsState, ModelReference, PanelLayoutState, PhysicalCameraState,
+    SceneFile, SceneMetadata, TimelineConfig, ToneMappingState, SCENE_FORMAT_VERSION,
 };
 use crate::animation::editable::SourceClipId;
 use crate::ecs::resource::CurveEditorState;
@@ -256,6 +256,7 @@ fn build_scene_file(
     scene.panel_layout = collected.panel_layout;
     scene.flame = build_flame_scene_data(world);
     scene.water = build_water_scene_data(world);
+    scene.wind = build_wind_scene_data(world);
     scene.debug_primitives = build_debug_primitives_scene_data(world);
 
     if let Some(prev) = previous_metadata {
@@ -392,6 +393,10 @@ pub fn apply_loaded_scene_to_world(
     match loaded.scene.water {
         Some(ref water) => apply_water_state_to_world(world, assets, water),
         None => crate::ecs::systems::despawn_waters(world),
+    }
+    match loaded.scene.wind {
+        Some(ref wind) => apply_wind_state_to_world(world, assets, wind),
+        None => crate::ecs::systems::despawn_winds(world),
     }
     request_debug_primitives(&loaded.scene.debug_primitives, world);
 }

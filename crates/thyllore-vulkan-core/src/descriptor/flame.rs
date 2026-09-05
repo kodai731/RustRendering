@@ -98,7 +98,7 @@ impl RRFlameDescriptorSet {
 }
 
 // Depth formats must not be sampled with LINEAR filtering.
-unsafe fn create_scene_depth_sampler(rrdevice: &RRDevice) -> Result<vk::Sampler> {
+pub(crate) unsafe fn create_scene_depth_sampler(rrdevice: &RRDevice) -> Result<vk::Sampler> {
     let info = vk::SamplerCreateInfo::builder()
         .mag_filter(vk::Filter::NEAREST)
         .min_filter(vk::Filter::NEAREST)

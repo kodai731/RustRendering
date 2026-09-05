@@ -1,5 +1,6 @@
 use super::flame::find_flame_by_pick_ray;
 use super::water::find_water_by_pick_ray;
+use super::wind::find_wind_by_pick_ray;
 use crate::asset::AssetStorage;
 use crate::ecs::resource::CurveEditorState;
 use crate::ecs::resource::{
@@ -90,22 +91,14 @@ fn resolve_closest_pick(
         return surface_entity;
     };
 
-    // Collect flame and water candidates, pick the closest effect
-    let flame_candidate = find_flame_by_pick_ray(world, ray);
-    let water_candidate = find_water_by_pick_ray(world, ray);
-
-    let effect_candidate: Option<(Entity, f32)> = match (flame_candidate, water_candidate) {
-        (Some(f), Some(w)) => {
-            if f.1 <= w.1 {
-                Some(f)
-            } else {
-                Some(w)
-            }
-        }
-        (Some(f), None) => Some(f),
-        (None, Some(w)) => Some(w),
-        (None, None) => None,
-    };
+    let effect_candidate: Option<(Entity, f32)> = [
+        find_flame_by_pick_ray(world, ray),
+        find_water_by_pick_ray(world, ray),
+        find_wind_by_pick_ray(world, ray),
+    ]
+    .into_iter()
+    .flatten()
+    .min_by(|(_, a), (_, b)| a.total_cmp(b));
 
     let Some((effect_entity, effect_distance)) = effect_candidate else {
         return surface_entity;

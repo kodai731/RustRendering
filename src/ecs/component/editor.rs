@@ -11,6 +11,7 @@ pub enum EntityIcon {
     Billboard,
     Flame,
     Water,
+    Wind,
 }
 
 impl EntityIcon {
@@ -26,6 +27,7 @@ impl EntityIcon {
             EntityIcon::Billboard => 'B',
             EntityIcon::Flame => 'F',
             EntityIcon::Water => 'W',
+            EntityIcon::Wind => 'T',
         }
     }
 }

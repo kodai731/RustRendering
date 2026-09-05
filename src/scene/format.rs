@@ -26,6 +26,8 @@ pub struct SceneFile {
     #[serde(default)]
     pub water: Option<WaterSceneData>,
     #[serde(default)]
+    pub wind: Option<WindSceneData>,
+    #[serde(default)]
     pub debug_primitives: Vec<DebugPrimitiveSceneData>,
 }
 
@@ -66,6 +68,7 @@ impl SceneFile {
             panel_layout: None,
             flame: None,
             water: None,
+            wind: None,
             debug_primitives: Vec::new(),
         }
     }
@@ -315,6 +318,17 @@ pub struct WaterSceneData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WindSceneData {
+    pub effect: thyllore_effect_core::WindTornadoEffect,
+    #[serde(default)]
+    pub channels: Vec<FlameChannelData>,
+    #[serde(default)]
+    pub clip_min_duration: f32,
+    #[serde(default)]
+    pub preset: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FlameChannelData {
     pub param: String,
     pub keys: Vec<FlameKeyData>,
@@ -529,6 +543,69 @@ pub fn build_water_scene_data(world: &crate::ecs::world::World) -> Option<WaterS
         clip_min_duration,
         preset,
     })
+}
+
+pub fn build_wind_scene_data(world: &crate::ecs::world::World) -> Option<WindSceneData> {
+    let entities: Vec<_> = world.query_winds();
+    let entity = entities.first()?;
+    let effect = world.get_component::<crate::ecs::component::WindTornadoEffect>(*entity)?;
+
+    let preset = world
+        .get_component::<crate::ecs::component::AppliedWindPreset>(*entity)
+        .map(|applied| applied.name.clone());
+
+    Some(WindSceneData {
+        effect: effect.clone(),
+        channels: build_effect_channels_from_clip(world, *entity),
+        clip_min_duration: effect_clip_min_duration(world, *entity),
+        preset,
+    })
+}
+
+pub fn apply_wind_state_to_world(
+    world: &mut crate::ecs::world::World,
+    assets: &mut crate::asset::AssetStorage,
+    wind: &WindSceneData,
+) {
+    let entities: Vec<_> = world.query_winds();
+    let entity = match entities.first() {
+        Some(e) => *e,
+        None => crate::ecs::systems::spawn_wind_with_clip(
+            world,
+            assets,
+            crate::ecs::systems::DEFAULT_WIND_NAME,
+            crate::ecs::component::WindTornadoEffect::default(),
+        ),
+    };
+
+    if let Some(mut effect) =
+        world.get_component_mut::<crate::ecs::component::WindTornadoEffect>(entity)
+    {
+        thyllore_effect_core::overwrite_wind_persisted_fields(&mut effect, &wind.effect);
+    }
+    if let Some(ref preset_name) = wind.preset {
+        world.insert_component(
+            entity,
+            crate::ecs::component::AppliedWindPreset {
+                name: preset_name.clone(),
+            },
+        );
+    }
+    crate::ecs::systems::write_wind_transform(
+        world,
+        entity,
+        wind.effect.position,
+        wind.effect.rotation,
+    );
+
+    rebuild_effect_clip(
+        world,
+        assets,
+        entity,
+        crate::ecs::component::WIND_DOMAIN.name,
+        &wind.channels,
+        wind.clip_min_duration,
+    );
 }
 
 pub fn build_debug_primitives_scene_data(

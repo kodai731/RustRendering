@@ -62,6 +62,7 @@ pub mod transform_gizmo_systems;
 mod ui_event_systems;
 pub mod water;
 mod weight_heatmap_systems;
+pub mod wind;
 
 pub use animation::*;
 #[cfg(feature = "auto-rig")]
@@ -117,3 +118,4 @@ pub use transform_gizmo_systems::*;
 pub use ui_event_systems::*;
 pub use water::*;
 pub use weight_heatmap_systems::*;
+pub use wind::*;

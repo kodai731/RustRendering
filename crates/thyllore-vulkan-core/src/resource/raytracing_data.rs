@@ -15,10 +15,10 @@ use crate::descriptor::{
     RRAutoExposureHistogramDescriptorSet, RRBillboardDescriptorSet, RRBloomDescriptorSets,
     RRCompositeDescriptorSet, RRDofDescriptorSet, RRFlameDescriptorSet, RRRayQueryDescriptorSet,
     RRToneMapDescriptorSet, RRWaterCausticDescriptorSet, RRWaterDescriptorSet,
-    RRWaterTraceDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM, BLOOM_DOWNSAMPLE,
-    BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE, GBUFFER, ONION_SKIN_COMPOSITE, ONION_SKIN_GHOST,
-    RAY_QUERY_SHADOW, TONEMAP, WATER_CAUSTIC_APPLY, WATER_CAUSTIC_SPLAT, WATER_RESOLVE,
-    WATER_TRACE,
+    RRWaterTraceDescriptorSet, RRWindDescriptorSet, AUTO_EXPOSURE_AVERAGE, AUTO_EXPOSURE_HISTOGRAM,
+    BLOOM_DOWNSAMPLE, BLOOM_UPSAMPLE, COMPOSITE, DOF, FLAME_RESOLVE, GBUFFER, ONION_SKIN_COMPOSITE,
+    ONION_SKIN_GHOST, RAY_QUERY_SHADOW, TONEMAP, WATER_CAUSTIC_APPLY, WATER_CAUSTIC_SPLAT,
+    WATER_RESOLVE, WATER_TRACE, WIND_RESOLVE,
 };
 use crate::pipeline::{
     BlendConfig, DepthTestConfig, PipelineBuilder, PushConstantConfig, RRPipeline,
@@ -33,12 +33,13 @@ use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::resource::{
-    BloomChain, FlameBuffer, HdrBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer,
+    BloomChain, FlameBuffer, HdrBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer, WindBuffer,
 };
-use thyllore_effect_core::{FlameUBO, WaterUBO};
+use thyllore_effect_core::{FlameUBO, WaterUBO, WindUBO};
 
 pub const MAX_FLAME_INSTANCES: usize = 4;
 pub const MAX_WATER_INSTANCES: usize = 4;
+pub const MAX_WIND_INSTANCES: usize = 4;
 
 #[derive(Clone, Debug, Default)]
 pub struct RayTracingData {
@@ -88,6 +89,10 @@ pub struct RayTracingData {
     pub water_caustic_splat_pipeline: Option<RRPipeline>,
     pub water_caustic_apply_pipeline: Option<RRPipeline>,
     pub water_caustic_descriptor: Option<RRWaterCausticDescriptorSet>,
+
+    pub wind_shading_pipeline: Option<RRPipeline>,
+    pub wind_descriptor: Option<RRWindDescriptorSet>,
+    pub wind_ubo: Option<UniformBuffer<WindUBO>>,
 
     pub flame_sdf_image: vk::Image,
     pub flame_sdf_image_memory: vk::DeviceMemory,
@@ -570,6 +575,64 @@ impl RayTracingData {
         self.flame_ubo = Some(flame_ubo);
 
         log!("Created flame pipelines");
+        Ok(())
+    }
+
+    pub unsafe fn create_wind_pipeline(
+        &mut self,
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        rrrender: &RRRender,
+        graphics_resources: &GraphicsResources,
+        wind_buffer: &WindBuffer,
+        scene_depth_view: vk::ImageView,
+    ) -> Result<()> {
+        let wind_ubo = UniformBuffer::new(
+            instance,
+            rrdevice,
+            MAX_WIND_INSTANCES,
+            Placement::DeviceUpdated,
+        )?;
+        wind_ubo.write_slot(rrdevice, 0, &WindUBO::default())?;
+
+        let wind_descriptor = RRWindDescriptorSet::new(rrdevice)?;
+        wind_descriptor.write_all(rrdevice, &wind_ubo, scene_depth_view)?;
+
+        let wind_shading_pipeline = PipelineBuilder::from_pass(&WIND_RESOLVE)
+            .vertex_input(VertexInputConfig::Custom {
+                bindings: vec![],
+                attributes: vec![],
+            })
+            .topology(vk::PrimitiveTopology::TRIANGLE_LIST)
+            .no_depth_test()
+            .custom_render_pass(wind_buffer.render_pass)
+            .msaa_samples(vk::SampleCountFlags::_1)
+            .blend(BlendConfig {
+                enable: true,
+                src_color_factor: vk::BlendFactor::ONE,
+                dst_color_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                color_op: vk::BlendOp::ADD,
+                src_alpha_factor: vk::BlendFactor::ONE,
+                dst_alpha_factor: vk::BlendFactor::ONE_MINUS_SRC_ALPHA,
+                alpha_op: vk::BlendOp::ADD,
+            })
+            .push_constants(PushConstantConfig {
+                stage_flags: vk::ShaderStageFlags::FRAGMENT,
+                offset: 0,
+                size: std::mem::size_of::<crate::renderer::WindPushConstants>() as u32,
+            })
+            .dynamic_states(vec![vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR])
+            .descriptor_layouts(&[
+                &graphics_resources.frame_set.layout,
+                &wind_descriptor.layout,
+            ])
+            .build(rrdevice, rrrender, Some(wind_buffer.extent()))?;
+
+        self.wind_shading_pipeline = Some(wind_shading_pipeline);
+        self.wind_descriptor = Some(wind_descriptor);
+        self.wind_ubo = Some(wind_ubo);
+
+        log!("Created wind pipeline");
         Ok(())
     }
 

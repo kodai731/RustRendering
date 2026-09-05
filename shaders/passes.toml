@@ -38,6 +38,10 @@ sets = { 0 = "frame", 1 = "local" }
 stages = ["tonemapVertex.vert", "flameResolveFragment.frag"]
 sets = { 0 = "frame", 1 = "local" }
 
+[pass.wind_resolve]
+stages = ["tonemapVertex.vert", "windResolveFragment.frag"]
+sets = { 0 = "frame", 1 = "local" }
+
 [pass.tonemap]
 stages = ["tonemapVertex.vert", "tonemapFragment.frag"]
 sets = { 0 = "local" }

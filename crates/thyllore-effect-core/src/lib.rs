@@ -1,6 +1,7 @@
 pub mod debug;
 pub mod flame;
 pub mod water;
+pub mod wind;
 
 pub use thyllore_texture_fit_core as flame_fit;
 
@@ -12,6 +13,7 @@ pub use debug::flame_wall_probe::{
 };
 pub use flame::*;
 pub use water::*;
+pub use wind::*;
 
 pub use flame::analytic::field_manifest as flame_field_manifest;
 pub use flame::analytic::pick as flame_pick;

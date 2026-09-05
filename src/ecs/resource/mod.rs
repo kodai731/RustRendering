@@ -73,6 +73,7 @@ mod view_mode;
 mod water_history_snapshot;
 mod water_render;
 mod weight_heatmap;
+mod wind_render;
 
 pub use billboard::*;
 pub use gizmo::*;
@@ -150,3 +151,4 @@ pub use view_mode::*;
 pub use water_history_snapshot::*;
 pub use water_render::*;
 pub use weight_heatmap::*;
+pub use wind_render::*;

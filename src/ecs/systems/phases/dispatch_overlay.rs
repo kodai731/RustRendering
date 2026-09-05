@@ -1,13 +1,14 @@
-use crate::ecs::component::{FlameEffect, FlameTrail, WaterTorusEffect};
+use crate::ecs::component::{FlameEffect, FlameTrail, WaterTorusEffect, WindTornadoEffect};
 use crate::ecs::events::UIEvent;
 use crate::ecs::resource::gizmo::BoneGizmoData;
 use crate::ecs::resource::{
     AutoExposure, DepthOfField, FlameRenderSettings, GridMeshData, HierarchyState, MessageLog,
     OnionSkinningConfig, PhysicalCameraParameters, TransformGizmoState, WaterRenderSettings,
-    WeightHeatmapState,
+    WeightHeatmapState, WindRenderSettings,
 };
 use crate::ecs::systems::{
-    resolve_selected_flame, resolve_selected_water, write_flame_transform, write_water_transform,
+    resolve_selected_flame, resolve_selected_water, resolve_selected_wind, write_flame_transform,
+    write_water_transform, write_wind_transform,
 };
 use crate::ecs::world::{Animator, World};
 
@@ -197,6 +198,33 @@ pub fn dispatch_overlay_events(events: &[UIEvent], world: &mut World) {
                 let clamped = (*index as usize).min(waters.len() - 1);
                 if let Some(mut hierarchy) = world.get_resource_mut::<HierarchyState>() {
                     hierarchy.selected_entity = Some(waters[clamped]);
+                }
+            }
+            UIEvent::UpdateWindEffect(effect) => {
+                let Some(target) = resolve_selected_wind(world) else {
+                    continue;
+                };
+                write_wind_transform(world, target, effect.position, effect.rotation);
+                if let Some(current) = world.get_component_mut::<WindTornadoEffect>(target) {
+                    *current = effect.as_ref().clone();
+                }
+            }
+            UIEvent::ApplyWindPreset(name) => {
+                crate::ecs::systems::apply_wind_preset_to_selected(world, name);
+            }
+            UIEvent::UpdateWindRenderSettings(new_settings) => {
+                if let Some(mut settings) = world.get_resource_mut::<WindRenderSettings>() {
+                    *settings = *new_settings;
+                }
+            }
+            UIEvent::SelectWindInstance(index) => {
+                let winds = world.query_winds();
+                if winds.is_empty() {
+                    continue;
+                }
+                let clamped = (*index as usize).min(winds.len() - 1);
+                if let Some(mut hierarchy) = world.get_resource_mut::<HierarchyState>() {
+                    hierarchy.selected_entity = Some(winds[clamped]);
                 }
             }
             UIEvent::DumpFlameWallProbe { viewport_size } => {

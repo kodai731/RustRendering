@@ -21,6 +21,7 @@ mod text_to_mesh_dialog;
 pub(crate) mod timeline_window;
 mod viewport_window;
 mod water_param_groups;
+mod wind_param_groups;
 pub use bottom_panel::*;
 pub use clip_browser_window::*;
 pub use constraint_inspector::*;

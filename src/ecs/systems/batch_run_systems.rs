@@ -28,6 +28,8 @@ const BATCH_WATER_SECONDARY_FLAG: &str = "--batch-water-secondary";
 const BATCH_WATER_CAUSTIC_DEBUG_FLAG: &str = "--batch-water-caustic-debug";
 const BATCH_WATER_HISTORY_FLAG: &str = "--batch-water-history";
 const BATCH_WATER_TIME_FLAG: &str = "--batch-water-time";
+const BATCH_WIND_MODE_FLAG: &str = "--batch-wind-mode";
+const BATCH_WIND_DEBUG_VIEW_FLAG: &str = "--batch-wind-debug-view";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
 const BATCH_CAMERA_FLAG: &str = "--batch-camera";
 const FLAME_DUMP_FLAG: &str = "--flame-dump";
@@ -71,6 +73,8 @@ pub struct EngineCliOverrides {
     pub water_caustic_debug: Option<i32>,
     pub water_history_weight: Option<f32>,
     pub water_fixed_time: Option<f32>,
+    pub wind_mode: Option<thyllore_effect_core::WindShadingMode>,
+    pub wind_debug_view: Option<thyllore_effect_core::WindDebugView>,
     pub flame_steps: Option<u32>,
     pub camera_pose: Option<BatchCameraPose>,
     pub flame_dump_path: Option<String>,
@@ -156,6 +160,8 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         water_caustic_debug: water_caustic_debug_resolve_from_args(args)?,
         water_history_weight: water_history_weight_resolve_from_args(args)?,
         water_fixed_time: water_fixed_time_resolve_from_args(args)?,
+        wind_mode: wind_mode_resolve_from_args(args)?,
+        wind_debug_view: wind_debug_view_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
         camera_pose: camera_pose_resolve_from_args(args)?,
         flame_dump_path: flame_dump_path_resolve_from_args(args)?,
@@ -435,6 +441,38 @@ pub fn water_history_weight_resolve_from_args(args: &[String]) -> Result<Option<
         .parse()
         .map_err(|_| anyhow::anyhow!("invalid water history weight '{value}': expected float"))?;
     Ok(Some(weight))
+}
+
+pub fn wind_mode_resolve_from_args(
+    args: &[String],
+) -> Result<Option<thyllore_effect_core::WindShadingMode>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_WIND_MODE_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WIND_MODE_FLAG} requires a value: closed|reference");
+    };
+    let mode = thyllore_effect_core::WindShadingMode::parse(value)
+        .ok_or_else(|| anyhow::anyhow!("invalid wind mode '{value}': expected closed|reference"))?;
+    Ok(Some(mode))
+}
+
+pub fn wind_debug_view_resolve_from_args(
+    args: &[String],
+) -> Result<Option<thyllore_effect_core::WindDebugView>> {
+    let Some(position) = args
+        .iter()
+        .position(|arg| arg == BATCH_WIND_DEBUG_VIEW_FLAG)
+    else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WIND_DEBUG_VIEW_FLAG} requires a value: off|depth|knots");
+    };
+    let view = thyllore_effect_core::WindDebugView::parse(value).ok_or_else(|| {
+        anyhow::anyhow!("invalid wind debug view '{value}': expected off|depth|knots")
+    })?;
+    Ok(Some(view))
 }
 
 pub fn water_fixed_time_resolve_from_args(args: &[String]) -> Result<Option<f32>> {
@@ -2394,6 +2432,27 @@ mod tests {
             Some(FlameShadingMode::ReferenceRaymarch)
         );
         assert_eq!(overrides.flame_steps, Some(512));
+    }
+
+    #[test]
+    fn resolve_wind_mode_and_debug_view() {
+        let overrides = resolve_engine_cli_overrides(&args(&[
+            "bin",
+            "--batch-wind-mode",
+            "reference",
+            "--batch-wind-debug-view",
+            "depth",
+        ]))
+        .unwrap();
+        assert_eq!(
+            overrides.wind_mode,
+            Some(thyllore_effect_core::WindShadingMode::ReferenceQuadrature)
+        );
+        assert_eq!(
+            overrides.wind_debug_view,
+            Some(thyllore_effect_core::WindDebugView::OpticalDepth)
+        );
+        assert!(wind_mode_resolve_from_args(&args(&["bin", "--batch-wind-mode", "x"])).is_err());
     }
 
     #[test]

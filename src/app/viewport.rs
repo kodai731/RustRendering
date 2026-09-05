@@ -5,7 +5,7 @@ use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::descriptor::{imgui_layout_spec, shader_bindings, ReflectedSetLayout};
 use crate::vulkanr::resource::{
     AutoExposureBuffers, BloomChain, DofBuffer, FlameBuffer, HdrBuffer, OffscreenFramebuffer,
-    WaterBuffer,
+    WaterBuffer, WindBuffer,
 };
 
 #[derive(Debug, Default)]
@@ -17,6 +17,7 @@ pub struct ViewportState {
     pub auto_exposure_buffers: Option<AutoExposureBuffers>,
     pub flame_buffer: Option<FlameBuffer>,
     pub water_buffer: Option<WaterBuffer>,
+    pub wind_buffer: Option<WindBuffer>,
     pub descriptor_set_layout: ReflectedSetLayout,
     pub descriptor_set: vk::DescriptorSet,
     pub width: u32,
@@ -63,6 +64,8 @@ impl ViewportState {
             hdr_buffer.color_image_view,
         )?;
 
+        let wind_buffer = WindBuffer::new(rrdevice, width, height, hdr_buffer.color_image_view)?;
+
         let (descriptor_set_layout, descriptor_set) =
             Self::create_imgui_descriptor(rrdevice, &offscreen)?;
 
@@ -74,6 +77,7 @@ impl ViewportState {
             auto_exposure_buffers: Some(auto_exposure_buffers),
             flame_buffer: Some(flame_buffer),
             water_buffer: None,
+            wind_buffer: Some(wind_buffer),
             descriptor_set_layout,
             descriptor_set,
             width,
@@ -173,6 +177,12 @@ impl ViewportState {
             water_buffer.destroy(&rrdevice.device);
         }
 
+        if let (Some(ref mut wind_buffer), Some(ref hdr_buffer)) =
+            (&mut self.wind_buffer, &self.hdr_buffer)
+        {
+            wind_buffer.resize(rrdevice, new_width, new_height, hdr_buffer.color_image_view)?;
+        }
+
         self.width = new_width;
         self.height = new_height;
 
@@ -209,6 +219,10 @@ impl ViewportState {
 
         if let Some(ref mut water_buffer) = self.water_buffer {
             water_buffer.destroy(device);
+        }
+
+        if let Some(ref mut wind_buffer) = self.wind_buffer {
+            wind_buffer.destroy(device);
         }
 
         log!("Destroyed viewport state");

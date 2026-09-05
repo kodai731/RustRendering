@@ -472,6 +472,15 @@ impl World {
         entities
     }
 
+    pub fn query_winds(&self) -> Vec<Entity> {
+        let mut entities: Vec<Entity> = self
+            .iter_components::<crate::ecs::component::WindTornadoEffect>()
+            .map(|(e, _)| e)
+            .collect();
+        entities.sort();
+        entities
+    }
+
     pub fn query_waters(&self) -> Vec<Entity> {
         let mut entities: Vec<Entity> = self
             .iter_components::<crate::ecs::component::WaterTorusEffect>()
@@ -699,6 +708,11 @@ impl<'a> EntityBuilder<'a> {
     }
 
     pub fn with_water(self, effect: crate::ecs::component::WaterTorusEffect) -> Self {
+        self.world.insert_component(self.entity, effect);
+        self
+    }
+
+    pub fn with_wind(self, effect: crate::ecs::component::WindTornadoEffect) -> Self {
         self.world.insert_component(self.entity, effect);
         self
     }

@@ -159,6 +159,19 @@ impl App {
                     &self.rrdevice.device,
                     command_buffer,
                     image_index,
+                    "wind".to_string(),
+                );
+                crate::ecs::systems::record_wind_passes(self, command_buffer, image_index)?;
+                self.gpu_timestamp_profiler.end_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
+                );
+
+                self.gpu_timestamp_profiler.begin_scope(
+                    &self.rrdevice.device,
+                    command_buffer,
+                    image_index,
                     "bloom".to_string(),
                 );
                 deferred::record_bloom(self, command_buffer)?;

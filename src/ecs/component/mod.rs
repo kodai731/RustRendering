@@ -21,6 +21,8 @@ mod scalar_channel;
 mod spring_bone;
 mod water;
 mod water_param;
+mod wind;
+mod wind_param;
 
 pub use animation_meta::*;
 pub use clip_schedule::*;
@@ -45,3 +47,5 @@ pub use scalar_channel::*;
 pub use spring_bone::*;
 pub use water::*;
 pub use water_param::*;
+pub use wind::*;
+pub use wind_param::*;

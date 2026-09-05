@@ -23,7 +23,12 @@ pub const GPU_BLOCK_TARGETS: &[GpuBlockTarget] = &[
     GpuBlockTarget {
         block_name: "WaterUBO",
         output_path: "crates/thyllore-effect-core/src/water/gpu/components/generated.rs",
-        codegen_config: water_codegen_config,
+        codegen_config: plain_codegen_config,
+    },
+    GpuBlockTarget {
+        block_name: "WindUBO",
+        output_path: "crates/thyllore-effect-core/src/wind/gpu/components/generated.rs",
+        codegen_config: plain_codegen_config,
     },
 ];
 
@@ -64,7 +69,7 @@ fn flame_codegen_config() -> GpuBlockCodegenConfig {
     }
 }
 
-fn water_codegen_config() -> GpuBlockCodegenConfig {
+fn plain_codegen_config() -> GpuBlockCodegenConfig {
     GpuBlockCodegenConfig {
         regenerate_command: REGENERATE_GPU_BLOCKS_COMMAND.into(),
         imports: vec!["cgmath::Matrix4".into()],

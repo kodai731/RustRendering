@@ -97,6 +97,7 @@ impl App {
         Self::create_onion_skin_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
         Self::create_flame_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
         Self::create_water_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
+        Self::create_wind_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
 
         Ok(())
     }
@@ -149,6 +150,28 @@ impl App {
         )?;
 
         log!("Water pipeline created successfully");
+        Ok(())
+    }
+
+    pub(crate) unsafe fn create_wind_pipeline_with_resources(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        data: &mut AppData,
+        rrrender: &RRRender,
+    ) -> Result<()> {
+        let Some(wind_buffer) = data.viewport.wind_buffer.as_ref() else {
+            log!("Wind buffer not available, skipping wind pipeline");
+            return Ok(());
+        };
+        data.raytracing.create_wind_pipeline(
+            instance,
+            rrdevice,
+            rrrender,
+            &data.graphics_resources,
+            wind_buffer,
+            rrrender.gbuffer_depth_image_view,
+        )?;
+        log!("Wind pipeline created successfully");
         Ok(())
     }
 

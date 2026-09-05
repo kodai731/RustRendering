@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-use thyllore_effect_core::{FlameUBO, WaterUBO};
+use thyllore_effect_core::{FlameUBO, WaterUBO, WindUBO};
 use thyllore_render_core::{FrameUBO, MaterialUBO, ObjectUBO};
 use thyllore_shader_manifest::{
     gpu_blocks_source, GpuBlockTarget, GPU_BLOCK_TARGETS, REGENERATE_GPU_BLOCKS_COMMAND,
@@ -66,6 +66,7 @@ fn rust_blocks() -> Vec<RustBlock> {
         rust_block::<ObjectUBO>("ObjectUBO"),
         rust_block::<FlameUBO>("FlameUBO"),
         rust_block::<WaterUBO>("WaterUBO"),
+        rust_block::<WindUBO>("WindUBO"),
         rust_block::<SceneUniformData>("SceneData"),
         rust_block::<SelectionUBO>("SelectionData"),
         rust_block::<UniformBufferObject>("UniformBufferObject"),

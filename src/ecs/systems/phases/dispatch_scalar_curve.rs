@@ -40,6 +40,17 @@ pub fn dispatch_scalar_clip_events(
                     crate::ecs::systems::spawn_water_with_clip(world, assets, &name, effect);
                 }
             }
+            UIEvent::AddWind => {
+                let wind_count = world.query_winds().len();
+                if wind_count < thyllore_vulkan_core::resource::MAX_WIND_INSTANCES {
+                    let effect = crate::ecs::component::WindTornadoEffect {
+                        position: cgmath::Vector3::new(-2.5 * wind_count as f32, 0.0, 0.0),
+                        ..crate::ecs::component::WindTornadoEffect::default()
+                    };
+                    let name = format!("Wind {}", wind_count + 1);
+                    crate::ecs::systems::spawn_wind_with_clip(world, assets, &name, effect);
+                }
+            }
             UIEvent::InsertScalarKey {
                 property_type,
                 value,
