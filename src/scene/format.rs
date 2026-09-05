@@ -287,7 +287,7 @@ pub struct AutoExposureState {
 pub struct FlameSceneData {
     pub effect: thyllore_effect_core::FlameEffect,
     #[serde(default)]
-    pub channels: Vec<FlameChannelData>,
+    pub channels: Vec<EffectChannelData>,
     /// Authored clip length floor in seconds (0 = keyframes decide).
     #[serde(default)]
     pub clip_min_duration: f32,
@@ -309,7 +309,7 @@ pub struct FlameStyleRefData {
 pub struct WaterSceneData {
     pub effect: thyllore_effect_core::WaterTorusEffect,
     #[serde(default)]
-    pub channels: Vec<FlameChannelData>,
+    pub channels: Vec<EffectChannelData>,
     /// Authored clip length floor in seconds (0 = keyframes decide).
     #[serde(default)]
     pub clip_min_duration: f32,
@@ -318,23 +318,23 @@ pub struct WaterSceneData {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FlameChannelData {
+pub struct EffectChannelData {
     pub param: String,
-    pub keys: Vec<FlameKeyData>,
+    pub keys: Vec<EffectKeyData>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FlameKeyData {
+pub struct EffectKeyData {
     pub time: f32,
     pub value: f32,
-    #[serde(default = "default_flame_interpolation")]
+    #[serde(default = "default_effect_interpolation")]
     pub interpolation: String,
     pub in_tangent: Option<[f32; 2]>,
     pub out_tangent: Option<[f32; 2]>,
     pub weight_mode: Option<String>,
 }
 
-fn default_flame_interpolation() -> String {
+fn default_effect_interpolation() -> String {
     "Linear".to_string()
 }
 
@@ -370,14 +370,14 @@ pub fn interpolation_from_string(s: &str) -> thyllore_anim_core::Interpolation {
 
 /// Build FlameSceneData from the first flame entity's FlameEffect, with keyframe
 /// channels read from the flame's scheduled clip (scalar curves). The on-disk
-/// FlameChannelData format is unchanged, so pre-clip scenes stay compatible.
+/// EffectChannelData format is unchanged, so pre-clip scenes stay compatible.
 pub fn build_flame_scene_data(world: &crate::ecs::world::World) -> Option<FlameSceneData> {
     let entities: Vec<_> = world.query_flames();
     let entity = entities.first()?;
 
     let effect = world.get_component::<crate::ecs::component::FlameEffect>(*entity)?;
 
-    let channels: Vec<FlameChannelData> = build_effect_channels_from_clip(world, *entity);
+    let channels: Vec<EffectChannelData> = build_effect_channels_from_clip(world, *entity);
     let clip_min_duration = effect_clip_min_duration(world, *entity);
 
     let motion_path = world
@@ -416,7 +416,7 @@ fn effect_clip_min_duration(
 fn build_effect_channels_from_clip(
     world: &crate::ecs::world::World,
     entity: crate::ecs::world::Entity,
-) -> Vec<FlameChannelData> {
+) -> Vec<EffectChannelData> {
     let Some(clip_id) = crate::ecs::systems::find_entity_clip_id(world, entity) else {
         return Vec::new();
     };
@@ -432,12 +432,12 @@ fn build_effect_channels_from_clip(
         .filter_map(|curve| {
             let (_, channel) =
                 crate::ecs::component::scalar_channel_for_property(curve.property_type)?;
-            Some(FlameChannelData {
+            Some(EffectChannelData {
                 param: channel.scene_name.to_string(),
                 keys: curve
                     .keyframes
                     .iter()
-                    .map(|k| FlameKeyData {
+                    .map(|k| EffectKeyData {
                         time: k.time,
                         value: k.value,
                         interpolation: editable_interpolation_to_string(k.interpolation),
@@ -519,7 +519,7 @@ pub fn build_water_scene_data(world: &crate::ecs::world::World) -> Option<WaterS
 
     let effect = world.get_component::<crate::ecs::component::WaterTorusEffect>(*entity)?;
 
-    let channels: Vec<FlameChannelData> = build_effect_channels_from_clip(world, *entity);
+    let channels: Vec<EffectChannelData> = build_effect_channels_from_clip(world, *entity);
     let clip_min_duration = effect_clip_min_duration(world, *entity);
 
     let preset = world
@@ -616,7 +616,7 @@ fn rebuild_effect_clip(
     assets: &mut crate::asset::AssetStorage,
     entity: crate::ecs::world::Entity,
     domain_name: &str,
-    channels: &[FlameChannelData],
+    channels: &[EffectChannelData],
     clip_min_duration: f32,
 ) {
     let mut editable =
@@ -781,10 +781,10 @@ mod tests {
     fn test_flame_scene_data_serde_roundtrip() {
         let scene = FlameSceneData {
             effect: sample_flame_effect(),
-            channels: vec![FlameChannelData {
+            channels: vec![EffectChannelData {
                 param: "Height".to_string(),
                 keys: vec![
-                    FlameKeyData {
+                    EffectKeyData {
                         time: 0.0,
                         value: 1.0,
                         interpolation: "Linear".to_string(),
@@ -792,7 +792,7 @@ mod tests {
                         out_tangent: Some([0.0, 0.0]),
                         weight_mode: Some("NonWeighted".to_string()),
                     },
-                    FlameKeyData {
+                    EffectKeyData {
                         time: 2.0,
                         value: 2.0,
                         interpolation: "Linear".to_string(),
@@ -839,10 +839,10 @@ mod tests {
     fn test_flame_key_data_bezier_roundtrip() {
         let scene = FlameSceneData {
             effect: sample_flame_effect(),
-            channels: vec![FlameChannelData {
+            channels: vec![EffectChannelData {
                 param: "Height".to_string(),
                 keys: vec![
-                    FlameKeyData {
+                    EffectKeyData {
                         time: 0.0,
                         value: 1.0,
                         interpolation: "Bezier".to_string(),
@@ -850,7 +850,7 @@ mod tests {
                         out_tangent: Some([0.5, 0.3]),
                         weight_mode: Some("Weighted".to_string()),
                     },
-                    FlameKeyData {
+                    EffectKeyData {
                         time: 2.0,
                         value: 3.0,
                         interpolation: "Bezier".to_string(),

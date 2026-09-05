@@ -23,19 +23,29 @@ pub struct SceneComponentEntry {
     pub apply: fn(&mut World, &mut AssetStorage, &serde_json::Value) -> anyhow::Result<()>,
 }
 
-pub fn scene_component_registry() -> &'static [SceneComponentEntry] {
-    &[
-        SceneComponentEntry {
-            type_key: "flame",
-            capture: capture_flame_component,
-            apply: apply_flame_component,
-        },
-        SceneComponentEntry {
-            type_key: "water_torus",
-            capture: capture_water_component,
-            apply: apply_water_component,
-        },
-    ]
+macro_rules! declare_scene_components {
+    ( $( $type_key:expr => ($capture_fn:ident, $apply_fn:ident), )+ ) => {
+        pub fn scene_component_registry() -> &'static [SceneComponentEntry] {
+            &[
+                $(
+                    SceneComponentEntry {
+                        type_key: $type_key,
+                        capture: $crate::scene::components::$capture_fn,
+                        apply: $crate::scene::components::$apply_fn,
+                    },
+                )+
+            ]
+        }
+    };
+}
+
+/// Declares the scene component registry from a list of type-key to (capture, apply) pairs.
+///
+/// Adding a new effect now only requires one line in this macro:
+///   `"new_effect" => (capture_new_effect_component, apply_new_effect_component),`
+declare_scene_components! {
+    "flame" => (capture_flame_component, apply_flame_component),
+    "water_torus" => (capture_water_component, apply_water_component),
 }
 
 fn encode_component<T: Serialize>(type_key: &str, data: T) -> Option<serde_json::Value> {
