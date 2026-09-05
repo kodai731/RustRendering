@@ -22,6 +22,7 @@ pub mod debug_constraint_systems;
 pub mod debug_spring_bone_systems;
 mod ecs_world_systems;
 mod edit_history_systems;
+pub mod effect_time;
 mod field_systems;
 mod flame;
 pub mod flame_dump_systems;

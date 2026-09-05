@@ -6,6 +6,7 @@ use vulkanalia::vk::KhrRayTracingPipelineExtension;
 use crate::app::App;
 use crate::ecs::resource::HierarchyState;
 use crate::ecs::world::MeshRef;
+use crate::vulkanr::renderer::deferred::scissor::compute_bounds_scissor;
 
 pub unsafe fn record_gbuffer_pass(
     app: &App,
@@ -1358,58 +1359,12 @@ fn compute_water_scissor(
     major_radius: f32,
     minor_radius: f32,
 ) -> Option<vk::Rect2D> {
-    use crate::ecs::resource::ProjectionData;
-    const SCISSOR_MARGIN_PX: f32 = 2.0;
-
-    let Some(projection) = app.data.ecs_world.get_resource::<ProjectionData>() else {
-        return Some(full_extent_scissor(extent));
-    };
-    let view_proj = projection.proj * projection.view;
-
-    let mut min_x = f32::MAX;
-    let mut min_y = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut max_y = f32::MIN;
-    for corner in thyllore_math_core::torus_local_bounds_corners(major_radius, minor_radius) {
-        let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
-        if clip.w <= 0.0 {
-            return Some(full_extent_scissor(extent));
-        }
-        let screen_x = (clip.x / clip.w + 1.0) * 0.5 * extent.width as f32;
-        let screen_y = (clip.y / clip.w + 1.0) * 0.5 * extent.height as f32;
-        min_x = min_x.min(screen_x);
-        min_y = min_y.min(screen_y);
-        max_x = max_x.max(screen_x);
-        max_y = max_y.max(screen_y);
-    }
-
-    let min_x = (min_x - SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
-    let min_y = (min_y - SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
-    let max_x = (max_x + SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
-    let max_y = (max_y + SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
-    if max_x - min_x < 1.0 || max_y - min_y < 1.0 {
-        return None;
-    }
-
-    Some(
-        vk::Rect2D::builder()
-            .offset(vk::Offset2D {
-                x: min_x as i32,
-                y: min_y as i32,
-            })
-            .extent(vk::Extent2D {
-                width: (max_x - min_x).ceil() as u32,
-                height: (max_y - min_y).ceil() as u32,
-            })
-            .build(),
+    compute_bounds_scissor(
+        app,
+        extent,
+        model,
+        thyllore_math_core::torus_local_bounds_corners(major_radius, minor_radius),
     )
-}
-
-fn full_extent_scissor(extent: vk::Extent2D) -> vk::Rect2D {
-    vk::Rect2D::builder()
-        .offset(vk::Offset2D { x: 0, y: 0 })
-        .extent(extent)
-        .build()
 }
 
 fn compute_flame_scissor(
@@ -1421,56 +1376,17 @@ fn compute_flame_scissor(
     support_margin: f32,
     proxy_pad: thyllore_effect_core::FlameProxyPad,
 ) -> Option<vk::Rect2D> {
-    use crate::ecs::resource::ProjectionData;
-    const SCISSOR_MARGIN_PX: f32 = 2.0;
-
-    let Some(projection) = app.data.ecs_world.get_resource::<ProjectionData>() else {
-        return Some(full_extent_scissor(extent));
-    };
-    let view_proj = projection.proj * projection.view;
-
-    let mut min_x = f32::MAX;
-    let mut min_y = f32::MAX;
-    let mut max_x = f32::MIN;
-    let mut max_y = f32::MIN;
     let bounds = thyllore_effect_core::flame_local_bounds(
         bend_offset,
         support_scale,
         support_margin,
         proxy_pad,
     );
-    for corner in thyllore_effect_core::flame_local_bounds_corners(&bounds) {
-        let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
-        if clip.w <= 0.0 {
-            return Some(full_extent_scissor(extent));
-        }
-        let screen_x = (clip.x / clip.w + 1.0) * 0.5 * extent.width as f32;
-        let screen_y = (clip.y / clip.w + 1.0) * 0.5 * extent.height as f32;
-        min_x = min_x.min(screen_x);
-        min_y = min_y.min(screen_y);
-        max_x = max_x.max(screen_x);
-        max_y = max_y.max(screen_y);
-    }
-
-    let min_x = (min_x - SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
-    let min_y = (min_y - SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
-    let max_x = (max_x + SCISSOR_MARGIN_PX).clamp(0.0, extent.width as f32);
-    let max_y = (max_y + SCISSOR_MARGIN_PX).clamp(0.0, extent.height as f32);
-    if max_x - min_x < 1.0 || max_y - min_y < 1.0 {
-        return None;
-    }
-
-    Some(
-        vk::Rect2D::builder()
-            .offset(vk::Offset2D {
-                x: min_x as i32,
-                y: min_y as i32,
-            })
-            .extent(vk::Extent2D {
-                width: (max_x - min_x).ceil() as u32,
-                height: (max_y - min_y).ceil() as u32,
-            })
-            .build(),
+    compute_bounds_scissor(
+        app,
+        extent,
+        model,
+        thyllore_effect_core::flame_local_bounds_corners(&bounds),
     )
 }
 

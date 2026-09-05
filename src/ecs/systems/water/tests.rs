@@ -4,6 +4,7 @@ use crate::ecs::world::{Transform, World};
 
 use super::*;
 use crate::ecs::component::EditorDisplay;
+use crate::ecs::systems::effect_time::{resolve_effect_time, EffectTimeSources, TimelineSample};
 use crate::ecs::world::{GlobalTransform, Name};
 
 fn spawn_default_water(world: &mut World, name: &str) -> crate::ecs::world::Entity {
@@ -63,8 +64,8 @@ fn timeline_state_drives_water_time() {
     assert!((effect.time - 5.5).abs() < 1e-6);
 }
 
-fn timeline_time_sources(current_time: f32, playing: bool, delta_time: f32) -> WaterTimeSources {
-    WaterTimeSources {
+fn timeline_time_sources(current_time: f32, playing: bool, delta_time: f32) -> EffectTimeSources {
+    EffectTimeSources {
         batch_fixed_time: None,
         batch_frames_rendered: None,
         timeline: Some(TimelineSample {
@@ -92,7 +93,12 @@ fn paused_timeline_advances_water_time_by_delta_when_free_run_is_enabled() {
     });
 
     let mut effect = world.get_component_mut::<WaterTorusEffect>(entity).unwrap();
-    resolve_water_time(&mut effect, timeline_time_sources(2.0, false, 0.25));
+    resolve_effect_time(
+        &mut effect.time,
+        effect.time_scale,
+        effect.time_offset,
+        timeline_time_sources(2.0, false, 0.25),
+    );
 
     assert!((effect.time - 3.25).abs() < 1e-6, "got {}", effect.time);
 }
@@ -115,7 +121,12 @@ fn playing_timeline_drives_water_time_from_timeline_time() {
     });
 
     let mut effect = world.get_component_mut::<WaterTorusEffect>(entity).unwrap();
-    resolve_water_time(&mut effect, timeline_time_sources(2.0, true, 0.25));
+    resolve_effect_time(
+        &mut effect.time,
+        effect.time_scale,
+        effect.time_offset,
+        timeline_time_sources(2.0, true, 0.25),
+    );
 
     assert!((effect.time - 5.5).abs() < 1e-6, "got {}", effect.time);
 }
