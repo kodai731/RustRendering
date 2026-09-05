@@ -24,13 +24,13 @@ pub struct RenderTargetEntry {
 }
 
 #[derive(Debug, Default)]
-pub struct RenderTargetRegistry {
+pub struct RenderTargetStorage {
     entries: HashMap<RenderTargetKey, RenderTargetEntry>,
     width: u32,
     height: u32,
 }
 
-impl RenderTargetRegistry {
+impl RenderTargetStorage {
     pub unsafe fn ensure(
         &mut self,
         instance: &Instance,
@@ -170,11 +170,11 @@ impl RenderTargetRegistry {
     }
 }
 
-impl Drop for RenderTargetRegistry {
+impl Drop for RenderTargetStorage {
     fn drop(&mut self) {
         if self.has_leaked_targets() {
             log_warn!(
-                "RenderTargetRegistry dropped without calling destroy_all(): {} render targets leaked",
+                "RenderTargetStorage dropped without calling destroy_all(): {} render targets leaked",
                 self.active_target_count(),
             );
         }
@@ -200,8 +200,8 @@ unsafe fn destroy_entry(device: &vulkanalia::Device, entry: &RenderTargetEntry) 
 mod tests {
     use super::*;
 
-    fn insert_dummy(registry: &mut RenderTargetRegistry, key: RenderTargetKey) {
-        registry.entries.insert(
+    fn insert_dummy(storage: &mut RenderTargetStorage, key: RenderTargetKey) {
+        storage.entries.insert(
             key,
             RenderTargetEntry {
                 image: vk::Image::null(),
@@ -215,51 +215,51 @@ mod tests {
     }
 
     #[test]
-    fn test_default_registry_is_empty_and_has_no_extent() {
-        let registry = RenderTargetRegistry::default();
+    fn test_default_storage_is_empty_and_has_no_extent() {
+        let storage = RenderTargetStorage::default();
 
-        assert_eq!(registry.extent(), (0, 0));
-        assert!(!registry.has_valid_extent());
-        assert!(!registry.has_leaked_targets());
-        assert!(registry.get(RenderTargetKey::TraceImage).is_none());
+        assert_eq!(storage.extent(), (0, 0));
+        assert!(!storage.has_valid_extent());
+        assert!(!storage.has_leaked_targets());
+        assert!(storage.get(RenderTargetKey::TraceImage).is_none());
     }
 
     #[test]
     fn test_effect_history_indices_are_distinct_keys() {
-        let mut registry = RenderTargetRegistry::default();
-        insert_dummy(&mut registry, RenderTargetKey::EffectHistory(0));
-        insert_dummy(&mut registry, RenderTargetKey::EffectHistory(1));
+        let mut storage = RenderTargetStorage::default();
+        insert_dummy(&mut storage, RenderTargetKey::EffectHistory(0));
+        insert_dummy(&mut storage, RenderTargetKey::EffectHistory(1));
 
-        assert_eq!(registry.active_target_count(), 2);
-        assert!(registry.get(RenderTargetKey::EffectHistory(0)).is_some());
-        assert!(registry.get(RenderTargetKey::EffectHistory(1)).is_some());
-        assert!(registry.get(RenderTargetKey::EffectHistory(2)).is_none());
+        assert_eq!(storage.active_target_count(), 2);
+        assert!(storage.get(RenderTargetKey::EffectHistory(0)).is_some());
+        assert!(storage.get(RenderTargetKey::EffectHistory(1)).is_some());
+        assert!(storage.get(RenderTargetKey::EffectHistory(2)).is_none());
 
-        registry.clear_tracking();
+        storage.clear_tracking();
     }
 
     #[test]
     fn test_inserting_same_key_twice_keeps_single_entry() {
-        let mut registry = RenderTargetRegistry::default();
-        insert_dummy(&mut registry, RenderTargetKey::CausticAccum);
-        insert_dummy(&mut registry, RenderTargetKey::CausticAccum);
+        let mut storage = RenderTargetStorage::default();
+        insert_dummy(&mut storage, RenderTargetKey::CausticAccum);
+        insert_dummy(&mut storage, RenderTargetKey::CausticAccum);
 
-        assert_eq!(registry.active_target_count(), 1);
+        assert_eq!(storage.active_target_count(), 1);
 
-        registry.clear_tracking();
+        storage.clear_tracking();
     }
 
     #[test]
     fn test_clear_tracking_prevents_leak_report() {
-        let mut registry = RenderTargetRegistry::default();
-        insert_dummy(&mut registry, RenderTargetKey::SceneColorCopy);
-        insert_dummy(&mut registry, RenderTargetKey::TraceImage);
+        let mut storage = RenderTargetStorage::default();
+        insert_dummy(&mut storage, RenderTargetKey::SceneColorCopy);
+        insert_dummy(&mut storage, RenderTargetKey::TraceImage);
 
-        assert!(registry.has_leaked_targets());
+        assert!(storage.has_leaked_targets());
 
-        registry.clear_tracking();
+        storage.clear_tracking();
 
-        assert!(!registry.has_leaked_targets());
-        assert_eq!(registry.active_target_count(), 0);
+        assert!(!storage.has_leaked_targets());
+        assert_eq!(storage.active_target_count(), 0);
     }
 }

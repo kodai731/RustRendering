@@ -122,7 +122,7 @@ impl App {
         let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
             instance,
             rrdevice,
-            &mut data.viewport.render_targets,
+            &mut data.viewport.storage,
             data.raytracing.command_pool,
             w,
             h,

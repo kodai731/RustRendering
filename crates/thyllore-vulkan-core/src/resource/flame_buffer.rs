@@ -4,7 +4,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::render_target_registry::{RenderTargetKey, RenderTargetRegistry};
+use crate::resource::render_target_storage::{RenderTargetKey, RenderTargetStorage};
 
 const FLAME_HISTORY_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(0);
 const FLAME_HISTORY_PREVIOUS_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(1);
@@ -26,20 +26,20 @@ impl FlameBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         command_pool: vk::CommandPool,
         width: u32,
         height: u32,
         hdr_image_view: vk::ImageView,
     ) -> Result<Self> {
-        registry.ensure_extent(&rrdevice.device, width, height);
+        storage.ensure_extent(&rrdevice.device, width, height);
 
         let history_usage = vk::ImageUsageFlags::COLOR_ATTACHMENT
             | vk::ImageUsageFlags::SAMPLED
             | vk::ImageUsageFlags::TRANSFER_DST
             | vk::ImageUsageFlags::TRANSFER_SRC;
 
-        let history = *registry.ensure(
+        let history = *storage.ensure(
             instance,
             rrdevice,
             FLAME_HISTORY_KEY,
@@ -47,7 +47,7 @@ impl FlameBuffer {
             history_usage,
             Some(Self::nearest_clamp_sampler_info()),
         )?;
-        let previous_history = *registry.ensure(
+        let previous_history = *storage.ensure(
             instance,
             rrdevice,
             FLAME_HISTORY_PREVIOUS_KEY,
@@ -266,7 +266,7 @@ impl FlameBuffer {
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         command_pool: vk::CommandPool,
         new_width: u32,
         new_height: u32,
@@ -276,7 +276,7 @@ impl FlameBuffer {
         *self = Self::new(
             instance,
             rrdevice,
-            registry,
+            storage,
             command_pool,
             new_width,
             new_height,
@@ -299,12 +299,12 @@ impl FlameBuffer {
             self.shading_render_pass = vk::RenderPass::null();
         }
 
-        self.forget_registry_handles();
+        self.forget_storage_handles();
 
         log!("Destroyed flame buffer");
     }
 
-    fn forget_registry_handles(&mut self) {
+    fn forget_storage_handles(&mut self) {
         self.history_images = [vk::Image::null(); 2];
         self.history_image_views = [vk::ImageView::null(); 2];
         self.sampler = vk::Sampler::null();

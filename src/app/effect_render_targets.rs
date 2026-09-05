@@ -2,7 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::vulkanr::core::RRDevice;
-use crate::vulkanr::resource::{FlameBuffer, RenderTargetRegistry, WaterBuffer};
+use crate::vulkanr::resource::{FlameBuffer, RenderTargetStorage, WaterBuffer};
 
 #[derive(Debug, Default)]
 pub struct EffectRenderTargets {
@@ -14,7 +14,7 @@ impl EffectRenderTargets {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         command_pool: vk::CommandPool,
         width: u32,
         height: u32,
@@ -23,7 +23,7 @@ impl EffectRenderTargets {
         let flame = FlameBuffer::new(
             instance,
             rrdevice,
-            registry,
+            storage,
             command_pool,
             width,
             height,
@@ -40,7 +40,7 @@ impl EffectRenderTargets {
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         command_pool: vk::CommandPool,
         new_width: u32,
         new_height: u32,
@@ -54,7 +54,7 @@ impl EffectRenderTargets {
             flame.resize(
                 instance,
                 rrdevice,
-                registry,
+                storage,
                 command_pool,
                 new_width,
                 new_height,

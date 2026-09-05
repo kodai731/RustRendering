@@ -153,7 +153,7 @@ impl App {
             self.data.effect_targets.resize(
                 &self.instance,
                 &self.rrdevice,
-                &mut self.data.viewport.render_targets,
+                &mut self.data.viewport.storage,
                 command_pool,
                 width,
                 height,
@@ -741,7 +741,7 @@ impl App {
         let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
             &self.instance,
             &self.rrdevice,
-            &mut self.data.viewport.render_targets,
+            &mut self.data.viewport.storage,
             command_pool,
             width,
             height,

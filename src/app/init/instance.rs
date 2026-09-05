@@ -390,7 +390,7 @@ impl App {
         data.effect_targets = crate::app::effect_render_targets::EffectRenderTargets::new(
             instance,
             rrdevice,
-            &mut data.viewport.render_targets,
+            &mut data.viewport.storage,
             rrcommand_pool.command_pool,
             viewport_width,
             viewport_height,

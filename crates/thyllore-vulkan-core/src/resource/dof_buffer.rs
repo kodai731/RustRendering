@@ -4,7 +4,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::render_target_registry::{RenderTargetKey, RenderTargetRegistry};
+use crate::resource::render_target_storage::{RenderTargetKey, RenderTargetStorage};
 
 const DOF_OUTPUT_KEY: RenderTargetKey = RenderTargetKey::PostProcess(0);
 
@@ -23,14 +23,14 @@ impl DofBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         width: u32,
         height: u32,
         command_pool: vk::CommandPool,
     ) -> Result<Self> {
-        registry.ensure_extent(&rrdevice.device, width, height);
+        storage.ensure_extent(&rrdevice.device, width, height);
 
-        let output = *registry.ensure(
+        let output = *storage.ensure(
             instance,
             rrdevice,
             DOF_OUTPUT_KEY,
@@ -187,7 +187,7 @@ impl DofBuffer {
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         new_width: u32,
         new_height: u32,
         command_pool: vk::CommandPool,
@@ -203,7 +203,7 @@ impl DofBuffer {
         let new_buf = Self::new(
             instance,
             rrdevice,
-            registry,
+            storage,
             new_width,
             new_height,
             command_pool,
@@ -225,12 +225,12 @@ impl DofBuffer {
             self.render_pass = vk::RenderPass::null();
         }
 
-        self.forget_registry_handles();
+        self.forget_storage_handles();
 
         log!("Destroyed DOF buffer");
     }
 
-    fn forget_registry_handles(&mut self) {
+    fn forget_storage_handles(&mut self) {
         self.output_image = vk::Image::null();
         self.output_image_view = vk::ImageView::null();
         self.sampler = vk::Sampler::null();

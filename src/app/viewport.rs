@@ -5,12 +5,12 @@ use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::descriptor::{imgui_layout_spec, shader_bindings, ReflectedSetLayout};
 use crate::vulkanr::resource::{
     AutoExposureBuffers, BloomChain, DofBuffer, HdrBuffer, OffscreenFramebuffer,
-    RenderTargetRegistry,
+    RenderTargetStorage,
 };
 
 #[derive(Debug, Default)]
 pub struct ViewportState {
-    pub render_targets: RenderTargetRegistry,
+    pub storage: RenderTargetStorage,
     pub offscreen: Option<OffscreenFramebuffer>,
     pub hdr_buffer: Option<HdrBuffer>,
     pub bloom_chain: Option<BloomChain>,
@@ -49,11 +49,11 @@ impl ViewportState {
 
         let bloom_chain = BloomChain::new(instance, rrdevice, width, height, 5, command_pool)?;
 
-        let mut render_targets = RenderTargetRegistry::default();
+        let mut storage = RenderTargetStorage::default();
         let dof_buffer = DofBuffer::new(
             instance,
             rrdevice,
-            &mut render_targets,
+            &mut storage,
             width,
             height,
             command_pool,
@@ -65,7 +65,7 @@ impl ViewportState {
             Self::create_imgui_descriptor(rrdevice, &offscreen)?;
 
         Ok(Self {
-            render_targets,
+            storage,
             offscreen: Some(offscreen),
             hdr_buffer: Some(hdr_buffer),
             bloom_chain: Some(bloom_chain),
@@ -149,14 +149,14 @@ impl ViewportState {
             ae_buffers.resize(instance, rrdevice, new_width, new_height)?;
         }
 
-        self.render_targets
+        self.storage
             .set_extent_and_reset(&rrdevice.device, new_width, new_height);
 
         if let Some(ref mut dof_buffer) = self.dof_buffer {
             dof_buffer.resize(
                 instance,
                 rrdevice,
-                &mut self.render_targets,
+                &mut self.storage,
                 new_width,
                 new_height,
                 command_pool,
@@ -193,7 +193,7 @@ impl ViewportState {
             ae_buffers.destroy(device);
         }
 
-        self.render_targets.destroy_all(device);
+        self.storage.destroy_all(device);
 
         log!("Destroyed viewport state");
     }

@@ -4,7 +4,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::render_target_registry::{RenderTargetKey, RenderTargetRegistry};
+use crate::resource::render_target_storage::{RenderTargetKey, RenderTargetStorage};
 
 const WATER_HISTORY_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(2);
 const WATER_HISTORY_PREVIOUS_KEY: RenderTargetKey = RenderTargetKey::EffectHistory(3);
@@ -32,14 +32,14 @@ impl WaterBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         command_pool: vk::CommandPool,
         width: u32,
         height: u32,
         hdr_image_view: vk::ImageView,
         depth_image_view: vk::ImageView,
     ) -> Result<Self> {
-        registry.ensure_extent(&rrdevice.device, width, height);
+        storage.ensure_extent(&rrdevice.device, width, height);
 
         let render_pass = Self::create_shading_render_pass(rrdevice)?;
 
@@ -47,7 +47,7 @@ impl WaterBuffer {
             | vk::ImageUsageFlags::SAMPLED
             | vk::ImageUsageFlags::TRANSFER_DST;
 
-        let history = *registry.ensure(
+        let history = *storage.ensure(
             instance,
             rrdevice,
             WATER_HISTORY_KEY,
@@ -55,7 +55,7 @@ impl WaterBuffer {
             history_usage,
             Some(Self::linear_clamp_sampler_info()),
         )?;
-        let previous_history = *registry.ensure(
+        let previous_history = *storage.ensure(
             instance,
             rrdevice,
             WATER_HISTORY_PREVIOUS_KEY,
@@ -86,7 +86,7 @@ impl WaterBuffer {
         // Keep framebuffer field for compatibility (same as framebuffers[0])
         let framebuffer = framebuffers[0];
 
-        let scene_color = *registry.ensure(
+        let scene_color = *storage.ensure(
             instance,
             rrdevice,
             RenderTargetKey::SceneColorCopy,
@@ -95,7 +95,7 @@ impl WaterBuffer {
             Some(Self::linear_clamp_sampler_info()),
         )?;
 
-        let trace = *registry.ensure(
+        let trace = *storage.ensure(
             instance,
             rrdevice,
             RenderTargetKey::TraceImage,
@@ -104,7 +104,7 @@ impl WaterBuffer {
             None,
         )?;
 
-        let caustic_accum = *registry.ensure(
+        let caustic_accum = *storage.ensure(
             instance,
             rrdevice,
             RenderTargetKey::CausticAccum,
@@ -383,7 +383,7 @@ impl WaterBuffer {
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
-        registry: &mut RenderTargetRegistry,
+        storage: &mut RenderTargetStorage,
         command_pool: vk::CommandPool,
         new_width: u32,
         new_height: u32,
@@ -395,7 +395,7 @@ impl WaterBuffer {
         *self = Self::new(
             instance,
             rrdevice,
-            registry,
+            storage,
             command_pool,
             new_width,
             new_height,
@@ -422,12 +422,12 @@ impl WaterBuffer {
             self.render_pass = vk::RenderPass::null();
         }
 
-        self.forget_registry_handles();
+        self.forget_storage_handles();
 
         log!("Destroyed water buffer");
     }
 
-    fn forget_registry_handles(&mut self) {
+    fn forget_storage_handles(&mut self) {
         self.scene_color_image = vk::Image::null();
         self.scene_color_image_view = vk::ImageView::null();
         self.scene_color_sampler = vk::Sampler::null();
