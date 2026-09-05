@@ -800,23 +800,11 @@ impl RayTracingData {
         &mut self,
         rrdevice: &RRDevice,
         rrrender: &RRRender,
-        hdr_image_view: vk::ImageView,
         bloom_chain: &BloomChain,
+        frames_in_flight: usize,
     ) -> Result<()> {
-        let bloom_descriptors = RRBloomDescriptorSets::new(rrdevice, bloom_chain.mip_levels.len())?;
-
-        let mip_views: Vec<vk::ImageView> = bloom_chain
-            .mip_levels
-            .iter()
-            .map(|m| m.image_view)
-            .collect();
-
-        bloom_descriptors.update_image_views(
-            rrdevice,
-            hdr_image_view,
-            &mip_views,
-            bloom_chain.sampler,
-        )?;
+        let bloom_descriptors =
+            RRBloomDescriptorSets::new(rrdevice, bloom_chain.mip_count(), frames_in_flight)?;
 
         let downsample_pipeline = PipelineBuilder::from_pass(&BLOOM_DOWNSAMPLE)
             .vertex_input(VertexInputConfig::Custom {
@@ -863,7 +851,7 @@ impl RayTracingData {
         self.bloom_descriptors = Some(bloom_descriptors);
         log!(
             "Created bloom pipelines with {} mip levels",
-            bloom_chain.mip_levels.len()
+            bloom_chain.mip_count()
         );
 
         Ok(())

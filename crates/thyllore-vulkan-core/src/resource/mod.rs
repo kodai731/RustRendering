@@ -21,7 +21,7 @@ pub mod uniform_buffer;
 pub mod water_buffer;
 
 pub use auto_exposure_buffers::{AutoExposureBuffers, LUMINANCE_BUFFER_SIZE};
-pub use bloom_chain::BloomChain;
+pub use bloom_chain::{BloomChain, BloomMipTarget};
 pub use buffer::*;
 pub use buffer_registry::GpuBufferRegistry;
 pub use dof_buffer::DofBuffer;

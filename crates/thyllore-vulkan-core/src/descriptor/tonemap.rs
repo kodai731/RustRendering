@@ -90,17 +90,28 @@ impl RRToneMapDescriptorSet {
         bloom_image_view: vk::ImageView,
         bloom_sampler: vk::Sampler,
     ) -> Result<()> {
-        for descriptor_set in &self.descriptor_sets {
-            self.layout
-                .writer(*descriptor_set)
-                .image(
-                    tonemap::BLOOM_SAMPLER,
-                    bloom_image_view,
-                    bloom_sampler,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-                )?
-                .apply(rrdevice);
+        for frame_slot in 0..self.descriptor_sets.len() {
+            self.update_bloom_sampler_at(rrdevice, frame_slot, bloom_image_view, bloom_sampler)?;
         }
+        Ok(())
+    }
+
+    pub unsafe fn update_bloom_sampler_at(
+        &self,
+        rrdevice: &RRDevice,
+        frame_slot: usize,
+        bloom_image_view: vk::ImageView,
+        bloom_sampler: vk::Sampler,
+    ) -> Result<()> {
+        self.layout
+            .writer(self.descriptor_set(frame_slot)?)
+            .image(
+                tonemap::BLOOM_SAMPLER,
+                bloom_image_view,
+                bloom_sampler,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            )?
+            .apply(rrdevice);
         Ok(())
     }
 

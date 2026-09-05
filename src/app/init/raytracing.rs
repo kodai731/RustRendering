@@ -312,14 +312,6 @@ impl App {
         data: &mut AppData,
         rrrender: &RRRender,
     ) -> Result<()> {
-        let hdr_image_view = match data.viewport.hdr_buffer {
-            Some(ref hdr) => hdr.color_image_view,
-            None => {
-                log!("HDR buffer not available, skipping bloom pipelines");
-                return Ok(());
-            }
-        };
-
         let bloom_chain = match data.viewport.bloom_chain {
             Some(ref chain) => chain,
             None => {
@@ -328,22 +320,12 @@ impl App {
             }
         };
 
-        data.raytracing
-            .create_bloom_pipelines(rrdevice, rrrender, hdr_image_view, bloom_chain)?;
-
-        if let (Some(ref bloom_chain), Some(ref tonemap_desc)) = (
-            &data.viewport.bloom_chain,
-            &data.raytracing.tonemap_descriptor,
-        ) {
-            if let Some(ref first_mip) = bloom_chain.mip_levels.first() {
-                tonemap_desc.update_bloom_sampler(
-                    rrdevice,
-                    first_mip.image_view,
-                    bloom_chain.sampler,
-                )?;
-                log!("Updated tonemap descriptor with bloom texture");
-            }
-        }
+        data.raytracing.create_bloom_pipelines(
+            rrdevice,
+            rrrender,
+            bloom_chain,
+            crate::app::init::MAX_FRAMES_IN_FLIGHT,
+        )?;
 
         log!("Bloom pipelines created successfully");
         Ok(())

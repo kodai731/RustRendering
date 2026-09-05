@@ -48,7 +48,7 @@ impl ViewportState {
 
         let hdr_buffer = HdrBuffer::new(instance, rrdevice, width, height)?;
 
-        let bloom_chain = BloomChain::new(instance, rrdevice, width, height, 5, command_pool)?;
+        let bloom_chain = BloomChain::new(rrdevice, width, height, 5)?;
 
         let mut storage = RenderTargetStorage::default();
         storage.set_extent_and_reset(&rrdevice.device, width, height);
@@ -139,7 +139,7 @@ impl ViewportState {
         }
 
         if let Some(ref mut bloom_chain) = self.bloom_chain {
-            bloom_chain.resize(instance, rrdevice, new_width, new_height, command_pool)?;
+            bloom_chain.resize(new_width, new_height);
         }
 
         if let Some(ref mut ae_buffers) = self.auto_exposure_buffers {

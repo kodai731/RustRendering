@@ -199,46 +199,10 @@ impl App {
                 hdr_buffer.color_image_view,
                 hdr_buffer.sampler,
             )?;
-
-            let bloom_view_and_sampler =
-                self.data.viewport.bloom_chain.as_ref().and_then(|chain| {
-                    chain
-                        .mip_levels
-                        .first()
-                        .map(|mip| (mip.image_view, chain.sampler))
-                });
-
-            if let Some((bloom_view, bloom_sampler)) = bloom_view_and_sampler {
-                tonemap_descriptor.update_bloom_sampler(
-                    &self.rrdevice,
-                    bloom_view,
-                    bloom_sampler,
-                )?;
-            } else {
-                tonemap_descriptor.update_bloom_sampler(
-                    &self.rrdevice,
-                    hdr_buffer.color_image_view,
-                    hdr_buffer.sampler,
-                )?;
-            }
-        }
-
-        if let (Some(ref hdr_buffer), Some(ref bloom_chain), Some(ref bloom_descriptors)) = (
-            &self.data.viewport.hdr_buffer,
-            &self.data.viewport.bloom_chain,
-            &self.data.raytracing.bloom_descriptors,
-        ) {
-            let mip_views: Vec<vk::ImageView> = bloom_chain
-                .mip_levels
-                .iter()
-                .map(|m| m.image_view)
-                .collect();
-
-            bloom_descriptors.update_image_views(
+            tonemap_descriptor.update_bloom_sampler(
                 &self.rrdevice,
                 hdr_buffer.color_image_view,
-                &mip_views,
-                bloom_chain.sampler,
+                hdr_buffer.sampler,
             )?;
         }
 

@@ -326,7 +326,11 @@ pub unsafe fn record_composite_to_hdr(
     Ok(())
 }
 
-pub unsafe fn record_bloom(app: &App, command_buffer: vk::CommandBuffer) -> Result<()> {
+pub unsafe fn record_bloom(
+    app: &App,
+    command_buffer: vk::CommandBuffer,
+    frame_slot: usize,
+) -> Result<()> {
     let bloom_settings = app
         .data
         .ecs_world
@@ -336,6 +340,14 @@ pub unsafe fn record_bloom(app: &App, command_buffer: vk::CommandBuffer) -> Resu
     };
     if !bloom_settings.enabled {
         return Ok(());
+    }
+
+    let bloom_mips = &app.data.post_process_targets.bloom_mips;
+    if bloom_mips.is_empty() {
+        return Ok(());
+    }
+    for handle in &app.data.post_process_targets.bloom_handles {
+        app.data.viewport.transient.get(*handle)?;
     }
 
     let (Some(bloom_chain), Some(downsample_pipeline), Some(upsample_pipeline)) = (
@@ -361,6 +373,8 @@ pub unsafe fn record_bloom(app: &App, command_buffer: vk::CommandBuffer) -> Resu
         upsample_pipeline,
         bloom_descriptors,
         bloom_chain,
+        bloom_mips,
+        frame_slot,
         &bloom_settings,
         command_buffer,
     )?;
