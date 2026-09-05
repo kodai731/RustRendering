@@ -8,7 +8,7 @@
 #extension GL_EXT_shader_explicit_arithmetic_types_int64 : require
 #endif
 
-#include "include/flame_ray.glsl"
+#include "flame/include/flame_ray.glsl"
 layout(set = 0, binding = 0) uniform FrameUBO {
     mat4 view;
     mat4 proj;
@@ -18,7 +18,7 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 } frame;
 
 #include "water/include/water_component.glsl"
-#include "water/include/water_torus_intersect.glsl"
+#include "include/torus_intersect.glsl"
 #include "water/include/water_flow.glsl"
 #include "water/include/water_surface.glsl"
 #include "water/include/water_lb.glsl"

@@ -1,4 +1,7 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "include/common.glsl"
 
 layout(binding = 1) uniform sampler2D texSampler;
 layout(binding = 2) uniform sampler2D positionSampler;
@@ -36,11 +39,11 @@ float sdArc(vec2 p, vec2 center, float radius, float gapAngle) {
     vec2 rel = p - center;
     float ang = atan(rel.y, rel.x);
 
-    float gapCenter = -3.14159265 / 2.0;
+    float gapCenter = -PI / 2.0;
     float halfGap = gapAngle * 0.5;
     float diff = ang - gapCenter;
-    if (diff > 3.14159265) diff -= 6.28318530;
-    if (diff < -3.14159265) diff += 6.28318530;
+    if (diff > PI) diff -= TWO_PI;
+    if (diff < -PI) diff += TWO_PI;
 
     if (abs(diff) < halfGap) {
         float edgeAngle1 = gapCenter + halfGap;
@@ -91,7 +94,7 @@ float generateRays(vec2 p) {
         1.57079632,
         2.35619449,
         0.78539816,
-        3.14159265,
+        PI,
         0.0
     );
 

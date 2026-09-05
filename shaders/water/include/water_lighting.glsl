@@ -2,7 +2,7 @@
 #define WATER_LIGHTING_GLSL
 
 #include "include/radiative_transfer.glsl"
-#include "water/include/water_torus_intersect.glsl"
+#include "include/torus_intersect.glsl"
 
 #define WATER_SCATTER_SAMPLES 4
 

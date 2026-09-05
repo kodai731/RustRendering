@@ -17,7 +17,7 @@
 //!   E[psi(kappa (y - Z) / 2)]  = r2^2 psi(kappa r2 y / 2), r2 = 1/sqrt(1 + tau^2/2),
 //! so sigma -> 0 restores the fitted sharpness and large sigma flattens the
 //! response, exactly as the mean-variance program requires.
-//! Mirrored in shaders/include/flame_erosion_response.glsl.
+//! Mirrored in shaders/flame/include/flame_erosion_response.glsl.
 
 use crate::erf_moments::{erf64, integrate_erf_and_gaussian_powers};
 use crate::smooth_step::smooth_step;

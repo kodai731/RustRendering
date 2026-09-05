@@ -20,19 +20,19 @@ fn test_shader_output_directory_exists() {
 #[test]
 fn test_all_shader_sources_exist() {
     let shader_sources = [
-        "shaders/vertex.vert",
-        "shaders/fragment.frag",
-        "shaders/gbufferVertex.vert",
-        "shaders/gbufferFragment.frag",
-        "shaders/compositeVertex.vert",
-        "shaders/compositeFragment.frag",
-        "shaders/gridVertex.vert",
-        "shaders/gridFragment.frag",
-        "shaders/gizmoVertex.vert",
-        "shaders/gizmoFragment.frag",
-        "shaders/imguiVertex.vert",
-        "shaders/imguiFragment.frag",
-        "shaders/rayQueryShadow.comp",
+        "shaders/gbuffer/vertex.vert",
+        "shaders/gbuffer/fragment.frag",
+        "shaders/gbuffer/gbufferVertex.vert",
+        "shaders/gbuffer/gbufferFragment.frag",
+        "shaders/postprocess/compositeVertex.vert",
+        "shaders/postprocess/compositeFragment.frag",
+        "shaders/editor/gridVertex.vert",
+        "shaders/editor/gridFragment.frag",
+        "shaders/editor/gizmoVertex.vert",
+        "shaders/editor/gizmoFragment.frag",
+        "shaders/editor/imguiVertex.vert",
+        "shaders/editor/imguiFragment.frag",
+        "shaders/raytracing/rayQueryShadow.comp",
     ];
 
     for shader in &shader_sources {
@@ -159,24 +159,39 @@ fn test_compute_shader_extension() {
     }
 }
 
+const SHADER_SOURCE_EXTENSIONS: [&str; 8] = [
+    "vert", "frag", "comp", "geom", "rchit", "rmiss", "rgen", "rint",
+];
+
+fn count_shader_sources(directory: &Path) -> usize {
+    let entries = fs::read_dir(directory)
+        .unwrap_or_else(|_| panic!("Failed to read directory: {}", directory.display()));
+
+    entries
+        .filter_map(|entry| entry.ok())
+        .map(|entry| {
+            let path = entry.path();
+
+            if path.is_dir() {
+                if path.file_name() == Some("include".as_ref()) {
+                    return 0;
+                }
+                return count_shader_sources(&path);
+            }
+
+            let is_shader_source = path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| SHADER_SOURCE_EXTENSIONS.contains(&extension));
+
+            usize::from(is_shader_source)
+        })
+        .sum()
+}
+
 #[test]
 fn test_shader_count_matches() {
-    let shader_sources_count = fs::read_dir("shaders")
-        .expect("Failed to read shaders directory")
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            let path = entry.path();
-            path.is_file()
-                && (path.extension() == Some("vert".as_ref())
-                    || path.extension() == Some("frag".as_ref())
-                    || path.extension() == Some("comp".as_ref())
-                    || path.extension() == Some("geom".as_ref())
-                    || path.extension() == Some("rchit".as_ref())
-                    || path.extension() == Some("rmiss".as_ref())
-                    || path.extension() == Some("rgen".as_ref())
-                    || path.extension() == Some("rint".as_ref()))
-        })
-        .count();
+    let shader_sources_count = count_shader_sources(Path::new("shaders"));
 
     let compiled_shaders_count = fs::read_dir("assets/shaders")
         .expect("Failed to read assets/shaders directory")

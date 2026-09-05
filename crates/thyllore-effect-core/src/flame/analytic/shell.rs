@@ -1,6 +1,6 @@
 // Analytic shell envelope of the flame proxy (cone x y-slab). The resolve pass
 // derives the ray interval from it in closed form (clampToShellCone in
-// shaders/flameResolveFragment.frag + shaders/include/flame_shell_profile.glsl);
+// shaders/flame/flameResolveFragment.frag + shaders/flame/include/flame_shell_profile.glsl);
 // no rasterized proxy geometry exists. These constants and functions are the Rust
 // mirror used by the scissor bound (pass_recording) and CPU picking (flame_pick).
 pub const FLAME_SHELL_BASE_RADIUS: f32 = 0.5;
@@ -13,7 +13,7 @@ pub const FLAME_SHELL_SUPPORT_HEADROOM: f32 = 1.5;
 /// Emitter-dependent widening of the proxy: a ring's tube (centerline at normalized
 /// major radius rm, minor support 1.5 * (1 - rm)) reaches past the cylinder support
 /// 0.75, and a proxy that stops there slices the torus flat. Mirrors
-/// shaders/include/flame_shell_support.glsl.
+/// shaders/flame/include/flame_shell_support.glsl.
 pub fn flame_shell_support_scale(
     emitter_kind: u32,
     ring_major_norm: f32,

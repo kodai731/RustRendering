@@ -3,8 +3,8 @@
 #ifndef FLAME_RAY_GLSL
 #define FLAME_RAY_GLSL
 
-#include "depth.glsl"
-#include "radiative_transfer.glsl"
+#include "include/depth.glsl"
+#include "include/radiative_transfer.glsl"
 
 vec3 reconstructRayDirection(vec2 uv, mat4 invViewProj, vec3 cameraPos) {
     vec2 ndc = uv * 2.0 - 1.0;

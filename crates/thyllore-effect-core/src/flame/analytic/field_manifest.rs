@@ -250,7 +250,7 @@ mod tests {
     use std::path::PathBuf;
 
     fn shader_dir() -> PathBuf {
-        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shaders/include")
+        PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../shaders/flame/include")
     }
 
     fn strip_line_comments(source: &str) -> String {

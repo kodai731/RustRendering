@@ -1,135 +1,24 @@
+"""Export GLSL shaders for the water effect into Blender-compatible form."""
+
 import argparse
 import json
 import os
 import re
 import sys
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-def resolve_layout_macros(line: str, defines: dict[str, str]) -> str:
-    if not re.match(r'^\s*layout\s*\(', line):
-        return line
-    return re.sub(r'\b[A-Za-z_]\w*\b', lambda m: defines.get(m.group(0), m.group(0)), line)
+from blender_addon.common import glsl_export  # noqa: E402
+from blender_addon.common.glsl_export import strip_include_guards  # noqa: E402
 
 
 ENTRY_SHADER = "water/waterResolveFragment.frag"
 RAY_QUERY_ONLY_INCLUDE = "water/include/water_secondary.glsl"
 
 
-def resolve_include(including_path: str, included: str, repo_root: str) -> str:
-    """Mirror glslc lookup: relative to the including file first, then the shaders/ root (-I)."""
-    relative = os.path.normpath(os.path.join(os.path.dirname(including_path), included))
-    for candidate in (relative, os.path.normpath(included)):
-        if os.path.isfile(os.path.join(repo_root, "shaders", candidate)):
-            return candidate
-    raise FileNotFoundError(f"{included} (included from {including_path}) not found under shaders/")
-
-
 def expand_includes(source_path: str, repo_root: str) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-    defines: dict[str, str] = {}
-
-    def _expand(path: str, text: str) -> None:
-        if path in seen:
-            return
-        seen.add(path)
-        for line in text.split("\n"):
-            m_define = re.match(r'^\s*#\s*define\s+(\w+)\s+(\d+)\s*$', line)
-            if m_define:
-                defines[m_define.group(1)] = m_define.group(2)
-
-            m = re.match(r'^\s*#\s*include\s+"([^"]+)"', line)
-            if m:
-                included = m.group(1)
-                # Skip water_secondary.glsl — it contains ray-query code (traceScene, VertexBuffer)
-                if included == RAY_QUERY_ONLY_INCLUDE:
-                    continue
-                inc_path = resolve_include(path, included, repo_root)
-                with open(os.path.join(repo_root, "shaders", inc_path), "r") as f:
-                    _expand(inc_path, f.read())
-            else:
-                result.append(resolve_layout_macros(line, defines))
-
-    entry = source_path
-    full = os.path.join(repo_root, "shaders", entry)
-    with open(full, "r") as f:
-        _expand(entry, f.read())
-    return result
-
-
-def strip_include_guards(lines: list[str]) -> list[str]:
-    """Strip #ifndef/#define _GLSL guards and #ifdef WATER_RAY_QUERY blocks.
-
-    Returns (output_lines, has_endif) where has_endif is True if any #endif was consumed
-    by a stripped block (used to detect unbalanced guards)."""
-    result: list[str] = []
-    stack: list[str] = []  # "guard" for _GLSL guards, "water_ray_query" for WATER_RAY_QUERY blocks
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-
-        m_ifndef = re.match(r'^#\s*ifndef\s+(\S+)', stripped)
-        if m_ifndef:
-            macro = m_ifndef.group(1)
-            is_guard = macro.endswith("_GLSL")
-            stack.append("guard" if is_guard else "other")
-            i += 1
-            if not is_guard:
-                result.append(line)
-            if is_guard and i < len(lines):
-                next_stripped = lines[i].strip()
-                m_define = re.match(r'^#\s*define\s+' + re.escape(macro), next_stripped)
-                if m_define:
-                    i += 1
-            continue
-
-        m_ifdef = re.match(r'^#\s*ifdef\s+(\S+)', stripped)
-        if m_ifdef:
-            macro = m_ifdef.group(1)
-            if macro == "WATER_RAY_QUERY":
-                # Skip this block entirely — WATER_RAY_QUERY is not defined for Blender
-                stack.append("water_ray_query")
-                i += 1
-                continue
-            else:
-                stack.append("other")
-                result.append(line)
-                i += 1
-                continue
-
-        m_if = re.match(r'^#\s*if\b', stripped)
-        if m_if:
-            stack.append("other")
-            result.append(line)
-            i += 1
-            continue
-
-        m_endif = re.match(r'^#\s*endif\b', stripped)
-        if m_endif:
-            if stack and stack[-1] == "water_ray_query":
-                # Consume this endif — it closes a WATER_RAY_QUERY block we're skipping
-                stack.pop()
-                i += 1
-                continue
-            elif stack and stack[-1] == "guard":
-                stack.pop()
-                i += 1
-                continue
-            elif stack:
-                stack.pop()
-            result.append(line)
-            i += 1
-            continue
-
-        # Skip lines inside a water_ray_query block
-        if stack and stack[-1] == "water_ray_query":
-            i += 1
-            continue
-
-        result.append(line)
-        i += 1
-    return result
+    """water_secondary.glsl holds ray-query only code (traceScene, VertexBuffer), unusable in Blender."""
+    return glsl_export.expand_includes(source_path, repo_root, skip_includes={RAY_QUERY_ONLY_INCLUDE})
 
 
 def convert_to_blender_dialect(lines: list[str]) -> tuple[list[str], dict]:

@@ -1,11 +1,12 @@
 #ifndef FLAME_BRANCH_TRANSPORT_GLSL
 #define FLAME_BRANCH_TRANSPORT_GLSL
 
+#include "include/common.glsl"
+
 // Branch element layer (A: vortex transport): every live element is a (tilted)
 // vortex line; each perpendicular slice rotates about it by a windowed Lamb-Oseen
 // angle, compact inside rho < reach, so the map is a bijection for any gain.
 // Mirrored in thyllore-effect-core/src/flame/branch.rs.
-const float FLAME_BRANCH_TAU = 6.283185307;
 
 bool flameBranchActive() {
     return flame.branchField.count > 0.5;
@@ -47,13 +48,13 @@ vec2 flameBranchLambOseen(float rhoSq, float coreRadius) {
     float x = rhoSq / coreSq;
     if (x < 1e-3) {
         return vec2(
-            (1.0 - 0.5 * x + x * x / 6.0) / (FLAME_BRANCH_TAU * coreSq),
-            (-0.5 + x / 3.0) / (FLAME_BRANCH_TAU * coreSq * coreSq));
+            (1.0 - 0.5 * x + x * x / 6.0) / (TWO_PI * coreSq),
+            (-0.5 + x / 3.0) / (TWO_PI * coreSq * coreSq));
     }
     float decay = exp(-x);
     return vec2(
-        (1.0 - decay) / (FLAME_BRANCH_TAU * rhoSq),
-        (decay * x - (1.0 - decay)) / (FLAME_BRANCH_TAU * rhoSq * rhoSq));
+        (1.0 - decay) / (TWO_PI * rhoSq),
+        (decay * x - (1.0 - decay)) / (TWO_PI * rhoSq * rhoSq));
 }
 
 bool flameVortexElementAt(int index, out FlameVortexElement element) {
@@ -83,7 +84,7 @@ bool flameVortexElementAt(int index, out FlameVortexElement element) {
     float scale = spawn.trunkRadius * spawn.size;
     element.reach = reachRatio * scale;
     element.coreRadius = flame.branchField.coreRadius * scale;
-    element.circulation = spawn.side * flame.branchField.gain * FLAME_BRANCH_TAU
+    element.circulation = spawn.side * flame.branchField.gain * TWO_PI
         * element.coreRadius * element.coreRadius * flameBranchEnvelope(age);
     element.alongOffset = spawn.alongOffset;
     return true;

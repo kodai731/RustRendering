@@ -1,83 +1,14 @@
+"""Export GLSL shaders for the flame effect into Blender-compatible form."""
+
 import argparse
 import json
 import os
 import re
 import sys
 
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..")))
 
-def expand_includes(source_path: str, repo_root: str) -> list[str]:
-    seen: set[str] = set()
-    result: list[str] = []
-
-    def _expand(path: str, text: str) -> None:
-        if path in seen:
-            return
-        seen.add(path)
-        for line in text.split("\n"):
-            m = re.match(r'^\s*#\s*include\s+"([^"]+)"', line)
-            if m:
-                included = m.group(1)
-                base_dir = os.path.dirname(path)
-                inc_path = os.path.normpath(os.path.join(base_dir, included))
-                inc_full = os.path.join(repo_root, "shaders", inc_path)
-                with open(inc_full, "r") as f:
-                    _expand(inc_path, f.read())
-            else:
-                result.append(line)
-
-    entry = "flameResolveFragment.frag"
-    full = os.path.join(repo_root, "shaders", entry)
-    with open(full, "r") as f:
-        _expand(entry, f.read())
-    return result
-
-
-def strip_include_guards(lines: list[str]) -> list[str]:
-    result: list[str] = []
-    stack: list[bool] = []
-    i = 0
-    while i < len(lines):
-        line = lines[i]
-        stripped = line.strip()
-
-        m_ifndef = re.match(r'^#\s*ifndef\s+(\S+)', stripped)
-        if m_ifndef:
-            macro = m_ifndef.group(1)
-            is_guard = macro.endswith("_GLSL")
-            stack.append(is_guard)
-            i += 1
-            if not is_guard:
-                result.append(line)
-            if is_guard and i < len(lines):
-                next_stripped = lines[i].strip()
-                m_define = re.match(r'^#\s*define\s+' + re.escape(macro), next_stripped)
-                if m_define:
-                    i += 1
-            continue
-
-        m_ifdef = re.match(r'^#\s*ifdef\s+\S+', stripped)
-        m_if = re.match(r'^#\s*if\b', stripped)
-        if m_ifdef or m_if:
-            stack.append(False)
-            result.append(line)
-            i += 1
-            continue
-
-        m_endif = re.match(r'^#\s*endif\b', stripped)
-        if m_endif:
-            if stack and stack[-1]:
-                stack.pop()
-                i += 1
-                continue
-            elif stack:
-                stack.pop()
-            result.append(line)
-            i += 1
-            continue
-
-        result.append(line)
-        i += 1
-    return result
+from blender_addon.common.glsl_export import expand_includes, strip_include_guards  # noqa: E402
 
 
 def convert_to_blender_dialect(lines: list[str]) -> tuple[list[str], dict]:
@@ -207,7 +138,7 @@ def main() -> None:
     repo_root = os.path.abspath(args.repo_root)
     out_dir = os.path.abspath(args.out)
 
-    expanded_lines = expand_includes("flameResolveFragment.frag", repo_root)
+    expanded_lines = expand_includes("flame/flameResolveFragment.frag", repo_root)
 
     stripped_lines = strip_include_guards(expanded_lines)
 

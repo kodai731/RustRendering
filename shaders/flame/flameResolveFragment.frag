@@ -10,8 +10,8 @@
 // 2 = delta-t debug view, 3 = styled raymarch (IGN jitter + noise erosion).
 
 #include "include/chebyshev.glsl"
-#include "include/flame_ray.glsl"
-#include "include/flame_noise.glsl"
+#include "flame/include/flame_ray.glsl"
+#include "flame/include/flame_noise.glsl"
 
 layout(set = 0, binding = 0) uniform FrameUBO {
     mat4 view;
@@ -21,10 +21,10 @@ layout(set = 0, binding = 0) uniform FrameUBO {
     vec4 light_color;
 } frame;
 
-#include "include/flame_component.glsl"
+#include "flame/include/flame_component.glsl"
 
-#include "include/flame_shell_profile.glsl"
-#include "include/flame_shell_support.glsl"
+#include "flame/include/flame_shell_profile.glsl"
+#include "flame/include/flame_shell_support.glsl"
 
 layout(set = 1, binding = 4) uniform sampler2D flameHistorySampler;
 layout(set = 1, binding = 5) uniform sampler2D flameSdfSampler;
@@ -49,10 +49,10 @@ float evaluateHeightFalloff(float height01) {
     return evaluateChebyshev8(flame.heightCoefficients[0], flame.heightCoefficients[1], height01);
 }
 
-#include "include/flame_noise_field.glsl"
-#include "include/flame_erf_moments.glsl"
-#include "include/flame_erosion_response.glsl"
-#include "include/flame_radial_integral.glsl"
+#include "flame/include/flame_noise_field.glsl"
+#include "flame/include/flame_erf_moments.glsl"
+#include "flame/include/flame_erosion_response.glsl"
+#include "flame/include/flame_radial_integral.glsl"
 
 float evaluateHeightPrimitive(float height01) {
     return evaluateChebyshev12(
@@ -367,7 +367,7 @@ float integrateEmissionAnalytic(FlameRaySegment segment) {
     return max(segment.boundaryHeightIntegral, 0.0);
 }
 
-#include "include/flame_reference_march.glsl"
+#include "flame/include/flame_reference_march.glsl"
 
 
 // Debug mode 4: hue = clamp decision, 1-unit brightness bands = tDepth magnitude.

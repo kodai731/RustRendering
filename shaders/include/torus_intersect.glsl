@@ -1,5 +1,5 @@
-#ifndef WATER_TORUS_INTERSECT_GLSL
-#define WATER_TORUS_INTERSECT_GLSL
+#ifndef TORUS_INTERSECT_GLSL
+#define TORUS_INTERSECT_GLSL
 
 #include "include/common.glsl"
 

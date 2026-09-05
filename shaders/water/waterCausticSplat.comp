@@ -6,7 +6,7 @@
 #define WATER_UBO_SET 0
 #define WATER_UBO_BINDING 4
 #include "water/include/water_component.glsl"
-#include "water/include/water_torus_intersect.glsl"
+#include "include/torus_intersect.glsl"
 #include "water/include/water_flow.glsl"
 #include "water/include/water_surface.glsl"
 #include "water/include/water_lb.glsl"

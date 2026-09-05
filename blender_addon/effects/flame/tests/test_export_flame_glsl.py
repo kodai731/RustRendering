@@ -34,7 +34,7 @@ def _run_exporter(tmp_path: str) -> tuple[str, dict]:
 
 
 def _expanded_lines(repo_root: str) -> list[str]:
-    return expand_includes("flameResolveFragment.frag", repo_root)
+    return expand_includes("flame/flameResolveFragment.frag", repo_root)
 
 
 @pytest.fixture(scope="module")

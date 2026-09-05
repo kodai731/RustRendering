@@ -1,4 +1,7 @@
 #version 450
+#extension GL_GOOGLE_include_directive : require
+
+#include "include/common.glsl"
 
 layout(location = 0) in vec2 fragTexCoord;
 layout(location = 0) out vec4 outColor;
@@ -57,7 +60,7 @@ void main() {
 
     vec3 accumColor = vec3(0.0);
     float totalWeight = 0.0;
-    float angleStep = 6.28318530718 / float(sampleCount);
+    float angleStep = TWO_PI / float(sampleCount);
 
     for (int ring = 1; ring <= 3; ring++) {
         float ringRadius = radius * float(ring) / 3.0;

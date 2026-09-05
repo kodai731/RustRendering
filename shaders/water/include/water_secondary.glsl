@@ -1,7 +1,7 @@
 #ifndef WATER_SECONDARY_GLSL
 #define WATER_SECONDARY_GLSL
 
-#include "include/flame_noise.glsl"
+#include "flame/include/flame_noise.glsl"
 
 // waterJitter: interleaved gradient noise for depth-2 probabilistic sampling.
 float waterJitter(vec2 fragCoord, float frameIndex) {

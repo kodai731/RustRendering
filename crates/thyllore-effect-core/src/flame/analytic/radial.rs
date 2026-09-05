@@ -1,7 +1,7 @@
 use crate::flame_shell::FLAME_SHELL_BASE_RADIUS;
 use thyllore_math_core::{approximate_erf, biweight_profile, evaluate_chebyshev, ChebyshevSeries};
 
-// Mirror of shaders/include/flame_radial_integral.glsl; the accuracy tests below cover both.
+// Mirror of shaders/flame/include/flame_radial_integral.glsl; the accuracy tests below cover both.
 //
 // The radial density is the compact-support biweight kernel
 //   rho(p) = F(h) * (1 - u^2)^2,  u = |p.xz| / (S * R(h)),  zero for u >= 1.

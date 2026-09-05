@@ -781,7 +781,7 @@ FlameWaveModeSumResult flameWaveModeSum(
         float spatialAngle = dot(waveVector.xyz, w) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsi);
         float angle = spatialAngle + wavePhase.x + wavePhase.y * eddyTime;
         float betaPhase = dot(waveVector.xyz, rate) + dot(flame.waveJitter[min(n, 95)].xyz, jitterPsiRate);
-        float betaMix = mixScale * betaPhase * dt / 3.14159265;
+        float betaMix = mixScale * betaPhase * dt / PI;
         float bm2 = betaMix * betaMix;
         result.zMix += exp(-bm2 * bm2) * waveVector.w
             * sin(mixScale * spatialAngle + wavePhase.x + wavePhase.y * eddyTime);
@@ -795,7 +795,7 @@ FlameWaveModeSumResult flameWaveModeSum(
         } else {
             carrier = sin(angle);
         }
-        float beta = betaPhase * dt / 3.14159265;
+        float beta = betaPhase * dt / PI;
         float b2 = beta * beta;
         float weight = exp(-b2 * b2);
         result.zLow += weight * waveVector.w * carrier;
@@ -821,7 +821,7 @@ FlameWaveModeSumResult flameWaveModeSum(
         } else {
             carrier = sin(angle);
         }
-        float beta = betaPhase * dt / 3.14159265;
+        float beta = betaPhase * dt / PI;
         float b2 = beta * beta;
         float weight = exp(-b2 * b2);
         float envelope = 1.0 + wavePhase.z * result.zLow;
