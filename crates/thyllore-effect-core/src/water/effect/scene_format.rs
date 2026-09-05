@@ -50,31 +50,16 @@ declare_scene_format! {
                 format: "%.3f",
             },
         },
-        absorption_r: f32 = Frame {
-            get: |e| e.absorption[0],
-            set: |e, v| e.absorption[0] = v,
+        absorption: [f32; 3] = Frame {
+            get: |e| e.absorption,
+            set: |e, v| e.absorption = v,
+            scalars: rgb,
             ui {
+                kind: Absorption,
                 min: 0.0,
                 max: 10.0,
                 format: "%.2f",
-            },
-        },
-        absorption_g: f32 = Frame {
-            get: |e| e.absorption[1],
-            set: |e, v| e.absorption[1] = v,
-            ui {
-                min: 0.0,
-                max: 10.0,
-                format: "%.2f",
-            },
-        },
-        absorption_b: f32 = Frame {
-            get: |e| e.absorption[2],
-            set: |e, v| e.absorption[2] = v,
-            ui {
-                min: 0.0,
-                max: 10.0,
-                format: "%.2f",
+                tooltip: "Beer-Lambert absorption per meter; the picker shows the colour transmitted over the reference distance",
             },
         },
         flow_longitudinal: f32 = Frame {
@@ -212,31 +197,16 @@ declare_scene_format! {
                 format: "%.2f",
             },
         },
-        tint_r: f32 = Frame {
-            get: |e| e.tint[0],
-            set: |e, v| e.tint[0] = v,
+        tint: [f32; 3] = Frame {
+            get: |e| e.tint,
+            set: |e, v| e.tint = v,
+            scalars: rgb,
             ui {
+                kind: Color,
                 min: 0.0,
                 max: 1.0,
                 format: "%.2f",
-            },
-        },
-        tint_g: f32 = Frame {
-            get: |e| e.tint[1],
-            set: |e, v| e.tint[1] = v,
-            ui {
-                min: 0.0,
-                max: 1.0,
-                format: "%.2f",
-            },
-        },
-        tint_b: f32 = Frame {
-            get: |e| e.tint[2],
-            set: |e, v| e.tint[2] = v,
-            ui {
-                min: 0.0,
-                max: 1.0,
-                format: "%.2f",
+                tooltip: "Scattering tint",
             },
         },
     },
@@ -274,7 +244,7 @@ declare_scene_format! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use thyllore_scene_core::find_scalar_param;
+    use thyllore_scene_core::{find_scalar_param, find_ui_param, UiKind};
 
     #[test]
     fn test_ron_struct_syntax_roundtrip() {
@@ -310,20 +280,37 @@ mod tests {
     }
 
     #[test]
-    fn test_every_ui_param_has_a_scalar_accessor_and_unique_name() {
+    fn test_every_ui_param_has_scalar_accessors_and_unique_name() {
         let mut names: Vec<&str> = WATER_UI_PARAMS.iter().map(|p| p.name).collect();
         names.sort_unstable();
         let len = names.len();
         names.dedup();
         assert_eq!(names.len(), len);
         for param in WATER_UI_PARAMS {
-            assert!(
-                find_scalar_param(WATER_SCALAR_PARAMS, param.name).is_some(),
-                "{}",
-                param.name
-            );
+            for accessor_name in param.scalar_accessor_names() {
+                assert!(
+                    find_scalar_param(WATER_SCALAR_PARAMS, &accessor_name).is_some(),
+                    "{accessor_name}"
+                );
+            }
             assert!(param.min < param.max, "{}", param.name);
         }
+    }
+
+    #[test]
+    fn test_color_kinds_are_assigned_to_absorption_and_tint() {
+        let kind_of = |name: &str| find_ui_param(WATER_UI_PARAMS, name).map(|p| p.kind);
+        assert_eq!(kind_of("absorption"), Some(UiKind::Absorption));
+        assert_eq!(kind_of("tint"), Some(UiKind::Color));
+        assert_eq!(kind_of("ior"), Some(UiKind::Scalar));
+    }
+
+    #[test]
+    fn test_absorption_serializes_as_one_vector_field() {
+        let value = serde_json::to_value(WaterTorusEffect::default()).expect("serialize");
+        let object = value.as_object().expect("flat object");
+        assert!(object["absorption"].is_array());
+        assert!(!object.contains_key("absorption_r"));
     }
 
     #[test]

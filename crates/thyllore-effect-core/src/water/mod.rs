@@ -1,3 +1,4 @@
+mod absorption_color;
 pub mod analytic;
 mod effect;
 mod gpu;
@@ -6,6 +7,7 @@ mod presets;
 mod settings;
 mod temporal;
 
+pub use absorption_color::*;
 pub use analytic::*;
 pub use effect::*;
 pub use gpu::*;

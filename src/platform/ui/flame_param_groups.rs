@@ -8,6 +8,8 @@ pub const FLAME_BODY_PARAMS: &[&str] = &[
     "wien_c_k",
 ];
 
+pub const FLAME_COLOR_PARAMS: &[&str] = &["color_base", "color_tip"];
+
 pub const FLAME_NOISE_PARAMS: &[&str] = &[
     "noise_amplitude",
     "noise_contrast",
@@ -50,6 +52,7 @@ pub const FLAME_FOOTER_PARAMS: &[&str] = &["support_margin", "time_scale"];
 
 pub const FLAME_PARAM_GROUPS: &[&[&str]] = &[
     FLAME_BODY_PARAMS,
+    FLAME_COLOR_PARAMS,
     FLAME_NOISE_PARAMS,
     FLAME_MIX_PARAMS,
     FLAME_MOTION_PARAMS,
@@ -64,13 +67,15 @@ mod tests {
     use thyllore_scene_core::{find_scalar_param, find_ui_param};
 
     #[test]
-    fn test_every_grouped_name_resolves_to_ui_and_scalar_param() {
+    fn test_every_grouped_name_resolves_to_ui_and_scalar_params() {
         for name in FLAME_PARAM_GROUPS.iter().flat_map(|group| group.iter()) {
-            assert!(find_ui_param(FLAME_UI_PARAMS, name).is_some(), "{name}");
-            assert!(
-                find_scalar_param(FLAME_SCALAR_PARAMS, name).is_some(),
-                "{name}"
-            );
+            let meta = find_ui_param(FLAME_UI_PARAMS, name).unwrap_or_else(|| panic!("{name}"));
+            for accessor_name in meta.scalar_accessor_names() {
+                assert!(
+                    find_scalar_param(FLAME_SCALAR_PARAMS, &accessor_name).is_some(),
+                    "{accessor_name}"
+                );
+            }
         }
     }
 

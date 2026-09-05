@@ -3889,6 +3889,7 @@ name = "thyllore-scene-core"
 version = "0.0.1"
 dependencies = [
  "serde",
+ "thyllore-color-core",
 ]
 
 [[package]]
