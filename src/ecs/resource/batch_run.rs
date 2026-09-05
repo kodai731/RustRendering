@@ -9,6 +9,7 @@ pub enum BatchRunState {
     Completed { result: Result<String, String> },
 }
 
+#[derive(Clone)]
 pub struct BatchRun {
     pub output: PathBuf,
     pub screenshot_frame: u64,

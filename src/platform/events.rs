@@ -1,11 +1,10 @@
 use std::time::Instant;
 
-use cgmath::{InnerSpace, Matrix4, SquareMatrix, Vector3};
+use cgmath::{SquareMatrix, Vector3};
 use imgui::MouseButton;
-use winit::event::{ElementState, Event, WindowEvent};
+use winit::event::{ElementState, WindowEvent};
 
-use super::key_bindings::{default_bindings, dispatch_keyboard_shortcut, ModifierKeys};
-use super::platform::System;
+use super::key_bindings::{dispatch_keyboard_shortcut, ModifierKeys};
 use super::ui::{
     build_bottom_panel, build_clip_browser_window, build_curve_editor_window,
     build_hierarchy_window, build_inspector_window, build_scene_overlay, build_timeline_window,
@@ -281,70 +280,7 @@ fn update_camera_fly_input(world: &crate::ecs::World, ui: &imgui::Ui) {
     fly.boost = io.key_shift;
 }
 
-impl System {
-    pub fn main_loop(self, app: &mut App) {
-        let System {
-            event_loop,
-            window,
-            mut imgui,
-            mut platform,
-        } = self;
-        let mut last_frame = Instant::now();
-        let bindings = default_bindings();
-        let mut status_bar_state = StatusBarState::default();
-        #[cfg(feature = "auto-rig")]
-        let mut text_to_mesh_dialog_state = crate::platform::ui::TextToMeshDialogState::default();
-        #[cfg(feature = "auto-rig")]
-        let mut text_to_animation_dialog_state =
-            crate::platform::ui::TextToAnimationDialogState::default();
-
-        event_loop
-            .run(move |event, window_target| match event {
-                Event::NewEvents(_) => {
-                    let now = Instant::now();
-                    imgui.io_mut().update_delta_time(now - last_frame);
-                    last_frame = now;
-                }
-
-                Event::AboutToWait => {
-                    platform
-                        .prepare_frame(imgui.io_mut(), &window)
-                        .expect("Failed to prepare frame");
-                    window.request_redraw();
-                }
-
-                Event::WindowEvent {
-                    event: ref window_event,
-                    ..
-                } => {
-                    platform.handle_event(imgui.io_mut(), &window, &event);
-                    dispatch_window_event(
-                        window_event,
-                        window_target,
-                        app,
-                        &mut imgui,
-                        &mut platform,
-                        &window,
-                        &bindings,
-                        &mut status_bar_state,
-                        #[cfg(feature = "auto-rig")]
-                        &mut text_to_mesh_dialog_state,
-                        #[cfg(feature = "auto-rig")]
-                        &mut text_to_animation_dialog_state,
-                    );
-                }
-
-                Event::LoopExiting => {
-                    unsafe { app.destroy() };
-                }
-
-                _ => {}
-            })
-            .expect("EventLoop error");
-    }
-}
-
-fn dispatch_window_event(
+pub(crate) fn dispatch_window_event(
     event: &WindowEvent,
     window_target: &winit::event_loop::EventLoopWindowTarget<()>,
     app: &mut App,

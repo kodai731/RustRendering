@@ -1,4 +1,5 @@
 mod clipboard;
+pub mod event_loop;
 pub mod events;
 pub mod imgui;
 pub mod key_bindings;
