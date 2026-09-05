@@ -166,7 +166,7 @@ pub unsafe fn rebuild_acceleration_structures_from_data(
     )
 }
 
-pub(super) unsafe fn update_ray_query_descriptor(
+pub unsafe fn update_ray_query_descriptor(
     device: &RRDevice,
     raytracing: &mut RayTracingData,
 ) -> Result<()> {
@@ -177,7 +177,7 @@ pub(super) unsafe fn update_ray_query_descriptor(
     Ok(())
 }
 
-pub(super) unsafe fn update_billboard_descriptor(
+pub unsafe fn update_billboard_descriptor(
     device: &RRDevice,
     swapchain: &RRSwapchain,
     billboard: &mut BillboardData,

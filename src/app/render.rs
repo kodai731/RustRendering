@@ -64,12 +64,12 @@ impl App {
             return Ok(());
         }
 
-        let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+        let mesh_transforms = crate::app::raytracing::scene_build::collect_mesh_transforms(
             &self.data.ecs_world,
             &self.data.ecs_assets,
         );
         let water_instances =
-            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+            crate::app::raytracing::scene_build::collect_water_instances(&self.data.ecs_world);
         let gbuffer_mesh_indices: Vec<usize> = self
             .data
             .graphics_resources
@@ -325,13 +325,15 @@ impl App {
                 }
                 if water_state.is_some() {
                     let command_pool = self.resource::<CommandState>().pool.clone();
-                    let waters =
-                        crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
-                    let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+                    let waters = crate::app::raytracing::scene_build::collect_water_instances(
                         &self.data.ecs_world,
-                        &self.data.ecs_assets,
                     );
-                    crate::app::model_loader::rebuild_acceleration_structures(
+                    let mesh_transforms =
+                        crate::app::raytracing::scene_build::collect_mesh_transforms(
+                            &self.data.ecs_world,
+                            &self.data.ecs_assets,
+                        );
+                    crate::app::raytracing::scene_build::rebuild_acceleration_structures(
                         &self.instance,
                         &self.rrdevice,
                         &command_pool,
@@ -574,14 +576,15 @@ impl App {
         }
 
         let command_pool = self.resource::<CommandState>().pool.clone();
-        let waters = crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
-        let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+        let waters =
+            crate::app::raytracing::scene_build::collect_water_instances(&self.data.ecs_world);
+        let mesh_transforms = crate::app::raytracing::scene_build::collect_mesh_transforms(
             &self.data.ecs_world,
             &self.data.ecs_assets,
         );
         let water_instances =
-            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
-        crate::app::model_loader::rebuild_acceleration_structures(
+            crate::app::raytracing::scene_build::collect_water_instances(&self.data.ecs_world);
+        crate::app::raytracing::scene_build::rebuild_acceleration_structures(
             &self.instance,
             &self.rrdevice,
             &command_pool,

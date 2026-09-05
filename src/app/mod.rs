@@ -5,6 +5,7 @@ pub mod data;
 pub mod frame_context;
 pub mod init;
 pub mod model_loader;
+pub mod raytracing;
 pub mod render;
 pub mod render_context;
 pub mod scene_model;
