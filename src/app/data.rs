@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use crate::app::effect_render_targets::EffectRenderTargets;
 use crate::app::viewport::ViewportState;
 use crate::asset::AssetStorage;
 use crate::ecs::World;
@@ -30,5 +31,6 @@ pub struct AppData {
     pub buffer_registry: GpuBufferRegistry,
     pub pipeline_storage: PipelineStorage,
     pub viewport: ViewportState,
+    pub effect_targets: EffectRenderTargets,
     pub onion_skin_gpu: Option<OnionSkinGpuState>,
 }

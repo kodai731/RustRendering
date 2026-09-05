@@ -581,7 +581,7 @@ pub unsafe fn record_flame_passes(
     image_index: usize,
 ) -> Result<()> {
     let (Some(flame_buffer), Some(shading_pipeline), Some(descriptor)) = (
-        app.data.viewport.flame_buffer.as_ref(),
+        app.data.effect_targets.flame.as_ref(),
         app.data.raytracing.flame_shading_pipeline.as_ref(),
         app.data.raytracing.flame_descriptor.as_ref(),
     ) else {
@@ -777,7 +777,7 @@ pub unsafe fn record_water_passes(
     image_index: usize,
 ) -> Result<()> {
     let (Some(water_buffer), Some(shading_pipeline), Some(descriptor)) = (
-        app.data.viewport.water_buffer.as_ref(),
+        app.data.effect_targets.water.as_ref(),
         app.data.raytracing.water_shading_pipeline.as_ref(),
         app.data.raytracing.water_descriptor.as_ref(),
     ) else {

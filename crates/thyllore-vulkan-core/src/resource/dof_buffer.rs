@@ -4,12 +4,13 @@ use vulkanalia::prelude::v1_0::*;
 use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::image::{create_image, create_image_view};
+use crate::resource::render_target_registry::{RenderTargetKey, RenderTargetRegistry};
+
+const DOF_OUTPUT_KEY: RenderTargetKey = RenderTargetKey::PostProcess(0);
 
 #[derive(Clone, Debug, Default)]
 pub struct DofBuffer {
     pub output_image: vk::Image,
-    pub output_image_memory: vk::DeviceMemory,
     pub output_image_view: vk::ImageView,
     pub framebuffer: vk::Framebuffer,
     pub render_pass: vk::RenderPass,
@@ -22,30 +23,25 @@ impl DofBuffer {
     pub unsafe fn new(
         instance: &Instance,
         rrdevice: &RRDevice,
+        registry: &mut RenderTargetRegistry,
         width: u32,
         height: u32,
         command_pool: vk::CommandPool,
     ) -> Result<Self> {
-        let (output_image, output_image_memory) = create_image(
+        registry.ensure_extent(&rrdevice.device, width, height);
+
+        let output = *registry.ensure(
             instance,
             rrdevice,
-            width,
-            height,
-            1,
-            vk::SampleCountFlags::_1,
+            DOF_OUTPUT_KEY,
             HDR_FORMAT,
-            vk::ImageTiling::OPTIMAL,
             vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+            Some(Self::linear_clamp_sampler_info()),
         )?;
 
-        let output_image_view = create_image_view(
-            rrdevice,
-            output_image,
-            HDR_FORMAT,
-            vk::ImageAspectFlags::COLOR,
-            1,
-        )?;
+        let output_image = output.image;
+        let output_image_view = output.view;
+        let sampler = output.sampler;
 
         let render_pass = Self::create_render_pass(rrdevice)?;
 
@@ -60,15 +56,12 @@ impl DofBuffer {
             .device
             .create_framebuffer(&framebuffer_info, None)?;
 
-        let sampler = Self::create_sampler(&rrdevice.device)?;
-
         Self::transition_initial_layout(rrdevice, command_pool, output_image)?;
 
         log!("Created DOF buffer: {}x{}", width, height);
 
         Ok(Self {
             output_image,
-            output_image_memory,
             output_image_view,
             framebuffer,
             render_pass,
@@ -130,8 +123,8 @@ impl DofBuffer {
         Ok(render_pass)
     }
 
-    unsafe fn create_sampler(device: &vulkanalia::Device) -> Result<vk::Sampler> {
-        let sampler_info = vk::SamplerCreateInfo::builder()
+    fn linear_clamp_sampler_info() -> vk::SamplerCreateInfo {
+        vk::SamplerCreateInfo::builder()
             .mag_filter(vk::Filter::LINEAR)
             .min_filter(vk::Filter::LINEAR)
             .address_mode_u(vk::SamplerAddressMode::CLAMP_TO_EDGE)
@@ -144,10 +137,8 @@ impl DofBuffer {
             .mipmap_mode(vk::SamplerMipmapMode::LINEAR)
             .mip_lod_bias(0.0)
             .min_lod(0.0)
-            .max_lod(1.0);
-
-        let sampler = device.create_sampler(&sampler_info, None)?;
-        Ok(sampler)
+            .max_lod(1.0)
+            .build()
     }
 
     unsafe fn transition_initial_layout(
@@ -196,6 +187,7 @@ impl DofBuffer {
         &mut self,
         instance: &Instance,
         rrdevice: &RRDevice,
+        registry: &mut RenderTargetRegistry,
         new_width: u32,
         new_height: u32,
         command_pool: vk::CommandPool,
@@ -208,7 +200,14 @@ impl DofBuffer {
         self.render_pass = vk::RenderPass::null();
         self.destroy(&rrdevice.device);
 
-        let new_buf = Self::new(instance, rrdevice, new_width, new_height, command_pool)?;
+        let new_buf = Self::new(
+            instance,
+            rrdevice,
+            registry,
+            new_width,
+            new_height,
+            command_pool,
+        )?;
         *self = new_buf;
         rrdevice.device.destroy_render_pass(render_pass, None);
 
@@ -221,28 +220,20 @@ impl DofBuffer {
             device.destroy_framebuffer(self.framebuffer, None);
             self.framebuffer = vk::Framebuffer::null();
         }
-        if self.output_image_view != vk::ImageView::null() {
-            device.destroy_image_view(self.output_image_view, None);
-            self.output_image_view = vk::ImageView::null();
-        }
-        if self.output_image != vk::Image::null() {
-            device.destroy_image(self.output_image, None);
-            self.output_image = vk::Image::null();
-        }
-        if self.output_image_memory != vk::DeviceMemory::null() {
-            device.free_memory(self.output_image_memory, None);
-            self.output_image_memory = vk::DeviceMemory::null();
-        }
-        if self.sampler != vk::Sampler::null() {
-            device.destroy_sampler(self.sampler, None);
-            self.sampler = vk::Sampler::null();
-        }
         if self.render_pass != vk::RenderPass::null() {
             device.destroy_render_pass(self.render_pass, None);
             self.render_pass = vk::RenderPass::null();
         }
 
+        self.forget_registry_handles();
+
         log!("Destroyed DOF buffer");
+    }
+
+    fn forget_registry_handles(&mut self) {
+        self.output_image = vk::Image::null();
+        self.output_image_view = vk::ImageView::null();
+        self.sampler = vk::Sampler::null();
     }
 
     pub fn extent(&self) -> vk::Extent2D {
@@ -255,7 +246,8 @@ impl DofBuffer {
 
 impl Drop for DofBuffer {
     fn drop(&mut self) {
-        if self.output_image != vk::Image::null() {
+        if self.framebuffer != vk::Framebuffer::null() || self.render_pass != vk::RenderPass::null()
+        {
             log_warn!("DofBuffer dropped without calling destroy()");
         }
     }
