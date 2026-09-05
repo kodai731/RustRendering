@@ -7,6 +7,9 @@ property_kind = effect_properties.property_kind
 collect_params = effect_properties.collect_params
 merge_preset_params = effect_properties.merge_preset_params
 select_exposed_params = effect_properties.select_exposed_params
+absorption_to_color = effect_properties.absorption_to_color
+color_to_absorption = effect_properties.color_to_absorption
+display_property_names = effect_properties.display_property_names
 
 
 def water_render_params(props) -> dict:
