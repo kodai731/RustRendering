@@ -1,3 +1,5 @@
+use crate::core::device::RRDevice;
+use crate::resource::GpuResource;
 use vulkanalia::prelude::v1_0::*;
 
 /// Converts raw query ticks to milliseconds.
@@ -168,6 +170,16 @@ impl GpuTimestampProfiler {
                 *pool = vk::QueryPool::null();
             }
         }
+    }
+}
+
+impl GpuResource for GpuTimestampProfiler {
+    unsafe fn destroy_gpu(&mut self, rrdevice: &RRDevice) {
+        Self::destroy(self, &rrdevice.device);
+    }
+
+    fn resource_name(&self) -> &'static str {
+        "GpuTimestampProfiler"
     }
 }
 

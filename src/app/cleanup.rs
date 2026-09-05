@@ -3,6 +3,7 @@ use crate::vulkanr::command::RRCommandBuffer;
 use crate::vulkanr::context::{CommandState, RenderTargets, SwapchainState};
 use crate::vulkanr::render::framebuffer::{create_color_objects, create_framebuffers};
 use crate::vulkanr::render::pass::create_depth_objects;
+use crate::vulkanr::resource::{destroy_all_in_reverse, GpuResource};
 use crate::vulkanr::swapchain::RRSwapchain;
 
 use anyhow::Result;
@@ -15,18 +16,14 @@ impl App {
 
         let _ = self.rrdevice.device.device_wait_idle();
 
-        self.data.raytracing.destroy_all(&self.rrdevice);
-
-        self.data.buffer_registry.destroy_all(&self.rrdevice);
-
-        thyllore_vulkan_core::GpuTimestampProfiler::destroy(
+        let mut resources: [&mut dyn GpuResource; 5] = [
+            &mut self.data.graphics_resources,
             &mut self.gpu_timestamp_profiler,
-            &self.rrdevice.device,
-        );
-        log!("Destroyed GPU timestamp profiler");
-
-        self.data.graphics_resources.destroy(&self.rrdevice);
-        log!("Destroyed render resources");
+            &mut self.data.buffer_registry,
+            &mut self.data.pipeline_storage,
+            &mut self.data.raytracing,
+        ];
+        destroy_all_in_reverse(&mut resources, &self.rrdevice);
 
         self.rrdevice.destroy_descriptor_pools();
         log!("Destroyed descriptor pools");

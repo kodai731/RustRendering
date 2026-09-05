@@ -33,7 +33,7 @@ use crate::resource::graphics_resource::{GraphicsResources, MeshBuffer};
 use crate::resource::image::{create_nearest_sampler, create_texture_sampler};
 use crate::resource::uniform_buffer::{Placement, UniformBuffer};
 use crate::resource::{
-    BloomChain, FlameBuffer, HdrBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer,
+    BloomChain, FlameBuffer, GpuResource, HdrBuffer, OnionSkinPassResources, RRGBuffer, WaterBuffer,
 };
 use thyllore_effect_core::{FlameUBO, WaterUBO};
 
@@ -1117,6 +1117,16 @@ impl RayTracingData {
         self.auto_exposure_average_descriptor = Some(average_descriptor);
 
         Ok(())
+    }
+}
+
+impl GpuResource for RayTracingData {
+    unsafe fn destroy_gpu(&mut self, rrdevice: &RRDevice) {
+        self.destroy_all(rrdevice);
+    }
+
+    fn resource_name(&self) -> &'static str {
+        "RayTracingData"
     }
 }
 
