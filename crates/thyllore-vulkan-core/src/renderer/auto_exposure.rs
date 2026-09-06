@@ -39,6 +39,7 @@ pub unsafe fn record_auto_exposure_pass(
     buffers: &AutoExposureBuffers,
     settings: &AutoExposure,
     delta_time: f32,
+    frame_slot: usize,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
     let device = &ctx.device.device;
@@ -67,7 +68,7 @@ pub unsafe fn record_auto_exposure_pass(
     dispatch_histogram(
         device,
         histogram_pipeline,
-        histogram_descriptor,
+        histogram_descriptor.descriptor_set(frame_slot)?,
         &histogram_push,
         buffers,
         cmd,
@@ -105,7 +106,7 @@ unsafe fn insert_pre_histogram_barrier(device: &Device, cmd: vk::CommandBuffer) 
 unsafe fn dispatch_histogram(
     device: &Device,
     pipeline: &RRPipeline,
-    descriptor: &RRAutoExposureHistogramDescriptorSet,
+    descriptor_set: vk::DescriptorSet,
     push: &HistogramPushConstants,
     buffers: &AutoExposureBuffers,
     cmd: vk::CommandBuffer,
@@ -117,7 +118,7 @@ unsafe fn dispatch_histogram(
         vk::PipelineBindPoint::COMPUTE,
         pipeline.pipeline_layout,
         0,
-        &[descriptor.descriptor_set],
+        &[descriptor_set],
         &[],
     );
 

@@ -5,10 +5,15 @@ use crate::descriptor::shader_bindings::bloom_downsample;
 use crate::vulkan::*;
 
 #[derive(Clone, Debug, Default)]
+struct BloomFrameSets {
+    downsample_sets: Vec<vk::DescriptorSet>,
+    upsample_sets: Vec<vk::DescriptorSet>,
+}
+
+#[derive(Clone, Debug, Default)]
 pub struct RRBloomDescriptorSets {
     pub layout: ReflectedSetLayout,
-    pub downsample_sets: Vec<vk::DescriptorSet>,
-    pub upsample_sets: Vec<vk::DescriptorSet>,
+    frames: Vec<BloomFrameSets>,
 }
 
 impl RRBloomDescriptorSets {
@@ -16,18 +21,47 @@ impl RRBloomDescriptorSets {
         ReflectedLayoutSpec::new(vec![&BLOOM_DOWNSAMPLE, &BLOOM_UPSAMPLE], SetRole::Local)
     }
 
-    pub unsafe fn new(rrdevice: &RRDevice, mip_count: usize) -> Result<Self> {
-        let downsample_count = mip_count;
-        let upsample_count = mip_count.saturating_sub(1);
+    pub unsafe fn new(
+        rrdevice: &RRDevice,
+        mip_count: usize,
+        frames_in_flight: usize,
+    ) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let downsample_sets = layout.allocate_sets(rrdevice, downsample_count)?;
-        let upsample_sets = layout.allocate_sets(rrdevice, upsample_count)?;
 
-        Ok(Self {
-            layout,
-            downsample_sets,
-            upsample_sets,
+        let mut frames = Vec::with_capacity(frames_in_flight.max(1));
+        for _ in 0..frames_in_flight.max(1) {
+            frames.push(BloomFrameSets {
+                downsample_sets: layout.allocate_sets(rrdevice, mip_count)?,
+                upsample_sets: layout.allocate_sets(rrdevice, mip_count.saturating_sub(1))?,
+            });
+        }
+
+        Ok(Self { layout, frames })
+    }
+
+    fn frame(&self, frame_slot: usize) -> Result<&BloomFrameSets> {
+        self.frames.get(frame_slot).ok_or_else(|| {
+            anyhow!(
+                "bloom descriptor slot {frame_slot} exceeds {} frames",
+                self.frames.len()
+            )
         })
+    }
+
+    pub fn downsample_set(&self, frame_slot: usize, mip_index: usize) -> Result<vk::DescriptorSet> {
+        self.frame(frame_slot)?
+            .downsample_sets
+            .get(mip_index)
+            .copied()
+            .ok_or_else(|| anyhow!("bloom downsample set {mip_index} is missing"))
+    }
+
+    pub fn upsample_set(&self, frame_slot: usize, pass_index: usize) -> Result<vk::DescriptorSet> {
+        self.frame(frame_slot)?
+            .upsample_sets
+            .get(pass_index)
+            .copied()
+            .ok_or_else(|| anyhow!("bloom upsample set {pass_index} is missing"))
     }
 
     unsafe fn write_input(
@@ -49,14 +83,24 @@ impl RRBloomDescriptorSets {
         Ok(())
     }
 
-    pub unsafe fn update_image_views(
+    pub unsafe fn update_image_views_at(
         &self,
         rrdevice: &RRDevice,
+        frame_slot: usize,
         hdr_image_view: vk::ImageView,
         mip_image_views: &[vk::ImageView],
         sampler: vk::Sampler,
     ) -> Result<()> {
-        for (mip_index, set) in self.downsample_sets.iter().enumerate() {
+        let frame = self.frame(frame_slot)?;
+        if mip_image_views.len() != frame.downsample_sets.len() {
+            return Err(anyhow!(
+                "bloom mip view count {} does not match {} descriptor sets",
+                mip_image_views.len(),
+                frame.downsample_sets.len()
+            ));
+        }
+
+        for (mip_index, set) in frame.downsample_sets.iter().enumerate() {
             let input_view = match mip_index {
                 0 => hdr_image_view,
                 _ => mip_image_views[mip_index - 1],
@@ -64,7 +108,7 @@ impl RRBloomDescriptorSets {
             self.write_input(rrdevice, *set, input_view, sampler)?;
         }
 
-        for (pass_index, set) in self.upsample_sets.iter().enumerate() {
+        for (pass_index, set) in frame.upsample_sets.iter().enumerate() {
             let source_view_index = mip_image_views.len() - 1 - pass_index;
             self.write_input(rrdevice, *set, mip_image_views[source_view_index], sampler)?;
         }
@@ -73,7 +117,6 @@ impl RRBloomDescriptorSets {
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
         self.layout.destroy(device);
-        self.downsample_sets.clear();
-        self.upsample_sets.clear();
+        self.frames.clear();
     }
 }

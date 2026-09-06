@@ -15,11 +15,13 @@ pub mod offscreen;
 pub mod onion_skin_pass;
 pub mod pipeline_storage;
 pub mod raytracing_data;
+pub mod render_target_storage;
+pub mod render_target_transient;
 pub mod uniform_buffer;
 pub mod water_buffer;
 
 pub use auto_exposure_buffers::{AutoExposureBuffers, LUMINANCE_BUFFER_SIZE};
-pub use bloom_chain::BloomChain;
+pub use bloom_chain::{BloomChain, BloomMipTarget};
 pub use buffer::*;
 pub use buffer_registry::GpuBufferRegistry;
 pub use dof_buffer::DofBuffer;
@@ -35,5 +37,9 @@ pub use offscreen::OffscreenFramebuffer;
 pub use onion_skin_pass::OnionSkinPassResources;
 pub use pipeline_storage::PipelineStorage;
 pub use raytracing_data::{RayTracingData, MAX_FLAME_INSTANCES, MAX_WATER_INSTANCES};
+pub use render_target_storage::{RenderTargetEntry, RenderTargetKey, RenderTargetStorage};
+pub use render_target_transient::{
+    RenderTargetTransient, TransientDesc, TransientHandle, TransientImage,
+};
 pub use uniform_buffer::{Placement, UniformBuffer};
 pub use water_buffer::WaterBuffer;

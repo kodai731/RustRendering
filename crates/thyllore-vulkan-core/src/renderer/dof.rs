@@ -25,6 +25,7 @@ pub unsafe fn record_dof_pass(
     pipeline: &RRPipeline,
     dof_descriptor: &RRDofDescriptorSet,
     dof_buffer: &DofBuffer,
+    framebuffer: vk::Framebuffer,
     settings: &DepthOfField,
     camera: &PhysicalCameraParameters,
     camera_near_plane: f32,
@@ -44,7 +45,7 @@ pub unsafe fn record_dof_pass(
         enabled: if settings.enabled { 1 } else { 0 },
     };
 
-    begin_render_pass(device, dof_buffer, cmd, extent);
+    begin_render_pass(device, dof_buffer.render_pass, framebuffer, cmd, extent);
 
     device.cmd_bind_pipeline(cmd, vk::PipelineBindPoint::GRAPHICS, pipeline.pipeline);
 
@@ -80,7 +81,8 @@ pub unsafe fn record_dof_pass(
 
 unsafe fn begin_render_pass(
     device: &Device,
-    dof_buffer: &DofBuffer,
+    render_pass: vk::RenderPass,
+    framebuffer: vk::Framebuffer,
     cmd: vk::CommandBuffer,
     extent: vk::Extent2D,
 ) {
@@ -91,8 +93,8 @@ unsafe fn begin_render_pass(
     };
 
     let render_pass_info = vk::RenderPassBeginInfo::builder()
-        .render_pass(dof_buffer.render_pass)
-        .framebuffer(dof_buffer.framebuffer)
+        .render_pass(render_pass)
+        .framebuffer(framebuffer)
         .render_area(vk::Rect2D {
             offset: vk::Offset2D::default(),
             extent,
