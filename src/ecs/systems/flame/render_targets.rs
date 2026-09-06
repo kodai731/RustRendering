@@ -16,6 +16,7 @@ pub const FLAME_EFFECT_HOOK: EffectHook = EffectHook {
     prepare_frame: None,
     on_viewport_resize: Some(resize_flame_render_targets),
     destroy: Some(destroy_flame_render_targets),
+    passes: &[&super::passes::FlamePassNode],
 };
 
 unsafe fn create_flame_render_targets(

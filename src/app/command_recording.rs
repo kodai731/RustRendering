@@ -3,8 +3,6 @@ use vulkanalia::prelude::v1_0::*;
 
 use super::App;
 use crate::ecs::resource::GpuPassTimings;
-use crate::ecs::systems::water::passes::record_water_passes;
-use crate::vulkanr::context::FrameSync;
 use crate::vulkanr::renderer::deferred;
 
 impl App {
@@ -104,126 +102,7 @@ impl App {
                 && self.data.raytracing.tonemap_pipeline.is_some();
 
             if has_hdr_pipeline {
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "composite_hdr".to_string(),
-                );
-                deferred::record_composite_to_hdr(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "onion_skin".to_string(),
-                );
-                deferred::record_onion_skin_pass(self, command_buffer, image_index)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "water".to_string(),
-                );
-                deferred::record_water_passes(self, command_buffer, image_index, frame_slot)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "flame".to_string(),
-                );
-                crate::ecs::systems::record_flame_passes(self, command_buffer, image_index)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "bloom".to_string(),
-                );
-                deferred::record_bloom(self, command_buffer, frame_slot)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "dof".to_string(),
-                );
-                deferred::record_dof(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "auto_exposure".to_string(),
-                );
-                deferred::record_auto_exposure(
-                    self,
-                    command_buffer,
-                    self.resource::<FrameSync>().current_frame,
-                )?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "tonemap".to_string(),
-                );
-                deferred::record_tonemap_to_offscreen(self, command_buffer, image_index)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
-
-                self.gpu_timestamp_profiler.begin_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                    "onion_composite".to_string(),
-                );
-                deferred::record_onion_skin_composite(self, command_buffer)?;
-                self.gpu_timestamp_profiler.end_scope(
-                    &self.rrdevice.device,
-                    command_buffer,
-                    image_index,
-                );
+                self.record_pass_graph(command_buffer, image_index, frame_slot)?;
             } else {
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
@@ -289,6 +168,29 @@ impl App {
 
         self.rrdevice.device.end_command_buffer(command_buffer)?;
 
+        Ok(())
+    }
+
+    unsafe fn record_pass_graph(
+        &mut self,
+        command_buffer: vk::CommandBuffer,
+        image_index: usize,
+        frame_slot: usize,
+    ) -> Result<()> {
+        for node in self.data.pass_graph.nodes() {
+            self.gpu_timestamp_profiler.begin_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+                node.name().to_string(),
+            );
+            node.record(self, command_buffer, image_index, frame_slot)?;
+            self.gpu_timestamp_profiler.end_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+            );
+        }
         Ok(())
     }
 

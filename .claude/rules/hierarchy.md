@@ -96,16 +96,19 @@ only for debugging (debug primitive spawn / delete) it lives in `src/debugview/`
 ## src/hooks/
 
 Generic hook infrastructure that lets a subsystem plug into the app lifecycle without being named by
-`src/app/`. `effect.rs` holds the effect hook (setup, prepare frame, viewport resize, destroy) and the list
-that runs them in subscription order. A hook file describes a lifecycle contract only; it never names a
-concrete effect.
+`src/app/`. `effect.rs` holds the effect hook (setup, prepare frame, viewport resize, destroy, pass nodes)
+and the list that runs them in subscription order. `pass.rs` holds the `RenderPassNode` contract (name,
+stage, record), the `PassStage` order (lighting → effect → post-process → final) and the `PassGraph` that
+keeps registered nodes sorted by stage then registration order. A hook file describes a contract only; it
+never names a concrete effect.
 
 ## src/effect/
 
 The one place that subscribes the effects (`subscription.rs`): it lists the hook constants of flame, water
 and any future effect. `src/app/` runs the hooks generically and never names an effect; an effect's own
 systems (`src/ecs/systems/<effect>/`) implement the hook and own the effect's GPU state as an ECS resource.
-Adding an effect means adding its hook constant to `subscription.rs`, nothing in `src/app/`.
+Adding an effect means adding its hook constant to `subscription.rs`, nothing in `src/app/`. Subscription
+order is also the record order of the effects' pass nodes inside the effect stage.
 
 ## src/platform/
 
@@ -115,7 +118,9 @@ dispatch entry point. Contains no business logic and no Vulkan commands beyond i
 ## src/vulkanr/
 
 App-side Vulkan glue: ECS resources that wrap swapchain, sync objects and core attachments, per-frame pass
-recording that has to read `App`, and implementations of app-side backend traits. Anything here that turns
+recording that has to read `App`, the core pass nodes (`renderer/deferred/nodes.rs`: composite, onion skin,
+bloom, dof, auto exposure, tonemap registered into the `PassGraph`), and implementations of app-side backend
+traits. Anything here that turns
 out to need only device and handles moves down into `thyllore-vulkan-core`.
 
 ## src/render/

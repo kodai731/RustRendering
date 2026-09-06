@@ -15,6 +15,7 @@ pub const WATER_EFFECT_HOOK: EffectHook = EffectHook {
     prepare_frame: Some(prepare_water_frame_targets),
     on_viewport_resize: Some(resize_water_render_targets),
     destroy: Some(destroy_water_render_targets),
+    passes: &[&super::passes::WaterPassNode],
 };
 
 unsafe fn create_water_render_targets(

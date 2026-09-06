@@ -3,20 +3,46 @@ use cgmath::{SquareMatrix, Vector3};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
+use crate::hooks::pass::{PassStage, RenderPassNode};
 use crate::vulkanr::renderer::deferred::full_extent_scissor;
 
-pub unsafe fn record_flame_passes(
+pub struct FlamePassNode;
+
+impl RenderPassNode for FlamePassNode {
+    fn name(&self) -> &'static str {
+        "flame"
+    }
+
+    fn stage(&self) -> PassStage {
+        PassStage::Effect
+    }
+
+    unsafe fn record(
+        &self,
+        app: &App,
+        command_buffer: vk::CommandBuffer,
+        image_index: usize,
+        _frame_slot: usize,
+    ) -> Result<()> {
+        record_flame_passes(app, command_buffer, image_index)
+    }
+}
+
+unsafe fn record_flame_passes(
     app: &App,
     command_buffer: vk::CommandBuffer,
     image_index: usize,
 ) -> Result<()> {
-    let (Some(flame_buffer), Some(shading_pipeline), Some(descriptor)) = (
-        app.data.viewport.flame_buffer.as_ref(),
+    let (Some(flame_targets), Some(shading_pipeline), Some(descriptor)) = (
+        app.data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameRenderTargets>(),
         app.data.raytracing.flame_shading_pipeline.as_ref(),
         app.data.raytracing.flame_descriptor.as_ref(),
     ) else {
         return Ok(());
     };
+    let flame_buffer = &flame_targets.buffer;
 
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 

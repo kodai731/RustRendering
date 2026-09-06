@@ -4,20 +4,54 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrRayTracingPipelineExtension;
 
 use crate::app::App;
+use crate::hooks::pass::{PassStage, RenderPassNode};
 use crate::vulkanr::renderer::deferred::full_extent_scissor;
 
-pub unsafe fn record_water_passes(
+pub struct WaterPassNode;
+
+impl RenderPassNode for WaterPassNode {
+    fn name(&self) -> &'static str {
+        "water"
+    }
+
+    fn stage(&self) -> PassStage {
+        PassStage::Effect
+    }
+
+    unsafe fn record(
+        &self,
+        app: &App,
+        command_buffer: vk::CommandBuffer,
+        image_index: usize,
+        frame_slot: usize,
+    ) -> Result<()> {
+        record_water_passes(app, command_buffer, image_index, frame_slot)
+    }
+}
+
+unsafe fn record_water_passes(
     app: &App,
     command_buffer: vk::CommandBuffer,
     image_index: usize,
+    frame_slot: usize,
 ) -> Result<()> {
-    let (Some(water_buffer), Some(shading_pipeline), Some(descriptor)) = (
-        app.data.viewport.water_buffer.as_ref(),
+    let (Some(water_targets), Some(shading_pipeline), Some(descriptor)) = (
+        app.data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::WaterRenderTargets>(),
         app.data.raytracing.water_shading_pipeline.as_ref(),
         app.data.raytracing.water_descriptor.as_ref(),
     ) else {
         return Ok(());
     };
+    let (Some(scene_color_handle), Some(trace_handle)) =
+        (water_targets.scene_color, water_targets.trace)
+    else {
+        return Ok(());
+    };
+    let water_buffer = &water_targets.buffer;
+    let scene_color_image = app.data.viewport.transient.get(scene_color_handle)?;
+    let trace_image = app.data.viewport.transient.get(trace_handle)?;
 
     if !app.data.raytracing.has_valid_tlas()
         || app
@@ -43,42 +77,8 @@ pub unsafe fn record_water_passes(
     if instance_count == 0 {
         return Ok(());
     }
-    // Re-write descriptor with current TLAS and hit table (only if TLAS handle changed)
-    {
-        let accel = app.data.raytracing.acceleration_structure.as_ref().unwrap();
-        let tlas = accel.tlas.acceleration_structure.unwrap();
-        if tlas != app.data.raytracing.water_descriptor_tlas.get() {
-            let hit_table = accel.hit_shading_table.as_ref().unwrap().buffer;
-            let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
-            let water_ubo = app.data.raytracing.water_ubo.as_ref().unwrap();
-            descriptor.write_all(
-                ctx.device,
-                water_ubo,
-                scene_color_view,
-                scene_color_sampler,
-                water_buffer.history_image_views,
-                water_buffer.history_sampler,
-                water_buffer.trace_image_view,
-                water_buffer.history_sampler,
-                tlas,
-                hit_table,
-            )?;
 
-            if let Some(trace_descriptor) = app.data.raytracing.water_trace_descriptor.as_ref() {
-                if let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() {
-                    trace_descriptor.write_all(
-                        ctx.device,
-                        tlas,
-                        water_buffer.trace_image_view,
-                        water_ubo,
-                        hit_table,
-                    )?;
-                }
-            }
-
-            app.data.raytracing.water_descriptor_tlas.set(tlas);
-        }
-    }
+    transition_trace_image_to_general(&ctx.device.device, trace_image.image, command_buffer);
 
     let settings = app
         .data
@@ -107,7 +107,7 @@ pub unsafe fn record_water_passes(
                     vk::PipelineBindPoint::RAY_TRACING_KHR,
                     trace_pipeline.pipeline_layout,
                     0,
-                    &[trace_descriptor.descriptor_set],
+                    &[trace_descriptor.descriptor_set(frame_slot)?],
                     &[],
                 );
                 let radii = [effect.major_radius, effect.minor_radius];
@@ -186,7 +186,7 @@ pub unsafe fn record_water_passes(
                     .dst_access_mask(vk::AccessFlags::SHADER_READ)
                     .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
                     .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                    .image(water_buffer.trace_image)
+                    .image(trace_image.image)
                     .subresource_range(vk::ImageSubresourceRange {
                         aspect_mask: vk::ImageAspectFlags::COLOR,
                         base_mip_level: 0,
@@ -231,7 +231,8 @@ pub unsafe fn record_water_passes(
     thyllore_vulkan_core::renderer::record_water_scene_color_copy(
         &ctx,
         hdr_buffer.color_image,
-        water_buffer,
+        scene_color_image.image,
+        water_buffer.extent(),
         command_buffer,
     );
 
@@ -286,6 +287,7 @@ pub unsafe fn record_water_passes(
             scissor,
             push_constants,
             image_index,
+            frame_slot,
             history_index,
             command_buffer,
         )?;
@@ -294,7 +296,61 @@ pub unsafe fn record_water_passes(
     Ok(())
 }
 
+/// Must match CAUSTIC_GRID_SIZE and local_size in waterCausticSplat.comp
+const CAUSTIC_GRID_SIZE: u32 = 512;
+const CAUSTIC_WORKGROUP_SIZE: u32 = 16;
+
+const COLOR_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresourceRange {
+    aspect_mask: vk::ImageAspectFlags::COLOR,
+    base_mip_level: 0,
+    level_count: 1,
+    base_array_layer: 0,
+    layer_count: 1,
+};
+
+fn build_color_image_barrier(
+    image: vk::Image,
+    old_layout: vk::ImageLayout,
+    new_layout: vk::ImageLayout,
+    src_access: vk::AccessFlags,
+    dst_access: vk::AccessFlags,
+) -> vk::ImageMemoryBarrier {
+    vk::ImageMemoryBarrier::builder()
+        .image(image)
+        .old_layout(old_layout)
+        .new_layout(new_layout)
+        .src_access_mask(src_access)
+        .dst_access_mask(dst_access)
+        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
+        .subresource_range(COLOR_SUBRESOURCE_RANGE)
+        .build()
+}
+
 /// Both history images stay in SHADER_READ_ONLY_OPTIMAL between frames (shading render pass final layout).
+unsafe fn transition_trace_image_to_general(
+    device: &vulkanalia::Device,
+    trace_image: vk::Image,
+    command_buffer: vk::CommandBuffer,
+) {
+    let barrier = build_color_image_barrier(
+        trace_image,
+        vk::ImageLayout::UNDEFINED,
+        vk::ImageLayout::GENERAL,
+        vk::AccessFlags::empty(),
+        vk::AccessFlags::SHADER_WRITE | vk::AccessFlags::SHADER_READ,
+    );
+    device.cmd_pipeline_barrier(
+        command_buffer,
+        vk::PipelineStageFlags::TOP_OF_PIPE,
+        vk::PipelineStageFlags::RAY_TRACING_SHADER_KHR | vk::PipelineStageFlags::FRAGMENT_SHADER,
+        vk::DependencyFlags::empty(),
+        &[] as &[vk::MemoryBarrier],
+        &[] as &[vk::BufferMemoryBarrier],
+        &[barrier],
+    );
+}
+
 unsafe fn clear_water_history_images(
     device: &Device,
     water_buffer: &thyllore_vulkan_core::resource::WaterBuffer,
@@ -607,35 +663,4 @@ fn compute_water_scissor(
             })
             .build(),
     )
-}
-
-/// Must match CAUSTIC_GRID_SIZE and local_size in waterCausticSplat.comp
-const CAUSTIC_GRID_SIZE: u32 = 512;
-const CAUSTIC_WORKGROUP_SIZE: u32 = 16;
-
-const COLOR_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresourceRange {
-    aspect_mask: vk::ImageAspectFlags::COLOR,
-    base_mip_level: 0,
-    level_count: 1,
-    base_array_layer: 0,
-    layer_count: 1,
-};
-
-fn build_color_image_barrier(
-    image: vk::Image,
-    old_layout: vk::ImageLayout,
-    new_layout: vk::ImageLayout,
-    src_access: vk::AccessFlags,
-    dst_access: vk::AccessFlags,
-) -> vk::ImageMemoryBarrier {
-    vk::ImageMemoryBarrier::builder()
-        .image(image)
-        .old_layout(old_layout)
-        .new_layout(new_layout)
-        .src_access_mask(src_access)
-        .dst_access_mask(dst_access)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .subresource_range(COLOR_SUBRESOURCE_RANGE)
-        .build()
 }

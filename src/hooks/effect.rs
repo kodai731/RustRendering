@@ -2,6 +2,7 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::{App, AppData};
+use crate::hooks::pass::{PassGraph, RenderPassNode};
 use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::render::RRRender;
 
@@ -9,18 +10,27 @@ pub type EffectSetupHook = unsafe fn(&Instance, &RRDevice, &mut AppData, &RRRend
 pub type EffectFrameHook = unsafe fn(&mut App, usize) -> Result<()>;
 pub type EffectHookFn = unsafe fn(&mut App) -> Result<()>;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy)]
 pub struct EffectHook {
     pub name: &'static str,
     pub setup: Option<EffectSetupHook>,
     pub prepare_frame: Option<EffectFrameHook>,
     pub on_viewport_resize: Option<EffectHookFn>,
     pub destroy: Option<EffectHookFn>,
+    pub passes: &'static [&'static dyn RenderPassNode],
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct EffectHooks {
     entries: Vec<EffectHook>,
+}
+
+impl std::fmt::Debug for EffectHooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EffectHooks")
+            .field("entries", &self.names())
+            .finish()
+    }
 }
 
 impl EffectHooks {
@@ -37,6 +47,12 @@ impl EffectHooks {
 
     pub fn names(&self) -> Vec<&'static str> {
         self.entries.iter().map(|entry| entry.name).collect()
+    }
+
+    pub fn register_passes(&self, graph: &mut PassGraph) {
+        for hook in &self.entries {
+            graph.register_all(hook.passes);
+        }
     }
 
     fn snapshot(&self) -> Vec<EffectHook> {
