@@ -125,13 +125,12 @@ impl App {
         }
 
         let command_pool = self.resource::<CommandState>().pool.clone();
-        let waters = crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
-        let mesh_transforms = crate::app::model_loader::collect_mesh_transforms(
+        let waters = crate::ecs::systems::collect_water_instances(&self.data.ecs_world);
+        let mesh_transforms = crate::ecs::systems::collect_mesh_transforms(
             &self.data.ecs_world,
             &self.data.ecs_assets,
         );
-        let water_instances =
-            crate::app::model_loader::collect_water_instances(&self.data.ecs_world);
+        let water_instances = crate::ecs::systems::collect_water_instances(&self.data.ecs_world);
         crate::app::model_loader::rebuild_acceleration_structures(
             &self.instance,
             &self.rrdevice,

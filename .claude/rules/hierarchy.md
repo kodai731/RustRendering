@@ -88,9 +88,10 @@ file per domain, one directory per effect), phases (execution order and event di
 (world, storage, query, registry, events). Rules are in `ecs-architecture.md`.
 
 No file here declares `impl App` or takes `&mut App` (see the known exceptions above). A system that needs
-GPU resources as well as `World` takes `FrameContext` or a smaller context struct; if the work is mostly GPU
-upload and rebuild with a few `World` writes (debug primitive spawn / delete), it is app wiring and lives in
-`src/app/` (`debug_primitive.rs`).
+GPU resources as well as `World` takes `FrameContext` or a smaller context struct (`raytracing_systems.rs`:
+per-frame TLAS refresh from `GlobalTransform`). If the work is mostly GPU upload and rebuild with a few
+`World` writes, it is app wiring and lives in `src/app/` (`model_loader.rs`, `scene_model.rs`); if it exists
+only for debugging (debug primitive spawn / delete) it lives in `src/debugview/`.
 
 ## src/hooks/
 
@@ -129,18 +130,22 @@ and drives one frame. It is the only place that sees `App` as a whole.
 
 Files: `init/` and `cleanup.rs` (construction, teardown), `data.rs` (`AppData`), `viewport.rs` (core
 attachments, storage and transient pools), `render.rs` (frame driver), `update.rs` (per-frame update and
-imgui buffers), `command_recording.rs`, `screenshot.rs` (swapchain and image readback to PNG),
-`model_loader.rs`, `scene_model.rs` and `debug_primitive.rs` (model and primitive upload wiring, acceleration
-structure rebuild), `frame_context.rs` and `render_context.rs`, `post_process/`, `util.rs`,
-`color_test_quad.rs`.
+imgui buffers), `command_recording.rs`, `model_loader.rs` and `scene_model.rs` (model load entry points,
+upload wiring, acceleration structure rebuild), `frame_context.rs` and `render_context.rs`, `post_process/`,
+`features/` (see below), `util.rs`, `color_test_quad.rs`.
+
+`src/app/*.rs` is the core loop only. Optional capabilities that extend `App` but are not needed to drive a
+frame live in `src/app/features/<feature>.rs` (Unreal's modular features, bevy's optional plugins):
+`screenshot.rs` (swapchain and image readback to a host buffer, PNG encoding). A feature may be removed
+without touching the frame loop; if removing it would break `begin_frame` / `render`, it is not a feature.
 
 Belongs here:
 - `App` construction and teardown
 - ownership containers whose lifetime is the app or the viewport (core attachments, the render target
   storage and transient pools)
 - the frame driver: begin frame, update, record, submit, present, swapchain recreation
-- screenshot and image readback (`screenshot.rs`): copying a swapchain or effect image into a host buffer
-  and encoding it; `src/debugview/` builds on `copy_image_to_buffer` from here
+- optional capabilities under `features/` (screenshot); `src/debugview/` builds on
+  `features/screenshot.rs::copy_image_to_buffer`
 - context structs that bundle `App` fields for callees
 - wiring that must touch several subsystems at once (a resize fan-out, rebinding after a resize)
 - calls into the hook infrastructure of `src/hooks/` (setup, prepare frame, viewport resize, destroy)
@@ -154,6 +159,7 @@ Does not belong here:
 - Vulkan helpers that need only device and handles (barriers, render passes, copies) → `thyllore-vulkan-core`
 - pure math or analytic code → `thyllore-math-core`, `thyllore-effect-core`
 - per-effect pass recording, resize or descriptor updates → `src/ecs/systems/<effect>/`
+- anything that exists only for debugging (dumps, debug primitives) → `src/debugview/`
 - UI drawing → `src/platform/ui/`
 
 A function that takes `&mut App` only to read a few fields is misplaced: pass those fields in and put it
@@ -169,10 +175,11 @@ per-feature `AddPass`).
 
 - `src/scene/` — scene file format, load / save, clip io (serde + world apply, no rendering)
 - `src/asset/` — CPU-side model asset storage
-- `src/debugview/` — `impl App` blocks that dump GPU images or buffers for a debugging session, one file
-  per subject (`flame_history_dump.rs`, `water_debug_dump.rs`, `shadow_debug.rs`, ...). This is the only
-  directory outside `src/app/` that may extend `App`; it reuses the readback helpers of
-  `src/app/screenshot.rs`. CPU mirrors of shader math go to `thyllore-render-debug` instead
+- `src/debugview/` — `impl App` blocks that exist only for a debugging session: GPU image and buffer dumps
+  (`flame_history_dump.rs`, `water_debug_dump.rs`, `exposure_dump.rs`, `shadow_debug.rs`) and debug scene
+  manipulation (`debug_primitive.rs`: cube / sphere / floor spawn and entity delete), one file per subject.
+  This is the only directory outside `src/app/` that may extend `App`; it reuses the readback helpers of
+  `src/app/features/screenshot.rs`. CPU mirrors of shader math go to `thyllore-render-debug` instead
 - `src/ml/` — inference thread, feedback, licensing worker
 - `src/logger/` — logger and message buffer
 - `src/loader/`, `src/exporter/`, `src/grpc/`, `src/math/`, `src/animation.rs` — thin `pub use` shims over
@@ -188,8 +195,9 @@ per-feature `AddPass`).
 - `src/render/` and `src/vulkanr/` — the app-side extension of the trait (needs ECS resource types) and its
   Vulkan implementation, plus pass recording that reads `App`.
 - `src/app/render.rs` — the frame driver: begin and end of a frame, swapchain-level concerns, the resize
-  fan-out and the gbuffer / onion-skin passes it records directly. Model loading entry points still live
-  here and are the next candidates to move to `scene_model.rs`.
+  fan-out, auto exposure readback and the gbuffer / billboard / imgui recording it does directly. It names no
+  effect and no model format; per-frame TLAS refresh is `src/ecs/systems/raytracing_systems.rs`, model
+  loading is `scene_model.rs`.
 
 Frame contexts, innermost to outermost: the crate-level immutable render context (device, resources,
 pipelines, image index) → the app render context (mutable GPU resources, builds the backend) → the app frame
@@ -217,4 +225,7 @@ context (adds `World`, assets, time, frame slot) used by the ECS phases.
 5. Needs `App` only to read a handful of fields → not `src/app/`; pass those fields in (or extend
    `FrameContext`) and apply rules 1–3. `impl App` is allowed only in `src/app/` and `src/debugview/`.
 6. Draws imgui → `src/platform/ui/`.
-7. Dumps GPU data for debugging → `src/debugview/` (needs `App`) or `thyllore-render-debug` (CPU mirror).
+7. Exists only for debugging (dumps, debug primitives) → `src/debugview/` (needs `App`) or
+   `thyllore-render-debug` (CPU mirror).
+8. Extends `App` with an optional capability the frame loop does not need (screenshot, export) →
+   `src/app/features/`.

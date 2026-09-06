@@ -11,6 +11,7 @@ use super::phases::{
     run_animation_phase_ecs, run_animation_phase_gpu, run_input_phase, run_onion_skin_phase,
     run_render_prep_phase, run_transform_phase_ecs, run_transform_phase_gpu,
 };
+use super::raytracing_systems::refresh_tlas_mesh_transforms;
 use super::timeline_systems::timeline_update;
 use crate::app::FrameContext;
 #[cfg(feature = "ml")]
@@ -96,6 +97,13 @@ pub unsafe fn run_frame(ctx: &mut FrameContext) -> Result<()> {
     run_render_prep_phase(ctx)?;
     stages.push((
         "render_prep".to_string(),
+        t.elapsed().as_secs_f32() * 1000.0,
+    ));
+
+    let t = std::time::Instant::now();
+    refresh_tlas_mesh_transforms(ctx)?;
+    stages.push((
+        "tlas_refresh".to_string(),
         t.elapsed().as_secs_f32() * 1000.0,
     ));
 
