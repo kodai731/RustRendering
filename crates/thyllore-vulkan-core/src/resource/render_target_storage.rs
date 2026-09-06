@@ -6,9 +6,7 @@ use crate::vulkan::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum RenderTargetKey {
-    SceneColorCopy,
     EffectHistory(u8),
-    TraceImage,
     CausticAccum,
 }
 
@@ -220,7 +218,7 @@ mod tests {
         assert_eq!(storage.extent(), (0, 0));
         assert!(!storage.has_valid_extent());
         assert!(!storage.has_leaked_targets());
-        assert!(storage.get(RenderTargetKey::TraceImage).is_none());
+        assert!(storage.get(RenderTargetKey::CausticAccum).is_none());
     }
 
     #[test]
@@ -251,8 +249,8 @@ mod tests {
     #[test]
     fn test_clear_tracking_prevents_leak_report() {
         let mut storage = RenderTargetStorage::default();
-        insert_dummy(&mut storage, RenderTargetKey::SceneColorCopy);
-        insert_dummy(&mut storage, RenderTargetKey::TraceImage);
+        insert_dummy(&mut storage, RenderTargetKey::EffectHistory(0));
+        insert_dummy(&mut storage, RenderTargetKey::CausticAccum);
 
         assert!(storage.has_leaked_targets());
 

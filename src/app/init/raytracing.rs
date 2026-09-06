@@ -147,6 +147,7 @@ impl App {
             &data.graphics_resources,
             water_buffer,
             hdr_buffer,
+            crate::app::init::MAX_FRAMES_IN_FLIGHT,
         )?;
 
         log!("Water pipeline created successfully");

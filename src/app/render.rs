@@ -704,32 +704,8 @@ impl App {
             hdr_view,
             depth_view,
         )?;
-        let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
         self.data.effect_targets.water = Some(water_buffer);
-
-        if let Some(descriptor) = &self.data.raytracing.water_descriptor {
-            descriptor.update_scene_color(&self.rrdevice, scene_color_view, scene_color_sampler)?;
-        }
-
-        if let Some(trace_descriptor) = &self.data.raytracing.water_trace_descriptor {
-            if let Some(accel) = self.data.raytracing.acceleration_structure.as_ref() {
-                if let Some(tlas) = accel.tlas.acceleration_structure {
-                    if let Some(hit_table) = accel.hit_shading_table.as_ref() {
-                        if let Some(water_buffer) = self.data.effect_targets.water.as_ref() {
-                            if let Some(water_ubo) = self.data.raytracing.water_ubo.as_ref() {
-                                trace_descriptor.write_all(
-                                    &self.rrdevice,
-                                    tlas,
-                                    water_buffer.trace_image_view,
-                                    water_ubo,
-                                    hit_table.buffer,
-                                )?;
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        self.data.water_frame_targets.forget_bindings();
 
         self.update_water_caustic_descriptor()?;
 
@@ -1151,6 +1127,7 @@ impl App {
         )?;
 
         self.prepare_post_process_targets(frame_slot)?;
+        self.prepare_water_frame_targets(frame_slot)?;
         self.record_command_buffer(image_index, draw_data, frame_slot)?;
 
         let image_available = self.resource::<FrameSync>().current_image_available();

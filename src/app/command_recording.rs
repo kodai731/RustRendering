@@ -135,7 +135,7 @@ impl App {
                     image_index,
                     "water".to_string(),
                 );
-                deferred::record_water_passes(self, command_buffer, image_index)?;
+                deferred::record_water_passes(self, command_buffer, image_index, frame_slot)?;
                 self.gpu_timestamp_profiler.end_scope(
                     &self.rrdevice.device,
                     command_buffer,

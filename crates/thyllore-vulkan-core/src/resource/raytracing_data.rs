@@ -1,6 +1,5 @@
 use anyhow::Result;
 use cgmath::SquareMatrix;
-use std::cell::Cell;
 use std::rc::Rc;
 use thyllore_math_core::AffineRows3x4;
 use vulkanalia::prelude::v1_0::*;
@@ -96,8 +95,6 @@ pub struct RayTracingData {
 
     pub scene_uniform_buffer: Option<vk::Buffer>,
     pub scene_uniform_buffer_memory: Option<vk::DeviceMemory>,
-
-    pub water_descriptor_tlas: Cell<vk::AccelerationStructureKHR>,
 }
 
 impl RayTracingData {
@@ -581,6 +578,7 @@ impl RayTracingData {
         graphics_resources: &GraphicsResources,
         water_buffer: &WaterBuffer,
         hdr_buffer: &HdrBuffer,
+        frames_in_flight: usize,
     ) -> Result<()> {
         let water_ubo = UniformBuffer::new(
             instance,
@@ -590,27 +588,7 @@ impl RayTracingData {
         )?;
         water_ubo.write_slot(rrdevice, 0, &WaterUBO::default())?;
 
-        let mut water_descriptor = RRWaterDescriptorSet::new(rrdevice)?;
-        let (scene_color_view, scene_color_sampler) = water_buffer.scene_color_binding();
-        if let Some(accel_struct) = self.acceleration_structure.as_ref() {
-            if let (Some(tlas), Some(hit_table)) = (
-                accel_struct.tlas.acceleration_structure,
-                accel_struct.hit_shading_table.as_ref(),
-            ) {
-                water_descriptor.write_all(
-                    rrdevice,
-                    &water_ubo,
-                    scene_color_view,
-                    scene_color_sampler,
-                    water_buffer.history_image_views,
-                    water_buffer.history_sampler,
-                    water_buffer.trace_image_view,
-                    water_buffer.history_sampler,
-                    tlas,
-                    hit_table.buffer,
-                )?;
-            }
-        }
+        let water_descriptor = RRWaterDescriptorSet::new(rrdevice, frames_in_flight)?;
 
         let water_shading_pipeline = PipelineBuilder::from_pass(&WATER_RESOLVE)
             .vertex_input(VertexInputConfig::Custom {
@@ -650,21 +628,7 @@ impl RayTracingData {
         self.water_shading_pipeline = Some(water_shading_pipeline);
         self.water_descriptor = Some(water_descriptor);
 
-        let water_trace_descriptor = RRWaterTraceDescriptorSet::new(rrdevice)?;
-        if let Some(accel_struct) = self.acceleration_structure.as_ref() {
-            if let (Some(tlas), Some(hit_table)) = (
-                accel_struct.tlas.acceleration_structure,
-                accel_struct.hit_shading_table.as_ref(),
-            ) {
-                water_trace_descriptor.write_all(
-                    rrdevice,
-                    tlas,
-                    water_buffer.trace_image_view,
-                    &water_ubo,
-                    hit_table.buffer,
-                )?;
-            }
-        }
+        let water_trace_descriptor = RRWaterTraceDescriptorSet::new(rrdevice, frames_in_flight)?;
 
         self.water_ubo = Some(water_ubo);
         let intersection_range = vk::PushConstantRange::builder()

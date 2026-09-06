@@ -227,9 +227,10 @@ impl App {
         //     loaded_scene.is_some(),
         //     );
 
-        // The scene restores timeline, panel and curve editor state, so those resources must
-        // exist before it is applied. Registration is idempotent and runs again below.
+        // The scene restores timeline, panel, curve editor and post-processing state, so those
+        // resources must exist before it is applied. Registration is idempotent and runs again below.
         Self::register_editor_resources(&mut data);
+        Self::register_post_processing_resources(&mut data);
         Self::apply_loaded_scene(&mut data, loaded_scene);
         if let Err(e) = Self::build_acceleration_structures_with_resources(
             &instance,
