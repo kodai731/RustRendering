@@ -3,7 +3,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::app::{App, AppData};
 use crate::ecs::resource::{WaterBindingKey, WaterRenderTargets};
-use crate::effect::hooks::EffectHook;
+use crate::hooks::effect::EffectHook;
 use crate::vulkanr::context::RenderTargets;
 use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::render::RRRender;

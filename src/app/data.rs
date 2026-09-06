@@ -4,7 +4,7 @@ use crate::app::post_process::PostProcessFrameTargets;
 use crate::app::viewport::ViewportState;
 use crate::asset::AssetStorage;
 use crate::ecs::World;
-use crate::effect::hooks::EffectHooks;
+use crate::hooks::effect::EffectHooks;
 use crate::platform::ImguiData;
 use crate::vulkanr::renderer::onion_skin_buffers::OnionSkinGpuState;
 use crate::vulkanr::resource::graphics_resource::GraphicsResources;

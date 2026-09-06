@@ -95,7 +95,7 @@ impl App {
         Self::create_dof_pipeline_with_resources(rrdevice, data, rrrender)?;
         Self::create_auto_exposure_pipelines_with_resources(rrdevice, data)?;
         Self::create_onion_skin_pipeline_with_resources(instance, rrdevice, data, rrrender)?;
-        crate::effect::hooks::EffectHooks::run_setup(instance, rrdevice, data, rrrender)?;
+        crate::hooks::effect::EffectHooks::run_setup(instance, rrdevice, data, rrrender)?;
 
         Ok(())
     }

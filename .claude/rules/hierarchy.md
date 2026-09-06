@@ -71,13 +71,19 @@ Everything that decides what the engine does: components and resources (data onl
 file per domain, one directory per effect), phases (execution order and event dispatch), and the ECS core
 (world, storage, query, registry, events). Rules are in `ecs-architecture.md`.
 
+## src/hooks/
+
+Generic hook infrastructure that lets a subsystem plug into the app lifecycle without being named by
+`src/app/`. `effect.rs` holds the effect hook (setup, prepare frame, viewport resize, destroy) and the list
+that runs them in subscription order. A hook file describes a lifecycle contract only; it never names a
+concrete effect.
+
 ## src/effect/
 
-The effect layer between `src/app/` and the effect systems: the hook infrastructure (`hooks/`: setup,
-prepare frame, viewport resize, destroy, run in subscription order) and the one place that subscribes the
-effects (`subscription.rs`). `src/app/` runs the hooks generically and never names an effect; an effect's
-own systems (`src/ecs/systems/<effect>/`) implement the hook and own the effect's GPU state as an ECS
-resource. Adding an effect means adding its hook constant to `subscription.rs`, nothing in `src/app/`.
+The one place that subscribes the effects (`subscription.rs`): it lists the hook constants of flame, water
+and any future effect. `src/app/` runs the hooks generically and never names an effect; an effect's own
+systems (`src/ecs/systems/<effect>/`) implement the hook and own the effect's GPU state as an ECS resource.
+Adding an effect means adding its hook constant to `subscription.rs`, nothing in `src/app/`.
 
 ## src/platform/
 
@@ -107,8 +113,8 @@ Belongs here:
 - the frame driver: begin frame, update, record, submit, present, swapchain recreation, screenshot
 - context structs that bundle `App` fields for callees
 - wiring that must touch several subsystems at once (a resize fan-out, rebinding after a resize)
-- calls into the effect hook infrastructure of `src/effect/` (setup, prepare frame, viewport resize,
-  destroy) without naming an effect
+- calls into the hook infrastructure of `src/hooks/` (setup, prepare frame, viewport resize, destroy)
+  without naming an effect
 - core post-processing passes (tonemap, auto exposure, dof, bloom) as one concept under
   `src/app/post_process/`: pipeline creation, resize rebinding and per-frame target acquisition live
   together there. These are engine passes, not effects, so `App` calls them directly

@@ -20,6 +20,7 @@ pub mod effect;
 pub mod exporter;
 #[cfg(feature = "text-to-motion")]
 pub mod grpc;
+pub mod hooks;
 pub mod loader;
 pub mod math;
 #[cfg(feature = "ml")]
