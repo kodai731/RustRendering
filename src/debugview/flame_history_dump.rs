@@ -9,12 +9,12 @@ impl App {
         use thyllore_math_core::{f16_to_f32, write_npy_f32};
 
         let device = &self.rrdevice.device;
-        let flame_buffer = self
+        let flame_targets = self
             .data
-            .viewport
-            .flame_buffer
-            .as_ref()
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameRenderTargets>()
             .ok_or_else(|| anyhow::anyhow!("flame buffer not initialized"))?;
+        let flame_buffer = &flame_targets.buffer;
 
         let flames = self.data.ecs_world.query_flames();
         let history_index = if let Some(first) = flames.first() {
