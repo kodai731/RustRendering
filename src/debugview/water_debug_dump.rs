@@ -28,12 +28,12 @@ impl App {
         path: &std::path::Path,
     ) -> Result<WaterCausticAccumStats> {
         let device = &self.rrdevice.device;
-        let water_buffer = self
+        let water_targets = self
             .data
-            .viewport
-            .water_buffer
-            .as_ref()
+            .ecs_world
+            .get_resource::<crate::ecs::resource::WaterRenderTargets>()
             .ok_or_else(|| anyhow::anyhow!("water buffer not initialized"))?;
+        let water_buffer = &water_targets.buffer;
 
         let caustic_image = water_buffer.caustic_accum_image;
         let width = water_buffer.width;
@@ -120,6 +120,11 @@ impl App {
 
         let swapchain_extent = self.resource::<SwapchainState>().swapchain.swapchain_extent;
         let viewport = &self.data.viewport;
+        let water_buffer_size = self
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::WaterRenderTargets>()
+            .map(|targets| [targets.buffer.width, targets.buffer.height]);
         let acceleration = self.data.raytracing.acceleration_structure.as_ref();
 
         WaterDebugRenderInfo {
@@ -128,7 +133,7 @@ impl App {
             api_version: format_vulkan_version(properties.api_version),
             swapchain_size: [swapchain_extent.width, swapchain_extent.height],
             hdr_buffer_size: viewport.hdr_buffer.as_ref().map(|b| [b.width, b.height]),
-            water_buffer_size: viewport.water_buffer.as_ref().map(|b| [b.width, b.height]),
+            water_buffer_size,
             mesh_count: self.data.graphics_resources.meshes.len(),
             mesh_blas_count: acceleration.map(|a| a.blas_list.len()).unwrap_or(0),
             water_blas_count: acceleration.map(|a| a.water_blas.len()).unwrap_or(0),

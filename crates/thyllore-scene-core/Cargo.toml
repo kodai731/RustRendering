@@ -9,3 +9,4 @@ repository = "https://github.com/kodai731/Thyllore-Animation"
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }
+thyllore-color-core = { path = "../thyllore-color-core" }

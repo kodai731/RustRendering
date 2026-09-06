@@ -66,6 +66,7 @@ pub unsafe fn record_tonemap_draw(
     ctx: &FrameRenderContext,
     pipeline: &RRPipeline,
     descriptor: &RRToneMapDescriptorSet,
+    frame_slot: usize,
     tonemap: &ToneMapping,
     exposure: &Exposure,
     lens: &LensEffects,
@@ -98,7 +99,7 @@ pub unsafe fn record_tonemap_draw(
         vk::PipelineBindPoint::GRAPHICS,
         pipeline.pipeline_layout,
         0,
-        &[descriptor.descriptor_set],
+        &[descriptor.descriptor_set(frame_slot)?],
         &[],
     );
 

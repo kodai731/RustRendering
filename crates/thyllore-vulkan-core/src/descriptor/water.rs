@@ -11,7 +11,7 @@ const WATER_HISTORY_SET_COUNT: usize = 2;
 #[derive(Clone, Debug, Default)]
 pub struct RRWaterDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_sets: [vk::DescriptorSet; WATER_HISTORY_SET_COUNT],
+    frames: Vec<[vk::DescriptorSet; WATER_HISTORY_SET_COUNT]>,
 }
 
 impl RRWaterDescriptorSet {
@@ -22,19 +22,38 @@ impl RRWaterDescriptorSet {
         )
     }
 
-    pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
+    pub unsafe fn new(rrdevice: &RRDevice, frames_in_flight: usize) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let sets = layout.allocate_sets(rrdevice, WATER_HISTORY_SET_COUNT)?;
 
-        Ok(Self {
-            layout,
-            descriptor_sets: [sets[0], sets[1]],
-        })
+        let mut frames = Vec::with_capacity(frames_in_flight.max(1));
+        for _ in 0..frames_in_flight.max(1) {
+            let sets = layout.allocate_sets(rrdevice, WATER_HISTORY_SET_COUNT)?;
+            frames.push([sets[0], sets[1]]);
+        }
+
+        Ok(Self { layout, frames })
     }
 
-    pub unsafe fn write_all(
+    pub fn descriptor_set(
+        &self,
+        frame_slot: usize,
+        history_index: usize,
+    ) -> Result<vk::DescriptorSet> {
+        let sets = self.frames.get(frame_slot).ok_or_else(|| {
+            anyhow!(
+                "water descriptor slot {frame_slot} exceeds {} frames",
+                self.frames.len()
+            )
+        })?;
+        sets.get(history_index)
+            .copied()
+            .ok_or_else(|| anyhow!("water history index {history_index} is out of range"))
+    }
+
+    pub unsafe fn write_all_at(
         &self,
         rrdevice: &RRDevice,
+        frame_slot: usize,
         water_ubo: &UniformBuffer<WaterUBO>,
         scene_color_view: vk::ImageView,
         scene_color_sampler: vk::Sampler,
@@ -45,7 +64,8 @@ impl RRWaterDescriptorSet {
         tlas: vk::AccelerationStructureKHR,
         hit_table: vk::Buffer,
     ) -> Result<()> {
-        for (i, descriptor_set) in self.descriptor_sets.into_iter().enumerate() {
+        for i in 0..WATER_HISTORY_SET_COUNT {
+            let descriptor_set = self.descriptor_set(frame_slot, i)?;
             let previous_history_view = history_image_views[1 - i];
             self.layout
                 .writer(descriptor_set)
@@ -74,30 +94,6 @@ impl RRWaterDescriptorSet {
                     hit_table,
                     0,
                     vk::WHOLE_SIZE as u64,
-                )?
-                .apply(rrdevice);
-        }
-        Ok(())
-    }
-
-    pub fn descriptor_sets(&self) -> [vk::DescriptorSet; 2] {
-        self.descriptor_sets
-    }
-
-    pub unsafe fn update_scene_color(
-        &self,
-        rrdevice: &RRDevice,
-        view: vk::ImageView,
-        sampler: vk::Sampler,
-    ) -> Result<()> {
-        for descriptor_set in self.descriptor_sets {
-            self.layout
-                .writer(descriptor_set)
-                .image(
-                    water_resolve::SCENE_COLOR_SAMPLER,
-                    view,
-                    sampler,
-                    vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 )?
                 .apply(rrdevice);
         }

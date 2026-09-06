@@ -29,6 +29,12 @@ impl App {
             .device
             .wait_for_fences(&[current_fence], true, u64::MAX)?;
 
+        let frame_slot = self.resource::<FrameSync>().current_frame;
+        self.data
+            .viewport
+            .transient
+            .begin_frame(&self.rrdevice.device, frame_slot)?;
+
         self.update_auto_exposure();
         self.read_object_id_readback();
 
@@ -145,7 +151,8 @@ impl App {
             .resize(&self.instance, &self.rrdevice, command_pool, width, height)?;
 
         self.resize_gbuffer(width, height)?;
-        self.update_postprocessing_descriptors_on_resize()?;
+        self.run_effect_viewport_resize()?;
+        self.resize_post_process_bindings()?;
 
         if self
             .data
@@ -161,111 +168,6 @@ impl App {
             readback.last_read_object_id = None;
             readback.last_read_world_position = None;
         }
-
-        Ok(())
-    }
-
-    unsafe fn update_postprocessing_descriptors_on_resize(&mut self) -> Result<()> {
-        if let (Some(ref hdr_buffer), Some(ref tonemap_descriptor)) = (
-            &self.data.viewport.hdr_buffer,
-            &self.data.raytracing.tonemap_descriptor,
-        ) {
-            tonemap_descriptor.update_hdr_sampler(
-                &self.rrdevice,
-                hdr_buffer.color_image_view,
-                hdr_buffer.sampler,
-            )?;
-
-            let bloom_view_and_sampler =
-                self.data.viewport.bloom_chain.as_ref().and_then(|chain| {
-                    chain
-                        .mip_levels
-                        .first()
-                        .map(|mip| (mip.image_view, chain.sampler))
-                });
-
-            if let Some((bloom_view, bloom_sampler)) = bloom_view_and_sampler {
-                tonemap_descriptor.update_bloom_sampler(
-                    &self.rrdevice,
-                    bloom_view,
-                    bloom_sampler,
-                )?;
-            } else {
-                tonemap_descriptor.update_bloom_sampler(
-                    &self.rrdevice,
-                    hdr_buffer.color_image_view,
-                    hdr_buffer.sampler,
-                )?;
-            }
-        }
-
-        if let (Some(ref hdr_buffer), Some(ref bloom_chain), Some(ref bloom_descriptors)) = (
-            &self.data.viewport.hdr_buffer,
-            &self.data.viewport.bloom_chain,
-            &self.data.raytracing.bloom_descriptors,
-        ) {
-            let mip_views: Vec<vk::ImageView> = bloom_chain
-                .mip_levels
-                .iter()
-                .map(|m| m.image_view)
-                .collect();
-
-            bloom_descriptors.update_image_views(
-                &self.rrdevice,
-                hdr_buffer.color_image_view,
-                &mip_views,
-                bloom_chain.sampler,
-            )?;
-        }
-
-        {
-            let render_targets = self.resource::<crate::vulkanr::context::RenderTargets>();
-            let depth_image_view = render_targets.render.gbuffer_depth_image_view;
-
-            if let (Some(ref hdr_buffer), Some(ref dof_descriptor)) = (
-                &self.data.viewport.hdr_buffer,
-                &self.data.raytracing.dof_descriptor,
-            ) {
-                let depth_sampler = self
-                    .data
-                    .raytracing
-                    .gbuffer_sampler
-                    .unwrap_or(hdr_buffer.sampler);
-
-                dof_descriptor.update_image_views(
-                    &self.rrdevice,
-                    hdr_buffer.color_image_view,
-                    hdr_buffer.sampler,
-                    depth_image_view,
-                    depth_sampler,
-                )?;
-            }
-        }
-
-        if let (Some(ref dof_buffer), Some(ref tonemap_descriptor)) = (
-            &self.data.viewport.dof_buffer,
-            &self.data.raytracing.tonemap_descriptor,
-        ) {
-            tonemap_descriptor.update_hdr_sampler(
-                &self.rrdevice,
-                dof_buffer.output_image_view,
-                dof_buffer.sampler,
-            )?;
-        }
-
-        if let (Some(ref gbuffer), Some(gbuffer_sampler), Some(ref tonemap_descriptor)) = (
-            &self.data.raytracing.gbuffer,
-            self.data.raytracing.gbuffer_sampler,
-            &self.data.raytracing.tonemap_descriptor,
-        ) {
-            tonemap_descriptor.update_position_sampler(
-                &self.rrdevice,
-                gbuffer.position_image_view,
-                gbuffer_sampler,
-            )?;
-        }
-
-        self.update_auto_exposure_descriptors_on_resize()?;
 
         Ok(())
     }
@@ -456,43 +358,6 @@ impl App {
         Ok(())
     }
 
-    unsafe fn update_auto_exposure_descriptors_on_resize(&self) -> Result<()> {
-        let (hdr_image_view, hdr_sampler) =
-            if let Some(ref dof_buffer) = self.data.viewport.dof_buffer {
-                (dof_buffer.output_image_view, dof_buffer.sampler)
-            } else if let Some(ref hdr_buffer) = self.data.viewport.hdr_buffer {
-                (hdr_buffer.color_image_view, hdr_buffer.sampler)
-            } else {
-                return Ok(());
-            };
-
-        let ae_buffers = match self.data.viewport.auto_exposure_buffers {
-            Some(ref buf) => buf,
-            None => return Ok(()),
-        };
-
-        if let Some(ref hist_desc) = self.data.raytracing.auto_exposure_histogram_descriptor {
-            hist_desc.update_bindings(
-                &self.rrdevice,
-                hdr_image_view,
-                hdr_sampler,
-                ae_buffers.histogram_buffer,
-                (256 * 4) as u64,
-            )?;
-        }
-
-        if let Some(ref avg_desc) = self.data.raytracing.auto_exposure_average_descriptor {
-            avg_desc.update_bindings(
-                &self.rrdevice,
-                ae_buffers.histogram_buffer,
-                (256 * 4) as u64,
-                ae_buffers.luminance_buffer,
-                (2 * 4) as u64,
-            )?;
-        }
-        Ok(())
-    }
-
     unsafe fn resize_gbuffer(&mut self, new_width: u32, new_height: u32) -> Result<()> {
         let needs_resize = self
             .data
@@ -524,7 +389,6 @@ impl App {
         let object_id_view = gbuffer.object_id_image_view;
         self.recreate_gbuffer_framebuffer()?;
         self.attach_gbuffer_depth_to_hdr()?;
-        self.recreate_water_on_resize()?;
         self.update_gbuffer_descriptors(
             position_view,
             normal_view,
@@ -533,7 +397,6 @@ impl App {
             object_id_view,
         )?;
         self.recreate_onion_skin_on_resize()?;
-        self.recreate_flame_on_resize()?;
         log!("G-Buffer resized to: {}x{}", new_width, new_height);
         Ok(())
     }
@@ -632,8 +495,6 @@ impl App {
                 shadow_mask_view,
             )?;
         }
-
-        self.update_water_caustic_descriptor()?;
 
         {
             let swapchain = self.resource::<SwapchainState>().swapchain.clone();
@@ -886,6 +747,8 @@ impl App {
             frame_slot,
         )?;
 
+        self.prepare_post_process_targets(frame_slot)?;
+        self.run_effect_prepare_frame(frame_slot)?;
         self.record_command_buffer(image_index, draw_data, frame_slot)?;
 
         let image_available = self.resource::<FrameSync>().current_image_available();
@@ -937,6 +800,226 @@ impl App {
         self.frame = current_frame;
 
         Ok(())
+    }
+    pub unsafe fn save_screenshot(&self, image_index: usize) -> Result<String> {
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::SystemTime::UNIX_EPOCH)?
+            .as_secs();
+        let path = std::path::PathBuf::from(format!("log/screenshot_{}.png", timestamp));
+        self.save_screenshot_to(image_index, &path)
+    }
+
+    pub unsafe fn save_screenshot_to(
+        &self,
+        image_index: usize,
+        path: &std::path::Path,
+    ) -> Result<String> {
+        let device = &self.rrdevice.device;
+        let swapchain = &self.resource::<SwapchainState>().swapchain;
+        let swapchain_image = swapchain.swapchain_images[image_index];
+        let extent = swapchain.swapchain_extent;
+        let width = extent.width;
+        let height = extent.height;
+        let image_size = (width * height * 4) as vk::DeviceSize;
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
+
+        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
+            swapchain_image,
+            extent.width,
+            extent.height,
+            image_size,
+            command_pool,
+            vk::ImageLayout::PRESENT_SRC_KHR,
+        )?;
+
+        let saved_path =
+            Self::encode_and_save_png(device, buffer_memory, image_size, width, height, path)?;
+
+        device.free_command_buffers(command_pool, &[command_buffer]);
+        device.free_memory(buffer_memory, None);
+        device.destroy_buffer(buffer, None);
+
+        Ok(saved_path)
+    }
+
+    pub unsafe fn save_flame_history_npy(&self, path: &std::path::Path) -> Result<()> {
+        use thyllore_math_core::{f16_to_f32, write_npy_f32};
+
+        let device = &self.rrdevice.device;
+        let flame_targets = self
+            .data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameRenderTargets>()
+            .ok_or_else(|| anyhow::anyhow!("flame buffer not initialized"))?;
+        let flame_buffer = &flame_targets.buffer;
+
+        let flames = self.data.ecs_world.query_flames();
+        let history_index = if let Some(first) = flames.first() {
+            if let Some(temporal) = self
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::component::FlameTemporalAccum>(*first)
+            {
+                (temporal.frame_index as usize) & 1
+            } else {
+                0
+            }
+        } else {
+            0
+        };
+
+        let history_image = flame_buffer.history_images[history_index];
+        let width = flame_buffer.width;
+        let height = flame_buffer.height;
+        let image_size = (width * height * 8) as vk::DeviceSize;
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
+
+        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
+            history_image,
+            width,
+            height,
+            image_size,
+            command_pool,
+            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        )?;
+
+        let data_ptr =
+            device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
+        let slice = std::slice::from_raw_parts(data_ptr as *const u8, image_size as usize);
+
+        let mut f32_data = Vec::with_capacity((width * height * 4) as usize);
+        for chunk in slice.chunks_exact(8) {
+            let r_bits = u16::from_le_bytes([chunk[0], chunk[1]]);
+            let g_bits = u16::from_le_bytes([chunk[2], chunk[3]]);
+            let b_bits = u16::from_le_bytes([chunk[4], chunk[5]]);
+            let a_bits = u16::from_le_bytes([chunk[6], chunk[7]]);
+            f32_data.push(f16_to_f32(r_bits));
+            f32_data.push(f16_to_f32(g_bits));
+            f32_data.push(f16_to_f32(b_bits));
+            f32_data.push(f16_to_f32(a_bits));
+        }
+
+        device.unmap_memory(buffer_memory);
+        device.free_command_buffers(command_pool, &[command_buffer]);
+        device.free_memory(buffer_memory, None);
+        device.destroy_buffer(buffer, None);
+
+        write_npy_f32(path, &[height as usize, width as usize, 4], &f32_data)?;
+
+        Ok(())
+    }
+
+    pub unsafe fn copy_image_to_buffer(
+        &self,
+        image: vk::Image,
+        width: u32,
+        height: u32,
+        image_size: vk::DeviceSize,
+        command_pool: vk::CommandPool,
+        layout: vk::ImageLayout,
+    ) -> Result<(vk::Buffer, vk::DeviceMemory, vk::CommandBuffer)> {
+        let device = &self.rrdevice.device;
+
+        let (buffer, buffer_memory) = self.allocate_transfer_buffer(device, image_size)?;
+
+        let command_buffer = allocate_one_time_command_buffer(device, command_pool)?;
+
+        let begin_info = vk::CommandBufferBeginInfo::builder()
+            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
+        device.begin_command_buffer(command_buffer, &begin_info)?;
+
+        record_image_to_buffer_copy(
+            device,
+            command_buffer,
+            image,
+            buffer,
+            width,
+            height,
+            layout,
+            layout,
+        );
+
+        device.end_command_buffer(command_buffer)?;
+
+        let command_buffers_slice = [command_buffer];
+        let submit_info = vk::SubmitInfo::builder().command_buffers(&command_buffers_slice);
+        device.queue_submit(
+            self.rrdevice.graphics_queue,
+            &[submit_info.build()],
+            vk::Fence::null(),
+        )?;
+        device.queue_wait_idle(self.rrdevice.graphics_queue)?;
+
+        Ok((buffer, buffer_memory, command_buffer))
+    }
+
+    unsafe fn allocate_transfer_buffer(
+        &self,
+        device: &crate::vulkanr::core::device::Device,
+        image_size: vk::DeviceSize,
+    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
+        let buffer_info = vk::BufferCreateInfo::builder()
+            .size(image_size)
+            .usage(vk::BufferUsageFlags::TRANSFER_DST)
+            .sharing_mode(vk::SharingMode::EXCLUSIVE);
+        let buffer = device.create_buffer(&buffer_info, None)?;
+
+        let mem_requirements = device.get_buffer_memory_requirements(buffer);
+        let memory_type_index = self.get_memory_type_index(
+            mem_requirements.memory_type_bits,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        )?;
+        let alloc_info = vk::MemoryAllocateInfo::builder()
+            .allocation_size(mem_requirements.size)
+            .memory_type_index(memory_type_index);
+        let buffer_memory = device.allocate_memory(&alloc_info, None)?;
+        device.bind_buffer_memory(buffer, buffer_memory, 0)?;
+
+        Ok((buffer, buffer_memory))
+    }
+
+    unsafe fn encode_and_save_png(
+        device: &crate::vulkanr::core::device::Device,
+        buffer_memory: vk::DeviceMemory,
+        image_size: vk::DeviceSize,
+        width: u32,
+        height: u32,
+        path: &std::path::Path,
+    ) -> Result<String> {
+        use std::fs::File;
+        use std::io::BufWriter;
+
+        let data = device.map_memory(buffer_memory, 0, image_size, vk::MemoryMapFlags::empty())?;
+        let slice = std::slice::from_raw_parts(data as *const u8, image_size as usize);
+
+        let mut rgba_data = vec![0u8; (width * height * 4) as usize];
+        for i in (0..rgba_data.len()).step_by(4) {
+            rgba_data[i] = slice[i + 2];
+            rgba_data[i + 1] = slice[i + 1];
+            rgba_data[i + 2] = slice[i];
+            rgba_data[i + 3] = slice[i + 3];
+        }
+
+        device.unmap_memory(buffer_memory);
+
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let file = File::create(path)?;
+        let writer = BufWriter::new(file);
+        let mut encoder = png::Encoder::new(writer, width, height);
+        encoder.set_color(png::ColorType::Rgba);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut png_writer = encoder.write_header()?;
+        png_writer.write_image_data(&rgba_data)?;
+
+        let absolute_path = std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let path_str = absolute_path.to_string_lossy().to_string();
+
+        log!("Screenshot saved to: {}", path_str);
+
+        Ok(path_str)
     }
 
     pub unsafe fn begin_offscreen_render_pass(

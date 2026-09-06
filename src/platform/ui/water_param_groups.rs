@@ -1,6 +1,6 @@
 pub const WATER_SHAPE_PARAMS: &[&str] = &["major_radius", "minor_radius"];
 
-pub const WATER_OPTICS_PARAMS: &[&str] = &["ior", "absorption_r", "absorption_g", "absorption_b"];
+pub const WATER_OPTICS_PARAMS: &[&str] = &["ior", "absorption"];
 
 pub const WATER_FLOW_PARAMS: &[&str] = &["flow_longitudinal", "flow_meridional"];
 
@@ -24,9 +24,7 @@ pub const WATER_LOOK_PARAMS: &[&str] = &[
     "reflect_strength",
     "refract_strength",
     "caustic_strength",
-    "tint_r",
-    "tint_g",
-    "tint_b",
+    "tint",
 ];
 pub const WATER_PARAM_GROUPS: &[&[&str]] = &[
     WATER_SHAPE_PARAMS,
@@ -44,13 +42,15 @@ mod tests {
     use thyllore_scene_core::{find_scalar_param, find_ui_param};
 
     #[test]
-    fn test_every_grouped_name_resolves_to_ui_and_scalar_param() {
+    fn test_every_grouped_name_resolves_to_ui_and_scalar_params() {
         for name in WATER_PARAM_GROUPS.iter().flat_map(|group| group.iter()) {
-            assert!(find_ui_param(WATER_UI_PARAMS, name).is_some(), "{name}");
-            assert!(
-                find_scalar_param(WATER_SCALAR_PARAMS, name).is_some(),
-                "{name}"
-            );
+            let meta = find_ui_param(WATER_UI_PARAMS, name).unwrap_or_else(|| panic!("{name}"));
+            for accessor_name in meta.scalar_accessor_names() {
+                assert!(
+                    find_scalar_param(WATER_SCALAR_PARAMS, &accessor_name).is_some(),
+                    "{accessor_name}"
+                );
+            }
         }
     }
 

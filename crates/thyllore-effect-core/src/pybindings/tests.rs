@@ -284,3 +284,32 @@ fn test_effective_optical_depth_falls_back_to_sigma_t_times_radius() {
         );
     });
 }
+
+#[test]
+fn test_water_ui_params_expose_kind_and_reference_distance() {
+    Python::attach(|py| {
+        let ui_list = super::water_ui_params(py).unwrap();
+        let mut kinds = std::collections::HashMap::new();
+        let mut reference_distance = None;
+        for item in ui_list.try_iter().unwrap() {
+            let dict: Bound<'_, PyDict> = item.unwrap().cast_into::<PyDict>().unwrap();
+            let name: String = dict.get_item("name").unwrap().unwrap().extract().unwrap();
+            let kind: String = dict.get_item("kind").unwrap().unwrap().extract().unwrap();
+            if let Some(distance) = dict.get_item("reference_distance").unwrap() {
+                reference_distance = Some((name.clone(), distance.extract::<f32>().unwrap()));
+            }
+            kinds.insert(name, kind);
+        }
+
+        assert_eq!(kinds["absorption"], "absorption");
+        assert_eq!(kinds["tint"], "color");
+        assert_eq!(kinds["ior"], "scalar");
+        assert_eq!(
+            reference_distance,
+            Some((
+                "absorption".to_string(),
+                crate::water::ABSORPTION_REFERENCE_DISTANCE
+            ))
+        );
+    });
+}
