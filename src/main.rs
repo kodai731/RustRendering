@@ -419,10 +419,13 @@ fn main() -> Result<()> {
             app.data.raytracing.flame_sdf_image_view = image_view;
             app.data.raytracing.flame_sdf_sampler = sampler;
 
-            if let (Some(ref flame_buffer), Some(ref flame_descriptor)) = (
-                &app.data.viewport.flame_buffer,
+            if let (Some(flame_targets), Some(ref flame_descriptor)) = (
+                app.data
+                    .ecs_world
+                    .get_resource::<thyllore_animation::ecs::resource::FlameRenderTargets>(),
                 &app.data.raytracing.flame_descriptor,
             ) {
+                let flame_buffer = &flame_targets.buffer;
                 flame_descriptor.update_image_views(
                     &app.rrdevice,
                     FlameImageBindings {

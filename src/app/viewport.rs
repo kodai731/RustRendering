@@ -4,19 +4,19 @@ use vulkanalia::prelude::v1_0::*;
 use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::descriptor::{imgui_layout_spec, shader_bindings, ReflectedSetLayout};
 use crate::vulkanr::resource::{
-    AutoExposureBuffers, BloomChain, DofBuffer, FlameBuffer, HdrBuffer, OffscreenFramebuffer,
-    WaterBuffer,
+    AutoExposureBuffers, BloomChain, DofBuffer, HdrBuffer, OffscreenFramebuffer,
+    RenderTargetStorage, RenderTargetTransient,
 };
 
 #[derive(Debug, Default)]
 pub struct ViewportState {
+    pub storage: RenderTargetStorage,
+    pub transient: RenderTargetTransient,
     pub offscreen: Option<OffscreenFramebuffer>,
     pub hdr_buffer: Option<HdrBuffer>,
     pub bloom_chain: Option<BloomChain>,
     pub dof_buffer: Option<DofBuffer>,
     pub auto_exposure_buffers: Option<AutoExposureBuffers>,
-    pub flame_buffer: Option<FlameBuffer>,
-    pub water_buffer: Option<WaterBuffer>,
     pub descriptor_set_layout: ReflectedSetLayout,
     pub descriptor_set: vk::DescriptorSet,
     pub width: u32,
@@ -48,32 +48,26 @@ impl ViewportState {
 
         let hdr_buffer = HdrBuffer::new(instance, rrdevice, width, height)?;
 
-        let bloom_chain = BloomChain::new(instance, rrdevice, width, height, 5, command_pool)?;
+        let bloom_chain = BloomChain::new(rrdevice, width, height, 5)?;
 
-        let dof_buffer = DofBuffer::new(instance, rrdevice, width, height, command_pool)?;
+        let mut storage = RenderTargetStorage::default();
+        storage.set_extent_and_reset(&rrdevice.device, width, height);
+
+        let dof_buffer = DofBuffer::new(rrdevice, width, height)?;
 
         let auto_exposure_buffers = AutoExposureBuffers::new(instance, rrdevice, width, height)?;
-
-        let flame_buffer = FlameBuffer::new(
-            instance,
-            rrdevice,
-            command_pool,
-            width,
-            height,
-            hdr_buffer.color_image_view,
-        )?;
 
         let (descriptor_set_layout, descriptor_set) =
             Self::create_imgui_descriptor(rrdevice, &offscreen)?;
 
         Ok(Self {
+            storage,
+            transient: RenderTargetTransient::new(crate::app::init::MAX_FRAMES_IN_FLIGHT),
             offscreen: Some(offscreen),
             hdr_buffer: Some(hdr_buffer),
             bloom_chain: Some(bloom_chain),
             dof_buffer: Some(dof_buffer),
             auto_exposure_buffers: Some(auto_exposure_buffers),
-            flame_buffer: Some(flame_buffer),
-            water_buffer: None,
             descriptor_set_layout,
             descriptor_set,
             width,
@@ -145,32 +139,18 @@ impl ViewportState {
         }
 
         if let Some(ref mut bloom_chain) = self.bloom_chain {
-            bloom_chain.resize(instance, rrdevice, new_width, new_height, command_pool)?;
-        }
-
-        if let Some(ref mut dof_buffer) = self.dof_buffer {
-            dof_buffer.resize(instance, rrdevice, new_width, new_height, command_pool)?;
+            bloom_chain.resize(new_width, new_height);
         }
 
         if let Some(ref mut ae_buffers) = self.auto_exposure_buffers {
             ae_buffers.resize(instance, rrdevice, new_width, new_height)?;
         }
 
-        if let (Some(ref mut flame_buffer), Some(ref hdr_buffer)) =
-            (&mut self.flame_buffer, &self.hdr_buffer)
-        {
-            flame_buffer.resize(
-                instance,
-                rrdevice,
-                command_pool,
-                new_width,
-                new_height,
-                hdr_buffer.color_image_view,
-            )?;
-        }
+        self.storage
+            .set_extent_and_reset(&rrdevice.device, new_width, new_height);
 
-        if let Some(mut water_buffer) = self.water_buffer.take() {
-            water_buffer.destroy(&rrdevice.device);
+        if let Some(ref mut dof_buffer) = self.dof_buffer {
+            dof_buffer.resize(new_width, new_height);
         }
 
         self.width = new_width;
@@ -203,13 +183,8 @@ impl ViewportState {
             ae_buffers.destroy(device);
         }
 
-        if let Some(ref mut flame_buffer) = self.flame_buffer {
-            flame_buffer.destroy(device);
-        }
-
-        if let Some(ref mut water_buffer) = self.water_buffer {
-            water_buffer.destroy(device);
-        }
+        self.storage.destroy_all(device);
+        self.transient.destroy_all(device);
 
         log!("Destroyed viewport state");
     }

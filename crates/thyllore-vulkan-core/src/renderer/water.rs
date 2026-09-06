@@ -39,7 +39,8 @@ fn image_barrier(
 pub unsafe fn record_water_scene_color_copy(
     ctx: &FrameRenderContext,
     hdr_image: vk::Image,
-    water_buffer: &WaterBuffer,
+    scene_color_image: vk::Image,
+    extent: vk::Extent2D,
     cmd: vk::CommandBuffer,
 ) {
     let device = &ctx.device.device;
@@ -53,7 +54,7 @@ pub unsafe fn record_water_scene_color_copy(
             vk::AccessFlags::TRANSFER_READ,
         ),
         image_barrier(
-            water_buffer.scene_color_image,
+            scene_color_image,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::AccessFlags::empty(),
@@ -76,7 +77,6 @@ pub unsafe fn record_water_scene_color_copy(
         .base_array_layer(0)
         .layer_count(1)
         .build();
-    let extent = water_buffer.extent();
     let region = vk::ImageCopy::builder()
         .src_subresource(subresource)
         .src_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
@@ -92,7 +92,7 @@ pub unsafe fn record_water_scene_color_copy(
         cmd,
         hdr_image,
         vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-        water_buffer.scene_color_image,
+        scene_color_image,
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         &[region],
     );
@@ -106,7 +106,7 @@ pub unsafe fn record_water_scene_color_copy(
             vk::AccessFlags::SHADER_READ,
         ),
         image_barrier(
-            water_buffer.scene_color_image,
+            scene_color_image,
             vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             vk::AccessFlags::TRANSFER_WRITE,
@@ -133,6 +133,7 @@ pub unsafe fn record_water_shading_pass(
     scissor: vk::Rect2D,
     push_constants: WaterPushConstants,
     image_index: usize,
+    frame_slot: usize,
     history_index: usize,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
@@ -168,7 +169,10 @@ pub unsafe fn record_water_shading_pass(
         vk::PipelineBindPoint::GRAPHICS,
         pipeline.pipeline_layout,
         0,
-        &[frame_set, descriptor.descriptor_sets[history_index]],
+        &[
+            frame_set,
+            descriptor.descriptor_set(frame_slot, history_index)?,
+        ],
         &[ubo_dynamic_offset],
     );
 

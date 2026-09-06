@@ -4,7 +4,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::descriptor::RRBloomDescriptorSets;
 use crate::frame_context::FrameRenderContext;
 use crate::pipeline::RRPipeline;
-use crate::resource::BloomChain;
+use crate::resource::bloom_chain::{BloomChain, BloomMipTarget};
 use thyllore_render_core::BloomSettings;
 
 #[repr(C)]
@@ -21,6 +21,8 @@ pub unsafe fn record_bloom_pass(
     upsample_pipeline: &RRPipeline,
     bloom_descriptors: &RRBloomDescriptorSets,
     bloom_chain: &BloomChain,
+    mips: &[BloomMipTarget],
+    frame_slot: usize,
     settings: &BloomSettings,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
@@ -29,11 +31,21 @@ pub unsafe fn record_bloom_pass(
         downsample_pipeline,
         bloom_descriptors,
         bloom_chain,
+        mips,
+        frame_slot,
         settings.threshold,
         settings.knee,
         cmd,
     )?;
-    record_upsample_passes(ctx, upsample_pipeline, bloom_descriptors, bloom_chain, cmd)?;
+    record_upsample_passes(
+        ctx,
+        upsample_pipeline,
+        bloom_descriptors,
+        bloom_chain,
+        mips,
+        frame_slot,
+        cmd,
+    )?;
     Ok(())
 }
 
@@ -42,19 +54,16 @@ unsafe fn record_downsample_passes(
     pipeline: &RRPipeline,
     bloom_descriptors: &RRBloomDescriptorSets,
     bloom_chain: &BloomChain,
+    mips: &[BloomMipTarget],
+    frame_slot: usize,
     threshold: f32,
     knee: f32,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
     let device = &ctx.device.device;
-    let mip_count = bloom_chain.mip_levels.len();
 
-    for i in 0..mip_count {
-        let mip = &bloom_chain.mip_levels[i];
-        let extent = vk::Extent2D {
-            width: mip.width,
-            height: mip.height,
-        };
+    for (i, mip) in mips.iter().enumerate() {
+        let extent = mip.extent;
 
         begin_downsample_render_pass(device, bloom_chain, cmd, mip.framebuffer, extent);
 
@@ -67,7 +76,7 @@ unsafe fn record_downsample_passes(
             vk::PipelineBindPoint::GRAPHICS,
             pipeline.pipeline_layout,
             0,
-            &[bloom_descriptors.downsample_sets[i]],
+            &[bloom_descriptors.downsample_set(frame_slot, i)?],
             &[],
         );
 
@@ -103,20 +112,19 @@ unsafe fn record_upsample_passes(
     pipeline: &RRPipeline,
     bloom_descriptors: &RRBloomDescriptorSets,
     bloom_chain: &BloomChain,
+    mips: &[BloomMipTarget],
+    frame_slot: usize,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
     let device = &ctx.device.device;
-    let mip_count = bloom_chain.mip_levels.len();
+    let mip_count = mips.len();
     if mip_count < 2 {
         return Ok(());
     }
 
     for (pass_idx, target_mip_idx) in (0..mip_count - 1).rev().enumerate() {
-        let mip = &bloom_chain.mip_levels[target_mip_idx];
-        let extent = vk::Extent2D {
-            width: mip.width,
-            height: mip.height,
-        };
+        let mip = &mips[target_mip_idx];
+        let extent = mip.extent;
 
         transition_to_color_attachment(device, cmd, mip.image);
 
@@ -131,7 +139,7 @@ unsafe fn record_upsample_passes(
             vk::PipelineBindPoint::GRAPHICS,
             pipeline.pipeline_layout,
             0,
-            &[bloom_descriptors.upsample_sets[pass_idx]],
+            &[bloom_descriptors.upsample_set(frame_slot, pass_idx)?],
             &[],
         );
 

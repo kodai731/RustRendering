@@ -9,7 +9,7 @@ use thyllore_effect_core::WaterUBO;
 #[derive(Clone, Debug, Default)]
 pub struct RRWaterTraceDescriptorSet {
     pub layout: ReflectedSetLayout,
-    pub descriptor_set: vk::DescriptorSet,
+    descriptor_sets: Vec<vk::DescriptorSet>,
 }
 
 impl RRWaterTraceDescriptorSet {
@@ -17,26 +17,39 @@ impl RRWaterTraceDescriptorSet {
         ReflectedLayoutSpec::local(&WATER_TRACE)
     }
 
-    pub unsafe fn new(rrdevice: &RRDevice) -> Result<Self> {
+    pub unsafe fn new(rrdevice: &RRDevice, frames_in_flight: usize) -> Result<Self> {
         let layout = ReflectedSetLayout::create(rrdevice, &Self::layout_spec())?;
-        let descriptor_set = layout.allocate_set(rrdevice)?;
+        let descriptor_sets = layout.allocate_sets(rrdevice, frames_in_flight.max(1))?;
 
         Ok(Self {
             layout,
-            descriptor_set,
+            descriptor_sets,
         })
     }
 
-    pub unsafe fn write_all(
+    pub fn descriptor_set(&self, frame_slot: usize) -> Result<vk::DescriptorSet> {
+        self.descriptor_sets
+            .get(frame_slot)
+            .copied()
+            .ok_or_else(|| {
+                anyhow!(
+                    "water trace descriptor slot {frame_slot} exceeds {} sets",
+                    self.descriptor_sets.len()
+                )
+            })
+    }
+
+    pub unsafe fn write_all_at(
         &self,
         rrdevice: &RRDevice,
+        frame_slot: usize,
         tlas: vk::AccelerationStructureKHR,
         trace_image_view: vk::ImageView,
         water_ubo: &UniformBuffer<WaterUBO>,
         hit_table: vk::Buffer,
     ) -> Result<()> {
         self.layout
-            .writer(self.descriptor_set)
+            .writer(self.descriptor_set(frame_slot)?)
             .acceleration_structure(water_trace::TLAS, tlas)?
             .image(
                 water_trace::OUT_IMAGE,
