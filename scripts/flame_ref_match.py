@@ -99,12 +99,22 @@ def resample_to_column_width(image, target_width):
     return image.resize(size, resample)
 
 
+SILHOUETTE_MODES = ("flame", "dust")
+silhouette_mode = "flame"
+DUST_SILHOUETTE_LUM = 60.0
+DUST_HALO_LUM = 20.0
+
+
 def silhouette_mask(rgb):
+    if silhouette_mode == "dust":
+        return luminance(rgb) > DUST_SILHOUETTE_LUM
     r, b = rgb[:, :, 0], rgb[:, :, 2]
     return (r > 90) & (r - b > 40)
 
 
 def halo_mask(rgb):
+    if silhouette_mode == "dust":
+        return luminance(rgb) > DUST_HALO_LUM
     r, b = rgb[:, :, 0], rgb[:, :, 2]
     return (r > 35) & (r - b > 15)
 
@@ -549,10 +559,14 @@ def main():
     parser.add_argument("--temporal", action="store_true", help="also measure the sequence gates xiii-xvi")
     parser.add_argument("--video", action="store_true", help="also measure the whole-clip video gate xviii (implies --temporal)")
     parser.add_argument("--fps", type=float, default=10.0, help="frame rate of the render sequence")
+    parser.add_argument("--silhouette", choices=SILHOUETTE_MODES, default="flame",
+                        help="silhouette definition: flame colours, or dust (luminance on a black background)")
     parser.add_argument("--ref-window", default=None,
                         help="first,end reference frame for the sequence gates (default: every frame)")
     args = parser.parse_args()
     args.temporal = args.temporal or args.video
+    global silhouette_mode
+    silhouette_mode = args.silhouette
 
     ref_fps, caption_frames = load_ref_meta(args.ref_dir)
     ref_paths = collect_frames(args.ref_dir)
