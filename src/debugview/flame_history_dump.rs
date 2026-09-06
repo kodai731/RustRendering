@@ -1,5 +1,4 @@
 use crate::app::App;
-use crate::vulkanr::context::CommandState;
 use crate::vulkanr::vulkan::*;
 
 use anyhow::Result;
@@ -35,14 +34,12 @@ impl App {
         let width = flame_buffer.width;
         let height = flame_buffer.height;
         let image_size = (width * height * 8) as vk::DeviceSize;
-        let command_pool = self.resource::<CommandState>().pool.command_pool;
 
-        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
+        let (buffer, buffer_memory) = self.copy_image_to_buffer(
             history_image,
             width,
             height,
             image_size,
-            command_pool,
             vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         )?;
 
@@ -63,7 +60,6 @@ impl App {
         }
 
         device.unmap_memory(buffer_memory);
-        device.free_command_buffers(command_pool, &[command_buffer]);
         device.free_memory(buffer_memory, None);
         device.destroy_buffer(buffer, None);
 

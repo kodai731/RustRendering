@@ -39,14 +39,12 @@ impl App {
         let width = water_buffer.width;
         let height = water_buffer.height;
         let image_size = (width * height * 4) as vk::DeviceSize;
-        let command_pool = self.resource::<CommandState>().pool.command_pool;
 
-        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
+        let (buffer, buffer_memory) = self.copy_image_to_buffer(
             caustic_image,
             width,
             height,
             image_size,
-            command_pool,
             vk::ImageLayout::GENERAL,
         )?;
 
@@ -66,7 +64,6 @@ impl App {
         }
 
         device.unmap_memory(buffer_memory);
-        device.free_command_buffers(command_pool, &[command_buffer]);
         device.free_memory(buffer_memory, None);
         device.destroy_buffer(buffer, None);
 

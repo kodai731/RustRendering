@@ -17,8 +17,6 @@ use crate::vulkanr::vulkan::*;
 use anyhow::{anyhow, Result};
 use thyllore_vulkan_core::raytracing::RRAccelerationStructure;
 
-use crate::app::screenshot::append_jsonl;
-
 impl App {
     pub unsafe fn begin_frame(&mut self) -> Result<usize> {
         self.handle_viewport_resize()?;
@@ -607,24 +605,7 @@ impl App {
         };
 
         if !ae_enabled {
-            // Still record exposure dump even when AE is disabled
-            if let Some(mut sink) = self
-                .data
-                .ecs_world
-                .get_resource_mut::<crate::ecs::resource::ExposureDumpSink>()
-            {
-                let exposure_value = self
-                    .data
-                    .ecs_world
-                    .get_resource::<crate::ecs::resource::Exposure>()
-                    .map(|e| e.exposure_value)
-                    .unwrap_or(1.0);
-                let line = format!(
-                    "{{\"frame\":{},\"adapted\":0.0,\"exposure_value\":{},\"ae_enabled\":false}}\n",
-                    frame, exposure_value
-                );
-                append_jsonl(&sink.path, &line);
-            }
+            self.record_exposure_dump(frame, None);
             self.restore_manual_exposure_if_needed();
             return;
         }
@@ -657,24 +638,7 @@ impl App {
             }
         }
 
-        // Record exposure dump
-        if let Some(mut sink) = self
-            .data
-            .ecs_world
-            .get_resource_mut::<crate::ecs::resource::ExposureDumpSink>()
-        {
-            let exposure_value = self
-                .data
-                .ecs_world
-                .get_resource::<crate::ecs::resource::Exposure>()
-                .map(|e| e.exposure_value)
-                .unwrap_or(1.0);
-            let line = format!(
-                "{{\"frame\":{},\"adapted\":{},\"exposure_value\":{},\"ae_enabled\":true}}\n",
-                frame, adapted, exposure_value
-            );
-            append_jsonl(&sink.path, &line);
-        }
+        self.record_exposure_dump(frame, Some(adapted));
     }
 
     fn save_manual_exposure_if_needed(&mut self) {

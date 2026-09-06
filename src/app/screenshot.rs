@@ -3,6 +3,7 @@ use crate::vulkanr::context::{CommandState, SwapchainState};
 use crate::vulkanr::vulkan::*;
 
 use anyhow::Result;
+use thyllore_vulkan_core::copy_image_to_host_buffer;
 
 impl App {
     pub unsafe fn save_screenshot(&self, image_index: usize) -> Result<String> {
@@ -25,21 +26,18 @@ impl App {
         let width = extent.width;
         let height = extent.height;
         let image_size = (width * height * 4) as vk::DeviceSize;
-        let command_pool = self.resource::<CommandState>().pool.command_pool;
 
-        let (buffer, buffer_memory, command_buffer) = self.copy_image_to_buffer(
+        let (buffer, buffer_memory) = self.copy_image_to_buffer(
             swapchain_image,
             extent.width,
             extent.height,
             image_size,
-            command_pool,
             vk::ImageLayout::PRESENT_SRC_KHR,
         )?;
 
         let saved_path =
             Self::encode_and_save_png(device, buffer_memory, image_size, width, height, path)?;
 
-        device.free_command_buffers(command_pool, &[command_buffer]);
         device.free_memory(buffer_memory, None);
         device.destroy_buffer(buffer, None);
 
@@ -52,67 +50,20 @@ impl App {
         width: u32,
         height: u32,
         image_size: vk::DeviceSize,
-        command_pool: vk::CommandPool,
         layout: vk::ImageLayout,
-    ) -> Result<(vk::Buffer, vk::DeviceMemory, vk::CommandBuffer)> {
-        let device = &self.rrdevice.device;
-
-        let (buffer, buffer_memory) = self.allocate_transfer_buffer(device, image_size)?;
-
-        let command_buffer = allocate_one_time_command_buffer(device, command_pool)?;
-
-        let begin_info = vk::CommandBufferBeginInfo::builder()
-            .flags(vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT);
-        device.begin_command_buffer(command_buffer, &begin_info)?;
-
-        record_image_to_buffer_copy(
-            device,
-            command_buffer,
+    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
+        let command_pool = self.resource::<CommandState>().pool.command_pool;
+        copy_image_to_host_buffer(
+            &self.instance,
+            &self.rrdevice,
+            self.rrdevice.graphics_queue,
+            command_pool,
             image,
-            buffer,
             width,
             height,
+            image_size,
             layout,
-            layout,
-        );
-
-        device.end_command_buffer(command_buffer)?;
-
-        let command_buffers_slice = [command_buffer];
-        let submit_info = vk::SubmitInfo::builder().command_buffers(&command_buffers_slice);
-        device.queue_submit(
-            self.rrdevice.graphics_queue,
-            &[submit_info.build()],
-            vk::Fence::null(),
-        )?;
-        device.queue_wait_idle(self.rrdevice.graphics_queue)?;
-
-        Ok((buffer, buffer_memory, command_buffer))
-    }
-
-    unsafe fn allocate_transfer_buffer(
-        &self,
-        device: &crate::vulkanr::core::device::Device,
-        image_size: vk::DeviceSize,
-    ) -> Result<(vk::Buffer, vk::DeviceMemory)> {
-        let buffer_info = vk::BufferCreateInfo::builder()
-            .size(image_size)
-            .usage(vk::BufferUsageFlags::TRANSFER_DST)
-            .sharing_mode(vk::SharingMode::EXCLUSIVE);
-        let buffer = device.create_buffer(&buffer_info, None)?;
-
-        let mem_requirements = device.get_buffer_memory_requirements(buffer);
-        let memory_type_index = self.get_memory_type_index(
-            mem_requirements.memory_type_bits,
-            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        )?;
-        let alloc_info = vk::MemoryAllocateInfo::builder()
-            .allocation_size(mem_requirements.size)
-            .memory_type_index(memory_type_index);
-        let buffer_memory = device.allocate_memory(&alloc_info, None)?;
-        device.bind_buffer_memory(buffer, buffer_memory, 0)?;
-
-        Ok((buffer, buffer_memory))
+        )
     }
 
     unsafe fn encode_and_save_png(
@@ -157,109 +108,5 @@ impl App {
         log!("Screenshot saved to: {}", path_str);
 
         Ok(path_str)
-    }
-}
-
-pub(crate) unsafe fn allocate_one_time_command_buffer(
-    device: &crate::vulkanr::core::device::Device,
-    command_pool: vk::CommandPool,
-) -> Result<vk::CommandBuffer> {
-    let cmd_alloc_info = vk::CommandBufferAllocateInfo::builder()
-        .command_pool(command_pool)
-        .level(vk::CommandBufferLevel::PRIMARY)
-        .command_buffer_count(1);
-    let command_buffers = device.allocate_command_buffers(&cmd_alloc_info)?;
-    Ok(command_buffers[0])
-}
-
-unsafe fn record_image_to_buffer_copy(
-    device: &crate::vulkanr::core::device::Device,
-    command_buffer: vk::CommandBuffer,
-    image: vk::Image,
-    buffer: vk::Buffer,
-    width: u32,
-    height: u32,
-    old_layout: vk::ImageLayout,
-    new_layout: vk::ImageLayout,
-) {
-    let subresource_range = vk::ImageSubresourceRange {
-        aspect_mask: vk::ImageAspectFlags::COLOR,
-        base_mip_level: 0,
-        level_count: 1,
-        base_array_layer: 0,
-        layer_count: 1,
-    };
-
-    let barrier_to_transfer = vk::ImageMemoryBarrier::builder()
-        .old_layout(old_layout)
-        .new_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .image(image)
-        .subresource_range(subresource_range)
-        .src_access_mask(vk::AccessFlags::MEMORY_READ)
-        .dst_access_mask(vk::AccessFlags::TRANSFER_READ);
-
-    device.cmd_pipeline_barrier(
-        command_buffer,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::DependencyFlags::empty(),
-        &[] as &[vk::MemoryBarrier],
-        &[] as &[vk::BufferMemoryBarrier],
-        &[barrier_to_transfer.build()],
-    );
-
-    let region = vk::BufferImageCopy::builder()
-        .buffer_offset(0)
-        .buffer_row_length(0)
-        .buffer_image_height(0)
-        .image_subresource(vk::ImageSubresourceLayers {
-            aspect_mask: vk::ImageAspectFlags::COLOR,
-            mip_level: 0,
-            base_array_layer: 0,
-            layer_count: 1,
-        })
-        .image_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
-        .image_extent(vk::Extent3D {
-            width,
-            height,
-            depth: 1,
-        });
-
-    device.cmd_copy_image_to_buffer(
-        command_buffer,
-        image,
-        vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-        buffer,
-        &[region.build()],
-    );
-
-    let barrier_back = vk::ImageMemoryBarrier::builder()
-        .old_layout(vk::ImageLayout::TRANSFER_SRC_OPTIMAL)
-        .new_layout(new_layout)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .image(image)
-        .subresource_range(subresource_range)
-        .src_access_mask(vk::AccessFlags::TRANSFER_READ)
-        .dst_access_mask(vk::AccessFlags::MEMORY_READ);
-
-    device.cmd_pipeline_barrier(
-        command_buffer,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::DependencyFlags::empty(),
-        &[] as &[vk::MemoryBarrier],
-        &[] as &[vk::BufferMemoryBarrier],
-        &[barrier_back.build()],
-    );
-}
-
-pub(crate) fn append_jsonl(path: &str, line: &str) {
-    use std::fs::OpenOptions;
-    use std::io::Write;
-    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
-        let _ = file.write_all(line.as_bytes());
     }
 }
