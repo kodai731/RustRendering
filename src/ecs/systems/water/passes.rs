@@ -4,18 +4,19 @@ use vulkanalia::prelude::v1_0::*;
 use vulkanalia::vk::KhrRayTracingPipelineExtension;
 
 use crate::app::App;
-use crate::ecs::resource::WaterRenderTargets;
+use crate::ecs::resource::{WaterBindingKey, WaterRenderTargets};
 use crate::ecs::world::Entity;
 use crate::hooks::pass::{
     CoreTarget, PassStage, RenderPassNode, ShaderStage, TargetAccess, TargetRef, TargetUse,
+    TransientRequest, TransientSlot,
 };
 use crate::vulkanr::renderer::deferred::full_extent_scissor;
-use thyllore_vulkan_core::resource::{RenderTargetKey, TransientHandle};
+use thyllore_vulkan_core::resource::RenderTargetKey;
 
 /// Pass nodes in record order. Subscription order inside the effect stage is this order.
 pub const WATER_PASS_NODES: &[&dyn RenderPassNode] = &[
+    &WaterFrameNode,
     &WaterTraceNode,
-    &WaterUboUploadNode,
     &WaterCausticClearNode,
     &WaterCausticSplatNode,
     &WaterCausticApplyNode,
@@ -25,6 +26,10 @@ pub const WATER_PASS_NODES: &[&dyn RenderPassNode] = &[
 ];
 
 const HDR_COLOR: TargetRef = TargetRef::Core(CoreTarget::HdrColor);
+const SCENE_COLOR_SLOT: TransientSlot = TransientSlot("water.scene_color");
+const TRACE_SLOT: TransientSlot = TransientSlot("water.trace");
+const SCENE_COLOR: TargetRef = TargetRef::Transient(SCENE_COLOR_SLOT);
+const TRACE: TargetRef = TargetRef::Transient(TRACE_SLOT);
 const CAUSTIC_ACCUM: TargetRef = TargetRef::Storage(RenderTargetKey::CausticAccum);
 const HISTORY_KEYS: [RenderTargetKey; 2] = [
     RenderTargetKey::EffectHistory(2),
@@ -45,30 +50,18 @@ const COLOR_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresourceR
 
 /// Everything the water nodes agree on for one frame. `None` means no water pass records this frame.
 struct WaterFrame {
-    scene_color: TransientHandle,
-    trace: TransientHandle,
     waters: Vec<Entity>,
     history_index: usize,
     settings: crate::ecs::resource::WaterRenderSettings,
 }
 
 fn water_frame(app: &App) -> Option<WaterFrame> {
-    let targets = app.data.ecs_world.get_resource::<WaterRenderTargets>()?;
+    app.data.ecs_world.get_resource::<WaterRenderTargets>()?;
     app.data.raytracing.water_shading_pipeline.as_ref()?;
     app.data.raytracing.water_descriptor.as_ref()?;
     app.data.raytracing.water_ubo.as_ref()?;
     app.data.viewport.hdr_buffer.as_ref()?;
-    let (scene_color, trace) = (targets.scene_color?, targets.trace?);
-
-    let has_hit_table = app
-        .data
-        .raytracing
-        .acceleration_structure
-        .as_ref()
-        .is_some_and(|accel| accel.hit_shading_table.is_some());
-    if !app.data.raytracing.has_valid_tlas() || !has_hit_table {
-        return None;
-    }
+    water_scene_bindings(app)?;
 
     let mut waters: Vec<Entity> = app.data.ecs_world.query_waters();
     waters.truncate(thyllore_vulkan_core::resource::MAX_WATER_INSTANCES);
@@ -87,12 +80,20 @@ fn water_frame(app: &App) -> Option<WaterFrame> {
         .unwrap_or_default();
 
     Some(WaterFrame {
-        scene_color,
-        trace,
         waters,
         history_index,
         settings,
     })
+}
+
+fn water_scene_bindings(app: &App) -> Option<(vk::AccelerationStructureKHR, vk::Buffer)> {
+    if !app.data.raytracing.has_valid_tlas() {
+        return None;
+    }
+    let accel = app.data.raytracing.acceleration_structure.as_ref()?;
+    let tlas = accel.tlas.acceleration_structure?;
+    let hit_table = accel.hit_shading_table.as_ref()?.buffer;
+    Some((tlas, hit_table))
 }
 
 fn first_water_accum(
@@ -178,7 +179,7 @@ impl RenderPassNode for WaterTraceNode {
                 return Vec::new();
             }
             vec![TargetUse::new(
-                TargetRef::Transient(frame.trace),
+                TRACE,
                 TargetAccess::StorageReadWrite(ShaderStage::RayTracing),
             )]
         })
@@ -296,15 +297,96 @@ impl RenderPassNode for WaterTraceNode {
     }
 }
 
-pub struct WaterUboUploadNode;
+/// Borrows the frame's scene color / trace images, rebinds the water descriptors of this frame slot,
+/// and uploads the per-instance UBOs before any water pass reads them.
+pub struct WaterFrameNode;
 
-impl RenderPassNode for WaterUboUploadNode {
+impl RenderPassNode for WaterFrameNode {
     fn name(&self) -> &'static str {
-        "water_ubo_upload"
+        "water_frame"
     }
 
     fn stage(&self) -> PassStage {
         PassStage::Effect
+    }
+
+    fn transients(&self, app: &App) -> Vec<TransientRequest> {
+        if water_frame(app).is_none() {
+            return Vec::new();
+        }
+        let Some(targets) = app.data.ecs_world.get_resource::<WaterRenderTargets>() else {
+            return Vec::new();
+        };
+        vec![
+            TransientRequest::new(SCENE_COLOR_SLOT, targets.buffer.scene_color_desc()),
+            TransientRequest::new(TRACE_SLOT, targets.buffer.trace_desc()),
+        ]
+    }
+
+    unsafe fn prepare(&self, app: &mut App, frame_slot: usize) -> Result<()> {
+        if water_frame(app).is_none() {
+            return Ok(());
+        }
+        let Some((tlas, hit_table)) = water_scene_bindings(app) else {
+            return Ok(());
+        };
+        let scene_color_image = app
+            .data
+            .viewport
+            .transient
+            .get(app.data.frame_transients.handle(SCENE_COLOR_SLOT)?)?;
+        let trace_image = app
+            .data
+            .viewport
+            .transient
+            .get(app.data.frame_transients.handle(TRACE_SLOT)?)?;
+        let Some(mut targets) = app.data.ecs_world.get_resource_mut::<WaterRenderTargets>() else {
+            return Ok(());
+        };
+
+        let history_views = targets.buffer.history_image_views;
+        let history_sampler = targets.buffer.history_sampler;
+        let key = WaterBindingKey {
+            tlas,
+            hit_table,
+            history_views,
+            scene_color_generation: scene_color_image.generation,
+            trace_generation: trace_image.generation,
+        };
+        if targets.is_bound(frame_slot, key) {
+            return Ok(());
+        }
+
+        let Some(water_ubo) = app.data.raytracing.water_ubo.as_ref() else {
+            return Ok(());
+        };
+        if let Some(descriptor) = app.data.raytracing.water_descriptor.as_ref() {
+            descriptor.write_all_at(
+                &app.rrdevice,
+                frame_slot,
+                water_ubo,
+                scene_color_image.view,
+                history_sampler,
+                history_views,
+                history_sampler,
+                trace_image.view,
+                history_sampler,
+                tlas,
+                hit_table,
+            )?;
+        }
+        if let Some(trace_descriptor) = app.data.raytracing.water_trace_descriptor.as_ref() {
+            trace_descriptor.write_all_at(
+                &app.rrdevice,
+                frame_slot,
+                tlas,
+                trace_image.view,
+                water_ubo,
+                hit_table,
+            )?;
+        }
+        targets.mark_bound(frame_slot, key);
+        Ok(())
     }
 
     unsafe fn record(
@@ -535,10 +617,7 @@ impl RenderPassNode for WaterSceneColorCopyNode {
 
     fn writes(&self, app: &App) -> Vec<TargetUse> {
         frame_uses(app, |frame, _| {
-            vec![TargetUse::new(
-                TargetRef::Transient(frame.scene_color),
-                TargetAccess::TransferDst,
-            )]
+            vec![TargetUse::new(SCENE_COLOR, TargetAccess::TransferDst)]
         })
     }
 
@@ -549,16 +628,20 @@ impl RenderPassNode for WaterSceneColorCopyNode {
         image_index: usize,
         _: usize,
     ) -> Result<()> {
-        let Some(frame) = water_frame(app) else {
+        if water_frame(app).is_none() {
             return Ok(());
-        };
+        }
         let (Some(targets), Some(hdr_buffer)) = (
             app.data.ecs_world.get_resource::<WaterRenderTargets>(),
             app.data.viewport.hdr_buffer.as_ref(),
         ) else {
             return Ok(());
         };
-        let scene_color_image = app.data.viewport.transient.get(frame.scene_color)?;
+        let scene_color_image = app
+            .data
+            .viewport
+            .transient
+            .get(app.data.frame_transients.handle(SCENE_COLOR_SLOT)?)?;
         let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
         thyllore_vulkan_core::renderer::record_water_scene_color_copy(
@@ -639,14 +722,8 @@ impl RenderPassNode for WaterShadingNode {
     fn reads(&self, app: &App) -> Vec<TargetUse> {
         frame_uses(app, |frame, _| {
             vec![
-                TargetUse::new(
-                    TargetRef::Transient(frame.scene_color),
-                    TargetAccess::Sampled(ShaderStage::Fragment),
-                ),
-                TargetUse::new(
-                    TargetRef::Transient(frame.trace),
-                    TargetAccess::StorageRead(ShaderStage::Fragment),
-                ),
+                TargetUse::new(SCENE_COLOR, TargetAccess::Sampled(ShaderStage::Fragment)),
+                TargetUse::new(TRACE, TargetAccess::StorageRead(ShaderStage::Fragment)),
                 TargetUse::new(
                     frame.read_history(),
                     TargetAccess::Sampled(ShaderStage::Fragment),

@@ -230,7 +230,30 @@ impl RenderTargetTransient {
             pooled.last_used_frame = self.current_frame;
             pooled.last_bucket = self.current_bucket;
         }
-        self.buckets[self.current_bucket].push(slot as u32);
+        let bucket = &mut self.buckets[self.current_bucket];
+        if !bucket.contains(&(slot as u32)) {
+            bucket.push(slot as u32);
+        }
+    }
+
+    /// Returns an image to the free list inside the frame that acquired it, so a later pass whose
+    /// lifetime does not overlap can reuse it. The image stays in the frame's bucket, so the GPU
+    /// ordering of the command buffer is the only thing that separates the two users.
+    pub fn release(&mut self, handle: TransientHandle) -> Result<()> {
+        if handle.frame != self.current_frame {
+            return Err(anyhow!(
+                "transient handle from frame {} released in frame {}",
+                handle.frame,
+                self.current_frame
+            ));
+        }
+        match self.pool.get_mut(handle.slot as usize) {
+            Some(Some(pooled)) => {
+                pooled.state = PoolState::Free;
+                Ok(())
+            }
+            _ => Err(anyhow!("transient slot {} is not allocated", handle.slot)),
+        }
     }
 
     fn handle_for(&self, slot: usize) -> TransientHandle {
@@ -415,6 +438,32 @@ mod tests {
                 vk::ImageView::null(),
             )
         })
+    }
+
+    #[test]
+    fn test_released_image_is_reused_in_the_same_frame() {
+        let mut transient = RenderTargetTransient::new(2);
+        transient.advance_frame(0).unwrap();
+
+        let first = acquire_null(&mut transient, hdr_desc(64, 64));
+        transient.release(first).unwrap();
+        let second = acquire_null(&mut transient, hdr_desc(64, 64));
+
+        assert_eq!(first.slot, second.slot);
+        assert_eq!(transient.buckets[0], vec![first.slot]);
+        assert_eq!(transient.pooled_count(), 1);
+    }
+
+    #[test]
+    fn test_released_image_with_other_desc_is_not_reused() {
+        let mut transient = RenderTargetTransient::new(2);
+        transient.advance_frame(0).unwrap();
+
+        let first = acquire_null(&mut transient, hdr_desc(64, 64));
+        transient.release(first).unwrap();
+        let second = acquire_null(&mut transient, hdr_desc(32, 32));
+
+        assert_ne!(first.slot, second.slot);
     }
 
     #[test]

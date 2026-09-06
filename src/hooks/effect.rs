@@ -7,14 +7,12 @@ use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::render::RRRender;
 
 pub type EffectSetupHook = unsafe fn(&Instance, &RRDevice, &mut AppData, &RRRender) -> Result<()>;
-pub type EffectFrameHook = unsafe fn(&mut App, usize) -> Result<()>;
 pub type EffectHookFn = unsafe fn(&mut App) -> Result<()>;
 
 #[derive(Clone, Copy)]
 pub struct EffectHook {
     pub name: &'static str,
     pub setup: Option<EffectSetupHook>,
-    pub prepare_frame: Option<EffectFrameHook>,
     pub on_viewport_resize: Option<EffectHookFn>,
     pub destroy: Option<EffectHookFn>,
     pub passes: &'static [&'static dyn RenderPassNode],
@@ -75,15 +73,6 @@ impl EffectHooks {
 }
 
 impl App {
-    pub unsafe fn run_effect_prepare_frame(&mut self, frame_slot: usize) -> Result<()> {
-        for hook in self.data.effect_hooks.snapshot() {
-            if let Some(prepare_frame) = hook.prepare_frame {
-                prepare_frame(self, frame_slot)?;
-            }
-        }
-        Ok(())
-    }
-
     pub unsafe fn run_effect_viewport_resize(&mut self) -> Result<()> {
         for hook in self.data.effect_hooks.snapshot() {
             if let Some(on_viewport_resize) = hook.on_viewport_resize {

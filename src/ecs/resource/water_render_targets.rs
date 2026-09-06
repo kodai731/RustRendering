@@ -1,4 +1,4 @@
-use thyllore_vulkan_core::resource::{TransientHandle, WaterBuffer};
+use thyllore_vulkan_core::resource::WaterBuffer;
 use vulkanalia::prelude::v1_0::*;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -13,8 +13,6 @@ pub struct WaterBindingKey {
 #[derive(Debug, Default)]
 pub struct WaterRenderTargets {
     pub buffer: WaterBuffer,
-    pub scene_color: Option<TransientHandle>,
-    pub trace: Option<TransientHandle>,
     pub frame_instances: Vec<(thyllore_effect_core::WaterUBO, u32)>,
     bound: Vec<Option<WaterBindingKey>>,
 }
@@ -23,8 +21,6 @@ impl WaterRenderTargets {
     pub fn new(buffer: WaterBuffer) -> Self {
         Self {
             buffer,
-            scene_color: None,
-            trace: None,
             frame_instances: Vec::new(),
             bound: Vec::new(),
         }
@@ -32,11 +28,6 @@ impl WaterRenderTargets {
 
     pub fn forget_bindings(&mut self) {
         self.bound.clear();
-    }
-
-    pub fn clear_handles(&mut self) {
-        self.scene_color = None;
-        self.trace = None;
     }
 
     pub fn is_bound(&self, frame_slot: usize, key: WaterBindingKey) -> bool {

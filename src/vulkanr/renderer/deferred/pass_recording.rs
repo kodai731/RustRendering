@@ -344,9 +344,6 @@ fn bloom_frame(app: &App) -> Result<Option<BloomFrame<'_>>> {
     if mips.is_empty() {
         return Ok(None);
     }
-    for handle in &app.data.post_process.bloom_handles {
-        app.data.viewport.transient.get(*handle)?;
-    }
 
     let (Some(bloom_chain), Some(downsample_pipeline), Some(upsample_pipeline)) = (
         app.data.viewport.bloom_chain.as_ref(),
@@ -418,16 +415,17 @@ pub unsafe fn record_bloom_upsample(
 }
 
 pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result<()> {
-    let (Some(pipeline), Some(dof_descriptor), Some(dof_buffer), Some(dof_output)) = (
+    let (Some(pipeline), Some(dof_descriptor), Some(dof_buffer)) = (
         app.data.raytracing.dof_pipeline.as_ref(),
         app.data.raytracing.dof_descriptor.as_ref(),
         app.data.viewport.dof_buffer.as_ref(),
-        app.data.post_process.dof_output,
     ) else {
         return Ok(());
     };
-    app.data.viewport.transient.get(dof_output)?;
     let dof_framebuffer = app.data.post_process.dof_framebuffer;
+    if dof_framebuffer == vk::Framebuffer::null() {
+        return Ok(());
+    }
 
     let dof_settings = app
         .data

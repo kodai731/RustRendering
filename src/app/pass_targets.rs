@@ -1,11 +1,12 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use super::App;
-use crate::hooks::pass::{CoreTarget, RenderPassNode, TargetRef, TargetUse};
-use thyllore_vulkan_core::renderer::PendingBarrier;
+use crate::hooks::pass::{CoreTarget, RenderPassNode, TargetRef, TargetUse, TransientSlot};
+use thyllore_vulkan_core::renderer::{PendingBarrier, TransientLifetimes};
+use thyllore_vulkan_core::resource::TransientDesc;
 
 impl App {
     fn resolve_target_image(&self, target: TargetRef) -> Result<vk::Image> {
@@ -18,7 +19,10 @@ impl App {
                 .get(key)
                 .map(|entry| entry.image)
                 .ok_or_else(|| anyhow::anyhow!("storage target {key:?} is not allocated")),
-            TargetRef::Transient(handle) => Ok(self.data.viewport.transient.get(handle)?.image),
+            TargetRef::Transient(slot) => {
+                let handle = self.data.frame_transients.handle(slot)?;
+                Ok(self.data.viewport.transient.get(handle)?.image)
+            }
         }
     }
 
@@ -58,19 +62,53 @@ impl App {
         self.data.raytracing.gbuffer.as_ref().map(select)
     }
 
+    /// Build stage: acquire every transient slot at the first node that uses it and release it after
+    /// the last, so a later slot with the same desc reuses the pooled image inside the frame.
+    pub(super) unsafe fn assign_frame_transients(
+        &mut self,
+        nodes: &[&'static dyn RenderPassNode],
+        node_uses: &[Vec<TargetUse>],
+    ) -> Result<TransientLifetimes> {
+        let mut descs: HashMap<TransientSlot, TransientDesc> = HashMap::new();
+        for node in nodes {
+            for request in node.transients(self) {
+                descs.insert(request.slot, request.desc);
+            }
+        }
+        let lifetimes = TransientLifetimes::from_node_uses(node_uses);
+        self.data.frame_transients.clear();
+
+        for node_index in 0..nodes.len() {
+            for slot in lifetimes.starting_at(node_index) {
+                let desc = descs.get(&slot).copied().ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "pass {} uses transient slot {} that no node requested",
+                        nodes[node_index].name(),
+                        slot.0
+                    )
+                })?;
+                let handle =
+                    self.data
+                        .viewport
+                        .transient
+                        .acquire(&self.instance, &self.rrdevice, desc)?;
+                self.data.frame_transients.insert(slot, handle);
+            }
+            for slot in lifetimes.ending_at(node_index) {
+                let handle = self.data.frame_transients.handle(slot)?;
+                self.data.viewport.transient.release(handle)?;
+            }
+        }
+        Ok(lifetimes)
+    }
+
     pub(super) fn collect_pass_barriers(
         &mut self,
-        node: &dyn RenderPassNode,
+        uses: &[TargetUse],
         transients_seen_this_frame: &mut HashSet<vk::Image>,
     ) -> Result<Vec<PendingBarrier>> {
-        let uses: Vec<TargetUse> = node
-            .reads(self)
-            .into_iter()
-            .chain(node.writes(self))
-            .collect();
-
         let mut barriers = Vec::new();
-        for target_use in uses {
+        for target_use in uses.iter().copied() {
             let image = self.resolve_target_image(target_use.target)?;
             let acquired_this_frame = matches!(target_use.target, TargetRef::Transient(_))
                 && transients_seen_this_frame.insert(image);

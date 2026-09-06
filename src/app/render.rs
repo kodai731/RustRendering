@@ -455,8 +455,6 @@ impl App {
             frame_slot,
         )?;
 
-        self.prepare_post_process_targets(frame_slot)?;
-        self.run_effect_prepare_frame(frame_slot)?;
         self.record_command_buffer(image_index, draw_data, frame_slot)?;
 
         let image_available = self.resource::<FrameSync>().current_image_available();

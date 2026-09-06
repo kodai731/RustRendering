@@ -1,7 +1,23 @@
 use std::collections::HashMap;
 
-use crate::resource::{RenderTargetKey, TransientHandle};
+use crate::resource::{RenderTargetKey, TransientDesc, TransientHandle};
 use crate::vulkan::*;
+
+/// Symbolic name of a frame-lifetime image a pass asks the graph for (`"water.scene_color"`).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub struct TransientSlot(pub &'static str);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct TransientRequest {
+    pub slot: TransientSlot,
+    pub desc: TransientDesc,
+}
+
+impl TransientRequest {
+    pub const fn new(slot: TransientSlot, desc: TransientDesc) -> Self {
+        Self { slot, desc }
+    }
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum CoreTarget {
@@ -18,7 +34,7 @@ pub enum CoreTarget {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum TargetRef {
     Storage(RenderTargetKey),
-    Transient(TransientHandle),
+    Transient(TransientSlot),
     Core(CoreTarget),
 }
 
@@ -61,6 +77,82 @@ pub struct TargetUse {
 impl TargetUse {
     pub const fn new(target: TargetRef, access: TargetAccess) -> Self {
         Self { target, access }
+    }
+}
+
+/// First and last node index that touches each transient slot, computed from the declarations of
+/// every node before anything is recorded. The graph acquires a slot at its first node and releases it
+/// after its last, so slots with disjoint lifetimes and equal descs share one pooled image.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct TransientLifetimes {
+    first_use: HashMap<TransientSlot, usize>,
+    last_use: HashMap<TransientSlot, usize>,
+}
+
+impl TransientLifetimes {
+    pub fn from_node_uses(node_uses: &[Vec<TargetUse>]) -> Self {
+        let mut lifetimes = Self::default();
+        for (node_index, uses) in node_uses.iter().enumerate() {
+            for target_use in uses {
+                let TargetRef::Transient(slot) = target_use.target else {
+                    continue;
+                };
+                lifetimes.first_use.entry(slot).or_insert(node_index);
+                lifetimes.last_use.insert(slot, node_index);
+            }
+        }
+        lifetimes
+    }
+
+    pub fn starting_at(&self, node_index: usize) -> Vec<TransientSlot> {
+        let mut slots: Vec<TransientSlot> = self
+            .first_use
+            .iter()
+            .filter(|(_, first)| **first == node_index)
+            .map(|(slot, _)| *slot)
+            .collect();
+        slots.sort_by_key(|slot| slot.0);
+        slots
+    }
+
+    pub fn ending_at(&self, node_index: usize) -> Vec<TransientSlot> {
+        let mut slots: Vec<TransientSlot> = self
+            .last_use
+            .iter()
+            .filter(|(_, last)| **last == node_index)
+            .map(|(slot, _)| *slot)
+            .collect();
+        slots.sort_by_key(|slot| slot.0);
+        slots
+    }
+
+    pub fn is_used(&self, slot: TransientSlot) -> bool {
+        self.first_use.contains_key(&slot)
+    }
+}
+
+/// The transient handles the graph assigned for the current frame, keyed by slot.
+#[derive(Debug, Default)]
+pub struct FrameTransients {
+    handles: HashMap<TransientSlot, TransientHandle>,
+}
+
+impl FrameTransients {
+    pub fn clear(&mut self) {
+        self.handles.clear();
+    }
+
+    pub fn insert(&mut self, slot: TransientSlot, handle: TransientHandle) {
+        self.handles.insert(slot, handle);
+    }
+
+    pub fn get(&self, slot: TransientSlot) -> Option<TransientHandle> {
+        self.handles.get(&slot).copied()
+    }
+
+    pub fn handle(&self, slot: TransientSlot) -> Result<TransientHandle> {
+        self.get(slot)
+            .ok_or_else(|| anyhow!("transient slot {} was not acquired this frame", slot.0))
     }
 }
 
@@ -206,7 +298,19 @@ impl ImageStateTracker {
             }
         );
         if render_pass_discards_contents {
-            return None;
+            let image_untouched = current == UNKNOWN_STATE;
+            if image_untouched {
+                return None;
+            }
+            return Some(PendingBarrier {
+                src_stage: current.stage,
+                dst_stage: entry.stage,
+                image,
+                old_layout: current.layout,
+                new_layout: current.layout,
+                src_access: current.access,
+                dst_access: entry.access,
+            });
         }
 
         let hazard = current.layout != entry.layout || current.writes || entry.writes;
@@ -271,14 +375,31 @@ mod tests {
     }
 
     #[test]
-    fn attachment_with_undefined_initial_layout_skips_barrier_and_lands_on_final() {
+    fn attachment_with_undefined_initial_layout_skips_barrier_on_untouched_image() {
+        let mut tracker = ImageStateTracker::default();
+        let attachment = TargetAccess::Attachment {
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+        };
+        assert!(tracker.transition(image(1), attachment).is_none());
+    }
+
+    #[test]
+    fn attachment_with_undefined_initial_layout_orders_after_previous_use_and_lands_on_final() {
         let mut tracker = ImageStateTracker::default();
         tracker.transition(image(1), TargetAccess::TransferDst);
         let attachment = TargetAccess::Attachment {
             initial_layout: vk::ImageLayout::UNDEFINED,
             final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
         };
-        assert!(tracker.transition(image(1), attachment).is_none());
+        let ordering = tracker.transition(image(1), attachment).expect("barrier");
+        assert_eq!(ordering.old_layout, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+        assert_eq!(ordering.new_layout, vk::ImageLayout::TRANSFER_DST_OPTIMAL);
+        assert_eq!(ordering.src_stage, vk::PipelineStageFlags::TRANSFER);
+        assert_eq!(
+            ordering.dst_stage,
+            vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT
+        );
         let barrier = tracker
             .transition(image(1), TargetAccess::TransferSrc)
             .expect("barrier");
@@ -318,6 +439,28 @@ mod tests {
         assert!(tracker
             .transition(image(1), TargetAccess::Sampled(ShaderStage::Fragment))
             .is_none());
+    }
+
+    fn use_of(slot: &'static str, access: TargetAccess) -> TargetUse {
+        TargetUse::new(TargetRef::Transient(TransientSlot(slot)), access)
+    }
+
+    #[test]
+    fn lifetimes_span_first_to_last_declaring_node() {
+        let sampled = TargetAccess::Sampled(ShaderStage::Fragment);
+        let node_uses = vec![
+            vec![use_of("a", TargetAccess::TransferDst)],
+            vec![use_of("a", sampled), use_of("b", TargetAccess::TransferDst)],
+            vec![],
+            vec![use_of("b", sampled)],
+        ];
+        let lifetimes = TransientLifetimes::from_node_uses(&node_uses);
+        assert_eq!(lifetimes.starting_at(0), vec![TransientSlot("a")]);
+        assert_eq!(lifetimes.ending_at(1), vec![TransientSlot("a")]);
+        assert_eq!(lifetimes.starting_at(1), vec![TransientSlot("b")]);
+        assert_eq!(lifetimes.ending_at(3), vec![TransientSlot("b")]);
+        assert!(lifetimes.starting_at(2).is_empty());
+        assert!(!lifetimes.is_used(TransientSlot("c")));
     }
 
     #[test]

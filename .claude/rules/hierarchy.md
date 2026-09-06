@@ -32,7 +32,8 @@ lands; new code must not copy them, and no new entry may be added here.
 
 - `FrameContext` and `LightMoveTarget` are defined under `src/app/` although they contain no `App`; the
   fix is to move them into `src/ecs/`.
-- `src/hooks/effect.rs` declares `prepare_frame`, `on_viewport_resize` and `destroy` as `fn(&mut App)`, so
+- `src/hooks/effect.rs` declares `on_viewport_resize` and `destroy` as `fn(&mut App)` and `src/hooks/pass.rs`
+  declares `RenderPassNode::prepare` as `fn(&mut App)` and `record` / declarations as `fn(&App)`, so
   `src/ecs/systems/{flame,water}/render_targets.rs` take `&mut App`; the fix is an `EffectContext` that
   borrows instance, device, viewport pools and extent, raytracing data and `World` (the `setup` hook
   already takes decomposed arguments).
@@ -96,13 +97,17 @@ only for debugging (debug primitive spawn / delete) it lives in `src/debugview/`
 ## src/hooks/
 
 Generic hook infrastructure that lets a subsystem plug into the app lifecycle without being named by
-`src/app/`. `effect.rs` holds the effect hook (setup, prepare frame, viewport resize, destroy, pass nodes)
-and the list that runs them in subscription order. `pass.rs` holds the `RenderPassNode` contract (name,
-stage, reads / writes declared as `TargetUse`, record), the `PassStage` order (lighting → effect →
-post-process → final) and the `PassGraph` that keeps registered nodes sorted by stage then registration
-order. The graph runner in `src/app/command_recording.rs` resolves each `TargetRef` to an image
-(`src/app/pass_targets.rs`) and lets `ImageStateTracker` (`thyllore-vulkan-core`, `renderer/pass_target.rs`)
-emit the layout barriers, so pass code never writes an `ImageMemoryBarrier` for a declared target. A hook file describes a contract only; it
+`src/app/`. `effect.rs` holds the effect hook (setup, viewport resize, destroy, pass nodes) and the list that runs
+them in subscription order. `pass.rs` holds the `RenderPassNode` contract (name,
+stage, `transients` requested by slot and desc, reads / writes declared as `TargetUse`, `prepare`, record),
+the `PassStage` order (lighting → effect → post-process → final) and the `PassGraph` that keeps registered
+nodes sorted by stage then registration order. The graph runner in `src/app/command_recording.rs` runs
+three phases per frame: build (collect requests and uses, compute `TransientLifetimes`, acquire each slot
+at its first use and release it after its last, `src/app/pass_targets.rs`), prepare (nodes bind the frame's
+images into descriptors and framebuffers), record (`ImageStateTracker` in `thyllore-vulkan-core`
+`renderer/pass_target.rs` emits the layout barriers). Pass code never acquires a transient or writes an
+`ImageMemoryBarrier` for a declared target; `AppData.frame_transients` is the single map from slot to
+handle. A hook file describes a contract only; it
 never names a concrete effect.
 
 ## src/effect/
@@ -156,11 +161,12 @@ Belongs here:
   `features/screenshot.rs::copy_image_to_buffer`
 - context structs that bundle `App` fields for callees
 - wiring that must touch several subsystems at once (a resize fan-out, rebinding after a resize)
-- calls into the hook infrastructure of `src/hooks/` (setup, prepare frame, viewport resize, destroy)
-  without naming an effect
+- calls into the hook infrastructure of `src/hooks/` (setup, viewport resize, destroy) and the pass
+  graph without naming an effect
 - core post-processing passes (tonemap, auto exposure, dof, bloom) as one concept under
-  `src/app/post_process/`: pipeline creation, resize rebinding and per-frame target acquisition live
-  together there. These are engine passes, not effects, so `App` calls them directly
+  `src/app/post_process/`: pipeline creation, resize rebinding and the per-frame descriptor binding that
+  the core pass nodes call from `prepare` live together there. These are engine passes, not effects, so
+  their nodes are registered by `App` directly
 
 Does not belong here:
 - ECS domain logic (querying, mutating components, deciding what an effect does) → `src/ecs/systems/`
@@ -173,10 +179,11 @@ Does not belong here:
 A function that takes `&mut App` only to read a few fields is misplaced: pass those fields in and put it
 where the checklist says.
 
-Effects own their GPU state: the buffers and per-frame handles of an effect are an ECS resource
-(`src/ecs/resource/<effect>_render_targets.rs`), and creation, resize, per-frame acquisition and destroy are
-systems in `src/ecs/systems/<effect>/render_targets.rs` exposed as an effect hook subscribed in
-`src/effect/subscription.rs`. `src/app/` never enumerates effects (this mirrors bevy's `TextureCache` + per-effect `prepare_*` systems and Unreal's RDG +
+Effects own their GPU state: the buffers of an effect are an ECS resource
+(`src/ecs/resource/<effect>_render_targets.rs`), creation, resize and destroy are systems in
+`src/ecs/systems/<effect>/render_targets.rs` exposed as an effect hook subscribed in
+`src/effect/subscription.rs`, and per-frame images are requested by the effect's pass nodes in
+`src/ecs/systems/<effect>/passes.rs` (the graph acquires them). `src/app/` never enumerates effects (this mirrors bevy's `TextureCache` + per-effect `prepare_*` systems and Unreal's RDG +
 per-feature `AddPass`).
 
 ## Other src/ directories

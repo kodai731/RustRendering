@@ -3,7 +3,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
 pub use thyllore_vulkan_core::renderer::{
-    CoreTarget, ShaderStage, TargetAccess, TargetRef, TargetUse,
+    CoreTarget, ShaderStage, TargetAccess, TargetRef, TargetUse, TransientRequest, TransientSlot,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -18,12 +18,24 @@ pub trait RenderPassNode: Sync {
     fn name(&self) -> &'static str;
     fn stage(&self) -> PassStage;
 
+    /// Frame-lifetime images this node needs. The graph acquires each slot at its first use and
+    /// releases it after its last, so the node never calls the transient pool itself.
+    fn transients(&self, _app: &App) -> Vec<TransientRequest> {
+        Vec::new()
+    }
+
     fn reads(&self, _app: &App) -> Vec<TargetUse> {
         Vec::new()
     }
 
     fn writes(&self, _app: &App) -> Vec<TargetUse> {
         Vec::new()
+    }
+
+    /// Build stage, after every transient of the frame is assigned and before anything is recorded:
+    /// bind the frame's images into this node's descriptors and framebuffers.
+    unsafe fn prepare(&self, _app: &mut App, _frame_slot: usize) -> Result<()> {
+        Ok(())
     }
 
     unsafe fn record(

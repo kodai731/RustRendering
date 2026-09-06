@@ -2,16 +2,18 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use super::pass_recording::*;
+use crate::app::post_process::{
+    bloom_mip_count, is_dof_enabled, BLOOM_MIPS, DOF_OUTPUT, MAX_BLOOM_MIPS,
+};
 use crate::app::App;
 use crate::hooks::pass::{
     CoreTarget, PassGraph, PassStage, RenderPassNode, ShaderStage, TargetAccess, TargetRef,
-    TargetUse,
+    TargetUse, TransientRequest,
 };
 
 const HDR_COLOR: TargetRef = TargetRef::Core(CoreTarget::HdrColor);
 const OFFSCREEN: TargetRef = TargetRef::Core(CoreTarget::Offscreen);
 const ONION_GHOST: TargetRef = TargetRef::Core(CoreTarget::OnionSkinGhost);
-const MAX_BLOOM_MIPS: usize = 8;
 
 const fn cleared_attachment() -> TargetAccess {
     TargetAccess::Attachment {
@@ -28,26 +30,19 @@ const fn loaded_attachment(layout: vk::ImageLayout) -> TargetAccess {
 }
 
 fn tonemap_input(app: &App) -> TargetRef {
-    match app.data.post_process.dof_output {
-        Some(handle) if app.data.raytracing.dof_pipeline.is_some() => TargetRef::Transient(handle),
-        _ => HDR_COLOR,
+    if is_dof_enabled(app) {
+        TargetRef::Transient(DOF_OUTPUT)
+    } else {
+        HDR_COLOR
     }
 }
 
 fn bloom_mip(app: &App, mip_index: usize) -> Option<TargetRef> {
-    app.data
-        .post_process
-        .bloom_handles
-        .get(mip_index)
-        .map(|handle| TargetRef::Transient(*handle))
+    (mip_index < bloom_mip_count(app)).then(|| TargetRef::Transient(BLOOM_MIPS[mip_index]))
 }
 
 fn is_bloom_enabled(app: &App) -> bool {
-    app.data
-        .ecs_world
-        .get_resource::<crate::ecs::resource::BloomSettings>()
-        .is_some_and(|settings| settings.enabled)
-        && !app.data.post_process.bloom_handles.is_empty()
+    bloom_mip_count(app) > 0
 }
 
 fn is_onion_skin_active(app: &App) -> bool {
@@ -129,8 +124,29 @@ impl RenderPassNode for BloomDownsampleNode {
         PassStage::PostProcess
     }
 
+    fn transients(&self, app: &App) -> Vec<TransientRequest> {
+        if bloom_mip(app, self.mip_index).is_none() {
+            return Vec::new();
+        }
+        app.data
+            .viewport
+            .bloom_chain
+            .as_ref()
+            .and_then(|chain| chain.mip_desc(self.mip_index))
+            .map(|desc| TransientRequest::new(BLOOM_MIPS[self.mip_index], desc))
+            .into_iter()
+            .collect()
+    }
+
+    unsafe fn prepare(&self, app: &mut App, frame_slot: usize) -> Result<()> {
+        if self.mip_index == 0 {
+            app.prepare_bloom_targets(frame_slot)?;
+        }
+        Ok(())
+    }
+
     fn reads(&self, app: &App) -> Vec<TargetUse> {
-        if !is_bloom_enabled(app) || bloom_mip(app, self.mip_index).is_none() {
+        if bloom_mip(app, self.mip_index).is_none() {
             return Vec::new();
         }
         let source = match self.mip_index {
@@ -171,7 +187,7 @@ pub struct BloomUpsampleNode {
 impl BloomUpsampleNode {
     fn target_mip(&self, app: &App) -> Option<usize> {
         thyllore_vulkan_core::renderer::bloom_upsample_target_mip(
-            app.data.post_process.bloom_handles.len(),
+            bloom_mip_count(app),
             self.pass_index,
         )
     }
@@ -235,9 +251,25 @@ impl RenderPassNode for DofNode {
         PassStage::PostProcess
     }
 
+    fn transients(&self, app: &App) -> Vec<TransientRequest> {
+        if !is_dof_enabled(app) {
+            return Vec::new();
+        }
+        app.data
+            .viewport
+            .dof_buffer
+            .as_ref()
+            .map(|dof_buffer| TransientRequest::new(DOF_OUTPUT, dof_buffer.output_desc()))
+            .into_iter()
+            .collect()
+    }
+
+    unsafe fn prepare(&self, app: &mut App, _frame_slot: usize) -> Result<()> {
+        app.prepare_dof_target()
+    }
+
     fn reads(&self, app: &App) -> Vec<TargetUse> {
-        if app.data.post_process.dof_output.is_none() || app.data.raytracing.dof_pipeline.is_none()
-        {
+        if !is_dof_enabled(app) {
             return Vec::new();
         }
         vec![TargetUse::new(
@@ -247,15 +279,13 @@ impl RenderPassNode for DofNode {
     }
 
     fn writes(&self, app: &App) -> Vec<TargetUse> {
-        if app.data.raytracing.dof_pipeline.is_none() {
+        if !is_dof_enabled(app) {
             return Vec::new();
         }
-        app.data
-            .post_process
-            .dof_output
-            .map(|handle| TargetUse::new(TargetRef::Transient(handle), cleared_attachment()))
-            .into_iter()
-            .collect()
+        vec![TargetUse::new(
+            TargetRef::Transient(DOF_OUTPUT),
+            cleared_attachment(),
+        )]
     }
 
     unsafe fn record(&self, app: &App, cmd: vk::CommandBuffer, _: usize, _: usize) -> Result<()> {
@@ -272,6 +302,13 @@ impl RenderPassNode for AutoExposureNode {
 
     fn stage(&self) -> PassStage {
         PassStage::PostProcess
+    }
+
+    unsafe fn prepare(&self, app: &mut App, frame_slot: usize) -> Result<()> {
+        if !is_auto_exposure_enabled(app) {
+            return Ok(());
+        }
+        app.prepare_auto_exposure_input(frame_slot)
     }
 
     fn reads(&self, app: &App) -> Vec<TargetUse> {
@@ -304,6 +341,10 @@ impl RenderPassNode for TonemapNode {
 
     fn stage(&self) -> PassStage {
         PassStage::Final
+    }
+
+    unsafe fn prepare(&self, app: &mut App, frame_slot: usize) -> Result<()> {
+        app.prepare_tonemap_inputs(frame_slot)
     }
 
     fn reads(&self, app: &App) -> Vec<TargetUse> {

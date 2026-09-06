@@ -31,7 +31,8 @@ pub use line_mesh_draw::{
 pub use onion_skin::{record_onion_skin_composite_pass, record_onion_skin_ghost_pass};
 pub use onion_skin_buffers::{OnionSkinGhostBuffer, OnionSkinGpuState};
 pub use pass_target::{
-    CoreTarget, ImageStateTracker, PendingBarrier, ShaderStage, TargetAccess, TargetRef, TargetUse,
+    CoreTarget, FrameTransients, ImageStateTracker, PendingBarrier, ShaderStage, TargetAccess,
+    TargetRef, TargetUse, TransientLifetimes, TransientRequest, TransientSlot,
 };
 pub use push_constants::{
     FlamePushConstants, GBufferPushConstants, OnionSkinPushConstants, WaterPushConstants,
