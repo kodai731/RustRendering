@@ -11,8 +11,26 @@ pub const WIND_DENSITY_PARAMS: &[&str] = &["density", "wall_strength", "core_str
 
 pub const WIND_LOOK_PARAMS: &[&str] = &["albedo", "ambient_brightness"];
 
-pub const WIND_PARAM_GROUPS: &[&[&str]] =
-    &[WIND_SHAPE_PARAMS, WIND_DENSITY_PARAMS, WIND_LOOK_PARAMS];
+pub const WIND_MOTION_PARAMS: &[&str] = &[
+    "rise_initial_height",
+    "rise_duration",
+    "spread_start",
+    "spread_rate",
+    "dissipate_start",
+    "dissipate_time",
+    "ring_height",
+    "ring_radius",
+    "ring_width_q",
+    "ring_strength",
+    "ring_spread_rate",
+];
+
+pub const WIND_PARAM_GROUPS: &[&[&str]] = &[
+    WIND_SHAPE_PARAMS,
+    WIND_DENSITY_PARAMS,
+    WIND_MOTION_PARAMS,
+    WIND_LOOK_PARAMS,
+];
 
 #[cfg(test)]
 mod tests {

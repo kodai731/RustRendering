@@ -8,7 +8,7 @@
 // Mirrored in thyllore-effect-core/src/wind/analytic/shell_integral.rs.
 // Must be included after wind_shell_field.glsl.
 
-const int WIND_MAX_KNOTS = 12;
+const int WIND_MAX_KNOTS = 16;
 const int WIND_POLY_TERMS = 12;
 const float WIND_EMPTY_INTERVAL_EPSILON = 1e-6;
 
@@ -64,7 +64,7 @@ int windRayKnots(vec3 o, vec3 d, float tNear, float tFar, out float knots[WIND_M
     float radius1 = windWallRadiusSlope() * d.y * invHeight;
     float deltaA = qA - radius1 * radius1;
     float deltaB = qB - 2.0 * radius0 * radius1;
-    float deltaC = qC - radius0 * radius0;
+    float deltaC = qC - radius0 * radius0 - windSpreadOffset();
     windPushQuadraticRoots(deltaA, deltaB, deltaC - windWallWidthQ(), tNear, tFar, knots, count);
     windPushQuadraticRoots(deltaA, deltaB, deltaC + windWallWidthQ(), tNear, tFar, knots, count);
 
@@ -72,9 +72,17 @@ int windRayKnots(vec3 o, vec3 d, float tNear, float tFar, out float knots[WIND_M
         windPushQuadraticRoots(qA, qB, qC - windCoreRadiusSq(), tNear, tFar, knots, count);
     }
 
+    if (windRingActive()) {
+        windPushQuadraticRoots(qA, qB, qC - windRingRadiusSq() - windRingWidthQ(), tNear, tFar, knots, count);
+        windPushQuadraticRoots(qA, qB, qC - windRingRadiusSq() + windRingWidthQ(), tNear, tFar, knots, count);
+    }
+
     if (abs(d.y) >= WIND_LINEAR_COEFFICIENT_EPSILON) {
-        float fadeY = windFadeStart() * windHeight();
+        float fadeY = windFadeStart() * windHTop() * windHeight();
         windPushKnot(knots, count, (fadeY - o.y) / d.y, tNear, tFar);
+        if (windRingActive()) {
+            windPushKnot(knots, count, (windRingTopY() - o.y) / d.y, tNear, tFar);
+        }
     }
 
     windSortKnots(knots, count);
@@ -131,6 +139,19 @@ void windEnvelopePoly(float h0, float h1, float hMid, out float envelope[WIND_PO
     envelope[3] = 2.0 * v1 * v1 * v1;
 }
 
+void windRingFadePoly(float h0, float h1, out float poly[WIND_POLY_TERMS]) {
+    for (int k = 0; k < WIND_POLY_TERMS; ++k) {
+        poly[k] = 0.0;
+    }
+    float invRingHeight = 1.0 / windRingHeight();
+    float v0 = h0 * invRingHeight;
+    float v1 = h1 * invRingHeight;
+    poly[0] = 1.0 - 3.0 * v0 * v0 + 2.0 * v0 * v0 * v0;
+    poly[1] = -6.0 * v0 * v1 + 6.0 * v0 * v0 * v1;
+    poly[2] = -3.0 * v1 * v1 + 6.0 * v0 * v1 * v1;
+    poly[3] = 2.0 * v1 * v1 * v1;
+}
+
 float windPieceOpticalDepth(vec3 o, vec3 d, float s0, float s1) {
     float pieceLength = s1 - s0;
     if (pieceLength <= WIND_EMPTY_INTERVAL_EPSILON) {
@@ -141,7 +162,7 @@ float windPieceOpticalDepth(vec3 o, vec3 d, float s0, float s1) {
     float h0 = start.y * invHeight;
     float h1 = pieceLength * d.y * invHeight;
     float hMid = h0 + 0.5 * h1;
-    if (hMid < 0.0 || hMid > 1.0) {
+    if (hMid < 0.0) {
         return 0.0;
     }
 
@@ -154,7 +175,7 @@ float windPieceOpticalDepth(vec3 o, vec3 d, float s0, float s1) {
     float invWidth = 1.0 / windWallWidthQ();
     float u[WIND_POLY_TERMS];
     windPolyFromQuadratic(
-        (q0 - radius0 * radius0) * invWidth,
+        (q0 - radius0 * radius0 - windSpreadOffset()) * invWidth,
         (q1 - 2.0 * radius0 * radius1) * invWidth,
         (q2 - radius1 * radius1) * invWidth,
         u);
@@ -185,8 +206,31 @@ float windPieceOpticalDepth(vec3 o, vec3 d, float s0, float s1) {
         }
     }
 
+    if (windRingActive() && hMid < windRingHeight()) {
+        float invRingWidth = 1.0 / windRingWidthQ();
+        float ur[WIND_POLY_TERMS];
+        windPolyFromQuadratic(
+            (q0 - windRingRadiusSq()) * invRingWidth,
+            q1 * invRingWidth,
+            q2 * invRingWidth,
+            ur);
+        float urMid = ur[0] + 0.5 * ur[1] + 0.25 * ur[2];
+        if (abs(urMid) < 1.0) {
+            float ringFade[WIND_POLY_TERMS];
+            windRingFadePoly(h0, h1, ringFade);
+            float ringBiweight[WIND_POLY_TERMS];
+            windBiweightPoly(ur, ringBiweight);
+            float ring[WIND_POLY_TERMS];
+            windPolyMul(ringFade, ringBiweight, ring);
+            for (int k = 0; k < WIND_POLY_TERMS; ++k) {
+                shell[k] += windRingStrength() * ring[k];
+            }
+        }
+    }
+
     float envelope[WIND_POLY_TERMS];
-    windEnvelopePoly(h0, h1, hMid, envelope);
+    float invHTop = 1.0 / windHTop();
+    windEnvelopePoly(h0 * invHTop, h1 * invHTop, hMid * invHTop, envelope);
     float density[WIND_POLY_TERMS];
     windPolyMul(envelope, shell, density);
     float momentSum = 0.0;

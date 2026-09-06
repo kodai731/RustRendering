@@ -128,6 +128,116 @@ declare_scene_format! {
                 format: "%.2f",
             },
         },
+        rise_initial_height: f32 = Frame {
+            get: |e| e.rise_initial_height,
+            set: |e, v| e.rise_initial_height = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Height fraction of the column at t = 0; the top rises to 1 over rise_duration",
+            },
+        },
+        rise_duration: f32 = Frame {
+            get: |e| e.rise_duration,
+            set: |e, v| e.rise_duration = v,
+            ui {
+                min: 0.1,
+                max: 10.0,
+                format: "%.2f",
+                tooltip: "Seconds of the smoothstep rise from rise_initial_height to the full height",
+            },
+        },
+        spread_start: f32 = Frame {
+            get: |e| e.spread_start,
+            set: |e, v| e.spread_start = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.2f",
+                tooltip: "Time in seconds when wall spreading begins",
+            },
+        },
+        spread_rate: f32 = Frame {
+            get: |e| e.spread_rate,
+            set: |e, v| e.spread_rate = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Outward drift of the wall in squared-radius units: 2 * spread_rate * (t - spread_start)",
+            },
+        },
+        dissipate_start: f32 = Frame {
+            get: |e| e.dissipate_start,
+            set: |e, v| e.dissipate_start = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.2f",
+                tooltip: "Time in seconds when wall dissipation begins",
+            },
+        },
+        dissipate_time: f32 = Frame {
+            get: |e| e.dissipate_time,
+            set: |e, v| e.dissipate_time = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.2f",
+                tooltip: "Time constant of the wall strength decay; 0 keeps the wall at full strength",
+            },
+        },
+        ring_height: f32 = Frame {
+            get: |e| e.ring_height,
+            set: |e, v| e.ring_height = v,
+            ui {
+                min: 0.01,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Height of the ground ring; density fades to zero above this height",
+            },
+        },
+        ring_radius: f32 = Frame {
+            get: |e| e.ring_radius,
+            set: |e, v| e.ring_radius = v,
+            ui {
+                min: 0.01,
+                max: 10.0,
+                format: "%.3f",
+                tooltip: "Radius of the ground ring at t = 0",
+            },
+        },
+        ring_width_q: f32 = Frame {
+            get: |e| e.ring_width_q,
+            set: |e, v| e.ring_width_q = v,
+            ui {
+                min: 0.001,
+                max: 5.0,
+                format: "%.3f",
+                tooltip: "Half width of the ring shell in squared-radius units",
+            },
+        },
+        ring_strength: f32 = Frame {
+            get: |e| e.ring_strength,
+            set: |e, v| e.ring_strength = v,
+            ui {
+                min: 0.0,
+                max: 4.0,
+                format: "%.2f",
+                tooltip: "Strength of the ground ring; 0 disables the ring",
+            },
+        },
+        ring_spread_rate: f32 = Frame {
+            get: |e| e.ring_spread_rate,
+            set: |e, v| e.ring_spread_rate = v,
+            ui {
+                min: 0.0,
+                max: 5.0,
+                format: "%.2f",
+                tooltip: "Outward drift of the ring in squared-radius units: 2 * ring_spread_rate * (t - spread_start)",
+            },
+        },
     },
     runtime {
         time: f32 {

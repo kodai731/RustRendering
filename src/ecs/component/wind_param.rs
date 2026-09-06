@@ -20,10 +20,16 @@ pub enum WindParam {
     AlbedoG,
     AlbedoB,
     AmbientBrightness,
+    RiseInitialHeight,
+    RiseDuration,
+    SpreadStart,
+    SpreadRate,
+    DissipateStart,
+    DissipateTime,
 }
 
 impl WindParam {
-    pub const ALL: [WindParam; 13] = [
+    pub const ALL: [WindParam; 19] = [
         WindParam::ColumnHeight,
         WindParam::CoreRadius,
         WindParam::CoreStrength,
@@ -37,6 +43,12 @@ impl WindParam {
         WindParam::AlbedoG,
         WindParam::AlbedoB,
         WindParam::AmbientBrightness,
+        WindParam::RiseInitialHeight,
+        WindParam::RiseDuration,
+        WindParam::SpreadStart,
+        WindParam::SpreadRate,
+        WindParam::DissipateStart,
+        WindParam::DissipateTime,
     ];
 
     pub const fn code(self) -> u16 {
@@ -54,6 +66,12 @@ impl WindParam {
             WindParam::AlbedoG => 522,
             WindParam::AlbedoB => 523,
             WindParam::AmbientBrightness => 524,
+            WindParam::RiseInitialHeight => 525,
+            WindParam::RiseDuration => 526,
+            WindParam::SpreadStart => 527,
+            WindParam::SpreadRate => 528,
+            WindParam::DissipateStart => 529,
+            WindParam::DissipateTime => 530,
         }
     }
 
@@ -87,6 +105,12 @@ impl WindParam {
             WindParam::AlbedoG => "Albedo G",
             WindParam::AlbedoB => "Albedo B",
             WindParam::AmbientBrightness => "Ambient Brightness",
+            WindParam::RiseInitialHeight => "Rise Initial Height",
+            WindParam::RiseDuration => "Rise Duration",
+            WindParam::SpreadStart => "Spread Start",
+            WindParam::SpreadRate => "Spread Rate",
+            WindParam::DissipateStart => "Dissipate Start",
+            WindParam::DissipateTime => "Dissipate Time",
         }
     }
 
@@ -105,6 +129,12 @@ impl WindParam {
             WindParam::AlbedoG => "albedo_g",
             WindParam::AlbedoB => "albedo_b",
             WindParam::AmbientBrightness => "ambient_brightness",
+            WindParam::RiseInitialHeight => "rise_initial_height",
+            WindParam::RiseDuration => "rise_duration",
+            WindParam::SpreadStart => "spread_start",
+            WindParam::SpreadRate => "spread_rate",
+            WindParam::DissipateStart => "dissipate_start",
+            WindParam::DissipateTime => "dissipate_time",
         }
     }
 
@@ -130,6 +160,12 @@ impl WindParam {
             WindParam::AlbedoG => "AlbedoG",
             WindParam::AlbedoB => "AlbedoB",
             WindParam::AmbientBrightness => "AmbientBrightness",
+            WindParam::RiseInitialHeight => "RiseInitialHeight",
+            WindParam::RiseDuration => "RiseDuration",
+            WindParam::SpreadStart => "SpreadStart",
+            WindParam::SpreadRate => "SpreadRate",
+            WindParam::DissipateStart => "DissipateStart",
+            WindParam::DissipateTime => "DissipateTime",
         }
     }
 
@@ -148,6 +184,12 @@ impl WindParam {
             WindParam::AlbedoG => (0.0, 1.0),
             WindParam::AlbedoB => (0.0, 1.0),
             WindParam::AmbientBrightness => (0.0, 5.0),
+            WindParam::RiseInitialHeight => (0.0, 1.0),
+            WindParam::RiseDuration => (0.1, 10.0),
+            WindParam::SpreadStart => (0.0, 10.0),
+            WindParam::SpreadRate => (0.0, 5.0),
+            WindParam::DissipateStart => (0.0, 10.0),
+            WindParam::DissipateTime => (0.0, 10.0),
         }
     }
 

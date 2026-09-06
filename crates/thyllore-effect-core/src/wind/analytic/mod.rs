@@ -1,3 +1,4 @@
+pub mod motion;
 pub mod pick;
 pub mod shell_integral;
 

@@ -31,7 +31,7 @@ impl ScalarChannel {
 /// component stays inside the domain's own system.
 ///
 /// Each domain owns a disjoint block of `Custom` codes: flame uses 0..=15,
-/// water 256..=277, wind 512..=524; the next domain should start at 768.
+/// water 256..=277, wind 512..=530; the next domain should start at 768.
 pub struct ScalarChannelDomain {
     /// Display name of the domain (also the name of the clip it creates).
     pub name: &'static str,

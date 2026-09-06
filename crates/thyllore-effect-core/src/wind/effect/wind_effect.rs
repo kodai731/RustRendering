@@ -18,6 +18,17 @@ pub struct WindTornadoEffect {
     pub density: f32,
     pub albedo: [f32; 3],
     pub ambient_brightness: f32,
+    pub rise_initial_height: f32,
+    pub rise_duration: f32,
+    pub spread_start: f32,
+    pub spread_rate: f32,
+    pub dissipate_start: f32,
+    pub dissipate_time: f32,
+    pub ring_height: f32,
+    pub ring_radius: f32,
+    pub ring_width_q: f32,
+    pub ring_strength: f32,
+    pub ring_spread_rate: f32,
 }
 
 impl Default for WindTornadoEffect {
@@ -39,6 +50,17 @@ impl Default for WindTornadoEffect {
             density: 4.0,
             albedo: [0.9, 0.93, 1.0],
             ambient_brightness: 1.0,
+            rise_initial_height: 1.0,
+            rise_duration: 1.0,
+            spread_start: 0.0,
+            spread_rate: 0.0,
+            dissipate_start: 0.0,
+            dissipate_time: 0.0,
+            ring_height: 0.5,
+            ring_radius: 0.3,
+            ring_width_q: 0.05,
+            ring_strength: 0.0,
+            ring_spread_rate: 0.0,
         }
     }
 }

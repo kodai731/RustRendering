@@ -22,8 +22,18 @@ pub fn build_wind_ubo(effect: &WindTornadoEffect) -> WindUBO {
             params.wall_strength,
             params.top_fade,
         ],
-        optics: [params.sigma_t, effect.ambient_brightness, effect.time, 0.0],
-        albedo: [effect.albedo[0], effect.albedo[1], effect.albedo[2], 0.0],
+        optics: [
+            params.sigma_t,
+            effect.ambient_brightness,
+            effect.time,
+            params.h_top,
+        ],
+        albedo: [
+            effect.albedo[0],
+            effect.albedo[1],
+            effect.albedo[2],
+            params.spread_offset,
+        ],
         inv_view_proj: Matrix4::identity(),
     }
 }

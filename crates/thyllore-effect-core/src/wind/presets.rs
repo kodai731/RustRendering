@@ -13,6 +13,12 @@ pub fn apply_wind_preset(effect: &mut WindTornadoEffect, name: &str) -> bool {
             preset.wall_width_q = 0.05;
             preset.core_strength = 0.2;
             preset.top_fade = 0.4;
+            preset.rise_initial_height = 0.2;
+            preset.rise_duration = 1.5;
+            preset.spread_start = 1.5;
+            preset.spread_rate = 0.05;
+            preset.dissipate_start = 4.0;
+            preset.dissipate_time = 2.0;
         }
         _ => return false,
     }

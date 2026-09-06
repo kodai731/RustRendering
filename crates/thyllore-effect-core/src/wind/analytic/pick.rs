@@ -33,7 +33,9 @@ pub fn pick_wind(
 
 /// Corners of the local axis-aligned box enclosing the envelope cone frustum.
 pub fn wind_local_bounds_corners(params: &WindShellParams) -> [Vector3<f32>; 8] {
-    let radius = wind_envelope_radius(params, 0.0).max(wind_envelope_radius(params, 1.0));
+    let radius = wind_envelope_radius(params, 0.0)
+        .max(wind_envelope_radius(params, 1.0))
+        .max(params.ring_bounds_radius());
     let mut corners = [Vector3::new(0.0, 0.0, 0.0); 8];
     for (index, corner) in corners.iter_mut().enumerate() {
         corner.x = if index & 1 == 0 { -radius } else { radius };
