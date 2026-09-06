@@ -1,0 +1,104 @@
+import math
+import struct
+
+from blender_addon.common.coordinates import (
+    blender_to_engine_point,
+    engine_projection,
+    mat4_inverse,
+)
+from blender_addon.effects.wind.draw_handler import (
+    blender_view_to_engine_view,
+    blender_window_to_engine_projection,
+    flip_projection_y,
+)
+from blender_addon.effects.wind.wind_shader import matrix_column_major, pack_frame_ubo
+
+
+def _almost_equal(a, b, tol=1e-6):
+    return abs(a - b) < tol
+
+
+def test_blender_window_to_engine_projection_matches():
+    f = 1.0 / math.tan(math.radians(22.5))
+    window_matrix = [
+        [f / 2, 0, 0, 0],
+        [0, f, 0, 0],
+        [0, 0, -1, -0.2],
+        [0, 0, -1, 0],
+    ]
+    proj = blender_window_to_engine_projection(window_matrix, 0.1)
+    expected = engine_projection(math.radians(45), 2.0, 0.1)
+    for i in range(4):
+        for j in range(4):
+            assert _almost_equal(proj[i][j], expected[i][j])
+
+
+def test_blender_view_to_engine_view_camera_at_origin():
+    view = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, -4.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    result_view, camera_pos = blender_view_to_engine_view(view)
+    expected_pos = blender_to_engine_point((0.0, 0.0, 4.0))
+    assert _almost_equal(camera_pos[0], expected_pos[0])
+    assert _almost_equal(camera_pos[1], expected_pos[1])
+    assert _almost_equal(camera_pos[2], expected_pos[2])
+    x = (result_view[0][0] * camera_pos[0] + result_view[0][1] * camera_pos[1] + result_view[0][2] * camera_pos[2] + result_view[0][3])
+    y = (result_view[1][0] * camera_pos[0] + result_view[1][1] * camera_pos[1] + result_view[1][2] * camera_pos[2] + result_view[1][3])
+    z = (result_view[2][0] * camera_pos[0] + result_view[2][1] * camera_pos[1] + result_view[2][2] * camera_pos[2] + result_view[2][3])
+    assert _almost_equal(x, 0.0)
+    assert _almost_equal(y, 0.0)
+    assert _almost_equal(z, 0.0)
+
+
+def test_blender_view_to_engine_view_point_ahead():
+    camera_world = [
+        [1, 0, 0, 0],
+        [0, 0, -1, -4],
+        [0, 1, 0, 1.2],
+        [0, 0, 0, 1],
+    ]
+    view = mat4_inverse(camera_world)
+    result_view, camera_pos = blender_view_to_engine_view(view)
+    assert _almost_equal(camera_pos[0], 0.0)
+    assert _almost_equal(camera_pos[1], 1.2)
+    assert _almost_equal(camera_pos[2], 4.0)
+    vt = result_view[0][0] * 0 + result_view[0][1] * 1.2 + result_view[0][2] * 0 + result_view[0][3]
+    vy = result_view[1][0] * 0 + result_view[1][1] * 1.2 + result_view[1][2] * 0 + result_view[1][3]
+    vz = result_view[2][0] * 0 + result_view[2][1] * 1.2 + result_view[2][2] * 0 + result_view[2][3]
+    assert _almost_equal(vt, 0.0)
+    assert _almost_equal(vy, 0.0)
+    assert _almost_equal(vz, -4.0)
+
+
+def test_flip_projection_y():
+    proj = engine_projection(math.radians(45), 1.0, 0.1)
+    flipped = flip_projection_y(proj)
+    f = 1.0 / math.tan(math.radians(22.5))
+    assert _almost_equal(flipped[1][1], f)
+    for i in (0, 2, 3):
+        for j in range(4):
+            assert _almost_equal(flipped[i][j], proj[i][j])
+
+
+def test_matrix_column_major_matches_pack_frame_ubo():
+    view = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    proj = [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 1.0, 0.0],
+        [0.0, 0.0, 0.0, 1.0],
+    ]
+    ubo = pack_frame_ubo(view, proj, (0.0, 0.0, 0.0, 1.0), (0.0, 0.0, 0.0, 1.0), (1.0, 1.0, 1.0, 1.0))
+    first_16 = struct.unpack("16f", ubo[:64])
+    expected = matrix_column_major(view)
+    assert len(first_16) == 16
+    for i in range(16):
+        assert _almost_equal(first_16[i], expected[i])

@@ -1,0 +1,33 @@
+schema_version = "1.0.0"
+
+id = "thyllore_wind"
+version = "0.0.1"
+name = "Thyllore Wind"
+tagline = "Closed-form wind tornado from the Thyllore engine"
+maintainer = "kodai731 <kodai731@gmail.com>"
+
+type = "add-on"
+
+blender_version_min = "4.2.0"
+
+license = ["SPDX:GPL-3.0-or-later"]
+
+wheels = [
+    "./wheels/thyllore_effect_core-0.0.1-cp310-abi3-PLATFORM.whl",
+]
+
+platforms = ["PLATFORM_BLENDER_NAME"]
+
+[permissions]
+files = "Write wind EXR sequence"
+
+[build]
+paths_exclude_pattern = [
+    "tests/",
+    "**/__pycache__/",
+    "**/*.pyc",
+    ".pytest_cache/",
+    "*.egg-info/",
+    "tools/",
+    "debug/",
+]
