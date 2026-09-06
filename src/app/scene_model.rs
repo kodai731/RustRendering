@@ -6,6 +6,7 @@ use vulkanalia::prelude::v1_0::*;
 use crate::app::model_loader::load_model_from_file_system;
 use crate::app::{App, AppData};
 use crate::vulkanr::command::RRCommandPool;
+use crate::vulkanr::context::{CommandState, SwapchainState};
 use crate::vulkanr::device::RRDevice;
 use crate::vulkanr::swapchain::RRSwapchain;
 use crate::vulkanr::vulkan::Instance;
@@ -39,6 +40,187 @@ impl App {
             &mut data.ecs_assets,
             scene_will_provide_clips,
         )
+    }
+
+    pub unsafe fn load_model(&mut self, path: &str) -> Result<()> {
+        log!("Loading new model from: {}", path);
+        self.rrdevice.device.device_wait_idle()?;
+
+        let water_state = crate::scene::build_water_scene_data(&self.data.ecs_world);
+        let flame_state = crate::scene::build_flame_scene_data(&self.data.ecs_world);
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let swapchain = self.resource::<SwapchainState>().swapchain.clone();
+        match Self::load_model_from_path_with_resources(
+            &self.instance,
+            &self.rrdevice,
+            &mut self.data,
+            &command_pool,
+            &swapchain,
+            path,
+            false,
+        ) {
+            Ok(_) => {
+                {
+                    let mut model_state = self
+                        .data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::resource::ModelState>();
+                    model_state.model_path = path.to_string();
+                    model_state.load_status = format!("Loaded: {}", path);
+                }
+                {
+                    let mut timeline = self
+                        .data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::resource::TimelineState>();
+                    timeline.current_time = 0.0;
+                }
+                {
+                    let mut scene_state =
+                        self.data.ecs_world.resource_mut::<crate::ecs::SceneState>();
+                    scene_state.clear();
+                }
+
+                if let Some(ref water) = water_state {
+                    crate::scene::apply_water_state_to_world(
+                        &mut self.data.ecs_world,
+                        &mut self.data.ecs_assets,
+                        water,
+                    );
+                }
+                if let Some(ref flame) = flame_state {
+                    crate::scene::apply_flame_state_to_world(
+                        &mut self.data.ecs_world,
+                        &mut self.data.ecs_assets,
+                        flame,
+                    );
+                }
+                if water_state.is_some() {
+                    let command_pool = self.resource::<CommandState>().pool.clone();
+                    let waters = crate::ecs::systems::collect_water_instances(&self.data.ecs_world);
+                    let mesh_transforms = crate::ecs::systems::collect_mesh_transforms(
+                        &self.data.ecs_world,
+                        &self.data.ecs_assets,
+                    );
+                    crate::app::model_loader::rebuild_acceleration_structures(
+                        &self.instance,
+                        &self.rrdevice,
+                        &command_pool,
+                        &self.data.graphics_resources,
+                        &mut self.data.raytracing,
+                        &waters,
+                        &mesh_transforms,
+                    )?;
+                }
+
+                msg_info!("Model loaded: {}", path);
+            }
+            Err(e) => {
+                let mut model_state = self
+                    .data
+                    .ecs_world
+                    .resource_mut::<crate::ecs::resource::ModelState>();
+                model_state.load_status = format!("Error: {}", e);
+                msg_error!("Failed to load model: {:?}", e);
+            }
+        }
+
+        Ok(())
+    }
+
+    #[cfg(feature = "auto-rig")]
+    pub unsafe fn load_model_from_glb(&mut self, glb_data: &[u8]) -> Result<()> {
+        log!("Loading generated mesh from GLB ({} bytes)", glb_data.len());
+        self.rrdevice.device.device_wait_idle()?;
+
+        let gltf_result = crate::loader::gltf::load_gltf_from_slice(glb_data)?;
+        let load_result = crate::loader::ModelLoadResult::from_gltf(gltf_result);
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let swapchain = self.resource::<SwapchainState>().swapchain.clone();
+        match crate::app::model_loader::load_model_from_file_system_with_result(
+            &load_result,
+            crate::scene::ModelReference::GENERATED_MESH,
+            &self.instance,
+            &self.rrdevice,
+            &command_pool,
+            &swapchain,
+            &mut self.data.graphics_resources,
+            &mut self.data.raytracing,
+            &mut self.data.ecs_world,
+            &mut self.data.ecs_assets,
+            false,
+            None,
+        ) {
+            Ok(parent_entity) => {
+                {
+                    let mut model_state = self
+                        .data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::resource::ModelState>();
+                    model_state.model_path =
+                        crate::scene::ModelReference::GENERATED_MESH.to_string();
+                    model_state.load_status = "Loaded: Generated Mesh".to_string();
+                }
+                {
+                    let mut timeline = self
+                        .data
+                        .ecs_world
+                        .resource_mut::<crate::ecs::resource::TimelineState>();
+                    timeline.current_time = 0.0;
+                }
+                {
+                    let mut scene_state =
+                        self.data.ecs_world.resource_mut::<crate::ecs::SceneState>();
+                    scene_state.clear();
+                }
+                {
+                    let cache =
+                        crate::ecs::resource::GltfModelCache::from_glb_data(glb_data.to_vec());
+                    self.data.ecs_world.insert_resource(cache);
+                }
+                self.data.ecs_world.insert_component(
+                    parent_entity,
+                    crate::ecs::component::GlbSource::InMemory(glb_data.to_vec()),
+                );
+
+                msg_info!("Generated mesh loaded successfully");
+            }
+            Err(e) => {
+                let mut model_state = self
+                    .data
+                    .ecs_world
+                    .resource_mut::<crate::ecs::resource::ModelState>();
+                model_state.load_status = format!("Error: {}", e);
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    pub unsafe fn load_model_additive(&mut self, path: &str) -> Result<()> {
+        log!("Additively loading model from: {}", path);
+        self.rrdevice.device.device_wait_idle()?;
+
+        let command_pool = self.resource::<CommandState>().pool.clone();
+        let swapchain = self.resource::<SwapchainState>().swapchain.clone();
+
+        crate::app::model_loader::load_model_additive(
+            path,
+            &self.instance,
+            &self.rrdevice,
+            &command_pool,
+            &swapchain,
+            &mut self.data.graphics_resources,
+            &mut self.data.raytracing,
+            &mut self.data.ecs_world,
+            &mut self.data.ecs_assets,
+        )?;
+
+        msg_info!("Model added: {}", path);
+        Ok(())
     }
 
     pub fn dump_debug_info(&self) {
