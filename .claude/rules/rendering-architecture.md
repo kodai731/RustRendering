@@ -18,12 +18,13 @@ naming rules are in `shaders.md`, ECS phases in `ecs-architecture.md`.
 |---|---|---|
 | Abstract render types | `crates/thyllore-render-core` | `RenderBackend` trait, `MeshId`, buffer handles, `FrameUBO` / `ObjectUBO` / `MaterialUBO`, post-process settings. No Vulkan, no ECS |
 | Vulkan primitives | `crates/thyllore-vulkan-core` | `core/` (`RRDevice`, `RRSwapchain`, descriptor allocator), `command/`, `descriptor/` (reflected set layouts, one file per pass), `pipeline/` (builder from the pass manifest, cache, ray tracing), `raytracing/` (BLAS / TLAS), `render/` (`RRRender` render pass + framebuffers, depth), `resource/` (buffers, images, HDR / gbuffer / offscreen / effect buffers, `RenderTargetStorage`, `RenderTargetTransient`), `renderer/` (per-pass command helpers), `backend.rs` (`VulkanBackend: RenderBackend`). No ECS |
-| App-side Vulkan glue | `src/vulkanr/` | ECS resources wrapping swapchain / sync / gbuffer (`context/resources.rs`), `pass_recording.rs` (reads `App`, calls crate helpers), `scene_renderer.rs`, `backend.rs` (`BillboardBackend` impl) |
+| App-side Vulkan glue | `src/vulkanr/` | ECS resources wrapping swapchain / sync / gbuffer (`context/resources.rs`), `renderer/deferred/` (one `*_pass.rs` per core pass that reads `App` and calls crate helpers, `nodes.rs` with the core `RenderPassNode`s, `scissor.rs`), `scene_renderer.rs`, `backend.rs` (`BillboardBackend` impl) |
 | Frame driver | `src/app/` | `App` lifecycle, `AppData`, `ViewportState`, `begin_frame` / `update` / `render` / present |
 
-Effect-specific pass recording, resize and descriptor updates are moving from `src/app/` and
-`pass_recording.rs` into `src/ecs/systems/<effect>/` (#151) and a pass graph (#156). Do not add new
-effect-specific code to `src/app/render.rs` or `pass_recording.rs`.
+Effect-specific pass recording, resize and descriptor updates live in `src/ecs/systems/<effect>/` (#151) as
+`RenderPassNode`s registered through the effect hook (#156). Do not add effect-specific code to
+`src/app/render.rs` or `src/vulkanr/renderer/deferred/`; a new pass is a node that declares its transients,
+reads and writes, and a declaration must hold whenever `record()` would emit the commands.
 
 ## Frame flow
 

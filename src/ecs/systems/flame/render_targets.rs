@@ -13,9 +13,9 @@ use crate::vulkanr::resource::FlameBuffer;
 pub const FLAME_EFFECT_HOOK: EffectHook = EffectHook {
     name: "flame",
     setup: Some(setup_flame),
-    prepare_frame: None,
     on_viewport_resize: Some(resize_flame_render_targets),
     destroy: Some(destroy_flame_render_targets),
+    passes: &[&super::passes::FlamePassNode],
 };
 
 unsafe fn create_flame_render_targets(
@@ -42,6 +42,9 @@ unsafe fn create_flame_render_targets(
         hdr_view,
     )?;
 
+    for image in buffer.history_images {
+        data.pass_image_states.mark_shader_read_only(image);
+    }
     data.ecs_world
         .insert_resource(FlameRenderTargets { buffer });
     Ok(())
@@ -123,6 +126,9 @@ unsafe fn resize_flame_render_targets(app: &mut App) -> Result<()> {
         height,
         hdr_view,
     )?;
+    for image in targets.buffer.history_images {
+        app.data.pass_image_states.mark_shader_read_only(image);
+    }
 
     if let Some(descriptor) = app.data.raytracing.flame_descriptor.as_ref() {
         descriptor.update_image_views(
@@ -150,6 +156,9 @@ unsafe fn resize_flame_render_targets(app: &mut App) -> Result<()> {
 
 unsafe fn destroy_flame_render_targets(app: &mut App) -> Result<()> {
     if let Some(mut targets) = app.data.ecs_world.get_resource_mut::<FlameRenderTargets>() {
+        for image in targets.buffer.history_images {
+            app.data.pass_image_states.forget(image);
+        }
         targets.buffer.destroy(&app.rrdevice.device);
     }
     Ok(())

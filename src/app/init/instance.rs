@@ -136,6 +136,8 @@ impl App {
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
         let mut data = AppData::default();
         crate::effect::subscription::subscribe_effects(&mut data.effect_hooks);
+        crate::vulkanr::renderer::deferred::register_core_passes(&mut data.pass_graph);
+        data.effect_hooks.register_passes(&mut data.pass_graph);
 
         Self::initialize_core_ecs_resources(&mut data);
 
