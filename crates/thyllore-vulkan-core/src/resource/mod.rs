@@ -39,7 +39,9 @@ pub use mesh_buffer::*;
 pub use offscreen::OffscreenFramebuffer;
 pub use onion_skin_pass::OnionSkinPassResources;
 pub use pipeline_storage::PipelineStorage;
-pub use raytracing_data::{RayTracingData, MAX_FLAME_INSTANCES, MAX_WATER_INSTANCES};
+pub use raytracing_data::{
+    RayTracingData, MAX_FLAME_INSTANCES, MAX_WATER_INSTANCES, MAX_WIND_INSTANCES,
+};
 pub use render_target_storage::{RenderTargetEntry, RenderTargetKey, RenderTargetStorage};
 pub use render_target_transient::{
     RenderTargetTransient, TransientDesc, TransientHandle, TransientImage,

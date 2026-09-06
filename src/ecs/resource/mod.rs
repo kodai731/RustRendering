@@ -76,6 +76,7 @@ mod water_render;
 mod water_render_targets;
 mod weight_heatmap;
 mod wind_render;
+mod wind_render_targets;
 
 pub use billboard::*;
 pub use gizmo::*;
@@ -156,3 +157,4 @@ pub use water_render::*;
 pub use water_render_targets::*;
 pub use weight_heatmap::*;
 pub use wind_render::*;
+pub use wind_render_targets::*;
