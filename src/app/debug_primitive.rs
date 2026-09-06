@@ -1,21 +1,18 @@
-use crate::app::render::default_debug_primitive_position;
 use crate::app::App;
+use crate::ecs::events::DebugPrimitiveKind;
 use crate::vulkanr::context::{CommandState, SwapchainState};
 use crate::vulkanr::vulkan::*;
 use anyhow::Result;
 
 impl App {
-    pub unsafe fn spawn_debug_primitive(
-        &mut self,
-        kind: crate::ecs::events::DebugPrimitiveKind,
-    ) -> Result<()> {
+    pub unsafe fn spawn_debug_primitive(&mut self, kind: DebugPrimitiveKind) -> Result<()> {
         let position = default_debug_primitive_position(kind);
         self.spawn_debug_primitive_at(kind, position)
     }
 
     pub unsafe fn spawn_debug_primitive_at(
         &mut self,
-        kind: crate::ecs::events::DebugPrimitiveKind,
+        kind: DebugPrimitiveKind,
         position: cgmath::Vector3<f32>,
     ) -> Result<()> {
         log!("Spawning debug primitive: {:?}", kind);
@@ -25,15 +22,15 @@ impl App {
         let swapchain = self.resource::<SwapchainState>().swapchain.clone();
 
         let (load_result, part_name) = match kind {
-            crate::ecs::events::DebugPrimitiveKind::Cube => (
+            DebugPrimitiveKind::Cube => (
                 thyllore_importer_core::primitive::build_cube_model(1.0),
                 "Cube",
             ),
-            crate::ecs::events::DebugPrimitiveKind::Sphere => (
+            DebugPrimitiveKind::Sphere => (
                 thyllore_importer_core::primitive::build_uv_sphere_model(0.6, 32, 16),
                 "Sphere",
             ),
-            crate::ecs::events::DebugPrimitiveKind::Floor => (
+            DebugPrimitiveKind::Floor => (
                 thyllore_importer_core::primitive::build_box_model(
                     12.0,
                     0.2,
@@ -147,5 +144,13 @@ impl App {
 
         log!("Deleted {} entities with GPU cleanup", entities.len());
         Ok(())
+    }
+}
+
+fn default_debug_primitive_position(kind: DebugPrimitiveKind) -> cgmath::Vector3<f32> {
+    match kind {
+        DebugPrimitiveKind::Cube => cgmath::Vector3::new(3.0, 0.5, 0.0),
+        DebugPrimitiveKind::Sphere => cgmath::Vector3::new(-3.0, 0.6, 0.0),
+        DebugPrimitiveKind::Floor => cgmath::Vector3::new(0.0, -1.6, 0.0),
     }
 }

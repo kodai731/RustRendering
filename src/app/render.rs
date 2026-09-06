@@ -1335,16 +1335,6 @@ impl App {
     }
 }
 
-pub fn default_debug_primitive_position(
-    kind: crate::ecs::events::DebugPrimitiveKind,
-) -> cgmath::Vector3<f32> {
-    match kind {
-        crate::ecs::events::DebugPrimitiveKind::Cube => cgmath::Vector3::new(3.0, 0.5, 0.0),
-        crate::ecs::events::DebugPrimitiveKind::Sphere => cgmath::Vector3::new(-3.0, 0.6, 0.0),
-        crate::ecs::events::DebugPrimitiveKind::Floor => cgmath::Vector3::new(0.0, -1.6, 0.0),
-    }
-}
-
 fn apply_instance_transform(
     blas: &mut thyllore_vulkan_core::raytracing::RRBLAS,
     model: &cgmath::Matrix4<f32>,

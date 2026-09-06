@@ -45,7 +45,6 @@ mod physical_camera_systems;
 mod pointer_systems;
 mod pose_blend_systems;
 pub mod pose_library_systems;
-mod primitive_systems;
 pub mod render_data_systems;
 pub mod scalar_clip_systems;
 mod skeleton_pose_systems;

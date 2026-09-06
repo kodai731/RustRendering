@@ -19,8 +19,24 @@ src/ecs/                 World, components, resources, systems, phases (all engi
 src/app/ , src/platform/ App lifecycle, Vulkan object ownership, frame driver, window / imgui / input
 ```
 
-Lower layers never import upper ones. `src/app/` may call into `src/ecs/` and `src/vulkanr/`; a crate
-must never depend on `src/`.
+Lower layers never import upper ones: a crate never depends on `src/`, and `src/ecs/` never imports
+`src/app/`. A system that needs GPU objects receives a context struct that borrows exactly what it uses
+(`FrameContext`: device, instance, command pool, `World`, assets, graphics resources, raytracing data, frame
+slot), never `App` or `AppData`. If a system seems to need `App`, it is either app wiring (move it to
+`src/app/`) or the context is missing a field (add the field).
+
+### Known exceptions (tracked in #163, do not add to this list)
+
+The following places still import `crate::app` from `src/ecs/`. They are violations kept only until #163
+lands; new code must not copy them, and no new entry may be added here.
+
+- `FrameContext` and `LightMoveTarget` are defined under `src/app/` although they contain no `App`; the
+  fix is to move them into `src/ecs/`.
+- `src/hooks/effect.rs` declares `prepare_frame`, `on_viewport_resize` and `destroy` as `fn(&mut App)`, so
+  `src/ecs/systems/{flame,water}/render_targets.rs` take `&mut App`; the fix is an `EffectContext` that
+  borrows instance, device, viewport pools and extent, raytracing data and `World` (the `setup` hook
+  already takes decomposed arguments).
+- `src/ecs/systems/phases/render_phase.rs::build_frame_render_context` takes `&App` to read four fields.
 
 ## crates/
 
@@ -71,6 +87,11 @@ Everything that decides what the engine does: components and resources (data onl
 file per domain, one directory per effect), phases (execution order and event dispatch), and the ECS core
 (world, storage, query, registry, events). Rules are in `ecs-architecture.md`.
 
+No file here declares `impl App` or takes `&mut App` (see the known exceptions above). A system that needs
+GPU resources as well as `World` takes `FrameContext` or a smaller context struct; if the work is mostly GPU
+upload and rebuild with a few `World` writes (debug primitive spawn / delete), it is app wiring and lives in
+`src/app/` (`debug_primitive.rs`).
+
 ## src/hooks/
 
 Generic hook infrastructure that lets a subsystem plug into the app lifecycle without being named by
@@ -106,11 +127,20 @@ resource, plus re-exports of `thyllore-render-core` handle types. It is not a re
 The application shell. It owns the Vulkan instance and device, the `AppData` aggregate and the viewport,
 and drives one frame. It is the only place that sees `App` as a whole.
 
+Files: `init/` and `cleanup.rs` (construction, teardown), `data.rs` (`AppData`), `viewport.rs` (core
+attachments, storage and transient pools), `render.rs` (frame driver), `update.rs` (per-frame update and
+imgui buffers), `command_recording.rs`, `screenshot.rs` (swapchain and image readback to PNG),
+`model_loader.rs`, `scene_model.rs` and `debug_primitive.rs` (model and primitive upload wiring, acceleration
+structure rebuild), `frame_context.rs` and `render_context.rs`, `post_process/`, `util.rs`,
+`color_test_quad.rs`.
+
 Belongs here:
 - `App` construction and teardown
 - ownership containers whose lifetime is the app or the viewport (core attachments, the render target
   storage and transient pools)
-- the frame driver: begin frame, update, record, submit, present, swapchain recreation, screenshot
+- the frame driver: begin frame, update, record, submit, present, swapchain recreation
+- screenshot and image readback (`screenshot.rs`): copying a swapchain or effect image into a host buffer
+  and encoding it; `src/debugview/` builds on `copy_image_to_buffer` from here
 - context structs that bundle `App` fields for callees
 - wiring that must touch several subsystems at once (a resize fan-out, rebinding after a resize)
 - calls into the hook infrastructure of `src/hooks/` (setup, prepare frame, viewport resize, destroy)
@@ -139,8 +169,10 @@ per-feature `AddPass`).
 
 - `src/scene/` — scene file format, load / save, clip io (serde + world apply, no rendering)
 - `src/asset/` — CPU-side model asset storage
-- `src/debugview/` — `App` methods that dump GPU images or buffers for a debugging session. CPU mirrors of
-  shader math go to `thyllore-render-debug` instead
+- `src/debugview/` — `impl App` blocks that dump GPU images or buffers for a debugging session, one file
+  per subject (`flame_history_dump.rs`, `water_debug_dump.rs`, `shadow_debug.rs`, ...). This is the only
+  directory outside `src/app/` that may extend `App`; it reuses the readback helpers of
+  `src/app/screenshot.rs`. CPU mirrors of shader math go to `thyllore-render-debug` instead
 - `src/ml/` — inference thread, feedback, licensing worker
 - `src/logger/` — logger and message buffer
 - `src/loader/`, `src/exporter/`, `src/grpc/`, `src/math/`, `src/animation.rs` — thin `pub use` shims over
@@ -155,7 +187,9 @@ per-feature `AddPass`).
   per-pass command helpers that take an immutable frame render context.
 - `src/render/` and `src/vulkanr/` — the app-side extension of the trait (needs ECS resource types) and its
   Vulkan implementation, plus pass recording that reads `App`.
-- `src/app/render.rs` — the frame driver only: begin and end of a frame, swapchain-level concerns.
+- `src/app/render.rs` — the frame driver: begin and end of a frame, swapchain-level concerns, the resize
+  fan-out and the gbuffer / onion-skin passes it records directly. Model loading entry points still live
+  here and are the next candidates to move to `scene_model.rs`.
 
 Frame contexts, innermost to outermost: the crate-level immutable render context (device, resources,
 pipelines, image index) → the app render context (mutable GPU resources, builds the backend) → the app frame
@@ -180,6 +214,7 @@ context (adds `World`, assets, time, frame slot) used by the ECS phases.
 3. Needs `World` (query, mutate, decide) → `src/ecs/systems/`, one file per domain or one directory per
    effect. Data types go to `src/ecs/component/` or `src/ecs/resource/`.
 4. Needs `App` because it wires several subsystems or owns app-lifetime Vulkan objects → `src/app/`.
-5. Needs `App` only to read a handful of fields → not `src/app/`; pass those fields in and apply rules 1–3.
+5. Needs `App` only to read a handful of fields → not `src/app/`; pass those fields in (or extend
+   `FrameContext`) and apply rules 1–3. `impl App` is allowed only in `src/app/` and `src/debugview/`.
 6. Draws imgui → `src/platform/ui/`.
 7. Dumps GPU data for debugging → `src/debugview/` (needs `App`) or `thyllore-render-debug` (CPU mirror).
