@@ -115,6 +115,12 @@ fn main() -> Result<()> {
             .resource_mut::<thyllore_animation::ecs::resource::WaterRenderSettings>()
             .batch_fixed_time = Some(seconds);
     }
+    if let Some(seconds) = overrides.wind_fixed_time {
+        app.data
+            .ecs_world
+            .resource_mut::<thyllore_animation::ecs::resource::WindRenderSettings>()
+            .batch_fixed_time = Some(seconds);
+    }
     if let Some(mode) = overrides.wind_mode {
         app.data
             .ecs_world

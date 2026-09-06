@@ -28,6 +28,7 @@ const BATCH_WATER_SECONDARY_FLAG: &str = "--batch-water-secondary";
 const BATCH_WATER_CAUSTIC_DEBUG_FLAG: &str = "--batch-water-caustic-debug";
 const BATCH_WATER_HISTORY_FLAG: &str = "--batch-water-history";
 const BATCH_WATER_TIME_FLAG: &str = "--batch-water-time";
+const BATCH_WIND_TIME_FLAG: &str = "--batch-wind-time";
 const BATCH_WIND_MODE_FLAG: &str = "--batch-wind-mode";
 const BATCH_WIND_DEBUG_VIEW_FLAG: &str = "--batch-wind-debug-view";
 const BATCH_FLAME_STEPS_FLAG: &str = "--batch-flame-steps";
@@ -73,6 +74,7 @@ pub struct EngineCliOverrides {
     pub water_caustic_debug: Option<i32>,
     pub water_history_weight: Option<f32>,
     pub water_fixed_time: Option<f32>,
+    pub wind_fixed_time: Option<f32>,
     pub wind_mode: Option<thyllore_effect_core::WindShadingMode>,
     pub wind_debug_view: Option<thyllore_effect_core::WindDebugView>,
     pub flame_steps: Option<u32>,
@@ -160,6 +162,7 @@ pub fn resolve_engine_cli_overrides(args: &[String]) -> Result<EngineCliOverride
         water_caustic_debug: water_caustic_debug_resolve_from_args(args)?,
         water_history_weight: water_history_weight_resolve_from_args(args)?,
         water_fixed_time: water_fixed_time_resolve_from_args(args)?,
+        wind_fixed_time: wind_fixed_time_resolve_from_args(args)?,
         wind_mode: wind_mode_resolve_from_args(args)?,
         wind_debug_view: wind_debug_view_resolve_from_args(args)?,
         flame_steps: flame_steps_resolve_from_args(args)?,
@@ -485,6 +488,19 @@ pub fn water_fixed_time_resolve_from_args(args: &[String]) -> Result<Option<f32>
     let seconds: f32 = value
         .parse()
         .map_err(|_| anyhow::anyhow!("invalid water time '{value}': expected float seconds"))?;
+    Ok(Some(seconds))
+}
+
+pub fn wind_fixed_time_resolve_from_args(args: &[String]) -> Result<Option<f32>> {
+    let Some(position) = args.iter().position(|arg| arg == BATCH_WIND_TIME_FLAG) else {
+        return Ok(None);
+    };
+    let Some(value) = args.get(position + 1) else {
+        bail!("{BATCH_WIND_TIME_FLAG} requires a value (seconds)");
+    };
+    let seconds: f32 = value
+        .parse()
+        .map_err(|_| anyhow::anyhow!("invalid wind time '{value}': expected float seconds"))?;
     Ok(Some(seconds))
 }
 
@@ -2453,6 +2469,21 @@ mod tests {
             Some(thyllore_effect_core::WindDebugView::OpticalDepth)
         );
         assert!(wind_mode_resolve_from_args(&args(&["bin", "--batch-wind-mode", "x"])).is_err());
+    }
+
+    #[test]
+    fn resolve_wind_fixed_time() {
+        let overrides =
+            resolve_engine_cli_overrides(&args(&["bin", "--batch-wind-time", "10.5"])).unwrap();
+        assert_eq!(overrides.wind_fixed_time, Some(10.5));
+
+        let without = resolve_engine_cli_overrides(&args(&["bin"])).unwrap();
+        assert_eq!(without.wind_fixed_time, None);
+
+        assert!(wind_fixed_time_resolve_from_args(&args(&["bin", "--batch-wind-time"])).is_err());
+        assert!(
+            wind_fixed_time_resolve_from_args(&args(&["bin", "--batch-wind-time", "abc"])).is_err()
+        );
     }
 
     #[test]

@@ -1,6 +1,7 @@
 use super::*;
 use crate::ecs::component::{EditorDisplay, EntityIcon, WindTornadoEffect};
 use crate::ecs::resource::{HierarchyState, PickRay};
+use crate::ecs::systems::effect_time::{resolve_effect_time, EffectTimeSources, TimelineSample};
 use crate::ecs::world::{GlobalTransform, Name, Transform, World};
 use cgmath::Vector3;
 
@@ -51,6 +52,24 @@ fn pick_ray_hits_the_wind_envelope_and_misses_beside_it() {
         direction: Vector3::new(1.0, 0.0, 0.0),
     };
     assert!(find_wind_by_pick_ray(&world, &miss).is_none());
+}
+
+#[test]
+fn batch_fixed_time_wins_over_the_timeline_for_wind() {
+    let sources = EffectTimeSources {
+        batch_fixed_time: Some(10.5),
+        batch_frames_rendered: Some(120.0),
+        timeline: Some(TimelineSample {
+            current_time: 2.0,
+            playing: true,
+        }),
+        delta_time: 1.0 / 60.0,
+        free_run_when_paused: true,
+    };
+
+    let mut wind_time = 3.0;
+    resolve_effect_time(&mut wind_time, 2.0, 1.5, sources);
+    assert_eq!(wind_time, 10.5);
 }
 
 #[test]

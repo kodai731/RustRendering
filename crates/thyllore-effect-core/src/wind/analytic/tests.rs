@@ -224,3 +224,125 @@ fn ring_density_vanishes_above_the_ring_height() {
     assert!(wind_density_at(&ring, below) > 0.0);
     assert_eq!(wind_density_at(&ring, above), 0.0);
 }
+
+fn total_mass(params: &WindShellParams, q_max: f32) -> f64 {
+    let n_h = 64;
+    let n_q = 512;
+    let h_top = params.h_top * params.height;
+    let dh = h_top / n_h as f32;
+    let dq = q_max / n_q as f32;
+    let mut mass: f64 = 0.0;
+    for j in 0..n_h {
+        let h = (j as f32 + 0.5) * dh;
+        for i in 0..n_q {
+            let q = (i as f32 + 0.5) * dq;
+            let r = q.sqrt();
+            let rho = wind_density_at(params, Vector3::new(r, h, 0.0));
+            mass += rho as f64;
+        }
+    }
+    mass * (dq * dh) as f64 * std::f64::consts::PI
+}
+
+fn envelope_q_max(params: &WindShellParams) -> f32 {
+    let wall_top_r = params.wall_radius_base + params.wall_radius_slope;
+    let wall_max_r =
+        (wall_top_r * wall_top_r + params.spread_offset).sqrt() + params.wall_width_q.sqrt();
+    let ring_max_r = params.ring_bounds_radius();
+    let core_max_r = params.core_radius_sq.sqrt();
+    let max_r = wall_max_r.max(ring_max_r).max(core_max_r);
+    (max_r + 0.1) * (max_r + 0.1)
+}
+
+#[test]
+fn mass_is_conserved_under_wall_spread() {
+    let effect = WindTornadoEffect {
+        time: 0.0,
+        rise_initial_height: 1.0,
+        rise_duration: 0.0,
+        spread_start: 0.5,
+        spread_rate: 0.1,
+        dissipate_start: 0.0,
+        dissipate_time: 0.0,
+        ..WindTornadoEffect::default()
+    };
+
+    let times = [0.3, 1.5, 5.0];
+
+    let q_max = {
+        let mut e = effect.clone();
+        e.time = *times.last().unwrap();
+        let p = WindShellParams::from_effect(&e);
+        envelope_q_max(&p)
+    };
+
+    let masses: Vec<f64> = times
+        .iter()
+        .map(|&t| {
+            let mut e = effect.clone();
+            e.time = t;
+            let p = WindShellParams::from_effect(&e);
+            total_mass(&p, q_max)
+        })
+        .collect();
+
+    assert!(masses[0] > 1e-3, "reference mass too small: {:?}", masses);
+
+    for i in 1..times.len() {
+        let rel_err = (masses[i] - masses[0]).abs() / masses[0];
+        assert!(
+            rel_err < 1e-3,
+            "wall spread mass not conserved: t[0]={} mass={:.6}, t[{}]={} mass={:.6}, rel_err={:.6}",
+            times[0], masses[0], i, times[i], masses[i], rel_err
+        );
+    }
+}
+
+#[test]
+fn mass_is_conserved_under_ring_spread() {
+    let effect = WindTornadoEffect {
+        time: 0.0,
+        rise_initial_height: 1.0,
+        rise_duration: 0.0,
+        spread_start: 0.5,
+        spread_rate: 0.0,
+        ring_strength: 1.2,
+        ring_radius: 0.9,
+        ring_width_q: 0.1,
+        ring_height: 0.25,
+        ring_spread_rate: 0.08,
+        dissipate_start: 0.0,
+        dissipate_time: 0.0,
+        ..WindTornadoEffect::default()
+    };
+
+    let times = [0.3, 1.5, 5.0];
+
+    let q_max = {
+        let mut e = effect.clone();
+        e.time = *times.last().unwrap();
+        let p = WindShellParams::from_effect(&e);
+        envelope_q_max(&p)
+    };
+
+    let masses: Vec<f64> = times
+        .iter()
+        .map(|&t| {
+            let mut e = effect.clone();
+            e.time = t;
+            let p = WindShellParams::from_effect(&e);
+            total_mass(&p, q_max)
+        })
+        .collect();
+
+    assert!(masses[0] > 1e-3, "reference mass too small: {:?}", masses);
+
+    for i in 1..times.len() {
+        let rel_err = (masses[i] - masses[0]).abs() / masses[0];
+        assert!(
+            rel_err < 1e-3,
+            "ring spread mass not conserved: t[0]={} mass={:.6}, t[{}]={} mass={:.6}, rel_err={:.6}",
+            times[0], masses[0], i, times[i], masses[i], rel_err
+        );
+    }
+}
