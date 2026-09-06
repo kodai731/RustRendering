@@ -15,6 +15,7 @@ pub struct WaterRenderTargets {
     pub buffer: WaterBuffer,
     pub scene_color: Option<TransientHandle>,
     pub trace: Option<TransientHandle>,
+    pub frame_instances: Vec<(thyllore_effect_core::WaterUBO, u32)>,
     bound: Vec<Option<WaterBindingKey>>,
 }
 
@@ -24,6 +25,7 @@ impl WaterRenderTargets {
             buffer,
             scene_color: None,
             trace: None,
+            frame_instances: Vec::new(),
             bound: Vec::new(),
         }
     }

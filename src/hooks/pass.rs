@@ -2,6 +2,9 @@ use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
+pub use thyllore_vulkan_core::renderer::{
+    CoreTarget, ShaderStage, TargetAccess, TargetRef, TargetUse,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum PassStage {
@@ -14,6 +17,15 @@ pub enum PassStage {
 pub trait RenderPassNode: Sync {
     fn name(&self) -> &'static str;
     fn stage(&self) -> PassStage;
+
+    fn reads(&self, _app: &App) -> Vec<TargetUse> {
+        Vec::new()
+    }
+
+    fn writes(&self, _app: &App) -> Vec<TargetUse> {
+        Vec::new()
+    }
+
     unsafe fn record(
         &self,
         app: &App,

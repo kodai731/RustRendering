@@ -177,7 +177,10 @@ impl App {
         image_index: usize,
         frame_slot: usize,
     ) -> Result<()> {
+        let mut transients_seen = std::collections::HashSet::new();
         for node in self.data.pass_graph.nodes() {
+            let barriers = self.collect_pass_barriers(node, &mut transients_seen)?;
+            self.record_pass_barriers(command_buffer, &barriers);
             self.gpu_timestamp_profiler.begin_scope(
                 &self.rrdevice.device,
                 command_buffer,

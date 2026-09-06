@@ -98,8 +98,11 @@ only for debugging (debug primitive spawn / delete) it lives in `src/debugview/`
 Generic hook infrastructure that lets a subsystem plug into the app lifecycle without being named by
 `src/app/`. `effect.rs` holds the effect hook (setup, prepare frame, viewport resize, destroy, pass nodes)
 and the list that runs them in subscription order. `pass.rs` holds the `RenderPassNode` contract (name,
-stage, record), the `PassStage` order (lighting → effect → post-process → final) and the `PassGraph` that
-keeps registered nodes sorted by stage then registration order. A hook file describes a contract only; it
+stage, reads / writes declared as `TargetUse`, record), the `PassStage` order (lighting → effect →
+post-process → final) and the `PassGraph` that keeps registered nodes sorted by stage then registration
+order. The graph runner in `src/app/command_recording.rs` resolves each `TargetRef` to an image
+(`src/app/pass_targets.rs`) and lets `ImageStateTracker` (`thyllore-vulkan-core`, `renderer/pass_target.rs`)
+emit the layout barriers, so pass code never writes an `ImageMemoryBarrier` for a declared target. A hook file describes a contract only; it
 never names a concrete effect.
 
 ## src/effect/

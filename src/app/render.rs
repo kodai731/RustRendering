@@ -74,6 +74,7 @@ impl App {
         };
 
         self.rrdevice.device.device_wait_idle()?;
+        self.data.pass_image_states.clear();
         let command_pool = self.resource::<CommandState>().pool.command_pool;
         self.data
             .viewport

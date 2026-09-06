@@ -6,6 +6,7 @@ pub(crate) mod features;
 pub mod frame_context;
 pub mod init;
 pub mod model_loader;
+mod pass_targets;
 pub mod post_process;
 pub mod render;
 pub mod render_context;

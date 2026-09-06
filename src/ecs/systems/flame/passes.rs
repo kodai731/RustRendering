@@ -3,10 +3,44 @@ use cgmath::{SquareMatrix, Vector3};
 use vulkanalia::prelude::v1_0::*;
 
 use crate::app::App;
-use crate::hooks::pass::{PassStage, RenderPassNode};
+use crate::ecs::world::Entity;
+use crate::hooks::pass::{
+    CoreTarget, PassStage, RenderPassNode, ShaderStage, TargetAccess, TargetRef, TargetUse,
+};
 use crate::vulkanr::renderer::deferred::full_extent_scissor;
+use thyllore_vulkan_core::resource::RenderTargetKey;
+
+const HISTORY_KEYS: [RenderTargetKey; 2] = [
+    RenderTargetKey::EffectHistory(0),
+    RenderTargetKey::EffectHistory(1),
+];
 
 pub struct FlamePassNode;
+
+fn flame_history_index(app: &App, flames: &[Entity]) -> usize {
+    flames
+        .first()
+        .and_then(|first| {
+            app.data
+                .ecs_world
+                .get_component::<crate::ecs::component::FlameTemporalAccum>(*first)
+        })
+        .map(|temporal| (temporal.frame_index as usize) & 1)
+        .unwrap_or(0)
+}
+
+fn flame_frame_history_index(app: &App) -> Option<usize> {
+    app.data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::FlameRenderTargets>()?;
+    app.data.raytracing.flame_shading_pipeline.as_ref()?;
+    app.data.raytracing.flame_descriptor.as_ref()?;
+    let flames = app.data.ecs_world.query_flames();
+    if flames.is_empty() {
+        return None;
+    }
+    Some(flame_history_index(app, &flames))
+}
 
 impl RenderPassNode for FlamePassNode {
     fn name(&self) -> &'static str {
@@ -15,6 +49,41 @@ impl RenderPassNode for FlamePassNode {
 
     fn stage(&self) -> PassStage {
         PassStage::Effect
+    }
+
+    fn reads(&self, app: &App) -> Vec<TargetUse> {
+        flame_frame_history_index(app)
+            .map(|history_index| {
+                TargetUse::new(
+                    TargetRef::Storage(HISTORY_KEYS[1 - history_index]),
+                    TargetAccess::Sampled(ShaderStage::Fragment),
+                )
+            })
+            .into_iter()
+            .collect()
+    }
+
+    fn writes(&self, app: &App) -> Vec<TargetUse> {
+        flame_frame_history_index(app)
+            .map(|history_index| {
+                vec![
+                    TargetUse::new(
+                        TargetRef::Core(CoreTarget::HdrColor),
+                        TargetAccess::Attachment {
+                            initial_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                        },
+                    ),
+                    TargetUse::new(
+                        TargetRef::Storage(HISTORY_KEYS[history_index]),
+                        TargetAccess::Attachment {
+                            initial_layout: vk::ImageLayout::UNDEFINED,
+                            final_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                        },
+                    ),
+                ]
+            })
+            .unwrap_or_default()
     }
 
     unsafe fn record(
@@ -98,20 +167,7 @@ unsafe fn record_flame_passes(
         return Ok(());
     }
 
-    // Calculate history_index from the first flame's frame_index (shared by all instances)
-    let history_index = if let Some(first) = flames.first() {
-        if let Some(temporal) = app
-            .data
-            .ecs_world
-            .get_component::<crate::ecs::component::FlameTemporalAccum>(*first)
-        {
-            (temporal.frame_index as usize) & 1
-        } else {
-            0
-        }
-    } else {
-        0
-    };
+    let history_index = flame_history_index(app, &flames);
 
     // Process each instance sequentially: F1_i -> F2_i before moving to i+1
     for i in 0..instance_count {

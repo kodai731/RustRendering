@@ -321,25 +321,28 @@ pub unsafe fn record_composite_to_hdr(app: &App, command_buffer: vk::CommandBuff
     Ok(())
 }
 
-pub unsafe fn record_bloom(
-    app: &App,
-    command_buffer: vk::CommandBuffer,
-    frame_slot: usize,
-) -> Result<()> {
-    let bloom_settings = app
+struct BloomFrame<'a> {
+    bloom_chain: &'a thyllore_vulkan_core::resource::BloomChain,
+    downsample_pipeline: &'a thyllore_vulkan_core::pipeline::RRPipeline,
+    upsample_pipeline: &'a thyllore_vulkan_core::pipeline::RRPipeline,
+    descriptors: &'a thyllore_vulkan_core::descriptor::RRBloomDescriptorSets,
+    mips: &'a [thyllore_vulkan_core::resource::BloomMipTarget],
+    settings: crate::ecs::resource::BloomSettings,
+}
+
+fn bloom_frame(app: &App) -> Result<Option<BloomFrame<'_>>> {
+    let Some(settings) = app
         .data
         .ecs_world
-        .get_resource::<crate::ecs::resource::BloomSettings>();
-    let Some(bloom_settings) = bloom_settings else {
-        return Ok(());
+        .get_resource::<crate::ecs::resource::BloomSettings>()
+        .filter(|settings| settings.enabled)
+        .map(|settings| settings.clone())
+    else {
+        return Ok(None);
     };
-    if !bloom_settings.enabled {
-        return Ok(());
-    }
-
-    let bloom_mips = &app.data.post_process.bloom_mips;
-    if bloom_mips.is_empty() {
-        return Ok(());
+    let mips = &app.data.post_process.bloom_mips;
+    if mips.is_empty() {
+        return Ok(None);
     }
     for handle in &app.data.post_process.bloom_handles {
         app.data.viewport.transient.get(*handle)?;
@@ -350,31 +353,68 @@ pub unsafe fn record_bloom(
         app.data.raytracing.bloom_downsample_pipeline.as_ref(),
         app.data.raytracing.bloom_upsample_pipeline.as_ref(),
     ) else {
-        return Ok(());
+        return Ok(None);
     };
-
-    let bloom_descriptors = app
+    let descriptors = app
         .data
         .raytracing
         .bloom_descriptors
         .as_ref()
         .ok_or_else(|| anyhow::anyhow!("Bloom descriptors not initialized"))?;
 
-    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
-
-    thyllore_vulkan_core::renderer::record_bloom_pass(
-        &ctx,
+    Ok(Some(BloomFrame {
+        bloom_chain,
         downsample_pipeline,
         upsample_pipeline,
-        bloom_descriptors,
-        bloom_chain,
-        bloom_mips,
-        frame_slot,
-        &bloom_settings,
-        command_buffer,
-    )?;
+        descriptors,
+        mips,
+        settings,
+    }))
+}
 
-    Ok(())
+pub unsafe fn record_bloom_downsample(
+    app: &App,
+    command_buffer: vk::CommandBuffer,
+    mip_index: usize,
+    frame_slot: usize,
+) -> Result<()> {
+    let Some(bloom) = bloom_frame(app)? else {
+        return Ok(());
+    };
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
+    thyllore_vulkan_core::renderer::record_bloom_downsample_mip(
+        &ctx,
+        bloom.downsample_pipeline,
+        bloom.descriptors,
+        bloom.bloom_chain,
+        bloom.mips,
+        mip_index,
+        frame_slot,
+        &bloom.settings,
+        command_buffer,
+    )
+}
+
+pub unsafe fn record_bloom_upsample(
+    app: &App,
+    command_buffer: vk::CommandBuffer,
+    pass_index: usize,
+    frame_slot: usize,
+) -> Result<()> {
+    let Some(bloom) = bloom_frame(app)? else {
+        return Ok(());
+    };
+    let ctx = crate::ecs::systems::phases::build_frame_render_context(app, 0);
+    thyllore_vulkan_core::renderer::record_bloom_upsample_pass(
+        &ctx,
+        bloom.upsample_pipeline,
+        bloom.descriptors,
+        bloom.bloom_chain,
+        bloom.mips,
+        pass_index,
+        frame_slot,
+        command_buffer,
+    )
 }
 
 pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result<()> {
