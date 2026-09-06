@@ -1,8 +1,21 @@
+mod composite_pass;
 pub mod gbuffer;
+mod gbuffer_pass;
+mod nodes;
+mod onion_skin_pass;
 mod overlay_renderer;
-mod pass_recording;
-pub(crate) mod scissor;
+mod post_process_pass;
+mod ray_query_pass;
+mod scissor;
+mod tonemap_pass;
 
+pub use composite_pass::*;
 pub use gbuffer::create_gbuffer_framebuffer;
+pub use gbuffer_pass::*;
+pub use nodes::register_core_passes;
+pub use onion_skin_pass::*;
 pub use overlay_renderer::OverlayRenderer;
-pub use pass_recording::*;
+pub use post_process_pass::*;
+pub use ray_query_pass::*;
+pub(crate) use scissor::full_extent_scissor;
+pub use tonemap_pass::*;

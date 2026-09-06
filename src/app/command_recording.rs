@@ -3,7 +3,7 @@ use vulkanalia::prelude::v1_0::*;
 
 use super::App;
 use crate::ecs::resource::GpuPassTimings;
-use crate::vulkanr::context::FrameSync;
+use crate::hooks::pass::TargetUse;
 use crate::vulkanr::renderer::deferred;
 
 impl App {
@@ -103,6 +103,7 @@ impl App {
                 && self.data.raytracing.tonemap_pipeline.is_some();
 
             if has_hdr_pipeline {
+                self.record_pass_graph(command_buffer, image_index, frame_slot)?;
                 self.gpu_timestamp_profiler.begin_scope(
                     &self.rrdevice.device,
                     command_buffer,
@@ -301,6 +302,48 @@ impl App {
 
         self.rrdevice.device.end_command_buffer(command_buffer)?;
 
+        Ok(())
+    }
+
+    unsafe fn record_pass_graph(
+        &mut self,
+        command_buffer: vk::CommandBuffer,
+        image_index: usize,
+        frame_slot: usize,
+    ) -> Result<()> {
+        let nodes = self.data.pass_graph.nodes();
+        let node_uses: Vec<Vec<TargetUse>> = nodes
+            .iter()
+            .map(|node| {
+                node.reads(self)
+                    .into_iter()
+                    .chain(node.writes(self))
+                    .collect()
+            })
+            .collect();
+        self.assign_frame_transients(&nodes, &node_uses)?;
+
+        for node in &nodes {
+            node.prepare(self, frame_slot)?;
+        }
+
+        let mut transients_seen = std::collections::HashSet::new();
+        for (node, uses) in nodes.iter().zip(&node_uses) {
+            let barriers = self.collect_pass_barriers(uses, &mut transients_seen)?;
+            self.record_pass_barriers(command_buffer, &barriers);
+            self.gpu_timestamp_profiler.begin_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+                node.name().to_string(),
+            );
+            node.record(self, command_buffer, image_index, frame_slot)?;
+            self.gpu_timestamp_profiler.end_scope(
+                &self.rrdevice.device,
+                command_buffer,
+                image_index,
+            );
+        }
         Ok(())
     }
 

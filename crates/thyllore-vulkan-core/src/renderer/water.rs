@@ -7,68 +7,16 @@ use crate::pipeline::RRPipeline;
 use crate::renderer::push_constants::WaterPushConstants;
 use crate::resource::water_buffer::WaterBuffer;
 
-fn color_subresource_range() -> vk::ImageSubresourceRange {
-    vk::ImageSubresourceRange::builder()
-        .aspect_mask(vk::ImageAspectFlags::COLOR)
-        .base_mip_level(0)
-        .level_count(1)
-        .base_array_layer(0)
-        .layer_count(1)
-        .build()
-}
-
-fn image_barrier(
-    image: vk::Image,
-    old_layout: vk::ImageLayout,
-    new_layout: vk::ImageLayout,
-    src_access_mask: vk::AccessFlags,
-    dst_access_mask: vk::AccessFlags,
-) -> vk::ImageMemoryBarrier {
-    vk::ImageMemoryBarrier::builder()
-        .old_layout(old_layout)
-        .new_layout(new_layout)
-        .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-        .image(image)
-        .subresource_range(color_subresource_range())
-        .src_access_mask(src_access_mask)
-        .dst_access_mask(dst_access_mask)
-        .build()
-}
-
+/// Copies the HDR color into the scene color image. The caller brings the source to
+/// TRANSFER_SRC_OPTIMAL and the destination to TRANSFER_DST_OPTIMAL.
 pub unsafe fn record_water_scene_color_copy(
     ctx: &FrameRenderContext,
     hdr_image: vk::Image,
-    water_buffer: &WaterBuffer,
+    scene_color_image: vk::Image,
+    extent: vk::Extent2D,
     cmd: vk::CommandBuffer,
 ) {
     let device = &ctx.device.device;
-
-    let to_transfer = [
-        image_barrier(
-            hdr_image,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::AccessFlags::SHADER_READ,
-            vk::AccessFlags::TRANSFER_READ,
-        ),
-        image_barrier(
-            water_buffer.scene_color_image,
-            vk::ImageLayout::UNDEFINED,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::AccessFlags::empty(),
-            vk::AccessFlags::TRANSFER_WRITE,
-        ),
-    ];
-    device.cmd_pipeline_barrier(
-        cmd,
-        vk::PipelineStageFlags::FRAGMENT_SHADER,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::DependencyFlags::empty(),
-        &[] as &[vk::MemoryBarrier],
-        &[] as &[vk::BufferMemoryBarrier],
-        &to_transfer,
-    );
 
     let subresource = vk::ImageSubresourceLayers::builder()
         .aspect_mask(vk::ImageAspectFlags::COLOR)
@@ -76,7 +24,6 @@ pub unsafe fn record_water_scene_color_copy(
         .base_array_layer(0)
         .layer_count(1)
         .build();
-    let extent = water_buffer.extent();
     let region = vk::ImageCopy::builder()
         .src_subresource(subresource)
         .src_offset(vk::Offset3D { x: 0, y: 0, z: 0 })
@@ -92,35 +39,9 @@ pub unsafe fn record_water_scene_color_copy(
         cmd,
         hdr_image,
         vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-        water_buffer.scene_color_image,
+        scene_color_image,
         vk::ImageLayout::TRANSFER_DST_OPTIMAL,
         &[region],
-    );
-
-    let to_shader_read = [
-        image_barrier(
-            hdr_image,
-            vk::ImageLayout::TRANSFER_SRC_OPTIMAL,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            vk::AccessFlags::TRANSFER_READ,
-            vk::AccessFlags::SHADER_READ,
-        ),
-        image_barrier(
-            water_buffer.scene_color_image,
-            vk::ImageLayout::TRANSFER_DST_OPTIMAL,
-            vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
-            vk::AccessFlags::TRANSFER_WRITE,
-            vk::AccessFlags::SHADER_READ,
-        ),
-    ];
-    device.cmd_pipeline_barrier(
-        cmd,
-        vk::PipelineStageFlags::TRANSFER,
-        vk::PipelineStageFlags::FRAGMENT_SHADER,
-        vk::DependencyFlags::empty(),
-        &[] as &[vk::MemoryBarrier],
-        &[] as &[vk::BufferMemoryBarrier],
-        &to_shader_read,
     );
 }
 
@@ -133,6 +54,7 @@ pub unsafe fn record_water_shading_pass(
     scissor: vk::Rect2D,
     push_constants: WaterPushConstants,
     image_index: usize,
+    frame_slot: usize,
     history_index: usize,
     cmd: vk::CommandBuffer,
 ) -> Result<()> {
@@ -168,7 +90,10 @@ pub unsafe fn record_water_shading_pass(
         vk::PipelineBindPoint::GRAPHICS,
         pipeline.pipeline_layout,
         0,
-        &[frame_set, descriptor.descriptor_sets[history_index]],
+        &[
+            frame_set,
+            descriptor.descriptor_set(frame_slot, history_index)?,
+        ],
         &[ubo_dynamic_offset],
     );
 

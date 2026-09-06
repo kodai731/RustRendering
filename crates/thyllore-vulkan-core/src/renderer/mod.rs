@@ -7,6 +7,7 @@ pub mod gbuffer;
 pub mod line_mesh_draw;
 pub mod onion_skin;
 pub mod onion_skin_buffers;
+pub mod pass_target;
 pub mod push_constants;
 pub mod rayquery;
 pub mod tonemap;
@@ -14,7 +15,10 @@ pub mod water;
 pub mod wind;
 
 pub use auto_exposure::record_auto_exposure_pass;
-pub use bloom::record_bloom_pass;
+pub use bloom::{
+    bloom_upsample_pass_count, bloom_upsample_target_mip, record_bloom_downsample_mip,
+    record_bloom_upsample_pass,
+};
 pub use composite::{
     begin_composite_render_pass, begin_hdr_render_pass, end_composite_render_pass,
     record_composite_draw, record_composite_to_hdr_pass, BACKGROUND_RADIANCE,
@@ -27,6 +31,10 @@ pub use line_mesh_draw::{
 };
 pub use onion_skin::{record_onion_skin_composite_pass, record_onion_skin_ghost_pass};
 pub use onion_skin_buffers::{OnionSkinGhostBuffer, OnionSkinGpuState};
+pub use pass_target::{
+    CoreTarget, FrameTransients, ImageStateTracker, PendingBarrier, ShaderStage, TargetAccess,
+    TargetRef, TargetUse, TransientLifetimes, TransientRequest, TransientSlot,
+};
 pub use push_constants::{
     FlamePushConstants, GBufferPushConstants, OnionSkinPushConstants, WaterPushConstants,
     WindPushConstants,

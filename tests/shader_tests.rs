@@ -159,24 +159,31 @@ fn test_compute_shader_extension() {
     }
 }
 
+fn count_shader_sources(path: &Path) -> usize {
+    let mut count = 0usize;
+    if let Ok(entries) = fs::read_dir(path) {
+        for entry in entries.filter_map(|e| e.ok()) {
+            let p = entry.path();
+            if p.is_file() {
+                if let Some(ext) = p.extension().and_then(|e| e.to_str()) {
+                    if matches!(
+                        ext,
+                        "vert" | "frag" | "comp" | "geom" | "rchit" | "rmiss" | "rgen" | "rint"
+                    ) {
+                        count += 1;
+                    }
+                }
+            } else if p.is_dir() {
+                count += count_shader_sources(&p);
+            }
+        }
+    }
+    count
+}
+
 #[test]
 fn test_shader_count_matches() {
-    let shader_sources_count = fs::read_dir("shaders")
-        .expect("Failed to read shaders directory")
-        .filter_map(|entry| entry.ok())
-        .filter(|entry| {
-            let path = entry.path();
-            path.is_file()
-                && (path.extension() == Some("vert".as_ref())
-                    || path.extension() == Some("frag".as_ref())
-                    || path.extension() == Some("comp".as_ref())
-                    || path.extension() == Some("geom".as_ref())
-                    || path.extension() == Some("rchit".as_ref())
-                    || path.extension() == Some("rmiss".as_ref())
-                    || path.extension() == Some("rgen".as_ref())
-                    || path.extension() == Some("rint".as_ref()))
-        })
-        .count();
+    let shader_sources_count = count_shader_sources(Path::new("shaders"));
 
     let compiled_shaders_count = fs::read_dir("assets/shaders")
         .expect("Failed to read assets/shaders directory")

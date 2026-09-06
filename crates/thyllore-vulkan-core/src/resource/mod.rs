@@ -10,17 +10,20 @@ pub mod graphics_resource;
 pub mod hdr_buffer;
 pub mod hit_shading_table;
 pub mod image;
+pub mod image_readback;
 pub mod mesh_buffer;
 pub mod offscreen;
 pub mod onion_skin_pass;
 pub mod pipeline_storage;
 pub mod raytracing_data;
+pub mod render_target_storage;
+pub mod render_target_transient;
 pub mod uniform_buffer;
 pub mod water_buffer;
 pub mod wind_buffer;
 
 pub use auto_exposure_buffers::{AutoExposureBuffers, LUMINANCE_BUFFER_SIZE};
-pub use bloom_chain::BloomChain;
+pub use bloom_chain::{BloomChain, BloomMipTarget};
 pub use buffer::*;
 pub use buffer_registry::GpuBufferRegistry;
 pub use dof_buffer::DofBuffer;
@@ -31,12 +34,15 @@ pub use graphics_resource::GraphicsResources;
 pub use hdr_buffer::HdrBuffer;
 pub use hit_shading_table::{HitShadingRecord, HitShadingTable};
 pub use image::*;
+pub use image_readback::copy_image_to_host_buffer;
 pub use mesh_buffer::*;
 pub use offscreen::OffscreenFramebuffer;
 pub use onion_skin_pass::OnionSkinPassResources;
 pub use pipeline_storage::PipelineStorage;
-pub use raytracing_data::{
-    RayTracingData, MAX_FLAME_INSTANCES, MAX_WATER_INSTANCES, MAX_WIND_INSTANCES,
+pub use raytracing_data::{RayTracingData, MAX_FLAME_INSTANCES, MAX_WATER_INSTANCES};
+pub use render_target_storage::{RenderTargetEntry, RenderTargetKey, RenderTargetStorage};
+pub use render_target_transient::{
+    RenderTargetTransient, TransientDesc, TransientHandle, TransientImage,
 };
 pub use uniform_buffer::{Placement, UniformBuffer};
 pub use water_buffer::WaterBuffer;

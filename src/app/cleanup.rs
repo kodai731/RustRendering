@@ -15,6 +15,10 @@ impl App {
 
         let _ = self.rrdevice.device.device_wait_idle();
 
+        if let Err(error) = self.run_effect_destroy() {
+            log_warn!("Effect destroy hook failed: {:?}", error);
+        }
+
         if let Some(sampler) = self.data.raytracing.gbuffer_sampler {
             self.rrdevice.device.destroy_sampler(sampler, None);
             log!("Destroyed G-Buffer sampler");

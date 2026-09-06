@@ -1,114 +1,61 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
-use crate::command::{begin_single_time_commands, end_single_time_commands};
 use crate::core::RRDevice;
 use crate::resource::hdr_buffer::HDR_FORMAT;
-use crate::resource::image::{create_image, create_image_view};
+use crate::resource::render_target_transient::TransientDesc;
 
-#[derive(Clone, Debug, Default)]
-pub struct BloomMipLevel {
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BloomMipTarget {
     pub image: vk::Image,
-    pub memory: vk::DeviceMemory,
-    pub image_view: vk::ImageView,
+    pub view: vk::ImageView,
     pub framebuffer: vk::Framebuffer,
-    pub width: u32,
-    pub height: u32,
+    pub extent: vk::Extent2D,
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct BloomChain {
-    pub mip_levels: Vec<BloomMipLevel>,
+    pub mip_extents: Vec<vk::Extent2D>,
     pub downsample_render_pass: vk::RenderPass,
     pub upsample_render_pass: vk::RenderPass,
     pub sampler: vk::Sampler,
-    pub mip_count: u32,
 }
 
 impl BloomChain {
     pub unsafe fn new(
-        instance: &Instance,
         rrdevice: &RRDevice,
         base_width: u32,
         base_height: u32,
         mip_count: u32,
-        command_pool: vk::CommandPool,
     ) -> Result<Self> {
         let downsample_render_pass =
             Self::create_render_pass(rrdevice, vk::AttachmentLoadOp::DONT_CARE)?;
         let upsample_render_pass = Self::create_render_pass(rrdevice, vk::AttachmentLoadOp::LOAD)?;
         let sampler = Self::create_sampler(&rrdevice.device)?;
 
-        let mut mip_levels = Vec::with_capacity(mip_count as usize);
-        let mut width = base_width / 2;
-        let mut height = base_height / 2;
-
-        for i in 0..mip_count {
-            width = width.max(1);
-            height = height.max(1);
-
-            let mip =
-                Self::create_mip_level(instance, rrdevice, downsample_render_pass, width, height)?;
-
-            log!("Created bloom mip {}: {}x{}", i, width, height);
-            mip_levels.push(mip);
-
-            width /= 2;
-            height /= 2;
+        let mip_extents = compute_mip_extents(base_width, base_height, mip_count);
+        for (index, extent) in mip_extents.iter().enumerate() {
+            log!("Bloom mip {}: {}x{}", index, extent.width, extent.height);
         }
 
-        Self::transition_mip_layouts(rrdevice, command_pool, &mip_levels)?;
-
         Ok(Self {
-            mip_levels,
+            mip_extents,
             downsample_render_pass,
             upsample_render_pass,
             sampler,
-            mip_count,
         })
     }
 
-    unsafe fn create_mip_level(
-        instance: &Instance,
-        rrdevice: &RRDevice,
-        render_pass: vk::RenderPass,
-        width: u32,
-        height: u32,
-    ) -> Result<BloomMipLevel> {
-        let (image, memory) = create_image(
-            instance,
-            rrdevice,
-            width,
-            height,
-            1,
-            vk::SampleCountFlags::_1,
-            HDR_FORMAT,
-            vk::ImageTiling::OPTIMAL,
-            vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
-            vk::MemoryPropertyFlags::DEVICE_LOCAL,
-        )?;
+    pub fn mip_count(&self) -> usize {
+        self.mip_extents.len()
+    }
 
-        let image_view =
-            create_image_view(rrdevice, image, HDR_FORMAT, vk::ImageAspectFlags::COLOR, 1)?;
-
-        let attachments = [image_view];
-        let framebuffer_info = vk::FramebufferCreateInfo::builder()
-            .render_pass(render_pass)
-            .attachments(&attachments)
-            .width(width)
-            .height(height)
-            .layers(1);
-        let framebuffer = rrdevice
-            .device
-            .create_framebuffer(&framebuffer_info, None)?;
-
-        Ok(BloomMipLevel {
-            image,
-            memory,
-            image_view,
-            framebuffer,
-            width,
-            height,
+    pub fn mip_desc(&self, mip_index: usize) -> Option<TransientDesc> {
+        self.mip_extents.get(mip_index).map(|extent| TransientDesc {
+            width: extent.width,
+            height: extent.height,
+            format: HDR_FORMAT,
+            usage: vk::ImageUsageFlags::COLOR_ATTACHMENT | vk::ImageUsageFlags::SAMPLED,
         })
     }
 
@@ -193,110 +140,45 @@ impl BloomChain {
         Ok(sampler)
     }
 
-    pub unsafe fn resize(
-        &mut self,
-        instance: &Instance,
-        rrdevice: &RRDevice,
-        new_width: u32,
-        new_height: u32,
-        command_pool: vk::CommandPool,
-    ) -> Result<()> {
-        let current_width = self.mip_levels.first().map(|m| m.width * 2).unwrap_or(0);
-        let current_height = self.mip_levels.first().map(|m| m.height * 2).unwrap_or(0);
-        if new_width == current_width && new_height == current_height {
-            return Ok(());
-        }
-
-        self.destroy_mip_levels(&rrdevice.device);
-
-        let mip_count = self.mip_count;
-        let mut width = new_width / 2;
-        let mut height = new_height / 2;
-
-        for i in 0..mip_count {
-            width = width.max(1);
-            height = height.max(1);
-
-            let mip = Self::create_mip_level(
-                instance,
-                rrdevice,
-                self.downsample_render_pass,
-                width,
-                height,
-            )?;
-
-            log!("Resized bloom mip {}: {}x{}", i, width, height);
-            self.mip_levels.push(mip);
-
-            width /= 2;
-            height /= 2;
-        }
-
-        Self::transition_mip_layouts(rrdevice, command_pool, &self.mip_levels)?;
-
+    pub fn resize(&mut self, new_width: u32, new_height: u32) {
+        let mip_count = self.mip_extents.len() as u32;
+        self.mip_extents = compute_mip_extents(new_width, new_height, mip_count);
         log!("Resized bloom chain for {}x{}", new_width, new_height);
-        Ok(())
-    }
-
-    unsafe fn transition_mip_layouts(
-        rrdevice: &RRDevice,
-        command_pool: vk::CommandPool,
-        mip_levels: &[BloomMipLevel],
-    ) -> Result<()> {
-        let command_buffer = begin_single_time_commands(rrdevice, command_pool)?;
-
-        for mip in mip_levels {
-            let barrier = vk::ImageMemoryBarrier::builder()
-                .old_layout(vk::ImageLayout::UNDEFINED)
-                .new_layout(vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL)
-                .src_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .dst_queue_family_index(vk::QUEUE_FAMILY_IGNORED)
-                .image(mip.image)
-                .subresource_range(vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                })
-                .src_access_mask(vk::AccessFlags::empty())
-                .dst_access_mask(vk::AccessFlags::SHADER_READ);
-
-            rrdevice.device.cmd_pipeline_barrier(
-                command_buffer,
-                vk::PipelineStageFlags::TOP_OF_PIPE,
-                vk::PipelineStageFlags::FRAGMENT_SHADER,
-                vk::DependencyFlags::empty(),
-                &[] as &[vk::MemoryBarrier],
-                &[] as &[vk::BufferMemoryBarrier],
-                &[barrier],
-            );
-        }
-
-        end_single_time_commands(
-            rrdevice,
-            rrdevice.graphics_queue,
-            command_pool,
-            command_buffer,
-        )?;
-        Ok(())
-    }
-
-    unsafe fn destroy_mip_levels(&mut self, device: &vulkanalia::Device) {
-        for mip in &self.mip_levels {
-            device.destroy_framebuffer(mip.framebuffer, None);
-            device.destroy_image_view(mip.image_view, None);
-            device.destroy_image(mip.image, None);
-            device.free_memory(mip.memory, None);
-        }
-        self.mip_levels.clear();
     }
 
     pub unsafe fn destroy(&mut self, device: &vulkanalia::Device) {
-        self.destroy_mip_levels(device);
         device.destroy_sampler(self.sampler, None);
         device.destroy_render_pass(self.downsample_render_pass, None);
         device.destroy_render_pass(self.upsample_render_pass, None);
         log!("Destroyed bloom chain");
+    }
+}
+
+fn compute_mip_extents(base_width: u32, base_height: u32, mip_count: u32) -> Vec<vk::Extent2D> {
+    let mut extents = Vec::with_capacity(mip_count as usize);
+    let mut width = base_width / 2;
+    let mut height = base_height / 2;
+
+    for _ in 0..mip_count {
+        width = width.max(1);
+        height = height.max(1);
+        extents.push(vk::Extent2D { width, height });
+        width /= 2;
+        height /= 2;
+    }
+
+    extents
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_mip_extents_halve_and_clamp_to_one() {
+        let extents = compute_mip_extents(16, 4, 5);
+
+        let sizes: Vec<(u32, u32)> = extents.iter().map(|e| (e.width, e.height)).collect();
+        assert_eq!(sizes, vec![(8, 2), (4, 1), (2, 1), (1, 1), (1, 1)]);
     }
 }

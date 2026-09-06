@@ -135,6 +135,9 @@ impl App {
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
         let mut data = AppData::default();
+        crate::effect::subscription::subscribe_effects(&mut data.effect_hooks);
+        crate::vulkanr::renderer::deferred::register_core_passes(&mut data.pass_graph);
+        data.effect_hooks.register_passes(&mut data.pass_graph);
 
         Self::initialize_core_ecs_resources(&mut data);
 
@@ -227,9 +230,10 @@ impl App {
         //     loaded_scene.is_some(),
         //     );
 
-        // The scene restores timeline, panel and curve editor state, so those resources must
-        // exist before it is applied. Registration is idempotent and runs again below.
+        // The scene restores timeline, panel, curve editor and post-processing state, so those
+        // resources must exist before it is applied. Registration is idempotent and runs again below.
         Self::register_editor_resources(&mut data);
+        Self::register_post_processing_resources(&mut data);
         Self::apply_loaded_scene(&mut data, loaded_scene);
         if let Err(e) = Self::build_acceleration_structures_with_resources(
             &instance,
@@ -380,6 +384,7 @@ impl App {
             rrswapchain.swapchain_format,
         )
         .context("Failed to create viewport state")?;
+
         log!(
             "Created viewport state: {}x{} with MSAA {:?}, format {:?}",
             viewport_width,
