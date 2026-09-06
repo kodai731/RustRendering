@@ -46,15 +46,41 @@ def engine_path() -> Path:
     raise SystemExit("engine not built: cargo build --bin thyllore-animation")
 
 
+def linked_worktree_parent_root() -> str | None:
+    git_link = repo_root() / ".git"
+    if not git_link.is_file():
+        return None
+
+    for line in git_link.read_text(encoding="utf-8").splitlines():
+        if not line.startswith("gitdir:"):
+            continue
+        gitdir = Path(line[len("gitdir:"):].strip())
+        if not gitdir.is_absolute():
+            gitdir = repo_root() / gitdir
+        gitdir = gitdir.resolve()
+        for ancestor in gitdir.parents:
+            if ancestor.name == ".git":
+                return str(ancestor.parent)
+    return None
+
+
 def dood_wrap(command: list[str]) -> list[str]:
     root = str(repo_root())
     ort = "vendor/onnxruntime/onnxruntime-linux-x64-1.23.2/lib/libonnxruntime.so"
     inner = f"ORT_DYLIB_PATH={ort} " + shlex.join(command)
+
+    mounts: list[str] = []
+    parent_root = linked_worktree_parent_root()
+    if parent_root is not None and parent_root != root:
+        mounts += ["-v", f"{parent_root}:{parent_root}"]
+    mounts += ["-v", f"{root}:{root}"]
+
     return [
         "docker", "run", "--rm", "--entrypoint", "bash", "--hostname", "kodai-computer",
-        "-v", f"{root}:{root}", "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
+        *mounts, "-v", "/tmp/.X11-unix:/tmp/.X11-unix",
         "-v", "/run/user/1000/gdm/Xauthority:/xauth:ro",
         "-e", "XAUTHORITY=/xauth", "-e", "DISPLAY=:1",
+        "-e", "WINIT_X11_SCALE_FACTOR=1",
         "--device", "/dev/dri", "--group-add", "992", "-w", root,
         DOOD_IMAGE, "-c", inner,
     ]

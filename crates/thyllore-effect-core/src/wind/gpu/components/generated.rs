@@ -11,6 +11,7 @@ declare_gpu_block! {
         pub core: [f32; 4],
         pub optics: [f32; 4],
         pub albedo: [f32; 4],
+        pub ring: [f32; 4],
         pub inv_view_proj: Matrix4<f32>,
     }
 }

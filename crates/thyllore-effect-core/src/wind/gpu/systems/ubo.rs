@@ -34,6 +34,12 @@ pub fn build_wind_ubo(effect: &WindTornadoEffect) -> WindUBO {
             effect.albedo[2],
             params.spread_offset,
         ],
+        ring: [
+            params.ring_height,
+            params.ring_radius_sq,
+            params.ring_width_q,
+            params.ring_strength,
+        ],
         inv_view_proj: Matrix4::identity(),
     }
 }
