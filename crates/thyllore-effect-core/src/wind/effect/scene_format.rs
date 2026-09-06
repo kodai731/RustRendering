@@ -128,6 +128,26 @@ declare_scene_format! {
                 format: "%.2f",
             },
         },
+        phase_g: f32 = Frame {
+            get: |e| e.phase_g,
+            set: |e, v| e.phase_g = v,
+            ui {
+                min: -0.95,
+                max: 0.95,
+                format: "%.2f",
+                tooltip: "Henyey-Greenstein anisotropy of the dust; positive scatters forward",
+            },
+        },
+        sun_intensity: f32 = Frame {
+            get: |e| e.sun_intensity,
+            set: |e, v| e.sun_intensity = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.2f",
+                tooltip: "Radiance of the sun used by the single-scattering source term",
+            },
+        },
         rise_initial_height: f32 = Frame {
             get: |e| e.rise_initial_height,
             set: |e, v| e.rise_initial_height = v,

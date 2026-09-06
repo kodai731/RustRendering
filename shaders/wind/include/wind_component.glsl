@@ -17,6 +17,7 @@ layout(set = WIND_UBO_SET, binding = WIND_UBO_BINDING) uniform WindUBO {
     vec4 optics;
     vec4 albedo;
     vec4 ring;
+    vec4 lighting;
     mat4 invViewProj;
 } wind;
 

@@ -40,6 +40,7 @@ pub fn build_wind_ubo(effect: &WindTornadoEffect) -> WindUBO {
             params.ring_width_q,
             params.ring_strength,
         ],
+        lighting: [effect.phase_g, effect.sun_intensity, 0.0, 0.0],
         inv_view_proj: Matrix4::identity(),
     }
 }

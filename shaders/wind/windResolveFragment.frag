@@ -16,6 +16,7 @@ layout(set = 0, binding = 0) uniform FrameUBO {
 #include "wind/include/wind_shell_field.glsl"
 #include "wind/include/wind_shell_integral.glsl"
 #include "wind/include/wind_reference_quadrature.glsl"
+#include "wind/include/wind_lighting.glsl"
 
 layout(set = 1, binding = 1) uniform sampler2D sceneDepthSampler;
 
@@ -66,12 +67,18 @@ void main() {
         discard;
     }
 
+    vec3 lightPositionLocal = (wind.inverseModel * vec4(frame.light_pos.xyz, 1.0)).xyz;
+
     int knotCount = 0;
-    float opticalDepth = push.mode == WIND_MODE_REFERENCE_QUADRATURE
-        ? windReferenceOpticalDepth(localOrigin, localDir, tNear, tFar, push.stepCount)
-        : windOpticalDepth(localOrigin, localDir, tNear, tFar, knotCount);
-    float transmittance = rteTransmittanceFromOpticalDepth(opticalDepth);
-    float coverage = 1.0 - transmittance;
+    float opticalDepth = 0.0;
+    vec3 scattered = vec3(0.0);
+    if (push.mode == WIND_MODE_REFERENCE_QUADRATURE) {
+        opticalDepth = windReferenceOpticalDepth(localOrigin, localDir, tNear, tFar, push.stepCount);
+    } else {
+        scattered = windSingleScatterRadiance(
+            localOrigin, localDir, tNear, tFar, lightPositionLocal, opticalDepth, knotCount);
+    }
+    float coverage = 1.0 - rteTransmittanceFromOpticalDepth(opticalDepth);
 
     if (push.debugView == WIND_DEBUG_OPTICAL_DEPTH) {
         outColor = vec4(vec3(coverage), 1.0);
@@ -82,6 +89,8 @@ void main() {
         return;
     }
 
-    vec3 scattered = wind.albedo.rgb * windSkyBrightness() * coverage;
+    if (push.mode == WIND_MODE_REFERENCE_QUADRATURE) {
+        scattered = wind.albedo.rgb * windSkyBrightness() * coverage;
+    }
     outColor = vec4(scattered, coverage);
 }

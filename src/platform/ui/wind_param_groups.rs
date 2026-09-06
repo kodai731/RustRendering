@@ -9,7 +9,7 @@ pub const WIND_SHAPE_PARAMS: &[&str] = &[
 
 pub const WIND_DENSITY_PARAMS: &[&str] = &["density", "wall_strength", "core_strength"];
 
-pub const WIND_LOOK_PARAMS: &[&str] = &["albedo", "ambient_brightness"];
+pub const WIND_LOOK_PARAMS: &[&str] = &["albedo", "ambient_brightness", "phase_g", "sun_intensity"];
 
 pub const WIND_MOTION_PARAMS: &[&str] = &[
     "rise_initial_height",

@@ -25,6 +25,8 @@ float windRingHeight() { return wind.ring.x; }
 float windRingRadiusSq() { return wind.ring.y; }
 float windRingWidthQ() { return wind.ring.z; }
 float windRingStrength() { return wind.ring.w; }
+float windPhaseG() { return wind.lighting.x; }
+float windSunIntensity() { return wind.lighting.y; }
 
 bool windCoreActive() {
     return windCoreRadiusSq() > 1e-8 && windCoreStrength() > 0.0;
