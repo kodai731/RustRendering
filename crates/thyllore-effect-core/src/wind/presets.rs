@@ -1,6 +1,6 @@
 use crate::wind::{overwrite_wind_persisted_fields, WindTornadoEffect};
 
-pub const WIND_PRESET_NAMES: &[&str] = &["column", "funnel"];
+pub const WIND_PRESET_NAMES: &[&str] = &["column", "funnel", "reference"];
 
 pub fn apply_wind_preset(effect: &mut WindTornadoEffect, name: &str) -> bool {
     let mut preset = WindTornadoEffect::default();
@@ -19,6 +19,37 @@ pub fn apply_wind_preset(effect: &mut WindTornadoEffect, name: &str) -> bool {
             preset.spread_rate = 0.05;
             preset.dissipate_start = 4.0;
             preset.dissipate_time = 2.0;
+        }
+        "reference" => {
+            preset.column_height = 2.0;
+            preset.wall_radius_base = 0.35;
+            preset.wall_radius_top = 0.6;
+            preset.wall_width_q = 0.08;
+            preset.wall_strength = 1.0;
+            preset.core_radius = 0.15;
+            preset.core_strength = 0.5;
+            preset.top_fade = 0.3;
+            preset.density = 4.0;
+            preset.albedo = [0.9, 0.93, 1.0];
+            preset.ambient_brightness = 1.0;
+            preset.rise_initial_height = 0.3;
+            preset.rise_duration = 1.0;
+            preset.spread_start = 0.25;
+            preset.spread_rate = 0.15;
+            preset.dissipate_start = 2.0;
+            preset.dissipate_time = 1.5;
+            preset.ring_height = 0.15;
+            preset.ring_radius = 0.7;
+            preset.ring_width_q = 0.1;
+            preset.ring_strength = 0.8;
+            preset.ring_spread_rate = 0.2;
+            preset.phase_g = 0.6;
+            preset.sun_intensity = 1.0;
+            preset.circulation = 2.0;
+            preset.streak_order = 3.0;
+            preset.streak_twist = 4.0;
+            preset.streak_rise_speed = 1.0;
+            preset.streak_amplitude = 0.25;
         }
         _ => return false,
     }
@@ -59,6 +90,27 @@ mod tests {
         assert_eq!(effect.rotation, Quaternion::new(0.99, 0.1, 0.0, 0.0));
         assert_eq!(effect.time, 5.0);
         assert_eq!(effect.wall_radius_top, 1.2);
+    }
+
+    #[test]
+    fn test_reference_preset_applies_measured_values() {
+        let mut effect = WindTornadoEffect::default();
+        assert!(apply_wind_preset(&mut effect, "reference"));
+
+        assert_eq!(effect.column_height, 2.0);
+        assert_eq!(effect.wall_radius_base, 0.35);
+        assert_eq!(effect.wall_radius_top, 0.6);
+        assert_eq!(effect.rise_initial_height, 0.3);
+        assert_eq!(effect.rise_duration, 1.0);
+        assert_eq!(effect.spread_start, 0.25);
+        assert_eq!(effect.spread_rate, 0.15);
+        assert_eq!(effect.dissipate_start, 2.0);
+        assert_eq!(effect.dissipate_time, 1.5);
+        assert_eq!(effect.ring_radius, 0.7);
+        assert_eq!(effect.ring_strength, 0.8);
+        assert_eq!(effect.ring_spread_rate, 0.2);
+        assert_eq!(effect.circulation, 2.0);
+        assert_eq!(effect.streak_amplitude, 0.25);
     }
 
     #[test]
