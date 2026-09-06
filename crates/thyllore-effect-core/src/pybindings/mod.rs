@@ -10,11 +10,17 @@ use crate::water::{
     overwrite_water_persisted_fields, WaterTorusEffect, WaterUBO, ABSORPTION_REFERENCE_DISTANCE,
     WATER_PRESET_NAMES, WATER_UI_PARAMS,
 };
+use crate::wind::{
+    apply_wind_preset, build_wind_model_matrix, build_wind_ubo, overwrite_wind_persisted_fields,
+    wind_local_bounds_corners, WindShellParams, WindTornadoEffect, WindUBO, WIND_PRESET_NAMES,
+    WIND_UI_PARAMS,
+};
 use cgmath::{Matrix4, Quaternion, Vector3, Vector4};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use thyllore_math_core::torus_local_bounds_corners;
 use thyllore_scene_core::{UiKind, UiParam};
+use thyllore_spirv_reflect::GpuBlock;
 
 fn ui_kind_name(kind: UiKind) -> &'static str {
     match kind {
@@ -388,6 +394,125 @@ fn water_ubo_size() -> usize {
     std::mem::size_of::<WaterUBO>()
 }
 
+#[pyfunction]
+fn wind_preset_names() -> Vec<&'static str> {
+    WIND_PRESET_NAMES.to_vec()
+}
+
+#[pyfunction]
+fn wind_ui_params(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
+    let default_dict: Bound<'_, PyDict> =
+        pythonize::pythonize(py, &WindTornadoEffect::default())?.cast_into::<PyDict>()?;
+    let list = PyList::empty(py);
+    for param in WIND_UI_PARAMS {
+        let dict = PyDict::new(py);
+        fill_ui_param_dict(&dict, param)?;
+
+        let Some(default_value) = default_dict.get_item(param.name)? else {
+            continue;
+        };
+        dict.set_item("default", default_value)?;
+        dict.set_item("owner", "frame")?;
+
+        list.append(dict)?;
+    }
+    Ok(list)
+}
+
+#[pyfunction]
+fn wind_preset_params<'py>(py: Python<'py>, name: &str) -> PyResult<Bound<'py, PyDict>> {
+    let mut effect = WindTornadoEffect::default();
+    if !apply_wind_preset(&mut effect, name) {
+        return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "unknown preset: {}",
+            name
+        )));
+    }
+
+    let dict: Bound<'py, PyDict> = pythonize::pythonize(py, &effect)?.cast_into::<PyDict>()?;
+    Ok(dict)
+}
+
+fn build_wind_effect_from_params(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    time: f32,
+    position: [f32; 3],
+    rotation: [f32; 4],
+) -> PyResult<WindTornadoEffect> {
+    let merged: Bound<'_, PyDict> =
+        pythonize::pythonize(py, &WindTornadoEffect::default())?.cast_into::<PyDict>()?;
+    for key in params.keys() {
+        if !merged.contains(&key)? {
+            let key_str: &str = key.extract()?;
+            return Err(PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+                "unknown parameter: {}",
+                key_str
+            )));
+        }
+    }
+
+    merged.update(params.as_mapping())?;
+
+    let source: WindTornadoEffect = pythonize::depythonize(&merged).map_err(|e| {
+        PyErr::new::<pyo3::exceptions::PyValueError, _>(format!(
+            "failed to deserialize parameters: {}",
+            e
+        ))
+    })?;
+
+    let mut effect = WindTornadoEffect::default();
+    overwrite_wind_persisted_fields(&mut effect, &source);
+
+    effect.time = time;
+    effect.position = Vector3::new(position[0], position[1], position[2]);
+    effect.rotation = Quaternion::new(rotation[0], rotation[1], rotation[2], rotation[3]);
+
+    Ok(effect)
+}
+
+#[pyfunction]
+#[pyo3(signature = (params, time, position, rotation))]
+fn pack_wind_ubo(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    time: f32,
+    position: [f32; 3],
+    rotation: [f32; 4],
+) -> PyResult<Vec<u8>> {
+    let effect = build_wind_effect_from_params(py, params, time, position, rotation)?;
+    Ok(build_wind_ubo(&effect).as_bytes().to_vec())
+}
+
+/// World-space corners of the envelope box the engine picks and scissors the wind pass against.
+#[pyfunction]
+#[pyo3(signature = (params, time, position, rotation))]
+fn wind_bounds_corners(
+    py: Python<'_>,
+    params: &Bound<'_, PyDict>,
+    time: f32,
+    position: [f32; 3],
+    rotation: [f32; 4],
+) -> PyResult<Vec<[f32; 3]>> {
+    let effect = build_wind_effect_from_params(py, params, time, position, rotation)?;
+
+    let model = build_wind_model_matrix(&effect);
+    let shell_params = WindShellParams::from_effect(&effect);
+
+    Ok(wind_local_bounds_corners(&shell_params)
+        .iter()
+        .map(|corner| {
+            let world = model * Vector4::new(corner.x, corner.y, corner.z, 1.0);
+            [world.x, world.y, world.z]
+        })
+        .collect())
+}
+
+#[pyfunction]
+fn wind_ubo_size() -> usize {
+    std::mem::size_of::<WindUBO>()
+}
+
 #[pymodule]
 fn thyllore_effect_core(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(flame_preset_names, m)?)?;
@@ -405,6 +530,13 @@ fn thyllore_effect_core(_py: Python<'_>, m: &Bound<PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(pack_water_ubo, m)?)?;
     m.add_function(wrap_pyfunction!(water_bounds_corners, m)?)?;
     m.add_function(wrap_pyfunction!(water_ubo_size, m)?)?;
+
+    m.add_function(wrap_pyfunction!(wind_preset_names, m)?)?;
+    m.add_function(wrap_pyfunction!(wind_ui_params, m)?)?;
+    m.add_function(wrap_pyfunction!(wind_preset_params, m)?)?;
+    m.add_function(wrap_pyfunction!(pack_wind_ubo, m)?)?;
+    m.add_function(wrap_pyfunction!(wind_bounds_corners, m)?)?;
+    m.add_function(wrap_pyfunction!(wind_ubo_size, m)?)?;
 
     Ok(())
 }
