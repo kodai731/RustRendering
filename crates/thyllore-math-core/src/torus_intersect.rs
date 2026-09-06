@@ -261,6 +261,14 @@ pub fn intersect_torus(
         // Camera outside sphere: use the near intersection
         -oc - disc.sqrt()
     };
+    let bounding_sphere_behind_origin = t_enter + 2.0 * bounding_radius < 0.0;
+    if bounding_sphere_behind_origin {
+        return TorusHits {
+            roots: [0.0; 4],
+            count: 0,
+            fallback_used: false,
+        };
+    }
     let o_prime = o_norm + d_norm * t_enter;
 
     let coeffs = quartic_coefficients(o_prime, d_norm, r_hat as f64);
@@ -330,5 +338,33 @@ pub fn intersect_torus(
         roots: final_roots,
         count: valid_count as u8,
         fallback_used,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn torus_behind_the_ray_origin_is_not_hit() {
+        let hits = intersect_torus(
+            Vector3::new(0.0, 0.5, 12.0),
+            Vector3::new(0.0, 0.0, 1.0),
+            1.2,
+            0.35,
+        );
+        assert_eq!(hits.count, 0);
+    }
+
+    #[test]
+    fn torus_in_front_of_the_ray_origin_is_hit() {
+        let hits = intersect_torus(
+            Vector3::new(1.2, 0.0, 12.0),
+            Vector3::new(0.0, 0.0, -1.0),
+            1.2,
+            0.35,
+        );
+        assert!(hits.count >= 2);
+        assert!(hits.roots[0] > 0.0);
     }
 }

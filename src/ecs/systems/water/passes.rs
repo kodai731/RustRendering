@@ -51,6 +51,7 @@ const COLOR_SUBRESOURCE_RANGE: vk::ImageSubresourceRange = vk::ImageSubresourceR
 /// Everything the water nodes agree on for one frame. `None` means no water pass records this frame.
 struct WaterFrame {
     waters: Vec<Entity>,
+    scissors: Vec<Option<vk::Rect2D>>,
     history_index: usize,
     settings: crate::ecs::resource::WaterRenderSettings,
 }
@@ -79,11 +80,50 @@ fn water_frame(app: &App) -> Option<WaterFrame> {
         .map(|settings| *settings)
         .unwrap_or_default();
 
+    let scissors = instance_scissors(app, &waters);
+
     Some(WaterFrame {
         waters,
+        scissors,
         history_index,
         settings,
     })
+}
+
+/// Screen rectangle of every instance, `None` when the instance is off-screen. Declarations and
+/// recording share this so the graph only expects the shading render pass when it really records.
+fn instance_scissors(app: &App, waters: &[Entity]) -> Vec<Option<vk::Rect2D>> {
+    let Some(extent) = app
+        .data
+        .ecs_world
+        .get_resource::<WaterRenderTargets>()
+        .map(|targets| targets.buffer.extent())
+    else {
+        return vec![None; waters.len()];
+    };
+    waters
+        .iter()
+        .map(|water| {
+            let effect = app
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::component::WaterTorusEffect>(*water)?;
+            let frame_index = app
+                .data
+                .ecs_world
+                .get_component::<crate::ecs::component::WaterTemporalAccum>(*water)
+                .map(|accum| accum.frame_index as u32)
+                .unwrap_or(0);
+            let model = thyllore_effect_core::build_water_ubo(&effect, frame_index).model;
+            compute_water_scissor(
+                app,
+                extent,
+                &model,
+                effect.major_radius,
+                effect.minor_radius,
+            )
+        })
+        .collect()
 }
 
 fn water_scene_bindings(app: &App) -> Option<(vk::AccelerationStructureKHR, vk::Buffer)> {
@@ -138,6 +178,10 @@ impl WaterFrame {
                 .is_some_and(|descriptor| {
                     descriptor.splat_descriptor_set != vk::DescriptorSet::null()
                 })
+    }
+
+    fn has_visible_instance(&self) -> bool {
+        self.scissors.iter().any(Option::is_some)
     }
 
     fn is_history_invalidated(&self, app: &App) -> bool {
@@ -734,6 +778,9 @@ impl RenderPassNode for WaterShadingNode {
 
     fn writes(&self, app: &App) -> Vec<TargetUse> {
         frame_uses(app, |frame, _| {
+            if !frame.has_visible_instance() {
+                return Vec::new();
+            }
             vec![
                 TargetUse::new(
                     HDR_COLOR,
@@ -773,20 +820,8 @@ impl RenderPassNode for WaterShadingNode {
         let water_buffer = &targets.buffer;
         let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
-        for (i, (ubo, ubo_dynamic_offset)) in targets.frame_instances.iter().enumerate() {
-            let effect = app
-                .data
-                .ecs_world
-                .get_component::<crate::ecs::component::WaterTorusEffect>(frame.waters[i])
-                .ok_or_else(|| anyhow::anyhow!("Missing WaterTorusEffect for instance {}", i))?;
-
-            let Some(scissor) = compute_water_scissor(
-                app,
-                water_buffer.extent(),
-                &ubo.model,
-                effect.major_radius,
-                effect.minor_radius,
-            ) else {
+        for (i, (_, ubo_dynamic_offset)) in targets.frame_instances.iter().enumerate() {
+            let Some(scissor) = frame.scissors.get(i).copied().flatten() else {
                 continue;
             };
 
@@ -883,11 +918,21 @@ fn compute_water_scissor(
     let mut min_y = f32::MAX;
     let mut max_x = f32::MIN;
     let mut max_y = f32::MIN;
-    for corner in thyllore_math_core::torus_local_bounds_corners(major_radius, minor_radius) {
+    let corners = thyllore_math_core::torus_local_bounds_corners(major_radius, minor_radius);
+    let corners_behind_camera = corners
+        .iter()
+        .filter(|corner| {
+            (view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0)).w <= 0.0
+        })
+        .count();
+    if corners_behind_camera == corners.len() {
+        return None;
+    }
+    if corners_behind_camera > 0 {
+        return Some(full_extent_scissor(extent));
+    }
+    for corner in corners {
         let clip = view_proj * model * cgmath::vec4(corner.x, corner.y, corner.z, 1.0);
-        if clip.w <= 0.0 {
-            return Some(full_extent_scissor(extent));
-        }
         let screen_x = (clip.x / clip.w + 1.0) * 0.5 * extent.width as f32;
         let screen_y = (clip.y / clip.w + 1.0) * 0.5 * extent.height as f32;
         min_x = min_x.min(screen_x);

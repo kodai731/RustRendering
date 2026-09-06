@@ -193,6 +193,10 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fall
         // Camera outside sphere: use the near intersection
         tEnter = -oc - sqrt(disc);
     }
+    // The whole bounding sphere lies behind the ray origin: nothing ahead can be hit.
+    if (tEnter + 2.0 * bounding_radius < 0.0) {
+        return 0;
+    }
     vec3 oPrime = o + tEnter * d;
 
     // Compute quartic coefficients from ray-torus intersection using re-based origin o'
@@ -249,7 +253,7 @@ int intersectTorus(vec3 o, vec3 d, float rHat, out float roots[4], out bool fall
     // use SDF sphere tracing to catch grazing intersections the quartic misses.
     if (validCount == 0) {
         float t_out;
-        if (torusSphereTraceFallback(oPrime, d, rHat, t_out)) {
+        if (torusSphereTraceFallback(oPrime, d, rHat, t_out) && t_out + tEnter > 1e-6) {
             roots[0] = t_out + tEnter;
             validCount = 1;
             fallbackUsed = true;
