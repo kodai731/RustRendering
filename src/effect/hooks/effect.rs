@@ -1,13 +1,18 @@
 use anyhow::Result;
+use vulkanalia::prelude::v1_0::*;
 
-use crate::app::App;
+use crate::app::{App, AppData};
+use crate::vulkanr::core::RRDevice;
+use crate::vulkanr::render::RRRender;
 
+pub type EffectSetupHook = unsafe fn(&Instance, &RRDevice, &mut AppData, &RRRender) -> Result<()>;
 pub type EffectFrameHook = unsafe fn(&mut App, usize) -> Result<()>;
 pub type EffectHookFn = unsafe fn(&mut App) -> Result<()>;
 
 #[derive(Clone, Copy, Debug)]
 pub struct EffectHook {
     pub name: &'static str,
+    pub setup: Option<EffectSetupHook>,
     pub prepare_frame: Option<EffectFrameHook>,
     pub on_viewport_resize: Option<EffectHookFn>,
     pub destroy: Option<EffectHookFn>,
@@ -36,6 +41,20 @@ impl EffectHooks {
 
     fn snapshot(&self) -> Vec<EffectHook> {
         self.entries.clone()
+    }
+
+    pub unsafe fn run_setup(
+        instance: &Instance,
+        rrdevice: &RRDevice,
+        data: &mut AppData,
+        rrrender: &RRRender,
+    ) -> Result<()> {
+        for hook in data.effect_hooks.snapshot() {
+            if let Some(setup) = hook.setup {
+                setup(instance, rrdevice, data, rrrender)?;
+            }
+        }
+        Ok(())
     }
 }
 

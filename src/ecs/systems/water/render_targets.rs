@@ -1,21 +1,23 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
-use crate::app::effect_hooks::EffectHook;
 use crate::app::{App, AppData};
 use crate::ecs::resource::{WaterBindingKey, WaterRenderTargets};
+use crate::effect::hooks::EffectHook;
 use crate::vulkanr::context::RenderTargets;
 use crate::vulkanr::core::RRDevice;
+use crate::vulkanr::render::RRRender;
 use crate::vulkanr::resource::WaterBuffer;
 
 pub const WATER_EFFECT_HOOK: EffectHook = EffectHook {
     name: "water",
+    setup: Some(setup_water),
     prepare_frame: Some(prepare_water_frame_targets),
     on_viewport_resize: Some(resize_water_render_targets),
     destroy: Some(destroy_water_render_targets),
 };
 
-pub unsafe fn create_water_render_targets(
+unsafe fn create_water_render_targets(
     instance: &Instance,
     rrdevice: &RRDevice,
     data: &mut AppData,
@@ -43,8 +45,41 @@ pub unsafe fn create_water_render_targets(
 
     data.ecs_world
         .insert_resource(WaterRenderTargets::new(buffer));
-    data.effect_hooks.register(WATER_EFFECT_HOOK);
     Ok(true)
+}
+
+unsafe fn setup_water(
+    instance: &Instance,
+    rrdevice: &RRDevice,
+    data: &mut AppData,
+    rrrender: &RRRender,
+) -> Result<()> {
+    if !create_water_render_targets(instance, rrdevice, data, rrrender.gbuffer_depth_image_view)? {
+        log!("HDR buffer not available, skipping water pipeline");
+        return Ok(());
+    }
+
+    let (Some(water_targets), Some(hdr_buffer)) = (
+        data.ecs_world
+            .get_resource::<crate::ecs::resource::WaterRenderTargets>(),
+        data.viewport.hdr_buffer.as_ref(),
+    ) else {
+        log!("Water buffer not available, skipping water pipeline");
+        return Ok(());
+    };
+
+    data.raytracing.create_water_pipeline(
+        instance,
+        rrdevice,
+        rrrender,
+        &data.graphics_resources,
+        &water_targets.buffer,
+        hdr_buffer,
+        crate::app::init::MAX_FRAMES_IN_FLIGHT,
+    )?;
+
+    log!("Water pipeline created successfully");
+    Ok(())
 }
 
 unsafe fn resize_water_render_targets(app: &mut App) -> Result<()> {

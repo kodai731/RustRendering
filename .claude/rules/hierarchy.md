@@ -71,6 +71,14 @@ Everything that decides what the engine does: components and resources (data onl
 file per domain, one directory per effect), phases (execution order and event dispatch), and the ECS core
 (world, storage, query, registry, events). Rules are in `ecs-architecture.md`.
 
+## src/effect/
+
+The effect layer between `src/app/` and the effect systems: the hook infrastructure (`hooks/`: setup,
+prepare frame, viewport resize, destroy, run in subscription order) and the one place that subscribes the
+effects (`subscription.rs`). `src/app/` runs the hooks generically and never names an effect; an effect's
+own systems (`src/ecs/systems/<effect>/`) implement the hook and own the effect's GPU state as an ECS
+resource. Adding an effect means adding its hook constant to `subscription.rs`, nothing in `src/app/`.
+
 ## src/platform/
 
 Window, input, imgui orchestration and the UI windows. Reads resources, records `UIEvent`s, calls one
@@ -99,9 +107,8 @@ Belongs here:
 - the frame driver: begin frame, update, record, submit, present, swapchain recreation, screenshot
 - context structs that bundle `App` fields for callees
 - wiring that must touch several subsystems at once (a resize fan-out, rebinding after a resize)
-- generic infrastructure that effects plug into without being named: the effect hook list
-  (`effect_hooks.rs`: prepare frame / viewport resize / destroy, registered by each effect, run in
-  registration order)
+- calls into the effect hook infrastructure of `src/effect/` (setup, prepare frame, viewport resize,
+  destroy) without naming an effect
 - core post-processing passes (tonemap, auto exposure, dof, bloom) as one concept under
   `src/app/post_process/`: pipeline creation, resize rebinding and per-frame target acquisition live
   together there. These are engine passes, not effects, so `App` calls them directly
@@ -118,8 +125,8 @@ where the checklist says.
 
 Effects own their GPU state: the buffers and per-frame handles of an effect are an ECS resource
 (`src/ecs/resource/<effect>_render_targets.rs`), and creation, resize, per-frame acquisition and destroy are
-systems in `src/ecs/systems/<effect>/render_targets.rs` that register an effect hook. `src/app/` never
-enumerates effects (this mirrors bevy's `TextureCache` + per-effect `prepare_*` systems and Unreal's RDG +
+systems in `src/ecs/systems/<effect>/render_targets.rs` exposed as an effect hook subscribed in
+`src/effect/subscription.rs`. `src/app/` never enumerates effects (this mirrors bevy's `TextureCache` + per-effect `prepare_*` systems and Unreal's RDG +
 per-feature `AddPass`).
 
 ## Other src/ directories

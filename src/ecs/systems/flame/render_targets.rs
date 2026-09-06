@@ -1,22 +1,24 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
-use crate::app::effect_hooks::EffectHook;
 use crate::app::{App, AppData};
 use crate::ecs::resource::{FlameHistorySnapshotState, FlameRenderTargets};
+use crate::effect::hooks::EffectHook;
 use crate::vulkanr::context::RenderTargets;
 use crate::vulkanr::core::RRDevice;
 use crate::vulkanr::descriptor::FlameImageBindings;
+use crate::vulkanr::render::RRRender;
 use crate::vulkanr::resource::FlameBuffer;
 
 pub const FLAME_EFFECT_HOOK: EffectHook = EffectHook {
     name: "flame",
+    setup: Some(setup_flame),
     prepare_frame: None,
     on_viewport_resize: Some(resize_flame_render_targets),
     destroy: Some(destroy_flame_render_targets),
 };
 
-pub unsafe fn create_flame_render_targets(
+unsafe fn create_flame_render_targets(
     instance: &Instance,
     rrdevice: &RRDevice,
     data: &mut AppData,
@@ -42,7 +44,53 @@ pub unsafe fn create_flame_render_targets(
 
     data.ecs_world
         .insert_resource(FlameRenderTargets { buffer });
-    data.effect_hooks.register(FLAME_EFFECT_HOOK);
+    Ok(())
+}
+
+unsafe fn setup_flame(
+    instance: &Instance,
+    rrdevice: &RRDevice,
+    data: &mut AppData,
+    rrrender: &RRRender,
+) -> Result<()> {
+    create_flame_render_targets(instance, rrdevice, data)?;
+    let Some(flame_targets) = data
+        .ecs_world
+        .get_resource::<crate::ecs::resource::FlameRenderTargets>()
+    else {
+        log!("Flame buffer not available, skipping flame pipeline");
+        return Ok(());
+    };
+    let flame_buffer = &flame_targets.buffer;
+
+    let position_image_view = match data.raytracing.gbuffer {
+        Some(ref gbuffer) => gbuffer.position_image_view,
+        None => {
+            log!("GBuffer not available, skipping flame pipeline");
+            return Ok(());
+        }
+    };
+
+    let position_sampler = match data.raytracing.gbuffer_sampler {
+        Some(sampler) => sampler,
+        None => {
+            log!("GBuffer sampler not available, skipping flame pipeline");
+            return Ok(());
+        }
+    };
+
+    data.raytracing.create_flame_pipeline(
+        instance,
+        rrdevice,
+        rrrender,
+        &data.graphics_resources,
+        flame_buffer,
+        position_image_view,
+        position_sampler,
+        rrrender.gbuffer_depth_image_view,
+    )?;
+
+    log!("Flame pipeline created successfully");
     Ok(())
 }
 

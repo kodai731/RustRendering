@@ -135,6 +135,7 @@ impl App {
         let loader = LibloadingLoader::new(LIBRARY)?;
         let entry = Entry::new(loader).map_err(|b| anyhow!("{}", b))?;
         let mut data = AppData::default();
+        crate::effect::subscription::subscribe_effects(&mut data.effect_hooks);
 
         Self::initialize_core_ecs_resources(&mut data);
 

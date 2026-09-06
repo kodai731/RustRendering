@@ -2,7 +2,6 @@ pub mod cleanup;
 pub mod color_test_quad;
 mod command_recording;
 pub mod data;
-pub mod effect_hooks;
 pub mod frame_context;
 pub mod init;
 pub mod model_loader;
