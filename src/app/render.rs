@@ -9,7 +9,7 @@ use crate::ecs::systems::render_data_systems::{
 use crate::vulkanr::context::{
     CommandState, FrameSync, PipelineState, RenderTargets, SwapchainState,
 };
-use crate::vulkanr::descriptor::{CompositeGBufferViews, FlameImageBindings};
+use crate::vulkanr::descriptor::CompositeGBufferViews;
 use crate::vulkanr::renderer::deferred::create_gbuffer_framebuffer;
 use crate::vulkanr::renderer::scene_renderer::render_scene_objects;
 use crate::vulkanr::vulkan::*;
@@ -149,27 +149,9 @@ impl App {
             .viewport
             .resize(&self.instance, &self.rrdevice, command_pool, width, height)?;
 
-        let hdr_view = self
-            .data
-            .viewport
-            .hdr_buffer
-            .as_ref()
-            .map(|buffer| buffer.color_image_view);
-        if let Some(hdr_view) = hdr_view {
-            self.data.effect_targets.resize(
-                &self.instance,
-                &self.rrdevice,
-                &mut self.data.viewport.storage,
-                command_pool,
-                width,
-                height,
-                hdr_view,
-            )?;
-        }
-
         self.resize_gbuffer(width, height)?;
-        self.update_postprocessing_descriptors_on_resize()?;
-        self.data.post_process_targets.forget_bindings();
+        self.run_effect_viewport_resize()?;
+        self.resize_post_process_bindings()?;
 
         if self
             .data
@@ -185,64 +167,6 @@ impl App {
             readback.last_read_object_id = None;
             readback.last_read_world_position = None;
         }
-
-        Ok(())
-    }
-
-    unsafe fn update_postprocessing_descriptors_on_resize(&mut self) -> Result<()> {
-        if let (Some(ref hdr_buffer), Some(ref tonemap_descriptor)) = (
-            &self.data.viewport.hdr_buffer,
-            &self.data.raytracing.tonemap_descriptor,
-        ) {
-            tonemap_descriptor.update_hdr_sampler(
-                &self.rrdevice,
-                hdr_buffer.color_image_view,
-                hdr_buffer.sampler,
-            )?;
-            tonemap_descriptor.update_bloom_sampler(
-                &self.rrdevice,
-                hdr_buffer.color_image_view,
-                hdr_buffer.sampler,
-            )?;
-        }
-
-        {
-            let render_targets = self.resource::<crate::vulkanr::context::RenderTargets>();
-            let depth_image_view = render_targets.render.gbuffer_depth_image_view;
-
-            if let (Some(ref hdr_buffer), Some(ref dof_descriptor)) = (
-                &self.data.viewport.hdr_buffer,
-                &self.data.raytracing.dof_descriptor,
-            ) {
-                let depth_sampler = self
-                    .data
-                    .raytracing
-                    .gbuffer_sampler
-                    .unwrap_or(hdr_buffer.sampler);
-
-                dof_descriptor.update_image_views(
-                    &self.rrdevice,
-                    hdr_buffer.color_image_view,
-                    hdr_buffer.sampler,
-                    depth_image_view,
-                    depth_sampler,
-                )?;
-            }
-        }
-
-        if let (Some(ref gbuffer), Some(gbuffer_sampler), Some(ref tonemap_descriptor)) = (
-            &self.data.raytracing.gbuffer,
-            self.data.raytracing.gbuffer_sampler,
-            &self.data.raytracing.tonemap_descriptor,
-        ) {
-            tonemap_descriptor.update_position_sampler(
-                &self.rrdevice,
-                gbuffer.position_image_view,
-                gbuffer_sampler,
-            )?;
-        }
-
-        self.update_auto_exposure_descriptors_on_resize()?;
 
         Ok(())
     }
@@ -577,39 +501,6 @@ impl App {
         Ok(())
     }
 
-    unsafe fn update_auto_exposure_descriptors_on_resize(&self) -> Result<()> {
-        let Some(ref hdr_buffer) = self.data.viewport.hdr_buffer else {
-            return Ok(());
-        };
-        let (hdr_image_view, hdr_sampler) = (hdr_buffer.color_image_view, hdr_buffer.sampler);
-
-        let ae_buffers = match self.data.viewport.auto_exposure_buffers {
-            Some(ref buf) => buf,
-            None => return Ok(()),
-        };
-
-        if let Some(ref hist_desc) = self.data.raytracing.auto_exposure_histogram_descriptor {
-            hist_desc.update_bindings(
-                &self.rrdevice,
-                hdr_image_view,
-                hdr_sampler,
-                ae_buffers.histogram_buffer,
-                (256 * 4) as u64,
-            )?;
-        }
-
-        if let Some(ref avg_desc) = self.data.raytracing.auto_exposure_average_descriptor {
-            avg_desc.update_bindings(
-                &self.rrdevice,
-                ae_buffers.histogram_buffer,
-                (256 * 4) as u64,
-                ae_buffers.luminance_buffer,
-                (2 * 4) as u64,
-            )?;
-        }
-        Ok(())
-    }
-
     unsafe fn resize_gbuffer(&mut self, new_width: u32, new_height: u32) -> Result<()> {
         let needs_resize = self
             .data
@@ -641,7 +532,6 @@ impl App {
         let object_id_view = gbuffer.object_id_image_view;
         self.recreate_gbuffer_framebuffer()?;
         self.attach_gbuffer_depth_to_hdr()?;
-        self.recreate_water_on_resize()?;
         self.update_gbuffer_descriptors(
             position_view,
             normal_view,
@@ -650,7 +540,6 @@ impl App {
             object_id_view,
         )?;
         self.recreate_onion_skin_on_resize()?;
-        self.recreate_flame_on_resize()?;
         log!("G-Buffer resized to: {}x{}", new_width, new_height);
         Ok(())
     }
@@ -668,129 +557,6 @@ impl App {
         if let Some(hdr_buffer) = &mut self.data.viewport.hdr_buffer {
             hdr_buffer.attach_depth(&self.rrdevice, depth_view)?;
         }
-        Ok(())
-    }
-
-    unsafe fn recreate_water_on_resize(&mut self) -> Result<()> {
-        let depth_view = {
-            let rt = self.resource::<RenderTargets>();
-            rt.render.gbuffer_depth_image_view
-        };
-        let hdr_view = match &self.data.viewport.hdr_buffer {
-            Some(hdr) => hdr.color_image_view,
-            None => return Ok(()),
-        };
-        if depth_view == vk::ImageView::null() {
-            return Ok(());
-        }
-
-        let width = self.data.viewport.width;
-        let height = self.data.viewport.height;
-
-        // Destroy old buffer if it exists
-        if let Some(mut old_buffer) = self.data.effect_targets.water.take() {
-            old_buffer.destroy(&self.rrdevice.device);
-        }
-
-        // Recreate with new dimensions
-        let command_pool = self.resource::<CommandState>().pool.command_pool;
-        let water_buffer = thyllore_vulkan_core::resource::WaterBuffer::new(
-            &self.instance,
-            &self.rrdevice,
-            &mut self.data.viewport.storage,
-            command_pool,
-            width,
-            height,
-            hdr_view,
-            depth_view,
-        )?;
-        self.data.effect_targets.water = Some(water_buffer);
-        self.data.water_frame_targets.forget_bindings();
-
-        self.update_water_caustic_descriptor()?;
-
-        Ok(())
-    }
-
-    /// The caustic descriptor binds the accumulation, G-buffer position and HDR views
-    /// directly, so every resize that recreates them leaves it stale.
-    unsafe fn update_water_caustic_descriptor(&mut self) -> Result<()> {
-        let (Some(caustic_accum_view), Some(hdr_color_view)) = (
-            self.data
-                .effect_targets
-                .water
-                .as_ref()
-                .map(|water_buffer| water_buffer.caustic_accum_view),
-            self.data
-                .viewport
-                .hdr_buffer
-                .as_ref()
-                .map(|hdr_buffer| hdr_buffer.color_image_view),
-        ) else {
-            return Ok(());
-        };
-
-        let rrdevice = &self.rrdevice;
-        let raytracing = &mut self.data.raytracing;
-        let tlas = raytracing
-            .acceleration_structure
-            .as_ref()
-            .and_then(|accel| accel.tlas.acceleration_structure);
-        let (Some(position_image_view), Some(scene_buffer), Some(water_ubo)) = (
-            raytracing
-                .gbuffer
-                .as_ref()
-                .map(|gbuffer| gbuffer.position_image_view),
-            raytracing.scene_uniform_buffer,
-            raytracing.water_ubo.as_ref().map(|ubo| ubo.handle()),
-        ) else {
-            return Ok(());
-        };
-
-        let Some(descriptor) = raytracing.water_caustic_descriptor.as_mut() else {
-            return Ok(());
-        };
-
-        descriptor.allocate_and_update(
-            rrdevice,
-            caustic_accum_view,
-            position_image_view,
-            tlas,
-            scene_buffer,
-            water_ubo,
-            hdr_color_view,
-        )
-    }
-
-    unsafe fn recreate_flame_on_resize(&mut self) -> Result<()> {
-        let (Some(ref flame_buffer), Some(ref flame_descriptor)) = (
-            &self.data.effect_targets.flame,
-            &self.data.raytracing.flame_descriptor,
-        ) else {
-            return Ok(());
-        };
-        flame_descriptor.update_image_views(
-            &self.rrdevice,
-            FlameImageBindings {
-                history_image_views: flame_buffer.history_image_views,
-                flame_sampler: flame_buffer.sampler,
-                sdf_image_view: self.data.raytracing.flame_sdf_image_view,
-                sdf_sampler: self.data.raytracing.flame_sdf_sampler,
-                scene_depth_view: self
-                    .resource::<RenderTargets>()
-                    .render
-                    .gbuffer_depth_image_view,
-            },
-        )?;
-
-        if let Some(mut state) = self
-            .data
-            .ecs_world
-            .get_resource_mut::<crate::ecs::resource::FlameHistorySnapshotState>()
-        {
-            state.previous = None;
-        }
-
         Ok(())
     }
 
@@ -872,8 +638,6 @@ impl App {
                 shadow_mask_view,
             )?;
         }
-
-        self.update_water_caustic_descriptor()?;
 
         {
             let swapchain = self.resource::<SwapchainState>().swapchain.clone();
@@ -1127,7 +891,7 @@ impl App {
         )?;
 
         self.prepare_post_process_targets(frame_slot)?;
-        self.prepare_water_frame_targets(frame_slot)?;
+        self.run_effect_prepare_frame(frame_slot)?;
         self.record_command_buffer(image_index, draw_data, frame_slot)?;
 
         let image_available = self.resource::<FrameSync>().current_image_available();
@@ -1225,12 +989,12 @@ impl App {
         use thyllore_math_core::{f16_to_f32, write_npy_f32};
 
         let device = &self.rrdevice.device;
-        let flame_buffer = self
+        let flame_targets = self
             .data
-            .effect_targets
-            .flame
-            .as_ref()
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameRenderTargets>()
             .ok_or_else(|| anyhow::anyhow!("flame buffer not initialized"))?;
+        let flame_buffer = &flame_targets.buffer;
 
         let flames = self.data.ecs_world.query_flames();
         let history_index = if let Some(first) = flames.first() {

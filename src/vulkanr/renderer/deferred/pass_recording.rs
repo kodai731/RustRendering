@@ -342,11 +342,11 @@ pub unsafe fn record_bloom(
         return Ok(());
     }
 
-    let bloom_mips = &app.data.post_process_targets.bloom_mips;
+    let bloom_mips = &app.data.post_process.bloom_mips;
     if bloom_mips.is_empty() {
         return Ok(());
     }
-    for handle in &app.data.post_process_targets.bloom_handles {
+    for handle in &app.data.post_process.bloom_handles {
         app.data.viewport.transient.get(*handle)?;
     }
 
@@ -387,12 +387,12 @@ pub unsafe fn record_dof(app: &App, command_buffer: vk::CommandBuffer) -> Result
         app.data.raytracing.dof_pipeline.as_ref(),
         app.data.raytracing.dof_descriptor.as_ref(),
         app.data.viewport.dof_buffer.as_ref(),
-        app.data.post_process_targets.dof_output,
+        app.data.post_process.dof_output,
     ) else {
         return Ok(());
     };
     app.data.viewport.transient.get(dof_output)?;
-    let dof_framebuffer = app.data.post_process_targets.dof_framebuffer;
+    let dof_framebuffer = app.data.post_process.dof_framebuffer;
 
     let dof_settings = app
         .data
@@ -599,13 +599,16 @@ pub unsafe fn record_flame_passes(
     command_buffer: vk::CommandBuffer,
     image_index: usize,
 ) -> Result<()> {
-    let (Some(flame_buffer), Some(shading_pipeline), Some(descriptor)) = (
-        app.data.effect_targets.flame.as_ref(),
+    let (Some(flame_targets), Some(shading_pipeline), Some(descriptor)) = (
+        app.data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::FlameRenderTargets>(),
         app.data.raytracing.flame_shading_pipeline.as_ref(),
         app.data.raytracing.flame_descriptor.as_ref(),
     ) else {
         return Ok(());
     };
+    let flame_buffer = &flame_targets.buffer;
 
     let ctx = crate::ecs::systems::phases::build_frame_render_context(app, image_index);
 
@@ -796,22 +799,21 @@ pub unsafe fn record_water_passes(
     image_index: usize,
     frame_slot: usize,
 ) -> Result<()> {
-    let (
-        Some(water_buffer),
-        Some(shading_pipeline),
-        Some(descriptor),
-        Some(scene_color_handle),
-        Some(trace_handle),
-    ) = (
-        app.data.effect_targets.water.as_ref(),
+    let (Some(water_targets), Some(shading_pipeline), Some(descriptor)) = (
+        app.data
+            .ecs_world
+            .get_resource::<crate::ecs::resource::WaterRenderTargets>(),
         app.data.raytracing.water_shading_pipeline.as_ref(),
         app.data.raytracing.water_descriptor.as_ref(),
-        app.data.water_frame_targets.scene_color,
-        app.data.water_frame_targets.trace,
-    )
+    ) else {
+        return Ok(());
+    };
+    let (Some(scene_color_handle), Some(trace_handle)) =
+        (water_targets.scene_color, water_targets.trace)
     else {
         return Ok(());
     };
+    let water_buffer = &water_targets.buffer;
     let scene_color_image = app.data.viewport.transient.get(scene_color_handle)?;
     let trace_image = app.data.viewport.transient.get(trace_handle)?;
 

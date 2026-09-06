@@ -94,10 +94,17 @@ and drives one frame. It is the only place that sees `App` as a whole.
 
 Belongs here:
 - `App` construction and teardown
-- ownership containers whose lifetime is the app or the viewport (render targets, effect buffers)
+- ownership containers whose lifetime is the app or the viewport (core attachments, the render target
+  storage and transient pools)
 - the frame driver: begin frame, update, record, submit, present, swapchain recreation, screenshot
 - context structs that bundle `App` fields for callees
 - wiring that must touch several subsystems at once (a resize fan-out, rebinding after a resize)
+- generic infrastructure that effects plug into without being named: the effect hook list
+  (`effect_hooks.rs`: prepare frame / viewport resize / destroy, registered by each effect, run in
+  registration order)
+- core post-processing passes (tonemap, auto exposure, dof, bloom) as one concept under
+  `src/app/post_process/`: pipeline creation, resize rebinding and per-frame target acquisition live
+  together there. These are engine passes, not effects, so `App` calls them directly
 
 Does not belong here:
 - ECS domain logic (querying, mutating components, deciding what an effect does) → `src/ecs/systems/`
@@ -108,6 +115,12 @@ Does not belong here:
 
 A function that takes `&mut App` only to read a few fields is misplaced: pass those fields in and put it
 where the checklist says.
+
+Effects own their GPU state: the buffers and per-frame handles of an effect are an ECS resource
+(`src/ecs/resource/<effect>_render_targets.rs`), and creation, resize, per-frame acquisition and destroy are
+systems in `src/ecs/systems/<effect>/render_targets.rs` that register an effect hook. `src/app/` never
+enumerates effects (this mirrors bevy's `TextureCache` + per-effect `prepare_*` systems and Unreal's RDG +
+per-feature `AddPass`).
 
 ## Other src/ directories
 
@@ -137,11 +150,13 @@ context (adds `World`, assets, time, frame slot) used by the ECS phases.
 
 ## Render target ownership
 
-- Storage: viewport-extent lifetime, keyed by purpose, for images that must survive a frame (history,
-  accumulation). Reset on resize.
-- Transient: pass lifetime inside one frame, described by extent / format / usage, handed out as
-  frame-stamped handles and recycled per frame-in-flight bucket. Consumers keep one descriptor set per
-  frame slot.
+- Lender (engine, in the viewport): Storage for images that must survive a frame (history, accumulation;
+  viewport-extent lifetime, keyed by purpose, reset on resize) and Transient for images that live inside one
+  frame (described by extent / format / usage, handed out as frame-stamped handles, recycled per
+  frame-in-flight bucket).
+- Borrower (the pass or effect): asks the lender each frame, keeps what it borrowed in its own state
+  (post-process targets under `src/app/post_process/`, effect resources under `src/ecs/resource/`), and keeps
+  one descriptor set per frame slot for anything transient.
 - Core attachments (HDR, depth, gbuffer, offscreen) are owned by the viewport and never pooled.
 
 ## Where does a new file go?

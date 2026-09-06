@@ -1,9 +1,8 @@
 use serde::Serialize;
 
-use crate::app::effect_render_targets::EffectRenderTargets;
-use crate::app::post_process_targets::PostProcessFrameTargets;
+use crate::app::effect_hooks::EffectHooks;
+use crate::app::post_process::PostProcessFrameTargets;
 use crate::app::viewport::ViewportState;
-use crate::app::water_frame_targets::WaterFrameTargets;
 use crate::asset::AssetStorage;
 use crate::ecs::World;
 use crate::platform::ImguiData;
@@ -33,8 +32,7 @@ pub struct AppData {
     pub buffer_registry: GpuBufferRegistry,
     pub pipeline_storage: PipelineStorage,
     pub viewport: ViewportState,
-    pub effect_targets: EffectRenderTargets,
-    pub post_process_targets: PostProcessFrameTargets,
-    pub water_frame_targets: WaterFrameTargets,
+    pub effect_hooks: EffectHooks,
+    pub post_process: PostProcessFrameTargets,
     pub onion_skin_gpu: Option<OnionSkinGpuState>,
 }

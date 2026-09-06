@@ -48,11 +48,7 @@ impl App {
 
         let mut generations = vec![tonemap_input.generation, bloom_input.generation];
         generations.extend(self.data.bloom_mip_generations());
-        if self
-            .data
-            .post_process_targets
-            .is_bound(frame_slot, &generations)
-        {
+        if self.data.post_process.is_bound(frame_slot, &generations) {
             return Ok(());
         }
 
@@ -98,9 +94,7 @@ impl App {
             }
         }
 
-        self.data
-            .post_process_targets
-            .mark_bound(frame_slot, generations);
+        self.data.post_process.mark_bound(frame_slot, generations);
         Ok(())
     }
 
@@ -126,8 +120,8 @@ impl App {
             .as_ref()
             .filter(|_| dof_enabled)
         else {
-            self.data.post_process_targets.dof_output = None;
-            self.data.post_process_targets.dof_framebuffer = vk::Framebuffer::null();
+            self.data.post_process.dof_output = None;
+            self.data.post_process.dof_framebuffer = vk::Framebuffer::null();
             return self.hdr_binding();
         };
 
@@ -146,8 +140,8 @@ impl App {
             desc.height,
         )?;
 
-        self.data.post_process_targets.dof_output = Some(handle);
-        self.data.post_process_targets.dof_framebuffer = framebuffer;
+        self.data.post_process.dof_output = Some(handle);
+        self.data.post_process.dof_framebuffer = framebuffer;
         Ok(InputBinding {
             view: output.view,
             sampler,
@@ -169,8 +163,8 @@ impl App {
             .as_ref()
             .filter(|_| bloom_enabled)
         else {
-            self.data.post_process_targets.bloom_handles.clear();
-            self.data.post_process_targets.bloom_mips.clear();
+            self.data.post_process.bloom_handles.clear();
+            self.data.post_process.bloom_mips.clear();
             return Ok((self.hdr_binding()?, Vec::new()));
         };
 
@@ -215,15 +209,15 @@ impl App {
         };
         let views = mips.iter().map(|mip| mip.view).collect();
 
-        self.data.post_process_targets.bloom_handles = handles;
-        self.data.post_process_targets.bloom_mips = mips;
+        self.data.post_process.bloom_handles = handles;
+        self.data.post_process.bloom_mips = mips;
         Ok((binding, views))
     }
 }
 
 impl crate::app::data::AppData {
     fn bloom_mip_generations(&self) -> Vec<u64> {
-        self.post_process_targets
+        self.post_process
             .bloom_handles
             .iter()
             .filter_map(|handle| self.viewport.transient.get(*handle).ok())
