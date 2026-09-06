@@ -1,7 +1,7 @@
 use anyhow::Result;
 use vulkanalia::prelude::v1_0::*;
 
-use super::pass_recording::*;
+use super::{composite_pass::*, onion_skin_pass::*, post_process_pass::*, tonemap_pass::*};
 use crate::app::post_process::{
     bloom_mip_count, is_dof_enabled, BLOOM_MIPS, DOF_OUTPUT, MAX_BLOOM_MIPS,
 };
