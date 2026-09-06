@@ -27,6 +27,12 @@ float windRingWidthQ() { return wind.ring.z; }
 float windRingStrength() { return wind.ring.w; }
 float windPhaseG() { return wind.lighting.x; }
 float windSunIntensity() { return wind.lighting.y; }
+float windStreakOrder() { return wind.streak.x; }
+float windStreakTwist() { return wind.streak.y; }
+float windStreakRiseSpeed() { return wind.streak.z; }
+float windStreakAmplitude() { return wind.streak.w; }
+float windStreakPhase() { return wind.streak2.x; }
+float windStreakRiseTime() { return wind.streak2.y; }
 
 bool windCoreActive() {
     return windCoreRadiusSq() > 1e-8 && windCoreStrength() > 0.0;
@@ -50,6 +56,12 @@ float windFadeStart() {
 
 float windWallRadius(float h) {
     return windWallRadiusBase() + windWallRadiusSlope() * h;
+}
+
+float windStreakSigma(vec3 local) {
+    float angle = windStreakOrder() * atan(local.z, local.x) - windStreakTwist() * local.y
+        - windStreakPhase() + windStreakRiseTime() * local.y;
+    return 1.0 + windStreakAmplitude() * cos(angle);
 }
 
 float windWallRadiusSq(float h) {

@@ -31,6 +31,11 @@ pub struct WindTornadoEffect {
     pub ring_width_q: f32,
     pub ring_strength: f32,
     pub ring_spread_rate: f32,
+    pub circulation: f32,
+    pub streak_order: f32,
+    pub streak_twist: f32,
+    pub streak_rise_speed: f32,
+    pub streak_amplitude: f32,
 }
 
 impl Default for WindTornadoEffect {
@@ -65,6 +70,11 @@ impl Default for WindTornadoEffect {
             ring_width_q: 0.05,
             ring_strength: 0.0,
             ring_spread_rate: 0.0,
+            circulation: 0.0,
+            streak_order: 3.0,
+            streak_twist: 4.0,
+            streak_rise_speed: 1.0,
+            streak_amplitude: 0.0,
         }
     }
 }

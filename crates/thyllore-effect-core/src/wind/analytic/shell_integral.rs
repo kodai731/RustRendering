@@ -1,4 +1,4 @@
-use crate::wind::analytic::motion::{h_top, spread_offset, wall_amp};
+use crate::wind::analytic::motion::{h_top, spread_offset, streak_phase, wall_amp};
 use crate::wind::WindTornadoEffect;
 use cgmath::Vector3;
 
@@ -37,6 +37,12 @@ pub struct WindShellParams {
     pub ring_radius_sq: f32,
     pub ring_width_q: f32,
     pub ring_strength: f32,
+    pub streak_order: f32,
+    pub streak_twist: f32,
+    pub streak_rise_speed: f32,
+    pub streak_amplitude: f32,
+    pub streak_phase: f32,
+    pub streak_rise_time: f32,
 }
 
 impl WindShellParams {
@@ -58,6 +64,13 @@ impl WindShellParams {
         );
         let ring_radius_sq = effect.ring_radius * effect.ring_radius
             + spread_offset(t, effect.spread_start, effect.ring_spread_rate);
+        let streak_phase_value = streak_phase(
+            t,
+            effect.circulation,
+            effect.wall_radius_base,
+            effect.spread_start,
+            effect.spread_rate,
+        );
         Self {
             height: effect.column_height.max(1e-3),
             wall_radius_base: effect.wall_radius_base,
@@ -74,6 +87,12 @@ impl WindShellParams {
             ring_radius_sq,
             ring_width_q: effect.ring_width_q.max(1e-4),
             ring_strength,
+            streak_order: effect.streak_order,
+            streak_twist: effect.streak_twist,
+            streak_rise_speed: effect.streak_rise_speed,
+            streak_amplitude: effect.streak_amplitude.max(0.0),
+            streak_phase: streak_phase_value,
+            streak_rise_time: effect.streak_rise_speed * t,
         }
     }
 
@@ -467,6 +486,14 @@ fn envelope_poly(params: &WindShellParams, h0: f32, h1: f32, h_mid: f32) -> Poly
     envelope
 }
 
+pub fn wind_streak_sigma(params: &WindShellParams, local: Vector3<f32>) -> f32 {
+    let angle = params.streak_order * local.z.atan2(local.x)
+        - params.streak_twist * local.y
+        - params.streak_phase
+        + params.streak_rise_time * local.y;
+    1.0 + params.streak_amplitude * angle.cos()
+}
+
 /// Exact optical depth of the ray piece [s0, s1], which must not cross a knot.
 pub fn wind_piece_optical_depth(
     params: &WindShellParams,
@@ -539,7 +566,19 @@ pub fn wind_piece_optical_depth(
 
     let inv_h_top = 1.0 / params.h_top;
     let envelope = envelope_poly(params, h0 * inv_h_top, h1 * inv_h_top, h_mid * inv_h_top);
-    let density = poly_mul(&envelope, &shell);
+    let mut density = poly_mul(&envelope, &shell);
+
+    if params.streak_amplitude > 0.0 {
+        let sigma_0 = wind_streak_sigma(params, start);
+        let sigma_1 = wind_streak_sigma(params, start + direction * length);
+
+        let mut streak_poly = [0.0f32; POLY_TERMS];
+        streak_poly[0] = sigma_0;
+        streak_poly[1] = sigma_1 - sigma_0;
+
+        density = poly_mul(&density, &streak_poly);
+    }
+
     let mut moment_sum = 0.0f32;
     for (n, coefficient) in density.iter().enumerate() {
         moment_sum += coefficient / (n as f32 + 1.0);

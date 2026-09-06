@@ -41,6 +41,13 @@ pub fn build_wind_ubo(effect: &WindTornadoEffect) -> WindUBO {
             params.ring_strength,
         ],
         lighting: [effect.phase_g, effect.sun_intensity, 0.0, 0.0],
+        streak: [
+            params.streak_order,
+            params.streak_twist,
+            params.streak_rise_speed,
+            params.streak_amplitude,
+        ],
+        streak2: [params.streak_phase, params.streak_rise_time, 0.0, 0.0],
         inv_view_proj: Matrix4::identity(),
     }
 }

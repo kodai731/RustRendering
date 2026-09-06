@@ -8,6 +8,26 @@ pub fn spread_offset(t: f32, spread_start: f32, spread_rate: f32) -> f32 {
     2.0 * spread_rate * (t - spread_start).max(0.0)
 }
 
+pub fn streak_phase(
+    t: f32,
+    circulation: f32,
+    wall_radius_base: f32,
+    spread_start: f32,
+    spread_rate: f32,
+) -> f32 {
+    let p0 = wall_radius_base * wall_radius_base;
+    let a = spread_rate;
+    let gamma_over_2pi = circulation / (2.0 * std::f32::consts::PI);
+    if a > 0.0 {
+        let ts = spread_start;
+        let t_clamped = t.min(ts);
+        let t_plus = (t - ts).max(0.0);
+        gamma_over_2pi * (t_clamped / p0 + (1.0 / (2.0 * a)) * ((p0 + 2.0 * a * t_plus) / p0).ln())
+    } else {
+        gamma_over_2pi * t / p0
+    }
+}
+
 pub fn wall_amp(t: f32, wall_strength: f32, dissipate_start: f32, dissipate_time: f32) -> f32 {
     if dissipate_time <= 0.0 {
         return wall_strength;

@@ -28,10 +28,15 @@ pub enum WindParam {
     SpreadRate,
     DissipateStart,
     DissipateTime,
+    Circulation,
+    StreakOrder,
+    StreakTwist,
+    StreakRiseSpeed,
+    StreakAmplitude,
 }
 
 impl WindParam {
-    pub const ALL: [WindParam; 21] = [
+    pub const ALL: [WindParam; 26] = [
         WindParam::ColumnHeight,
         WindParam::CoreRadius,
         WindParam::CoreStrength,
@@ -53,6 +58,11 @@ impl WindParam {
         WindParam::SpreadRate,
         WindParam::DissipateStart,
         WindParam::DissipateTime,
+        WindParam::Circulation,
+        WindParam::StreakOrder,
+        WindParam::StreakTwist,
+        WindParam::StreakRiseSpeed,
+        WindParam::StreakAmplitude,
     ];
 
     pub const fn code(self) -> u16 {
@@ -78,6 +88,11 @@ impl WindParam {
             WindParam::SpreadRate => 528,
             WindParam::DissipateStart => 529,
             WindParam::DissipateTime => 530,
+            WindParam::Circulation => 533,
+            WindParam::StreakOrder => 534,
+            WindParam::StreakTwist => 535,
+            WindParam::StreakRiseSpeed => 536,
+            WindParam::StreakAmplitude => 537,
         }
     }
 
@@ -119,6 +134,11 @@ impl WindParam {
             WindParam::SpreadRate => "Spread Rate",
             WindParam::DissipateStart => "Dissipate Start",
             WindParam::DissipateTime => "Dissipate Time",
+            WindParam::Circulation => "Circulation",
+            WindParam::StreakOrder => "Streak Order",
+            WindParam::StreakTwist => "Streak Twist",
+            WindParam::StreakRiseSpeed => "Streak Rise Speed",
+            WindParam::StreakAmplitude => "Streak Amplitude",
         }
     }
 
@@ -145,6 +165,11 @@ impl WindParam {
             WindParam::SpreadRate => "spread_rate",
             WindParam::DissipateStart => "dissipate_start",
             WindParam::DissipateTime => "dissipate_time",
+            WindParam::Circulation => "circulation",
+            WindParam::StreakOrder => "streak_order",
+            WindParam::StreakTwist => "streak_twist",
+            WindParam::StreakRiseSpeed => "streak_rise_speed",
+            WindParam::StreakAmplitude => "streak_amplitude",
         }
     }
 
@@ -178,6 +203,11 @@ impl WindParam {
             WindParam::SpreadRate => "SpreadRate",
             WindParam::DissipateStart => "DissipateStart",
             WindParam::DissipateTime => "DissipateTime",
+            WindParam::Circulation => "Circulation",
+            WindParam::StreakOrder => "StreakOrder",
+            WindParam::StreakTwist => "StreakTwist",
+            WindParam::StreakRiseSpeed => "StreakRiseSpeed",
+            WindParam::StreakAmplitude => "StreakAmplitude",
         }
     }
 
@@ -204,6 +234,11 @@ impl WindParam {
             WindParam::SpreadRate => (0.0, 5.0),
             WindParam::DissipateStart => (0.0, 10.0),
             WindParam::DissipateTime => (0.0, 10.0),
+            WindParam::Circulation => (0.0, 100.0),
+            WindParam::StreakOrder => (1.0, 16.0),
+            WindParam::StreakTwist => (0.0, 20.0),
+            WindParam::StreakRiseSpeed => (0.0, 10.0),
+            WindParam::StreakAmplitude => (0.0, 1.0),
         }
     }
 

@@ -119,6 +119,59 @@ fn rising_and_spreading_wall_matches_the_midpoint_reference() {
     );
 }
 
+fn streaked_params() -> WindShellParams {
+    let effect = WindTornadoEffect {
+        time: 1.0,
+        circulation: 2.0,
+        streak_order: 3.0,
+        streak_twist: 4.0,
+        streak_amplitude: 0.5,
+        ..WindTornadoEffect::default()
+    };
+    WindShellParams::from_effect(&effect)
+}
+
+fn streaked_midpoint_optical_depth(
+    params: &WindShellParams,
+    origin: Vector3<f32>,
+    direction: Vector3<f32>,
+    t_near: f32,
+    t_far: f32,
+) -> f64 {
+    let step = (t_far - t_near) as f64 / REFERENCE_STEPS as f64;
+    let mut total = 0.0f64;
+    for i in 0..REFERENCE_STEPS {
+        let t = t_near as f64 + (i as f64 + 0.5) * step;
+        let point = origin + direction * t as f32;
+        total += (wind_density_at(params, point) * wind_streak_sigma(params, point)) as f64 * step;
+    }
+    total
+}
+
+#[test]
+fn streaked_wall_matches_the_midpoint_reference() {
+    let params = streaked_params();
+    let origin = Vector3::new(-5.0, 0.5, 0.25);
+    let direction = Vector3::new(1.0, 0.1, 0.0).normalize();
+    let mut t_near = 0.0;
+    let mut t_far = 1e4;
+    assert!(
+        clamp_ray_to_wind_cone(&params, origin, direction, &mut t_near, &mut t_far),
+        "ray must hit the envelope"
+    );
+    let closed = wind_optical_depth(&params, origin, direction, t_near, t_far) as f64;
+    let reference = streaked_midpoint_optical_depth(&params, origin, direction, t_near, t_far);
+    assert!(
+        reference > 1e-3,
+        "reference {reference} too small to compare"
+    );
+    let relative = (closed - reference).abs() / reference;
+    assert!(
+        relative < 5e-2,
+        "closed {closed} vs reference {reference} (rel {relative})"
+    );
+}
+
 #[test]
 fn wall_evolution_moves_the_top_and_dims_the_wall() {
     let evolving = evolving_params();

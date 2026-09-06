@@ -23,6 +23,11 @@ pub const WIND_MOTION_PARAMS: &[&str] = &[
     "ring_width_q",
     "ring_strength",
     "ring_spread_rate",
+    "circulation",
+    "streak_order",
+    "streak_twist",
+    "streak_rise_speed",
+    "streak_amplitude",
 ];
 
 pub const WIND_PARAM_GROUPS: &[&[&str]] = &[

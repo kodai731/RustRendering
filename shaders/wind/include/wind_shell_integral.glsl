@@ -233,6 +233,25 @@ float windPieceOpticalDepth(vec3 o, vec3 d, float s0, float s1) {
     windEnvelopePoly(h0 * invHTop, h1 * invHTop, hMid * invHTop, envelope);
     float density[WIND_POLY_TERMS];
     windPolyMul(envelope, shell, density);
+
+    if (windStreakAmplitude() > 0.0) {
+        float sigma0 = windStreakSigma(start);
+        float sigma1 = windStreakSigma(start + pieceLength * d);
+
+        float streakPoly[WIND_POLY_TERMS];
+        for (int k = 0; k < WIND_POLY_TERMS; ++k) {
+            streakPoly[k] = 0.0;
+        }
+        streakPoly[0] = sigma0;
+        streakPoly[1] = sigma1 - sigma0;
+
+        float modulated[WIND_POLY_TERMS];
+        windPolyMul(density, streakPoly, modulated);
+        for (int k = 0; k < WIND_POLY_TERMS; ++k) {
+            density[k] = modulated[k];
+        }
+    }
+
     float momentSum = 0.0;
     for (int n = 0; n < WIND_POLY_TERMS; ++n) {
         momentSum += density[n] / float(n + 1);

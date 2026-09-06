@@ -258,6 +258,56 @@ declare_scene_format! {
                 tooltip: "Outward drift of the ring in squared-radius units: 2 * ring_spread_rate * (t - spread_start)",
             },
         },
+        circulation: f32 = Frame {
+            get: |e| e.circulation,
+            set: |e, v| e.circulation = v,
+            ui {
+                min: 0.0,
+                max: 100.0,
+                format: "%.2f",
+                tooltip: "Circulation of the Rankine vortex; used for streak phase computation",
+            },
+        },
+        streak_order: f32 = Frame {
+            get: |e| e.streak_order,
+            set: |e, v| e.streak_order = v,
+            ui {
+                min: 1.0,
+                max: 16.0,
+                format: "%.1f",
+                tooltip: "Number of spiral streaks (m in the phase)",
+            },
+        },
+        streak_twist: f32 = Frame {
+            get: |e| e.streak_twist,
+            set: |e, v| e.streak_twist = v,
+            ui {
+                min: 0.0,
+                max: 20.0,
+                format: "%.1f",
+                tooltip: "Twist of the spiral streaks (kappa in the phase)",
+            },
+        },
+        streak_rise_speed: f32 = Frame {
+            get: |e| e.streak_rise_speed,
+            set: |e, v| e.streak_rise_speed = v,
+            ui {
+                min: 0.0,
+                max: 10.0,
+                format: "%.1f",
+                tooltip: "Rise speed of the spiral streaks (omega_z in the phase)",
+            },
+        },
+        streak_amplitude: f32 = Frame {
+            get: |e| e.streak_amplitude,
+            set: |e, v| e.streak_amplitude = v,
+            ui {
+                min: 0.0,
+                max: 1.0,
+                format: "%.2f",
+                tooltip: "Amplitude of the streak modulation; 0 disables streaks (identity)",
+            },
+        },
     },
     runtime {
         time: f32 {

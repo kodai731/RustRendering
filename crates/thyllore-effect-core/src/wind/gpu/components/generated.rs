@@ -13,6 +13,8 @@ declare_gpu_block! {
         pub albedo: [f32; 4],
         pub ring: [f32; 4],
         pub lighting: [f32; 4],
+        pub streak: [f32; 4],
+        pub streak2: [f32; 4],
         pub inv_view_proj: Matrix4<f32>,
     }
 }
